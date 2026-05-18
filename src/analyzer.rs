@@ -140,15 +140,18 @@ fn analyze_pr(pr: RawPr, cfg: &Config, now: DateTime<Utc>) -> AnalyzedPr {
         .unwrap_or(0.0);
 
     let unresolved_total = unresolved_threads.len();
-    // Drafts can't "need author action" — the author is still iterating. Never tag them.
+    // Compute staleness first so we can suppress needs-action signals on stale
+    // PRs. Stale PRs are not on anyone's plate until they're revived.
+    let (is_stale, stale_reasons) = compute_staleness(&pr, cfg, now, unresolved_total, pr.is_draft);
+
+    // Drafts and stale PRs can't "need author action" — the author is either
+    // still iterating (draft) or has set the work aside (stale).
     let needs_author_action = !pr.is_draft
+        && !is_stale
         && (changes_requested
             || has_merge_conflict
             || (days_since_author_push > days_since_last_reviewer_activity
                 && unresolved_total > 0));
-
-    let (is_stale, stale_reasons) =
-        compute_staleness(&pr, cfg, now, unresolved_threads.len(), pr.is_draft);
 
     AnalyzedPr {
         raw: pr,
@@ -853,6 +856,48 @@ mod tests {
         let a = analyze(vec![dirty_old], &cfg, now);
         assert!(a[0].is_stale);
         assert!(a[0].stale_reasons.iter().any(|r| r.contains("untouched")));
+    }
+
+    #[test]
+    fn stale_prs_never_need_author_action() {
+        // A PR that targets a non-default branch is stale; even if a reviewer
+        // requested changes and the merge is conflicting, the author isn't
+        // expected to act on it until someone revives it.
+        let cfg = Config {
+            default_target_branch: Some("master".into()),
+            ..Config::default()
+        };
+        let now = dt("2026-05-19T00:00:00Z");
+        let pr = RawPr {
+            number: 1,
+            title: "feature on v3.0".into(),
+            url: "u".into(),
+            author: Some("alice".into()),
+            created_at: dt("2026-04-01T00:00:00Z"),
+            updated_at: now,
+            is_draft: false,
+            mergeable: Mergeable::Conflicting,
+            labels: vec![],
+            last_commit: last_commit(dt("2026-04-29T00:00:00Z")),
+            reviews: vec![],
+            threads: vec![thread(
+                "t1",
+                vec![test_helpers_comment(
+                    "bob",
+                    "fix this",
+                    dt("2026-05-17T00:00:00Z"),
+                )],
+            )],
+            requested_reviewers: vec![],
+            base_ref: "v3.0".into(),
+            changed_files: vec![],
+        };
+        let a = analyze(vec![pr], &cfg, now);
+        assert!(a[0].is_stale);
+        assert!(
+            !a[0].needs_author_action,
+            "stale PR should never be marked needs-action"
+        );
     }
 
     #[test]
