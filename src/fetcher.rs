@@ -19,6 +19,7 @@ const PR_LIST_QUERY: &str = r#"
 query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: Int!, $comments: Int!) {
   rateLimit { remaining resetAt cost }
   repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
     pullRequests(states: OPEN, first: 50, after: $cursor,
                  orderBy: {field: UPDATED_AT, direction: DESC}) {
       pageInfo { endCursor hasNextPage }
@@ -121,16 +122,18 @@ impl Fetcher {
     }
 
     /// Fetch every open PR in the target repo, fully populated.
-    /// Returns the PRs plus a list of (node_id, number) pairs (used for follow-up queries).
+    /// Returns the PRs, (node_id, number) pairs for follow-up queries, and the
+    /// repository's default branch name (used to drive stale-branch detection).
     pub async fn fetch_all_open_prs(
         &self,
         owner: &str,
         name: &str,
-    ) -> Result<(Vec<RawPr>, Vec<(String, u64)>)> {
+    ) -> Result<(Vec<RawPr>, Vec<(String, u64)>, Option<String>)> {
         let mut out: Vec<RawPr> = Vec::new();
         let mut node_ids: Vec<(String, u64)> = Vec::new();
         let mut paginated_threads: Vec<(String, u64)> = Vec::new();
         let mut cursor: Option<String> = None;
+        let mut default_branch: Option<String> = None;
         loop {
             let vars = json!({
                 "owner": owner,
@@ -140,6 +143,12 @@ impl Fetcher {
                 "comments": COMMENTS_PER_THREAD,
             });
             let resp = self.execute(PR_LIST_QUERY, vars).await?;
+            if default_branch.is_none() {
+                default_branch = resp
+                    .pointer("/data/repository/defaultBranchRef/name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+            }
             let pr_conn = resp
                 .pointer("/data/repository/pullRequests")
                 .ok_or_else(|| anyhow!("response missing data.repository.pullRequests"))?;
@@ -181,7 +190,7 @@ impl Fetcher {
             }
         }
 
-        Ok((out, node_ids))
+        Ok((out, node_ids, default_branch))
     }
 
     /// Retry once for PRs whose mergeable came back UNKNOWN. Caller passes (node_id, pr_number)

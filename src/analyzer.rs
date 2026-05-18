@@ -176,8 +176,12 @@ fn compute_staleness(
     is_draft: bool,
 ) -> (bool, Vec<String>) {
     let mut reasons: Vec<String> = vec![];
-    if !pr.base_ref.is_empty() && !pr.base_ref.eq_ignore_ascii_case(&cfg.default_target_branch) {
-        reasons.push(format!("targets {}", pr.base_ref));
+    // Only fire the branch check when we actually know what the default is.
+    // If `default_target_branch` is None (auto-detect failed), don't false-positive.
+    if let Some(default) = cfg.default_target_branch.as_deref() {
+        if !pr.base_ref.is_empty() && !pr.base_ref.eq_ignore_ascii_case(default) {
+            reasons.push(format!("targets {}", pr.base_ref));
+        }
     }
     let days_since_update = days_between(pr.updated_at, now);
     let would_be_clean = !is_draft && unresolved_total == 0;
@@ -738,7 +742,10 @@ mod tests {
 
     #[test]
     fn stale_triggers_on_non_default_branch() {
-        let cfg = Config::default();
+        let cfg = Config {
+            default_target_branch: Some("master".into()),
+            ..Config::default()
+        };
         let now = dt("2026-05-19T00:00:00Z");
         let pr = RawPr {
             number: 1,
@@ -760,6 +767,37 @@ mod tests {
         let a = analyze(vec![pr], &cfg, now);
         assert!(a[0].is_stale);
         assert!(a[0].stale_reasons.iter().any(|r| r.contains("v3.0")));
+    }
+
+    #[test]
+    fn auto_detect_disabled_means_no_branch_stale() {
+        // When default_target_branch is None (auto-detect failed), the branch
+        // check is skipped — never false-positive stale.
+        let cfg = Config::default();
+        assert!(cfg.default_target_branch.is_none());
+        let now = dt("2026-05-19T00:00:00Z");
+        let pr = RawPr {
+            number: 1,
+            title: "x".into(),
+            url: "u".into(),
+            author: Some("alice".into()),
+            created_at: dt("2026-05-01T00:00:00Z"),
+            updated_at: dt("2026-05-18T00:00:00Z"),
+            is_draft: false,
+            mergeable: Mergeable::Mergeable,
+            labels: vec![],
+            last_commit: None,
+            reviews: vec![],
+            threads: vec![],
+            requested_reviewers: vec![],
+            base_ref: "v3.0".into(),
+            changed_files: vec![],
+        };
+        let a = analyze(vec![pr], &cfg, now);
+        assert!(
+            !a[0].is_stale,
+            "should not flag stale when default branch is unknown"
+        );
     }
 
     #[test]

@@ -23,7 +23,9 @@ deferred_labels:
 
 # The default branch of the target repo. PRs targeting anything else
 # (release branches, feature branches) land in the Stale bucket.
-default_target_branch: master
+# Omitted = auto-detect from GitHub on each run. Set explicitly only if
+# you want to lock the comparison to a specific branch.
+# default_target_branch: v3.1-dev
 
 # PRs whose updatedAt is older than this fall into the Stale bucket
 # UNLESS they would otherwise be Clean or Deferred. Default: ~4 months.

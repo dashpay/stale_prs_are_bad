@@ -14,7 +14,9 @@ pub struct Config {
     /// `needs-author-action`.
     pub deferred_labels: Vec<String>,
     /// The repo's default branch. PRs targeting anything else are bucketed as Stale.
-    pub default_target_branch: String,
+    /// `None` (the default) means auto-detect from GitHub on each run.
+    #[serde(default)]
+    pub default_target_branch: Option<String>,
     /// PRs whose `updatedAt` is older than this fall into the Stale bucket —
     /// unless they would otherwise be Clean or Deferred.
     pub stale_threshold_days: i64,
@@ -77,7 +79,7 @@ impl Default for Config {
                 "help-wanted".into(),
             ],
             deferred_labels: vec!["postponed".into()],
-            default_target_branch: "master".into(),
+            default_target_branch: None,
             stale_threshold_days: 120,
             review_routing: vec![
                 RoutingRule {

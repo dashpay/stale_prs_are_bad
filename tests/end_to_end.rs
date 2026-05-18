@@ -32,7 +32,12 @@ fn end_to_end_pipeline_matches_snapshot() {
     let raw = parse_all(&fixture);
     assert_eq!(raw.len(), 9);
 
-    let cfg = Config::default();
+    // The fixture's PRs target `master`; pin that here so the branch-stale check
+    // mirrors what main.rs does after auto-detecting from GraphQL.
+    let cfg = Config {
+        default_target_branch: Some("master".into()),
+        ..Config::default()
+    };
     let now = Utc.with_ymd_and_hms(2026, 5, 19, 6, 0, 0).unwrap();
     let today = now.date_naive();
 

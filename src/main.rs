@@ -50,16 +50,39 @@ async fn main() -> Result<()> {
     if let Some(repo) = &args.repo {
         cfg.target_repo = repo.clone();
     }
-    let (owner, name) = cfg.repo_parts()?;
+    let (owner, name) = {
+        let (o, n) = cfg.repo_parts()?;
+        (o.to_string(), n.to_string())
+    };
     let now = Utc::now();
     let today = now.date_naive();
     tracing::info!(repo = %cfg.target_repo, %today, dry_run = args.dry_run, "starting");
 
     let fetcher = fetcher::Fetcher::new(&args.token)?;
-    let (mut raw_prs, node_ids) = fetcher.fetch_all_open_prs(owner, name).await?;
+    let (mut raw_prs, node_ids, fetched_default_branch) =
+        fetcher.fetch_all_open_prs(&owner, &name).await?;
     fetcher
         .recheck_mergeable(&mut raw_prs, &node_ids, Duration::from_secs(3))
         .await?;
+
+    // Auto-detect the default branch when the user hasn't pinned one in config.
+    // Without this, every PR would be flagged as "targets non-default" → Stale.
+    if cfg.default_target_branch.is_none() {
+        match fetched_default_branch.as_deref() {
+            Some(b) => {
+                tracing::info!("auto-detected default branch: {b}");
+                cfg.default_target_branch = Some(b.to_string());
+            }
+            None => tracing::warn!(
+                "could not auto-detect default branch; branch-based stale detection disabled"
+            ),
+        }
+    } else {
+        tracing::info!(
+            "using configured default branch: {}",
+            cfg.default_target_branch.as_deref().unwrap_or("?")
+        );
+    }
     tracing::info!("fetched {} open PRs", raw_prs.len());
 
     let analyzed = analyzer::analyze(raw_prs, &cfg, now);
@@ -126,7 +149,7 @@ async fn main() -> Result<()> {
         } else {
             let labeler = labeler::Labeler::new(&args.token)?;
             match labeler
-                .apply(owner, name, &diff, &cfg.needs_author_action_label)
+                .apply(&owner, &name, &diff, &cfg.needs_author_action_label)
                 .await
             {
                 Ok(()) => tracing::info!(
