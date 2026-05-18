@@ -271,13 +271,22 @@ impl Fetcher {
         let mut attempt: u32 = 0;
         loop {
             attempt += 1;
-            let res = self
-                .client
-                .post(&self.endpoint)
-                .json(&body)
-                .send()
-                .await
-                .with_context(|| format!("POST to {}", self.endpoint))?;
+            // Bundle send + body-read so that mid-stream truncation (chunked
+            // transfer cut by GitHub during a 502/503 storm) is treated as a
+            // transient transport failure, same as a 5xx response.
+            let res = match self.client.post(&self.endpoint).json(&body).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    if attempt > MAX_RETRIES {
+                        return Err(anyhow!(e)
+                            .context(format!("POST to {} (final attempt)", self.endpoint)));
+                    }
+                    let sleep_secs = backoff_secs(attempt);
+                    tracing::warn!(attempt, sleep_secs, "send failed: {e}; retrying");
+                    tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
+                    continue;
+                }
+            };
             let status = res.status();
             let retry_after = res
                 .headers()
@@ -289,7 +298,22 @@ impl Fetcher {
                 .get("x-ratelimit-reset")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.parse::<i64>().ok());
-            let text = res.text().await.context("reading response body")?;
+            let text = match res.text().await {
+                Ok(t) => t,
+                Err(e) => {
+                    if attempt > MAX_RETRIES {
+                        return Err(anyhow!(e).context("reading response body (final attempt)"));
+                    }
+                    let sleep_secs = backoff_secs(attempt);
+                    tracing::warn!(
+                        attempt,
+                        sleep_secs,
+                        "body read failed (status {status}): {e}; retrying"
+                    );
+                    tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
+                    continue;
+                }
+            };
 
             if status == StatusCode::TOO_MANY_REQUESTS
                 || status == StatusCode::FORBIDDEN && text.contains("rate limit")
