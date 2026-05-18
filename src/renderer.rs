@@ -41,14 +41,18 @@ fn write_header(out: &mut String, ctx: &RenderContext<'_>) {
 
 fn write_summary(out: &mut String, scored: &[ScoredPr]) {
     let open_prs = scored.len();
-    let dirty: usize = scored.iter().filter(|s| s.unresolved_total > 0).count();
-    let clean: usize = open_prs - dirty;
+    let deferred: usize = scored.iter().filter(|s| s.pr.is_deferred).count();
+    let dirty: usize = scored
+        .iter()
+        .filter(|s| !s.pr.is_deferred && s.unresolved_total > 0)
+        .count();
+    let clean: usize = open_prs - dirty - deferred;
     let needs: usize = scored.iter().filter(|s| s.pr.needs_author_action).count();
     let unresolved: u32 = scored.iter().map(|s| s.unresolved_total).sum();
     let _ = writeln!(out, "## Summary");
     let _ = writeln!(
         out,
-        "- Open PRs: **{open_prs}** ({clean} clean · {dirty} dirty)"
+        "- Open PRs: **{open_prs}** ({clean} clean · {dirty} dirty · {deferred} deferred)"
     );
     let _ = writeln!(out, "- PRs needing author action: **{needs}**");
     let _ = writeln!(out, "- Total unresolved threads: **{unresolved}**");
@@ -62,13 +66,21 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
     let _ = writeln!(out, "## Scoreboard");
     let _ = writeln!(
         out,
-        "_Sorted by dirty PRs (desc). Authors with all-clean PRs sink to the bottom._"
+        "_Sort: dirty PRs desc → needs-action desc → to-review desc. \
+         Clean players sink to the bottom; pure reviewers appear after authors._"
     );
     let _ = writeln!(out);
+    let dash = |n: u32| {
+        if n == 0 {
+            "—".to_string()
+        } else {
+            n.to_string()
+        }
+    };
     if has_history {
         let _ = writeln!(
             out,
-            "| Author | Open | Clean | Dirty | Needs action | Unresolved | CR | Human | Oldest stale | Score | Δ |"
+            "| Author | Open | Clean | Dirty | Deferred | Needs action | Unresolved | CR | Human | To review | Δ |"
         );
         let _ = writeln!(
             out,
@@ -77,35 +89,25 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
     } else {
         let _ = writeln!(
             out,
-            "| Author | Open | Clean | Dirty | Needs action | Unresolved | CR | Human | Oldest stale | Score |"
+            "| Author | Open | Clean | Dirty | Deferred | Needs action | Unresolved | CR | Human | To review |"
         );
         let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
     }
     for a in authors {
-        let oldest = if a.dirty_prs == 0 {
-            "—".to_string()
-        } else {
-            format!("{}d", a.oldest_stale_pr_days.round() as i64)
-        };
-        let score = if a.total_score < 0.05 {
-            "—".to_string()
-        } else {
-            format!("{:.1}", a.total_score)
-        };
         if has_history {
             let _ = writeln!(
                 out,
                 "| @{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 a.login,
-                a.total_open_prs,
-                a.clean_prs,
-                a.dirty_prs,
-                a.prs_needing_author_action,
-                a.total_unresolved,
-                a.unresolved_coderabbit,
-                a.unresolved_human,
-                oldest,
-                score,
+                dash(a.total_open_prs),
+                dash(a.clean_prs),
+                dash(a.dirty_prs),
+                dash(a.deferred_prs),
+                dash(a.prs_needing_author_action),
+                dash(a.total_unresolved),
+                dash(a.unresolved_coderabbit),
+                dash(a.unresolved_human),
+                dash(a.awaiting_review),
                 format_delta(a.delta_vs_last_week),
             );
         } else {
@@ -113,15 +115,15 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
                 out,
                 "| @{} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 a.login,
-                a.total_open_prs,
-                a.clean_prs,
-                a.dirty_prs,
-                a.prs_needing_author_action,
-                a.total_unresolved,
-                a.unresolved_coderabbit,
-                a.unresolved_human,
-                oldest,
-                score,
+                dash(a.total_open_prs),
+                dash(a.clean_prs),
+                dash(a.dirty_prs),
+                dash(a.deferred_prs),
+                dash(a.prs_needing_author_action),
+                dash(a.total_unresolved),
+                dash(a.unresolved_coderabbit),
+                dash(a.unresolved_human),
+                dash(a.awaiting_review),
             );
         }
     }
@@ -265,10 +267,14 @@ fn write_methodology(out: &mut String, ctx: &RenderContext<'_>) {
         "Generated nightly by [pr-hygiene](https://github.com/dashpay/stale_prs_are_bad). \
          A thread counts as \"unresolved\" when it is open, not outdated, has a comment from \
          someone other than the PR author, and the most recent comment is from a reviewer. \
-         A PR is \"dirty\" when it has at least one such thread; \"needs author action\" further \
-         requires either changes-requested, merge conflict, or that the reviewer commented more \
-         recently than the author last pushed. Score weighs threads by severity \
-         (`high*5 + medium*2 + low*0.5`) and amplifies for staleness (`ln(oldest+1)`). \
+         **Dirty** = at least one such thread. \
+         **Deferred** = carries a configured deferred label (e.g. `postponed`) — visible \
+         but not counted as dirty. \
+         **Clean** = neither dirty nor deferred. \
+         **Needs action** further requires changes-requested, merge conflict, or that the \
+         reviewer commented more recently than the author last pushed. \
+         **To review** counts clean, non-draft PRs (authored by someone else) where this person \
+         is in the requested-reviewer list. \
          Configurable via [`{}`]({})\u{2014}edit defaults there.",
         ctx.config_path, ctx.config_path
     );
@@ -328,11 +334,13 @@ mod tests {
             total_open_prs: total,
             clean_prs: clean,
             dirty_prs: dirty,
+            deferred_prs: 0,
             prs_needing_author_action: needs,
             total_unresolved: unresolved,
             unresolved_coderabbit: cr,
             unresolved_human: human,
             unresolved_bot: 0,
+            awaiting_review: 0,
             total_score: score,
             oldest_stale_pr_days: oldest,
             delta_vs_last_week: delta,
@@ -382,6 +390,7 @@ mod tests {
                     last_commit: None,
                     reviews: vec![],
                     threads: vec![],
+                    requested_reviewers: vec![],
                 },
                 unresolved_threads: unresolved,
                 days_since_author_push: 1.0,
@@ -390,6 +399,7 @@ mod tests {
                 has_merge_conflict: false,
                 changes_requested: false,
                 ci_failing,
+                is_deferred: false,
             },
             score: total as f64,
             oldest_thread_age_days: oldest,

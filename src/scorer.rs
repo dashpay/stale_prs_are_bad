@@ -57,60 +57,94 @@ fn age_multiplier(days: f64, kind: AgeMultiplier) -> f64 {
 }
 
 pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<AuthorRollup> {
-    let mut by_author: HashMap<String, AuthorRollup> = HashMap::new();
-    for s in scored {
-        let Some(login) = s.pr.raw.author.as_deref() else {
-            continue;
-        };
-        let entry = by_author
-            .entry(login.to_string())
+    let mut by_login: HashMap<String, AuthorRollup> = HashMap::new();
+    let ensure = |map: &mut HashMap<String, AuthorRollup>, login: &str| {
+        map.entry(login.to_string())
             .or_insert_with(|| AuthorRollup {
                 login: login.to_string(),
                 total_open_prs: 0,
                 clean_prs: 0,
                 dirty_prs: 0,
+                deferred_prs: 0,
                 prs_needing_author_action: 0,
                 total_unresolved: 0,
                 unresolved_coderabbit: 0,
                 unresolved_human: 0,
                 unresolved_bot: 0,
+                awaiting_review: 0,
                 total_score: 0.0,
                 oldest_stale_pr_days: 0.0,
                 delta_vs_last_week: None,
             });
-        entry.total_open_prs += 1;
-        if s.unresolved_total == 0 {
-            entry.clean_prs += 1;
-        } else {
-            entry.dirty_prs += 1;
+    };
+    for s in scored {
+        // Author-side counts.
+        if let Some(login) = s.pr.raw.author.as_deref() {
+            ensure(&mut by_login, login);
+            let entry = by_login.get_mut(login).expect("just inserted");
+            entry.total_open_prs += 1;
+            if s.pr.is_deferred {
+                entry.deferred_prs += 1;
+            } else if s.unresolved_total == 0 {
+                entry.clean_prs += 1;
+            } else {
+                entry.dirty_prs += 1;
+            }
+            if s.pr.needs_author_action {
+                entry.prs_needing_author_action += 1;
+            }
+            entry.total_unresolved += s.unresolved_total;
+            entry.unresolved_coderabbit += s.unresolved_by_source.coderabbit;
+            entry.unresolved_human += s.unresolved_by_source.human;
+            entry.unresolved_bot += s.unresolved_by_source.bot;
+            entry.total_score += s.score;
+            if s.oldest_thread_age_days > entry.oldest_stale_pr_days {
+                entry.oldest_stale_pr_days = s.oldest_thread_age_days;
+            }
         }
-        if s.pr.needs_author_action {
-            entry.prs_needing_author_action += 1;
+
+        // Reviewer-side counts: only clean, non-draft, non-deferred PRs count
+        // as "ready for this person to review". Self-review is ignored.
+        if s.pr.is_deferred
+            || s.pr.raw.is_draft
+            || s.unresolved_total > 0
+            || s.pr.has_merge_conflict
+        {
+            continue;
         }
-        entry.total_unresolved += s.unresolved_total;
-        entry.unresolved_coderabbit += s.unresolved_by_source.coderabbit;
-        entry.unresolved_human += s.unresolved_by_source.human;
-        entry.unresolved_bot += s.unresolved_by_source.bot;
-        entry.total_score += s.score;
-        if s.oldest_thread_age_days > entry.oldest_stale_pr_days {
-            entry.oldest_stale_pr_days = s.oldest_thread_age_days;
+        for reviewer in &s.pr.raw.requested_reviewers {
+            if s.pr
+                .raw
+                .author
+                .as_deref()
+                .is_some_and(|a| a.eq_ignore_ascii_case(reviewer))
+            {
+                continue;
+            }
+            ensure(&mut by_login, reviewer);
+            by_login
+                .get_mut(reviewer)
+                .expect("just inserted")
+                .awaiting_review += 1;
         }
     }
+
     if let Some(prev) = previous {
         let prev_map: HashMap<&str, u32> = prev
             .per_author
             .iter()
             .map(|a| (a.login.as_str(), a.prs_needing_author_action))
             .collect();
-        for r in by_author.values_mut() {
+        for r in by_login.values_mut() {
             if let Some(prev_count) = prev_map.get(r.login.as_str()) {
                 r.delta_vs_last_week =
                     Some(r.prs_needing_author_action as i32 - *prev_count as i32);
             }
         }
     }
-    let mut out: Vec<AuthorRollup> = by_author.into_values().collect();
-    // Sort: slackers float to the top, clean players sink to the bottom for contrast.
+
+    let mut out: Vec<AuthorRollup> = by_login.into_values().collect();
+    // Sort: author-side slackers float to top, then reviewer-side slackers, then clean players.
     out.sort_by(|a, b| {
         b.dirty_prs
             .cmp(&a.dirty_prs)
@@ -118,6 +152,7 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
                 b.prs_needing_author_action
                     .cmp(&a.prs_needing_author_action),
             )
+            .then(b.awaiting_review.cmp(&a.awaiting_review))
             .then(
                 b.total_score
                     .partial_cmp(&a.total_score)
@@ -144,6 +179,8 @@ pub fn build_snapshot(
             total_open_prs: a.total_open_prs,
             clean_prs: a.clean_prs,
             dirty_prs: a.dirty_prs,
+            deferred_prs: a.deferred_prs,
+            awaiting_review: a.awaiting_review,
             prs_needing_author_action: a.prs_needing_author_action,
             total_unresolved: a.total_unresolved,
             total_score: a.total_score,
@@ -199,6 +236,7 @@ mod tests {
                 last_commit: None,
                 reviews: vec![],
                 threads: vec![],
+                requested_reviewers: vec![],
             },
             unresolved_threads: threads,
             days_since_author_push: 0.0,
@@ -207,6 +245,7 @@ mod tests {
             has_merge_conflict: false,
             changes_requested: false,
             ci_failing: false,
+            is_deferred: false,
         }
     }
 
@@ -300,6 +339,60 @@ mod tests {
         assert!(rolled.iter().all(|r| r.delta_vs_last_week.is_none()));
     }
 
+    fn analyzed(author: &str, threads: Vec<AnalyzedThread>, needs_action: bool) -> AnalyzedPr {
+        pr(author, threads, needs_action)
+    }
+
+    #[test]
+    fn awaiting_review_only_counts_clean_non_draft_non_deferred_prs() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+
+        let mut clean = analyzed("alice", vec![], false);
+        clean.raw.requested_reviewers = vec!["reviewer-bob".into()];
+
+        let mut dirty = analyzed(
+            "alice",
+            vec![thread(Severity::Medium, ThreadSource::Human, 2)],
+            false,
+        );
+        dirty.raw.requested_reviewers = vec!["reviewer-bob".into()];
+
+        let mut deferred = analyzed("alice", vec![], false);
+        deferred.raw.requested_reviewers = vec!["reviewer-bob".into()];
+        deferred.is_deferred = true;
+
+        let mut draft = analyzed("alice", vec![], false);
+        draft.raw.requested_reviewers = vec!["reviewer-bob".into()];
+        draft.raw.is_draft = true;
+
+        let scored = score_prs(vec![clean, dirty, deferred, draft], &cfg, now);
+        let rolled = rollup_authors(&scored, None);
+        let bob = rolled
+            .iter()
+            .find(|r| r.login == "reviewer-bob")
+            .expect("bob should be in rollup");
+        assert_eq!(bob.awaiting_review, 1);
+        // bob only appears as a reviewer — no authoring stats.
+        assert_eq!(bob.total_open_prs, 0);
+        assert_eq!(bob.dirty_prs, 0);
+    }
+
+    #[test]
+    fn deferred_pr_increments_only_deferred_bucket() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        let mut p = analyzed("alice", vec![], false);
+        p.is_deferred = true;
+        let scored = score_prs(vec![p], &cfg, now);
+        let rolled = rollup_authors(&scored, None);
+        let alice = &rolled[0];
+        assert_eq!(alice.total_open_prs, 1);
+        assert_eq!(alice.deferred_prs, 1);
+        assert_eq!(alice.clean_prs, 0);
+        assert_eq!(alice.dirty_prs, 0);
+    }
+
     #[test]
     fn delta_vs_last_week_uses_previous_snapshot() {
         let cfg = Config::default();
@@ -325,6 +418,8 @@ mod tests {
                 total_open_prs: 3,
                 clean_prs: 0,
                 dirty_prs: 3,
+                deferred_prs: 0,
+                awaiting_review: 0,
                 prs_needing_author_action: 5,
                 total_unresolved: 10,
                 total_score: 0.0,

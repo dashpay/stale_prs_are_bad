@@ -85,6 +85,23 @@ fn is_excluded(pr: &RawPr, cfg: &Config) -> bool {
 
 fn analyze_pr(pr: RawPr, cfg: &Config, now: DateTime<Utc>) -> AnalyzedPr {
     let pr_author = pr.author.clone();
+    let is_deferred = has_deferred_label(&pr, cfg);
+
+    // Deferred PRs are intentionally on hold — don't accrue any negative signals.
+    if is_deferred {
+        return AnalyzedPr {
+            raw: pr,
+            unresolved_threads: vec![],
+            days_since_author_push: 0.0,
+            days_since_last_reviewer_activity: 0.0,
+            needs_author_action: false,
+            has_merge_conflict: false,
+            changes_requested: false,
+            ci_failing: false,
+            is_deferred: true,
+        };
+    }
+
     let changes_requested = has_blocking_changes_requested(&pr);
     let has_merge_conflict = matches!(pr.mergeable, Mergeable::Conflicting);
     let ci_failing = matches!(
@@ -134,7 +151,15 @@ fn analyze_pr(pr: RawPr, cfg: &Config, now: DateTime<Utc>) -> AnalyzedPr {
         has_merge_conflict,
         changes_requested,
         ci_failing,
+        is_deferred: false,
     }
+}
+
+fn has_deferred_label(pr: &RawPr, cfg: &Config) -> bool {
+    let label_set: Vec<String> = pr.labels.iter().map(|l| l.to_lowercase()).collect();
+    cfg.deferred_labels
+        .iter()
+        .any(|d| label_set.iter().any(|l| l == &d.to_lowercase()))
 }
 
 fn is_unresolved(t: &RawThread, pr_author: Option<&str>) -> bool {
@@ -492,6 +517,7 @@ mod tests {
             last_commit: None,
             reviews: vec![],
             threads: vec![],
+            requested_reviewers: vec![],
         };
         assert!(is_excluded(&pr, &cfg));
     }
@@ -512,6 +538,7 @@ mod tests {
             last_commit: None,
             reviews: vec![],
             threads: vec![],
+            requested_reviewers: vec![],
         };
         assert!(is_excluded(&pr, &cfg));
         pr.labels = vec!["ready".into()];
@@ -545,6 +572,7 @@ mod tests {
                     dt("2026-01-02T00:00:00Z"),
                 )],
             )],
+            requested_reviewers: vec![],
         };
         let analyzed = analyze(vec![pr.clone()], &cfg, now);
         assert_eq!(analyzed[0].unresolved_threads.len(), 0);
@@ -585,6 +613,7 @@ mod tests {
                     dt("2026-05-09T00:00:00Z"),
                 )],
             )],
+            requested_reviewers: vec![],
         };
         let analyzed = analyze(vec![pr], &cfg, now);
         assert!(!analyzed[0].needs_author_action);
@@ -615,9 +644,49 @@ mod tests {
                     dt("2026-05-17T00:00:00Z"),
                 )],
             )],
+            requested_reviewers: vec![],
         };
         let analyzed = analyze(vec![pr], &cfg, now);
         assert!(analyzed[0].needs_author_action);
+    }
+
+    #[test]
+    fn deferred_label_marks_pr_and_clears_signals() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        // Real unresolved thread + changes-requested review, but PR is `postponed`.
+        let pr = RawPr {
+            number: 1,
+            title: "wallet migration".into(),
+            url: "u".into(),
+            author: Some("alice".into()),
+            created_at: dt("2026-04-01T00:00:00Z"),
+            updated_at: now,
+            is_draft: false,
+            mergeable: Mergeable::Conflicting,
+            labels: vec!["Postponed".into()],
+            last_commit: None,
+            reviews: vec![],
+            threads: vec![thread(
+                "t1",
+                vec![test_helpers_comment(
+                    "bob",
+                    "real issue",
+                    dt("2026-04-15T00:00:00Z"),
+                )],
+            )],
+            requested_reviewers: vec![],
+        };
+        let analyzed = analyze(vec![pr], &cfg, now);
+        assert_eq!(analyzed.len(), 1);
+        let pr = &analyzed[0];
+        assert!(pr.is_deferred);
+        assert!(
+            pr.unresolved_threads.is_empty(),
+            "deferred PR should not accrue unresolved threads"
+        );
+        assert!(!pr.needs_author_action);
+        assert!(!pr.has_merge_conflict, "deferred PR signals are suppressed");
     }
 
     #[test]
@@ -637,6 +706,7 @@ mod tests {
             last_commit: None,
             reviews: vec![],
             threads: vec![],
+            requested_reviewers: vec![],
         };
         let analyzed = analyze(vec![pr], &cfg, now);
         assert!(analyzed[0].needs_author_action);
@@ -673,6 +743,7 @@ mod tests {
                 last_commit: None,
                 reviews: vec![],
                 threads: vec![],
+                requested_reviewers: vec![],
             }],
             &cfg,
             now,
@@ -691,6 +762,7 @@ mod tests {
                 last_commit: None,
                 reviews: vec![],
                 threads: vec![],
+                requested_reviewers: vec![],
             }],
             &cfg,
             now,
@@ -728,6 +800,7 @@ mod tests {
                 last_commit: None,
                 reviews: vec![],
                 threads: vec![],
+                requested_reviewers: vec![],
             }],
             &cfg,
             now,

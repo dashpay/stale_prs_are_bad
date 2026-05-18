@@ -207,6 +207,7 @@ mod tests {
                 last_commit: None,
                 reviews: vec![],
                 threads: vec![],
+                requested_reviewers: vec![],
             },
             unresolved_threads: vec![],
             days_since_author_push: 0.0,
@@ -215,6 +216,7 @@ mod tests {
             has_merge_conflict: false,
             changes_requested: false,
             ci_failing: false,
+            is_deferred: false,
         }
     }
 

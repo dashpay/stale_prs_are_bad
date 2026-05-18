@@ -17,6 +17,8 @@ pub struct RawPr {
     pub last_commit: Option<LastCommit>,
     pub reviews: Vec<Review>,
     pub threads: Vec<RawThread>,
+    /// Logins of users explicitly requested for review. Teams and Mannequins are skipped.
+    pub requested_reviewers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +116,10 @@ pub struct AnalyzedPr {
     pub has_merge_conflict: bool,
     pub changes_requested: bool,
     pub ci_failing: bool,
+    /// Set when the PR carries a configured `deferred_labels` tag. Deferred PRs
+    /// are visible in the report (in their own bucket) but don't accrue
+    /// unresolved-thread counts or needs-action signals.
+    pub is_deferred: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -143,16 +149,22 @@ pub struct ScoredPr {
 #[derive(Debug, Clone)]
 pub struct AuthorRollup {
     pub login: String,
+    /// PRs they authored (open). Includes clean + dirty + deferred.
     pub total_open_prs: u32,
-    /// Open PRs with zero unresolved threads.
+    /// Open PRs they authored with zero unresolved threads, not deferred.
     pub clean_prs: u32,
-    /// Open PRs with at least one unresolved thread. clean + dirty == total.
+    /// Open PRs they authored with at least one unresolved thread.
     pub dirty_prs: u32,
+    /// Open PRs they authored that carry a deferred label (intentionally on hold).
+    pub deferred_prs: u32,
     pub prs_needing_author_action: u32,
     pub total_unresolved: u32,
     pub unresolved_coderabbit: u32,
     pub unresolved_human: u32,
     pub unresolved_bot: u32,
+    /// Clean PRs (authored by someone else) where this user is in the requested-reviewer list.
+    /// "How many PRs are sitting in your review queue right now."
+    pub awaiting_review: u32,
     pub total_score: f64,
     pub oldest_stale_pr_days: f64,
     /// Difference in `prs_needing_author_action` vs the snapshot from ~7 days ago.
@@ -183,6 +195,10 @@ pub struct AuthorSnapshot {
     pub clean_prs: u32,
     #[serde(default)]
     pub dirty_prs: u32,
+    #[serde(default)]
+    pub deferred_prs: u32,
+    #[serde(default)]
+    pub awaiting_review: u32,
     pub prs_needing_author_action: u32,
     pub total_unresolved: u32,
     pub total_score: f64,

@@ -35,6 +35,14 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
         reviews(first: 50) {
           nodes { state author { login } submittedAt }
         }
+        reviewRequests(first: 20) {
+          nodes {
+            requestedReviewer {
+              __typename
+              ... on User { login }
+            }
+          }
+        }
         reviewThreads(first: $threads) {
           pageInfo { endCursor hasNextPage }
           nodes {
@@ -398,6 +406,25 @@ pub fn parse_pr_node(node: &Value) -> Result<(RawPr, String, bool, Option<String
         .transpose()?
         .unwrap_or_default();
 
+    let requested_reviewers: Vec<String> = node
+        .pointer("/reviewRequests/nodes")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|n| {
+                    let r = n.get("requestedReviewer")?;
+                    // Only Users contribute logins; Team / Mannequin are skipped.
+                    if r.get("__typename").and_then(|v| v.as_str()) != Some("User") {
+                        return None;
+                    }
+                    r.get("login")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let threads_conn = node
         .get("reviewThreads")
         .ok_or_else(|| anyhow!("missing reviewThreads"))?;
@@ -433,6 +460,7 @@ pub fn parse_pr_node(node: &Value) -> Result<(RawPr, String, bool, Option<String
             last_commit,
             reviews,
             threads,
+            requested_reviewers,
         },
         id,
         threads_have_more,

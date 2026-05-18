@@ -7,7 +7,12 @@ use std::path::Path;
 pub struct Config {
     pub target_repo: String,
     pub excluded_authors: Vec<String>,
+    /// Labels that cause a PR to be skipped entirely (not counted at all).
     pub excluded_labels: Vec<String>,
+    /// Labels that mark a PR as "deferred" — still visible in the scoreboard
+    /// (in its own bucket), but not counted as dirty and never tagged
+    /// `needs-author-action`.
+    pub deferred_labels: Vec<String>,
     pub grace_period_days: i64,
     pub count_nitpicks: bool,
     pub maintainer_only: bool,
@@ -50,6 +55,7 @@ impl Default for Config {
                 "do-not-merge".into(),
                 "help-wanted".into(),
             ],
+            deferred_labels: vec!["postponed".into()],
             grace_period_days: 14,
             count_nitpicks: false,
             maintainer_only: false,

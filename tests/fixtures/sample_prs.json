@@ -228,9 +228,57 @@
               ]
             },
             "reviews": { "nodes": [] },
+            "reviewRequests": {
+              "nodes": [
+                { "requestedReviewer": { "__typename": "User", "login": "alice" } }
+              ]
+            },
             "reviewThreads": {
               "pageInfo": { "endCursor": null, "hasNextPage": false },
               "nodes": []
+            }
+          },
+          {
+            "id": "PR_kw_5000",
+            "number": 5000,
+            "title": "Postpone wallet migration",
+            "url": "https://github.com/dashpay/platform/pull/5000",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "createdAt": "2026-03-01T00:00:00Z",
+            "updatedAt": "2026-04-01T00:00:00Z",
+            "author": { "login": "alice" },
+            "labels": { "nodes": [{ "name": "postponed" }] },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-04-01T00:00:00Z",
+                    "statusCheckRollup": { "state": "SUCCESS" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": [
+                {
+                  "id": "t1",
+                  "isResolved": false,
+                  "isOutdated": false,
+                  "comments": {
+                    "pageInfo": { "hasNextPage": false },
+                    "nodes": [
+                      {
+                        "author": { "login": "bob-reviewer" },
+                        "createdAt": "2026-03-15T00:00:00Z",
+                        "body": "Real concerns here but we're holding off."
+                      }
+                    ]
+                  }
+                }
+              ]
             }
           },
           {

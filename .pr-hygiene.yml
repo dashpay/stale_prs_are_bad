@@ -16,6 +16,11 @@ excluded_labels:
   - do-not-merge
   - help-wanted
 
+# Labels that mark a PR as "deferred" — visible in the scoreboard's Deferred
+# column but not counted as dirty and never tagged `needs-author-action`.
+deferred_labels:
+  - postponed
+
 # Skip authors whose first observed PR is fewer than this many days old.
 # Avoids surfacing brand-new contributors before they've had a chance to learn the workflow.
 grace_period_days: 14

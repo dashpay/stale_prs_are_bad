@@ -126,6 +126,8 @@ mod tests {
                 total_open_prs: 3,
                 clean_prs: 2,
                 dirty_prs: 1,
+                deferred_prs: 0,
+                awaiting_review: 0,
                 prs_needing_author_action: 1,
                 total_unresolved: 2,
                 total_score: 1.5,

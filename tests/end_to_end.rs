@@ -30,23 +30,30 @@ fn parse_all(fixture: &serde_json::Value) -> Vec<pr_hygiene::model::RawPr> {
 fn end_to_end_pipeline_matches_snapshot() {
     let fixture = load_fixture();
     let raw = parse_all(&fixture);
-    assert_eq!(raw.len(), 6);
+    assert_eq!(raw.len(), 7);
 
     let cfg = Config::default();
     let now = Utc.with_ymd_and_hms(2026, 5, 19, 6, 0, 0).unwrap();
     let today = now.date_naive();
 
     // Two PRs are excluded: WIP-labeled #9999 and dependabot-authored #4001.
+    // #5000 has the `postponed` label — it's NOT excluded, just deferred.
     let analyzed = analyzer::analyze(raw, &cfg, now);
     let numbers: Vec<u64> = analyzed.iter().map(|p| p.raw.number).collect();
-    assert_eq!(numbers, vec![1234, 1240, 2001, 3000]);
+    assert_eq!(numbers, vec![1234, 1240, 2001, 3000, 5000]);
 
     // No grace-period filtering — all real authors have PRs > 14 days old.
     let mut cache = HashMap::new();
     let filtered = analyzer::apply_grace_period(analyzed, &mut cache, 14, today);
-    assert_eq!(filtered.len(), 4);
+    assert_eq!(filtered.len(), 5);
 
     let scored = scorer::score_prs(filtered, &cfg, now);
+
+    // PR 5000 is deferred — its unresolved thread should be wiped, needs_action=false.
+    let pr5000 = scored.iter().find(|s| s.pr.raw.number == 5000).unwrap();
+    assert!(pr5000.pr.is_deferred);
+    assert_eq!(pr5000.unresolved_total, 0);
+    assert!(!pr5000.pr.needs_author_action);
 
     // PR 1234 should be flagged needs_author_action (changes requested + CI failing).
     let pr1234 = scored.iter().find(|s| s.pr.raw.number == 1234).unwrap();
@@ -75,8 +82,12 @@ fn end_to_end_pipeline_matches_snapshot() {
 
     let authors = scorer::rollup_authors(&scored, None);
     let alice = authors.iter().find(|a| a.login == "alice").unwrap();
-    assert_eq!(alice.total_open_prs, 2);
+    assert_eq!(alice.total_open_prs, 3); // includes the deferred PR
+    assert_eq!(alice.dirty_prs, 2);
+    assert_eq!(alice.deferred_prs, 1);
     assert_eq!(alice.prs_needing_author_action, 2);
+    // Alice is the requested reviewer on Carol's clean PR #3000.
+    assert_eq!(alice.awaiting_review, 1);
 
     let ctx = renderer::RenderContext {
         now,
