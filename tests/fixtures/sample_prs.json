@@ -336,6 +336,40 @@
             }
           },
           {
+            "id": "PR_kw_2988",
+            "number": 2988,
+            "title": "WASM SDK: feature work targeting 3.0",
+            "url": "https://github.com/dashpay/platform/pull/2988",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "baseRefName": "v3.0",
+            "createdAt": "2026-03-20T00:00:00Z",
+            "updatedAt": "2026-05-15T00:00:00Z",
+            "author": { "login": "PastaPastaPasta" },
+            "labels": { "nodes": [] },
+            "files": {
+              "nodes": [
+                { "path": "packages/wasm-sdk/src/lib.rs" },
+                { "path": "packages/wasm-sdk/Cargo.toml" }
+              ]
+            },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-15T00:00:00Z",
+                    "statusCheckRollup": { "state": "SUCCESS" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": []
+            }
+          },
+          {
             "id": "PR_kw_4001",
             "number": 4001,
             "title": "Bump serde to 1.0.220",

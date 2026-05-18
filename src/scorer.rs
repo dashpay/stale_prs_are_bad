@@ -1,17 +1,76 @@
 use chrono::{DateTime, Utc};
-use std::collections::HashMap;
+use glob::Pattern;
+use std::collections::{HashMap, HashSet};
 
-use crate::config::{AgeMultiplier, Config};
+use crate::config::{AgeMultiplier, Config, RoutingRule};
 use crate::model::{
     AnalyzedPr, AuthorRollup, AuthorSnapshot, BySeverity, BySource, PrSnapshot, ScoredPr, Severity,
     Snapshot, Summary, ThreadSource,
 };
 
 pub fn score_prs(prs: Vec<AnalyzedPr>, cfg: &Config, now: DateTime<Utc>) -> Vec<ScoredPr> {
-    prs.into_iter().map(|p| score_one(p, cfg, now)).collect()
+    let compiled_rules = compile_rules(&cfg.review_routing);
+    prs.into_iter()
+        .map(|p| score_one(p, cfg, &compiled_rules, now))
+        .collect()
 }
 
-fn score_one(pr: AnalyzedPr, cfg: &Config, now: DateTime<Utc>) -> ScoredPr {
+fn compile_rules(rules: &[RoutingRule]) -> Vec<(Vec<Pattern>, &RoutingRule)> {
+    rules
+        .iter()
+        .map(|r| {
+            let pats: Vec<Pattern> = r
+                .paths
+                .iter()
+                .filter_map(|p| Pattern::new(p).ok())
+                .collect();
+            (pats, r)
+        })
+        .collect()
+}
+
+fn route_reviewers(pr: &AnalyzedPr, rules: &[(Vec<Pattern>, &RoutingRule)]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let already: HashSet<String> = pr
+        .raw
+        .requested_reviewers
+        .iter()
+        .map(|r| r.to_ascii_lowercase())
+        .collect();
+    let author_lc = pr.raw.author.as_deref().map(str::to_ascii_lowercase);
+    for (patterns, rule) in rules {
+        let matches = pr.raw.changed_files.iter().any(|f| {
+            let path = std::path::Path::new(f);
+            patterns
+                .iter()
+                .any(|p| p.matches(f) || p.matches_path(path))
+        });
+        if !matches {
+            continue;
+        }
+        let Some(login) = resolve_routed_reviewer(rule, pr.raw.author.as_deref()) else {
+            continue;
+        };
+        let lc = login.to_ascii_lowercase();
+        if Some(&lc) == author_lc.as_ref() {
+            continue;
+        }
+        if already.contains(&lc) {
+            continue;
+        }
+        if !out.iter().any(|r| r.eq_ignore_ascii_case(login)) {
+            out.push(login.to_string());
+        }
+    }
+    out
+}
+
+fn score_one(
+    pr: AnalyzedPr,
+    cfg: &Config,
+    rules: &[(Vec<Pattern>, &RoutingRule)],
+    now: DateTime<Utc>,
+) -> ScoredPr {
     let mut by_severity = BySeverity::default();
     let mut by_source = BySource::default();
     let mut oldest_age = 0.0_f64;
@@ -37,6 +96,7 @@ fn score_one(pr: AnalyzedPr, cfg: &Config, now: DateTime<Utc>) -> ScoredPr {
     let mult = age_multiplier(oldest_age, cfg.age_multiplier);
     let score = base * mult;
     let unresolved_total = pr.unresolved_threads.len() as u32;
+    let routed_reviewers = route_reviewers(&pr, rules);
     ScoredPr {
         pr,
         score,
@@ -44,6 +104,18 @@ fn score_one(pr: AnalyzedPr, cfg: &Config, now: DateTime<Utc>) -> ScoredPr {
         unresolved_by_severity: by_severity,
         unresolved_by_source: by_source,
         unresolved_total,
+        routed_reviewers,
+    }
+}
+
+/// Resolve a routing rule against the PR author. Returns the primary unless
+/// the author IS the primary, in which case it returns the fallback (or None).
+fn resolve_routed_reviewer<'a>(rule: &'a RoutingRule, author: Option<&str>) -> Option<&'a str> {
+    let is_self = author.is_some_and(|a| a.eq_ignore_ascii_case(&rule.primary));
+    if is_self {
+        rule.fallback.as_deref()
+    } else {
+        Some(rule.primary.as_str())
     }
 }
 
@@ -67,6 +139,7 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
                 dirty_prs: 0,
                 deferred_prs: 0,
                 draft_prs: 0,
+                stale_prs: 0,
                 prs_needing_author_action: 0,
                 total_unresolved: 0,
                 unresolved_coderabbit: 0,
@@ -78,17 +151,23 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
                 delta_vs_last_week: None,
             });
     };
+
     for s in scored {
         // Author-side counts.
         if let Some(login) = s.pr.raw.author.as_deref() {
             ensure(&mut by_login, login);
             let entry = by_login.get_mut(login).expect("just inserted");
             entry.total_open_prs += 1;
-            // Precedence: deferred > draft > dirty > clean. A deferred draft counts as
-            // deferred (the more intentional signal); a draft with comments counts as draft
-            // because the author hasn't asked for review yet.
+            // Precedence: deferred > stale > draft > dirty > clean.
+            // - Deferred wins (intentionally on hold).
+            // - Stale next: targets a non-default branch, OR untouched > threshold (the
+            //   would-be-clean exception lives in the analyzer so stale never overrides clean).
+            // - Draft is independent author state.
+            // - Dirty vs clean comes from unresolved-thread counts.
             if s.pr.is_deferred {
                 entry.deferred_prs += 1;
+            } else if s.pr.is_stale {
+                entry.stale_prs += 1;
             } else if s.pr.raw.is_draft {
                 entry.draft_prs += 1;
             } else if s.unresolved_total == 0 {
@@ -109,29 +188,42 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
             }
         }
 
-        // Reviewer-side counts: only clean, non-draft, non-deferred PRs count
-        // as "ready for this person to review". Self-review is ignored.
+        // Reviewer-side counts: only PRs that are actually ready for review
+        // count. Stale, deferred, draft, dirty, and merge-conflicting PRs are
+        // not in anyone's review queue.
         if s.pr.is_deferred
+            || s.pr.is_stale
             || s.pr.raw.is_draft
             || s.unresolved_total > 0
             || s.pr.has_merge_conflict
         {
             continue;
         }
-        for reviewer in &s.pr.raw.requested_reviewers {
+
+        // GitHub-requested reviewers + path-routed reviewers (the latter are
+        // already deduplicated against requested_reviewers and the author).
+        let mut seen_lc: HashSet<String> = HashSet::new();
+        let mut bump = |map: &mut HashMap<String, AuthorRollup>, login: &str| {
+            let lc = login.to_ascii_lowercase();
+            if !seen_lc.insert(lc) {
+                return;
+            }
             if s.pr
                 .raw
                 .author
                 .as_deref()
-                .is_some_and(|a| a.eq_ignore_ascii_case(reviewer))
+                .is_some_and(|a| a.eq_ignore_ascii_case(login))
             {
-                continue;
+                return;
             }
-            ensure(&mut by_login, reviewer);
-            by_login
-                .get_mut(reviewer)
-                .expect("just inserted")
-                .awaiting_review += 1;
+            ensure(map, login);
+            map.get_mut(login).expect("just inserted").awaiting_review += 1;
+        };
+        for r in &s.pr.raw.requested_reviewers {
+            bump(&mut by_login, r);
+        }
+        for r in &s.routed_reviewers {
+            bump(&mut by_login, r);
         }
     }
 
@@ -187,6 +279,7 @@ pub fn build_snapshot(
             dirty_prs: a.dirty_prs,
             deferred_prs: a.deferred_prs,
             draft_prs: a.draft_prs,
+            stale_prs: a.stale_prs,
             awaiting_review: a.awaiting_review,
             prs_needing_author_action: a.prs_needing_author_action,
             total_unresolved: a.total_unresolved,
@@ -244,6 +337,8 @@ mod tests {
                 reviews: vec![],
                 threads: vec![],
                 requested_reviewers: vec![],
+                base_ref: "master".into(),
+                changed_files: vec![],
             },
             unresolved_threads: threads,
             days_since_author_push: 0.0,
@@ -253,6 +348,8 @@ mod tests {
             changes_requested: false,
             ci_failing: false,
             is_deferred: false,
+            is_stale: false,
+            stale_reasons: vec![],
         }
     }
 
@@ -273,7 +370,9 @@ mod tests {
     fn score_with_no_threads_is_zero() {
         let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
-        let s = score_one(pr("alice", vec![], false), &cfg, now);
+        let s = score_prs(vec![pr("alice", vec![], false)], &cfg, now)
+            .pop()
+            .unwrap();
         assert_eq!(s.score, 0.0);
         assert_eq!(s.unresolved_total, 0);
     }
@@ -291,7 +390,9 @@ mod tests {
             thread(Severity::Low, ThreadSource::Coderabbit, 5),
             thread(Severity::Low, ThreadSource::Coderabbit, 5),
         ];
-        let s = score_one(pr("alice", threads, true), &cfg, now);
+        let s = score_prs(vec![pr("alice", threads, true)], &cfg, now)
+            .pop()
+            .unwrap();
         let base = 2.0 * 5.0 + 1.0 * 2.0 + 3.0 * 0.5;
         let mult = (23.0_f64 + 1.0).ln();
         assert!((s.score - base * mult).abs() < 1e-6, "got {}", s.score);
@@ -317,17 +418,13 @@ mod tests {
     fn rollup_ranks_by_score_then_action_count() {
         let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
-        let prs = vec![
-            score_one(
+        let prs = score_prs(
+            vec![
                 pr(
                     "alice",
                     vec![thread(Severity::High, ThreadSource::Human, 23)],
                     true,
                 ),
-                &cfg,
-                now,
-            ),
-            score_one(
                 pr(
                     "bob",
                     vec![
@@ -336,10 +433,10 @@ mod tests {
                     ],
                     true,
                 ),
-                &cfg,
-                now,
-            ),
-        ];
+            ],
+            &cfg,
+            now,
+        );
         let rolled = rollup_authors(&prs, None);
         assert_eq!(rolled[0].login, "alice");
         assert_eq!(rolled[1].login, "bob");
@@ -407,6 +504,58 @@ mod tests {
     }
 
     #[test]
+    fn path_routing_adds_implicit_reviewer_to_clean_pr() {
+        let cfg = Config {
+            review_routing: vec![RoutingRule {
+                paths: vec!["**/wasm-sdk/**".into()],
+                primary: "shumkov".into(),
+                fallback: Some("QuantumExplorer".into()),
+            }],
+            ..Config::default()
+        };
+        let now = dt("2026-05-19T00:00:00Z");
+
+        // Clean PR by pasta touching wasm-sdk → routes to shumkov.
+        let mut clean = analyzed("pasta", vec![], false);
+        clean.raw.changed_files = vec!["packages/wasm-sdk/index.ts".into()];
+        let scored = score_prs(vec![clean], &cfg, now);
+        assert_eq!(scored[0].routed_reviewers, vec!["shumkov"]);
+        let rolled = rollup_authors(&scored, None);
+        let shumkov = rolled.iter().find(|r| r.login == "shumkov").unwrap();
+        assert_eq!(shumkov.awaiting_review, 1);
+
+        // Self-authored by shumkov → fallback (QuantumExplorer) gets it.
+        let mut self_authored = analyzed("shumkov", vec![], false);
+        self_authored.raw.changed_files = vec!["packages/wasm-sdk/foo.ts".into()];
+        let scored = score_prs(vec![self_authored], &cfg, now);
+        assert_eq!(scored[0].routed_reviewers, vec!["QuantumExplorer"]);
+    }
+
+    #[test]
+    fn path_routing_doesnt_double_count_explicit_reviewer() {
+        let cfg = Config {
+            review_routing: vec![RoutingRule {
+                paths: vec!["**/wasm-sdk/**".into()],
+                primary: "shumkov".into(),
+                fallback: None,
+            }],
+            ..Config::default()
+        };
+        let now = dt("2026-05-19T00:00:00Z");
+
+        let mut pr = analyzed("pasta", vec![], false);
+        pr.raw.changed_files = vec!["packages/wasm-sdk/x.ts".into()];
+        pr.raw.requested_reviewers = vec!["shumkov".into()];
+        let scored = score_prs(vec![pr], &cfg, now);
+        // routed_reviewers excludes already-requested.
+        assert!(scored[0].routed_reviewers.is_empty());
+        let rolled = rollup_authors(&scored, None);
+        // shumkov still counted exactly once via requested_reviewers.
+        let shumkov = rolled.iter().find(|r| r.login == "shumkov").unwrap();
+        assert_eq!(shumkov.awaiting_review, 1);
+    }
+
+    #[test]
     fn deferred_takes_precedence_over_draft() {
         let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
@@ -439,15 +588,15 @@ mod tests {
     fn delta_vs_last_week_uses_previous_snapshot() {
         let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
-        let prs = vec![score_one(
-            pr(
+        let prs = score_prs(
+            vec![pr(
                 "alice",
                 vec![thread(Severity::High, ThreadSource::Human, 1)],
                 true,
-            ),
+            )],
             &cfg,
             now,
-        )];
+        );
         let previous = Snapshot {
             date: chrono::NaiveDate::from_ymd_opt(2026, 5, 12).unwrap(),
             summary: Summary {
@@ -462,6 +611,7 @@ mod tests {
                 dirty_prs: 3,
                 deferred_prs: 0,
                 draft_prs: 0,
+                stale_prs: 0,
                 awaiting_review: 0,
                 prs_needing_author_action: 5,
                 total_unresolved: 10,

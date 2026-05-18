@@ -66,21 +66,27 @@ fn write_header(out: &mut String, ctx: &RenderContext<'_>) {
 fn write_summary(out: &mut String, scored: &[ScoredPr]) {
     let open_prs = scored.len();
     let deferred: usize = scored.iter().filter(|s| s.pr.is_deferred).count();
+    let stale: usize = scored
+        .iter()
+        .filter(|s| !s.pr.is_deferred && s.pr.is_stale)
+        .count();
     let draft: usize = scored
         .iter()
-        .filter(|s| !s.pr.is_deferred && s.pr.raw.is_draft)
+        .filter(|s| !s.pr.is_deferred && !s.pr.is_stale && s.pr.raw.is_draft)
         .count();
     let dirty: usize = scored
         .iter()
-        .filter(|s| !s.pr.is_deferred && !s.pr.raw.is_draft && s.unresolved_total > 0)
+        .filter(|s| {
+            !s.pr.is_deferred && !s.pr.is_stale && !s.pr.raw.is_draft && s.unresolved_total > 0
+        })
         .count();
-    let clean: usize = open_prs - dirty - deferred - draft;
+    let clean: usize = open_prs - dirty - deferred - draft - stale;
     let needs: usize = scored.iter().filter(|s| s.pr.needs_author_action).count();
     let unresolved: u32 = scored.iter().map(|s| s.unresolved_total).sum();
     let _ = writeln!(out, "## Summary");
     let _ = writeln!(
         out,
-        "- Open PRs: **{open_prs}** ({clean} clean · {dirty} dirty · {deferred} deferred · {draft} draft)"
+        "- Open PRs: **{open_prs}** ({clean} clean · {dirty} dirty · {deferred} deferred · {draft} draft · {stale} stale)"
     );
     let _ = writeln!(out, "- PRs needing author action: **{needs}**");
     let _ = writeln!(out, "- Total unresolved threads: **{unresolved}**");
@@ -101,20 +107,20 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
     if has_history {
         let _ = writeln!(
             out,
-            "| Author | Open | Clean | Dirty | Deferred | Draft | Needs action | Unresolved | CR | Human | To review | Δ |"
+            "| Author | Open | Clean | Dirty | Deferred | Draft | Stale | Needs action | Unresolved | CR | Human | To review | Δ |"
         );
         let _ = writeln!(
             out,
-            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
         );
     } else {
         let _ = writeln!(
             out,
-            "| Author | Open | Clean | Dirty | Deferred | Draft | Needs action | Unresolved | CR | Human | To review |"
+            "| Author | Open | Clean | Dirty | Deferred | Draft | Stale | Needs action | Unresolved | CR | Human | To review |"
         );
         let _ = writeln!(
             out,
-            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
         );
     }
     for a in authors {
@@ -127,13 +133,14 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
         if has_history {
             let _ = writeln!(
                 out,
-                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 author_link,
                 cell_link(a.total_open_prs, &a.login, "open"),
                 cell_link(a.clean_prs, &a.login, "clean"),
                 cell_link(a.dirty_prs, &a.login, "dirty"),
                 cell_link(a.deferred_prs, &a.login, "deferred"),
                 cell_link(a.draft_prs, &a.login, "draft"),
+                cell_link(a.stale_prs, &a.login, "stale"),
                 cell_link(a.prs_needing_author_action, &a.login, "needs-action"),
                 unresolved_target,
                 cr_target,
@@ -144,13 +151,14 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
         } else {
             let _ = writeln!(
                 out,
-                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 author_link,
                 cell_link(a.total_open_prs, &a.login, "open"),
                 cell_link(a.clean_prs, &a.login, "clean"),
                 cell_link(a.dirty_prs, &a.login, "dirty"),
                 cell_link(a.deferred_prs, &a.login, "deferred"),
                 cell_link(a.draft_prs, &a.login, "draft"),
+                cell_link(a.stale_prs, &a.login, "stale"),
                 cell_link(a.prs_needing_author_action, &a.login, "needs-action"),
                 unresolved_target,
                 cr_target,
@@ -235,38 +243,60 @@ fn write_author_section(
     by_bucket.push((
         "Dirty",
         "dirty",
-        collect(&|p| !p.pr.is_deferred && !p.pr.raw.is_draft && p.unresolved_total > 0),
+        collect(&|p| {
+            !p.pr.is_deferred && !p.pr.is_stale && !p.pr.raw.is_draft && p.unresolved_total > 0
+        }),
     ));
     by_bucket.push(("Deferred", "deferred", collect(&|p| p.pr.is_deferred)));
     by_bucket.push((
         "Draft",
         "draft",
-        collect(&|p| !p.pr.is_deferred && p.pr.raw.is_draft),
+        collect(&|p| !p.pr.is_deferred && !p.pr.is_stale && p.pr.raw.is_draft),
+    ));
+    by_bucket.push((
+        "Stale",
+        "stale",
+        collect(&|p| !p.pr.is_deferred && p.pr.is_stale),
     ));
     by_bucket.push((
         "Clean",
         "clean",
-        collect(&|p| !p.pr.is_deferred && !p.pr.raw.is_draft && p.unresolved_total == 0),
+        collect(&|p| {
+            !p.pr.is_deferred && !p.pr.is_stale && !p.pr.raw.is_draft && p.unresolved_total == 0
+        }),
     ));
 
     // To-review is authored by someone else; pull from scored at large.
+    // Match via explicit reviewer requests OR path-based routing.
     let mut to_review: Vec<&ScoredPr> = scored
         .iter()
         .filter(|p| {
-            !p.pr.is_deferred
-                && !p.pr.raw.is_draft
-                && p.unresolved_total == 0
-                && !p.pr.has_merge_conflict
-                && p.pr
-                    .raw
+            if p.pr.is_deferred
+                || p.pr.is_stale
+                || p.pr.raw.is_draft
+                || p.unresolved_total > 0
+                || p.pr.has_merge_conflict
+            {
+                return false;
+            }
+            if p.pr
+                .raw
+                .author
+                .as_deref()
+                .is_some_and(|a| a.eq_ignore_ascii_case(login))
+            {
+                return false;
+            }
+            let in_requested =
+                p.pr.raw
                     .requested_reviewers
                     .iter()
-                    .any(|r| r.eq_ignore_ascii_case(login))
-                && p.pr
-                    .raw
-                    .author
-                    .as_deref()
-                    .is_some_and(|a| !a.eq_ignore_ascii_case(login))
+                    .any(|r| r.eq_ignore_ascii_case(login));
+            let in_routed = p
+                .routed_reviewers
+                .iter()
+                .any(|r| r.eq_ignore_ascii_case(login));
+            in_requested || in_routed
         })
         .collect();
     to_review.sort_by_key(|p| p.pr.raw.number);
@@ -321,6 +351,13 @@ fn write_pr_bullet(out: &mut String, s: &ScoredPr, now: DateTime<Utc>, show_auth
     }
     if s.pr.is_deferred {
         detail_bits.push("⏸ deferred".into());
+    }
+    if s.pr.is_stale {
+        if s.pr.stale_reasons.is_empty() {
+            detail_bits.push("🐢 stale".into());
+        } else {
+            detail_bits.push(format!("🐢 {}", s.pr.stale_reasons.join(", ")));
+        }
     }
     let suffix = if detail_bits.is_empty() {
         String::new()
@@ -384,12 +421,15 @@ fn write_methodology(out: &mut String, ctx: &RenderContext<'_>) {
          **Dirty** = at least one such thread. \
          **Deferred** = carries a configured deferred label (e.g. `postponed`) — visible \
          but not counted as dirty. \
+         **Stale** = targets a non-default branch OR hasn't been touched in \
+         the configured threshold (default 120 days, but clean PRs are never reclassified as stale). \
          **Draft** = the PR is still marked draft on GitHub. \
-         **Clean** = open, not draft, not deferred, no unresolved threads. \
+         **Clean** = open, not draft, not deferred, not stale, no unresolved threads. \
          **Needs action** further requires changes-requested, merge conflict, or that the \
          reviewer commented more recently than the author last pushed. \
-         **To review** counts clean, non-draft PRs (authored by someone else) where this person \
-         is in the requested-reviewer list. \
+         **To review** counts clean, non-draft, non-stale PRs (authored by someone else) where \
+         this person is either an explicit reviewer or implicitly routed via `review_routing` \
+         rules in the config. \
          Configurable via [`{}`]({})\u{2014}edit defaults there.",
         ctx.config_path, ctx.config_path
     );
@@ -451,6 +491,7 @@ mod tests {
             dirty_prs: dirty,
             deferred_prs: 0,
             draft_prs: 0,
+            stale_prs: 0,
             prs_needing_author_action: needs,
             total_unresolved: unresolved,
             unresolved_coderabbit: cr,
@@ -507,6 +548,8 @@ mod tests {
                     reviews: vec![],
                     threads: vec![],
                     requested_reviewers: vec![],
+                    base_ref: "master".into(),
+                    changed_files: vec![],
                 },
                 unresolved_threads: unresolved,
                 days_since_author_push: 1.0,
@@ -516,12 +559,15 @@ mod tests {
                 changes_requested: false,
                 ci_failing,
                 is_deferred: false,
+                is_stale: false,
+                stale_reasons: vec![],
             },
             score: total as f64,
             oldest_thread_age_days: oldest,
             unresolved_by_severity: bs,
             unresolved_by_source: bsrc,
             unresolved_total: total,
+            routed_reviewers: vec![],
         }
     }
 

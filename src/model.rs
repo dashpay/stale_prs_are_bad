@@ -19,6 +19,10 @@ pub struct RawPr {
     pub threads: Vec<RawThread>,
     /// Logins of users explicitly requested for review. Teams and Mannequins are skipped.
     pub requested_reviewers: Vec<String>,
+    /// Base branch the PR is targeting (e.g. `master`, `v3.0`).
+    pub base_ref: String,
+    /// File paths changed by this PR. Capped by the GraphQL query page size.
+    pub changed_files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +124,11 @@ pub struct AnalyzedPr {
     /// are visible in the report (in their own bucket) but don't accrue
     /// unresolved-thread counts or needs-action signals.
     pub is_deferred: bool,
+    /// True when the PR targets a non-default branch OR hasn't been touched in
+    /// `stale_threshold_days`. Stale PRs land in their own bucket.
+    pub is_stale: bool,
+    /// Human-readable reason(s) for `is_stale` — surfaced as a badge in the PR detail.
+    pub stale_reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -144,6 +153,9 @@ pub struct ScoredPr {
     pub unresolved_by_severity: BySeverity,
     pub unresolved_by_source: BySource,
     pub unresolved_total: u32,
+    /// Logins that are responsible for reviewing this PR via path-based routing
+    /// rules (already dedupe-against-author and against `requested_reviewers`).
+    pub routed_reviewers: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +171,8 @@ pub struct AuthorRollup {
     pub deferred_prs: u32,
     /// Open PRs they authored that are still marked draft.
     pub draft_prs: u32,
+    /// Open PRs they authored that target a non-default branch or have rotted past the threshold.
+    pub stale_prs: u32,
     pub prs_needing_author_action: u32,
     pub total_unresolved: u32,
     pub unresolved_coderabbit: u32,
@@ -201,6 +215,8 @@ pub struct AuthorSnapshot {
     pub deferred_prs: u32,
     #[serde(default)]
     pub draft_prs: u32,
+    #[serde(default)]
+    pub stale_prs: u32,
     #[serde(default)]
     pub awaiting_review: u32,
     pub prs_needing_author_action: u32,

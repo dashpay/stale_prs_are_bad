@@ -30,21 +30,24 @@ fn parse_all(fixture: &serde_json::Value) -> Vec<pr_hygiene::model::RawPr> {
 fn end_to_end_pipeline_matches_snapshot() {
     let fixture = load_fixture();
     let raw = parse_all(&fixture);
-    assert_eq!(raw.len(), 8);
+    assert_eq!(raw.len(), 9);
 
     let cfg = Config::default();
     let now = Utc.with_ymd_and_hms(2026, 5, 19, 6, 0, 0).unwrap();
     let today = now.date_naive();
 
     // Two PRs are excluded: WIP-labeled #9999 and dependabot-authored #4001.
-    // #5000 has `postponed` (deferred) and #6000 is draft — both surface in the report.
+    // #5000 (postponed → deferred), #6000 (draft), #2988 (targets v3.0 → stale)
+    // all survive.
     let analyzed = analyzer::analyze(raw, &cfg, now);
     let numbers: Vec<u64> = analyzed.iter().map(|p| p.raw.number).collect();
-    assert_eq!(numbers, vec![1234, 1240, 2001, 3000, 5000, 6000]);
+    assert_eq!(numbers, vec![1234, 1240, 2001, 3000, 5000, 6000, 2988]);
 
+    // PastaPastaPasta is brand-new to the cache; their oldest PR (#2988, 2026-03-20)
+    // is well past the 14d grace cutoff, so they survive.
     let mut cache = HashMap::new();
     let filtered = analyzer::apply_grace_period(analyzed, &mut cache, 14, today);
-    assert_eq!(filtered.len(), 6);
+    assert_eq!(filtered.len(), 7);
 
     let scored = scorer::score_prs(filtered, &cfg, now);
 
@@ -94,6 +97,19 @@ fn end_to_end_pipeline_matches_snapshot() {
     assert_eq!(bob.dirty_prs, 1);
     assert_eq!(bob.draft_prs, 1);
     assert_eq!(bob.clean_prs, 0);
+
+    // PR #2988 targets v3.0 → stale. Touches wasm-sdk/ → routes to shumkov.
+    // But it's stale, so it should NOT enter shumkov's "To review" queue.
+    let pasta = authors
+        .iter()
+        .find(|a| a.login == "PastaPastaPasta")
+        .unwrap();
+    assert_eq!(pasta.stale_prs, 1);
+    assert_eq!(pasta.dirty_prs, 0);
+    assert!(
+        !authors.iter().any(|a| a.login == "shumkov"),
+        "shumkov should NOT be added — the only routable PR is stale"
+    );
 
     let ctx = renderer::RenderContext {
         now,

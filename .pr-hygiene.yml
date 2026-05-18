@@ -21,6 +21,33 @@ excluded_labels:
 deferred_labels:
   - postponed
 
+# The default branch of the target repo. PRs targeting anything else
+# (release branches, feature branches) land in the Stale bucket.
+default_target_branch: master
+
+# PRs whose updatedAt is older than this fall into the Stale bucket
+# UNLESS they would otherwise be Clean or Deferred. Default: ~4 months.
+stale_threshold_days: 120
+
+# Path-based reviewer routing (CODEOWNERS-lite). For each rule, if any
+# changed file matches one of the glob patterns, the `primary` reviewer
+# is implicitly added to that PR's "To review" tally. If `primary` is
+# the PR author, `fallback` is used (or the rule doesn't fire if no
+# fallback is set). The same person isn't double-counted when they're
+# also formally requested in GitHub.
+review_routing:
+  - paths:
+      - "**/sdk/**"
+      - "**/wasm/**"
+      - "**/wasm-sdk/**"
+    primary: shumkov          # Ivan — edit if the login is different
+    fallback: QuantumExplorer
+  - paths:
+      - "**/swift-sdk/**"
+      - "**/ios/**"
+    primary: llbartekll       # bartozs — edit if the login is different
+    fallback: ZocoLini
+
 # Skip authors whose first observed PR is fewer than this many days old.
 # Avoids surfacing brand-new contributors before they've had a chance to learn the workflow.
 grace_period_days: 14

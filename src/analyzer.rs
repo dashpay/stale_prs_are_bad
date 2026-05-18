@@ -99,6 +99,8 @@ fn analyze_pr(pr: RawPr, cfg: &Config, now: DateTime<Utc>) -> AnalyzedPr {
             changes_requested: false,
             ci_failing: false,
             is_deferred: true,
+            is_stale: false,
+            stale_reasons: vec![],
         };
     }
 
@@ -145,6 +147,9 @@ fn analyze_pr(pr: RawPr, cfg: &Config, now: DateTime<Utc>) -> AnalyzedPr {
             || (days_since_author_push > days_since_last_reviewer_activity
                 && unresolved_total > 0));
 
+    let (is_stale, stale_reasons) =
+        compute_staleness(&pr, cfg, now, unresolved_threads.len(), pr.is_draft);
+
     AnalyzedPr {
         raw: pr,
         unresolved_threads,
@@ -155,7 +160,34 @@ fn analyze_pr(pr: RawPr, cfg: &Config, now: DateTime<Utc>) -> AnalyzedPr {
         changes_requested,
         ci_failing,
         is_deferred: false,
+        is_stale,
+        stale_reasons,
     }
+}
+
+/// A PR is stale when it targets a non-default branch OR it hasn't been
+/// updated in `stale_threshold_days` days AND it would otherwise have been
+/// dirty or draft (clean PRs stay clean, deferred is already handled above).
+fn compute_staleness(
+    pr: &RawPr,
+    cfg: &Config,
+    now: DateTime<Utc>,
+    unresolved_total: usize,
+    is_draft: bool,
+) -> (bool, Vec<String>) {
+    let mut reasons: Vec<String> = vec![];
+    if !pr.base_ref.is_empty() && !pr.base_ref.eq_ignore_ascii_case(&cfg.default_target_branch) {
+        reasons.push(format!("targets {}", pr.base_ref));
+    }
+    let days_since_update = days_between(pr.updated_at, now);
+    let would_be_clean = !is_draft && unresolved_total == 0;
+    if days_since_update > cfg.stale_threshold_days as f64 && !would_be_clean {
+        reasons.push(format!(
+            "untouched {} days",
+            days_since_update.round() as i64
+        ));
+    }
+    (!reasons.is_empty(), reasons)
 }
 
 fn has_deferred_label(pr: &RawPr, cfg: &Config) -> bool {
@@ -521,6 +553,8 @@ mod tests {
             reviews: vec![],
             threads: vec![],
             requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
         };
         assert!(is_excluded(&pr, &cfg));
     }
@@ -542,6 +576,8 @@ mod tests {
             reviews: vec![],
             threads: vec![],
             requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
         };
         assert!(is_excluded(&pr, &cfg));
         pr.labels = vec!["ready".into()];
@@ -576,6 +612,8 @@ mod tests {
                 )],
             )],
             requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
         };
         let analyzed = analyze(vec![pr.clone()], &cfg, now);
         assert_eq!(analyzed[0].unresolved_threads.len(), 0);
@@ -617,6 +655,8 @@ mod tests {
                 )],
             )],
             requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
         };
         let analyzed = analyze(vec![pr], &cfg, now);
         assert!(!analyzed[0].needs_author_action);
@@ -648,6 +688,8 @@ mod tests {
                 )],
             )],
             requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
         };
         let analyzed = analyze(vec![pr], &cfg, now);
         assert!(analyzed[0].needs_author_action);
@@ -679,6 +721,8 @@ mod tests {
                 )],
             )],
             requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
         };
         let analyzed = analyze(vec![pr], &cfg, now);
         assert_eq!(analyzed.len(), 1);
@@ -690,6 +734,87 @@ mod tests {
         );
         assert!(!pr.needs_author_action);
         assert!(!pr.has_merge_conflict, "deferred PR signals are suppressed");
+    }
+
+    #[test]
+    fn stale_triggers_on_non_default_branch() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        let pr = RawPr {
+            number: 1,
+            title: "feature".into(),
+            url: "u".into(),
+            author: Some("alice".into()),
+            created_at: dt("2026-05-01T00:00:00Z"),
+            updated_at: dt("2026-05-18T00:00:00Z"),
+            is_draft: false,
+            mergeable: Mergeable::Mergeable,
+            labels: vec![],
+            last_commit: None,
+            reviews: vec![],
+            threads: vec![],
+            requested_reviewers: vec![],
+            base_ref: "v3.0".into(),
+            changed_files: vec![],
+        };
+        let a = analyze(vec![pr], &cfg, now);
+        assert!(a[0].is_stale);
+        assert!(a[0].stale_reasons.iter().any(|r| r.contains("v3.0")));
+    }
+
+    #[test]
+    fn stale_triggers_on_age_but_not_when_clean() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        // Old (200d untouched), clean, on default branch → should NOT become stale.
+        let clean_old = RawPr {
+            number: 1,
+            title: "x".into(),
+            url: "u".into(),
+            author: Some("alice".into()),
+            created_at: dt("2025-10-01T00:00:00Z"),
+            updated_at: dt("2025-10-15T00:00:00Z"),
+            is_draft: false,
+            mergeable: Mergeable::Mergeable,
+            labels: vec![],
+            last_commit: None,
+            reviews: vec![],
+            threads: vec![],
+            requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
+        };
+        let a = analyze(vec![clean_old], &cfg, now);
+        assert!(!a[0].is_stale);
+
+        // Same age, but with an unresolved thread → becomes stale.
+        let dirty_old = RawPr {
+            number: 2,
+            title: "x".into(),
+            url: "u".into(),
+            author: Some("alice".into()),
+            created_at: dt("2025-10-01T00:00:00Z"),
+            updated_at: dt("2025-10-15T00:00:00Z"),
+            is_draft: false,
+            mergeable: Mergeable::Mergeable,
+            labels: vec![],
+            last_commit: None,
+            reviews: vec![],
+            threads: vec![thread(
+                "t1",
+                vec![test_helpers_comment(
+                    "bob",
+                    "fix",
+                    dt("2025-10-15T00:00:00Z"),
+                )],
+            )],
+            requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
+        };
+        let a = analyze(vec![dirty_old], &cfg, now);
+        assert!(a[0].is_stale);
+        assert!(a[0].stale_reasons.iter().any(|r| r.contains("untouched")));
     }
 
     #[test]
@@ -718,6 +843,8 @@ mod tests {
                 )],
             )],
             requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
         };
         let analyzed = analyze(vec![pr], &cfg, now);
         assert!(!analyzed[0].needs_author_action);
@@ -741,6 +868,8 @@ mod tests {
             reviews: vec![],
             threads: vec![],
             requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
         };
         let analyzed = analyze(vec![pr], &cfg, now);
         assert!(analyzed[0].needs_author_action);
@@ -778,6 +907,8 @@ mod tests {
                 reviews: vec![],
                 threads: vec![],
                 requested_reviewers: vec![],
+                base_ref: "master".into(),
+                changed_files: vec![],
             }],
             &cfg,
             now,
@@ -797,6 +928,8 @@ mod tests {
                 reviews: vec![],
                 threads: vec![],
                 requested_reviewers: vec![],
+                base_ref: "master".into(),
+                changed_files: vec![],
             }],
             &cfg,
             now,
@@ -835,6 +968,8 @@ mod tests {
                 reviews: vec![],
                 threads: vec![],
                 requested_reviewers: vec![],
+                base_ref: "master".into(),
+                changed_files: vec![],
             }],
             &cfg,
             now,

@@ -208,6 +208,8 @@ mod tests {
                 reviews: vec![],
                 threads: vec![],
                 requested_reviewers: vec![],
+                base_ref: "master".into(),
+                changed_files: vec![],
             },
             unresolved_threads: vec![],
             days_since_author_push: 0.0,
@@ -217,6 +219,8 @@ mod tests {
             changes_requested: false,
             ci_failing: false,
             is_deferred: false,
+            is_stale: false,
+            stale_reasons: vec![],
         }
     }
 

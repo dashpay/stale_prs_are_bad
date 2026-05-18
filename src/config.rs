@@ -13,6 +13,13 @@ pub struct Config {
     /// (in its own bucket), but not counted as dirty and never tagged
     /// `needs-author-action`.
     pub deferred_labels: Vec<String>,
+    /// The repo's default branch. PRs targeting anything else are bucketed as Stale.
+    pub default_target_branch: String,
+    /// PRs whose `updatedAt` is older than this fall into the Stale bucket —
+    /// unless they would otherwise be Clean or Deferred.
+    pub stale_threshold_days: i64,
+    /// CODEOWNERS-lite: route review duty by changed file paths.
+    pub review_routing: Vec<RoutingRule>,
     pub grace_period_days: i64,
     pub count_nitpicks: bool,
     pub maintainer_only: bool,
@@ -22,6 +29,20 @@ pub struct Config {
     pub age_multiplier: AgeMultiplier,
     pub history_retention_days: i64,
     pub needs_author_action_label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoutingRule {
+    /// Glob patterns matched against each changed file path. If any path matches,
+    /// the rule fires. Patterns follow `glob::Pattern` syntax (`**/sdk/**`, etc.).
+    pub paths: Vec<String>,
+    /// GitHub login of the person who normally owns this area.
+    pub primary: String,
+    /// Used when `primary` is the PR author. Optional — if unset, the rule
+    /// silently doesn't fire for self-authored PRs.
+    #[serde(default)]
+    pub fallback: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +77,24 @@ impl Default for Config {
                 "help-wanted".into(),
             ],
             deferred_labels: vec!["postponed".into()],
+            default_target_branch: "master".into(),
+            stale_threshold_days: 120,
+            review_routing: vec![
+                RoutingRule {
+                    paths: vec![
+                        "**/sdk/**".into(),
+                        "**/wasm/**".into(),
+                        "**/wasm-sdk/**".into(),
+                    ],
+                    primary: "shumkov".into(),
+                    fallback: Some("QuantumExplorer".into()),
+                },
+                RoutingRule {
+                    paths: vec!["**/swift-sdk/**".into(), "**/ios/**".into()],
+                    primary: "llbartekll".into(),
+                    fallback: Some("ZocoLini".into()),
+                },
+            ],
             grace_period_days: 14,
             count_nitpicks: false,
             maintainer_only: false,

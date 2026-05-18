@@ -24,6 +24,8 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
       pageInfo { endCursor hasNextPage }
       nodes {
         id number title url isDraft mergeable createdAt updatedAt
+        baseRefName
+        files(first: 50) { nodes { path } }
         author { login }
         labels(first: 20) { nodes { name } }
         commits(last: 1) {
@@ -406,6 +408,26 @@ pub fn parse_pr_node(node: &Value) -> Result<(RawPr, String, bool, Option<String
         .transpose()?
         .unwrap_or_default();
 
+    let base_ref = node
+        .get("baseRefName")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let changed_files: Vec<String> = node
+        .pointer("/files/nodes")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|n| {
+                    n.get("path")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let requested_reviewers: Vec<String> = node
         .pointer("/reviewRequests/nodes")
         .and_then(|v| v.as_array())
@@ -461,6 +483,8 @@ pub fn parse_pr_node(node: &Value) -> Result<(RawPr, String, bool, Option<String
             reviews,
             threads,
             requested_reviewers,
+            base_ref,
+            changed_files,
         },
         id,
         threads_have_more,
