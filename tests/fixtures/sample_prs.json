@@ -309,6 +309,33 @@
             }
           },
           {
+            "id": "PR_kw_6000",
+            "number": 6000,
+            "title": "Draft: rework cache layer",
+            "url": "https://github.com/dashpay/platform/pull/6000",
+            "isDraft": true,
+            "mergeable": "MERGEABLE",
+            "createdAt": "2026-04-20T00:00:00Z",
+            "updatedAt": "2026-05-01T00:00:00Z",
+            "author": { "login": "bob" },
+            "labels": { "nodes": [] },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-01T00:00:00Z",
+                    "statusCheckRollup": { "state": "PENDING" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": []
+            }
+          },
+          {
             "id": "PR_kw_4001",
             "number": 4001,
             "title": "Bump serde to 1.0.220",

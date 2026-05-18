@@ -157,6 +157,8 @@ pub struct AuthorRollup {
     pub dirty_prs: u32,
     /// Open PRs they authored that carry a deferred label (intentionally on hold).
     pub deferred_prs: u32,
+    /// Open PRs they authored that are still marked draft.
+    pub draft_prs: u32,
     pub prs_needing_author_action: u32,
     pub total_unresolved: u32,
     pub unresolved_coderabbit: u32,
@@ -197,6 +199,8 @@ pub struct AuthorSnapshot {
     pub dirty_prs: u32,
     #[serde(default)]
     pub deferred_prs: u32,
+    #[serde(default)]
+    pub draft_prs: u32,
     #[serde(default)]
     pub awaiting_review: u32,
     pub prs_needing_author_action: u32,

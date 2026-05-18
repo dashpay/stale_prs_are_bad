@@ -42,17 +42,21 @@ fn write_header(out: &mut String, ctx: &RenderContext<'_>) {
 fn write_summary(out: &mut String, scored: &[ScoredPr]) {
     let open_prs = scored.len();
     let deferred: usize = scored.iter().filter(|s| s.pr.is_deferred).count();
+    let draft: usize = scored
+        .iter()
+        .filter(|s| !s.pr.is_deferred && s.pr.raw.is_draft)
+        .count();
     let dirty: usize = scored
         .iter()
-        .filter(|s| !s.pr.is_deferred && s.unresolved_total > 0)
+        .filter(|s| !s.pr.is_deferred && !s.pr.raw.is_draft && s.unresolved_total > 0)
         .count();
-    let clean: usize = open_prs - dirty - deferred;
+    let clean: usize = open_prs - dirty - deferred - draft;
     let needs: usize = scored.iter().filter(|s| s.pr.needs_author_action).count();
     let unresolved: u32 = scored.iter().map(|s| s.unresolved_total).sum();
     let _ = writeln!(out, "## Summary");
     let _ = writeln!(
         out,
-        "- Open PRs: **{open_prs}** ({clean} clean · {dirty} dirty · {deferred} deferred)"
+        "- Open PRs: **{open_prs}** ({clean} clean · {dirty} dirty · {deferred} deferred · {draft} draft)"
     );
     let _ = writeln!(out, "- PRs needing author action: **{needs}**");
     let _ = writeln!(out, "- Total unresolved threads: **{unresolved}**");
@@ -80,29 +84,33 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
     if has_history {
         let _ = writeln!(
             out,
-            "| Author | Open | Clean | Dirty | Deferred | Needs action | Unresolved | CR | Human | To review | Δ |"
+            "| Author | Open | Clean | Dirty | Deferred | Draft | Needs action | Unresolved | CR | Human | To review | Δ |"
+        );
+        let _ = writeln!(
+            out,
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "| Author | Open | Clean | Dirty | Deferred | Draft | Needs action | Unresolved | CR | Human | To review |"
         );
         let _ = writeln!(
             out,
             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
         );
-    } else {
-        let _ = writeln!(
-            out,
-            "| Author | Open | Clean | Dirty | Deferred | Needs action | Unresolved | CR | Human | To review |"
-        );
-        let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
     }
     for a in authors {
         if has_history {
             let _ = writeln!(
                 out,
-                "| @{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                "| @{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 a.login,
                 dash(a.total_open_prs),
                 dash(a.clean_prs),
                 dash(a.dirty_prs),
                 dash(a.deferred_prs),
+                dash(a.draft_prs),
                 dash(a.prs_needing_author_action),
                 dash(a.total_unresolved),
                 dash(a.unresolved_coderabbit),
@@ -113,12 +121,13 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
         } else {
             let _ = writeln!(
                 out,
-                "| @{} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                "| @{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 a.login,
                 dash(a.total_open_prs),
                 dash(a.clean_prs),
                 dash(a.dirty_prs),
                 dash(a.deferred_prs),
+                dash(a.draft_prs),
                 dash(a.prs_needing_author_action),
                 dash(a.total_unresolved),
                 dash(a.unresolved_coderabbit),
@@ -270,7 +279,8 @@ fn write_methodology(out: &mut String, ctx: &RenderContext<'_>) {
          **Dirty** = at least one such thread. \
          **Deferred** = carries a configured deferred label (e.g. `postponed`) — visible \
          but not counted as dirty. \
-         **Clean** = neither dirty nor deferred. \
+         **Draft** = the PR is still marked draft on GitHub. \
+         **Clean** = open, not draft, not deferred, no unresolved threads. \
          **Needs action** further requires changes-requested, merge conflict, or that the \
          reviewer commented more recently than the author last pushed. \
          **To review** counts clean, non-draft PRs (authored by someone else) where this person \
@@ -335,6 +345,7 @@ mod tests {
             clean_prs: clean,
             dirty_prs: dirty,
             deferred_prs: 0,
+            draft_prs: 0,
             prs_needing_author_action: needs,
             total_unresolved: unresolved,
             unresolved_coderabbit: cr,

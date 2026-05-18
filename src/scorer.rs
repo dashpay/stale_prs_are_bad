@@ -66,6 +66,7 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
                 clean_prs: 0,
                 dirty_prs: 0,
                 deferred_prs: 0,
+                draft_prs: 0,
                 prs_needing_author_action: 0,
                 total_unresolved: 0,
                 unresolved_coderabbit: 0,
@@ -83,8 +84,13 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
             ensure(&mut by_login, login);
             let entry = by_login.get_mut(login).expect("just inserted");
             entry.total_open_prs += 1;
+            // Precedence: deferred > draft > dirty > clean. A deferred draft counts as
+            // deferred (the more intentional signal); a draft with comments counts as draft
+            // because the author hasn't asked for review yet.
             if s.pr.is_deferred {
                 entry.deferred_prs += 1;
+            } else if s.pr.raw.is_draft {
+                entry.draft_prs += 1;
             } else if s.unresolved_total == 0 {
                 entry.clean_prs += 1;
             } else {
@@ -180,6 +186,7 @@ pub fn build_snapshot(
             clean_prs: a.clean_prs,
             dirty_prs: a.dirty_prs,
             deferred_prs: a.deferred_prs,
+            draft_prs: a.draft_prs,
             awaiting_review: a.awaiting_review,
             prs_needing_author_action: a.prs_needing_author_action,
             total_unresolved: a.total_unresolved,
@@ -379,6 +386,41 @@ mod tests {
     }
 
     #[test]
+    fn draft_pr_lands_in_draft_bucket_and_never_needs_action() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        let mut p = analyzed(
+            "alice",
+            vec![thread(Severity::High, ThreadSource::Human, 3)],
+            true, // analyzer would set this, but for drafts it's overridden — simulate that
+        );
+        p.raw.is_draft = true;
+        p.needs_author_action = false; // mirrors analyzer's draft-suppression
+        let scored = score_prs(vec![p], &cfg, now);
+        let rolled = rollup_authors(&scored, None);
+        let alice = &rolled[0];
+        assert_eq!(alice.total_open_prs, 1);
+        assert_eq!(alice.draft_prs, 1);
+        assert_eq!(alice.dirty_prs, 0);
+        assert_eq!(alice.clean_prs, 0);
+        assert_eq!(alice.prs_needing_author_action, 0);
+    }
+
+    #[test]
+    fn deferred_takes_precedence_over_draft() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        let mut p = analyzed("alice", vec![], false);
+        p.raw.is_draft = true;
+        p.is_deferred = true;
+        let scored = score_prs(vec![p], &cfg, now);
+        let rolled = rollup_authors(&scored, None);
+        let alice = &rolled[0];
+        assert_eq!(alice.deferred_prs, 1);
+        assert_eq!(alice.draft_prs, 0);
+    }
+
+    #[test]
     fn deferred_pr_increments_only_deferred_bucket() {
         let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
@@ -419,6 +461,7 @@ mod tests {
                 clean_prs: 0,
                 dirty_prs: 3,
                 deferred_prs: 0,
+                draft_prs: 0,
                 awaiting_review: 0,
                 prs_needing_author_action: 5,
                 total_unresolved: 10,

@@ -138,9 +138,12 @@ fn analyze_pr(pr: RawPr, cfg: &Config, now: DateTime<Utc>) -> AnalyzedPr {
         .unwrap_or(0.0);
 
     let unresolved_total = unresolved_threads.len();
-    let needs_author_action = changes_requested
-        || has_merge_conflict
-        || (days_since_author_push > days_since_last_reviewer_activity && unresolved_total > 0);
+    // Drafts can't "need author action" — the author is still iterating. Never tag them.
+    let needs_author_action = !pr.is_draft
+        && (changes_requested
+            || has_merge_conflict
+            || (days_since_author_push > days_since_last_reviewer_activity
+                && unresolved_total > 0));
 
     AnalyzedPr {
         raw: pr,
@@ -687,6 +690,37 @@ mod tests {
         );
         assert!(!pr.needs_author_action);
         assert!(!pr.has_merge_conflict, "deferred PR signals are suppressed");
+    }
+
+    #[test]
+    fn drafts_never_need_author_action() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        // Conflicting + stale unresolved thread + draft → no action required.
+        let pr = RawPr {
+            number: 1,
+            title: "wip foo".into(),
+            url: "u".into(),
+            author: Some("alice".into()),
+            created_at: dt("2026-04-01T00:00:00Z"),
+            updated_at: now,
+            is_draft: true,
+            mergeable: Mergeable::Conflicting,
+            labels: vec![],
+            last_commit: last_commit(dt("2026-04-29T00:00:00Z")),
+            reviews: vec![],
+            threads: vec![thread(
+                "t1",
+                vec![test_helpers_comment(
+                    "bob",
+                    "fix",
+                    dt("2026-05-17T00:00:00Z"),
+                )],
+            )],
+            requested_reviewers: vec![],
+        };
+        let analyzed = analyze(vec![pr], &cfg, now);
+        assert!(!analyzed[0].needs_author_action);
     }
 
     #[test]
