@@ -124,6 +124,8 @@ mod tests {
             per_author: vec![AuthorSnapshot {
                 login: "alice".into(),
                 total_open_prs: 3,
+                clean_prs: 2,
+                dirty_prs: 1,
                 prs_needing_author_action: 1,
                 total_unresolved: 2,
                 total_score: 1.5,

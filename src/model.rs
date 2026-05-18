@@ -144,8 +144,15 @@ pub struct ScoredPr {
 pub struct AuthorRollup {
     pub login: String,
     pub total_open_prs: u32,
+    /// Open PRs with zero unresolved threads.
+    pub clean_prs: u32,
+    /// Open PRs with at least one unresolved thread. clean + dirty == total.
+    pub dirty_prs: u32,
     pub prs_needing_author_action: u32,
     pub total_unresolved: u32,
+    pub unresolved_coderabbit: u32,
+    pub unresolved_human: u32,
+    pub unresolved_bot: u32,
     pub total_score: f64,
     pub oldest_stale_pr_days: f64,
     /// Difference in `prs_needing_author_action` vs the snapshot from ~7 days ago.
@@ -172,6 +179,10 @@ pub struct Summary {
 pub struct AuthorSnapshot {
     pub login: String,
     pub total_open_prs: u32,
+    #[serde(default)]
+    pub clean_prs: u32,
+    #[serde(default)]
+    pub dirty_prs: u32,
     pub prs_needing_author_action: u32,
     pub total_unresolved: u32,
     pub total_score: f64,

@@ -67,17 +67,30 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
             .or_insert_with(|| AuthorRollup {
                 login: login.to_string(),
                 total_open_prs: 0,
+                clean_prs: 0,
+                dirty_prs: 0,
                 prs_needing_author_action: 0,
                 total_unresolved: 0,
+                unresolved_coderabbit: 0,
+                unresolved_human: 0,
+                unresolved_bot: 0,
                 total_score: 0.0,
                 oldest_stale_pr_days: 0.0,
                 delta_vs_last_week: None,
             });
         entry.total_open_prs += 1;
+        if s.unresolved_total == 0 {
+            entry.clean_prs += 1;
+        } else {
+            entry.dirty_prs += 1;
+        }
         if s.pr.needs_author_action {
             entry.prs_needing_author_action += 1;
         }
         entry.total_unresolved += s.unresolved_total;
+        entry.unresolved_coderabbit += s.unresolved_by_source.coderabbit;
+        entry.unresolved_human += s.unresolved_by_source.human;
+        entry.unresolved_bot += s.unresolved_by_source.bot;
         entry.total_score += s.score;
         if s.oldest_thread_age_days > entry.oldest_stale_pr_days {
             entry.oldest_stale_pr_days = s.oldest_thread_age_days;
@@ -97,13 +110,18 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
         }
     }
     let mut out: Vec<AuthorRollup> = by_author.into_values().collect();
+    // Sort: slackers float to the top, clean players sink to the bottom for contrast.
     out.sort_by(|a, b| {
-        b.total_score
-            .partial_cmp(&a.total_score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        b.dirty_prs
+            .cmp(&a.dirty_prs)
             .then(
                 b.prs_needing_author_action
                     .cmp(&a.prs_needing_author_action),
+            )
+            .then(
+                b.total_score
+                    .partial_cmp(&a.total_score)
+                    .unwrap_or(std::cmp::Ordering::Equal),
             )
             .then(b.total_unresolved.cmp(&a.total_unresolved))
             .then(a.login.cmp(&b.login))
@@ -124,6 +142,8 @@ pub fn build_snapshot(
         .map(|a| AuthorSnapshot {
             login: a.login.clone(),
             total_open_prs: a.total_open_prs,
+            clean_prs: a.clean_prs,
+            dirty_prs: a.dirty_prs,
             prs_needing_author_action: a.prs_needing_author_action,
             total_unresolved: a.total_unresolved,
             total_score: a.total_score,
@@ -303,6 +323,8 @@ mod tests {
             per_author: vec![AuthorSnapshot {
                 login: "alice".into(),
                 total_open_prs: 3,
+                clean_prs: 0,
+                dirty_prs: 3,
                 prs_needing_author_action: 5,
                 total_unresolved: 10,
                 total_score: 0.0,

@@ -17,10 +17,9 @@ pub fn render(scored: &[ScoredPr], authors: &[AuthorRollup], ctx: &RenderContext
     let _ = writeln!(out, "---");
     let _ = writeln!(out, "---");
     write_header(&mut out, ctx);
-    write_summary(&mut out, scored, authors);
-    write_top_offenders(&mut out, authors, ctx.has_history);
+    write_summary(&mut out, scored);
+    write_scoreboard(&mut out, authors, ctx.has_history);
     write_pr_sections(&mut out, scored, authors, ctx.now);
-    write_clean_prs(&mut out, scored);
     write_methodology(&mut out, ctx);
     out
 }
@@ -40,86 +39,89 @@ fn write_header(out: &mut String, ctx: &RenderContext<'_>) {
     let _ = writeln!(out);
 }
 
-fn write_summary(out: &mut String, scored: &[ScoredPr], authors: &[AuthorRollup]) {
+fn write_summary(out: &mut String, scored: &[ScoredPr]) {
     let open_prs = scored.len();
+    let dirty: usize = scored.iter().filter(|s| s.unresolved_total > 0).count();
+    let clean: usize = open_prs - dirty;
     let needs: usize = scored.iter().filter(|s| s.pr.needs_author_action).count();
     let unresolved: u32 = scored.iter().map(|s| s.unresolved_total).sum();
     let _ = writeln!(out, "## Summary");
-    let _ = writeln!(out, "- Open PRs: {open_prs}");
-    let _ = writeln!(out, "- PRs needing author action: {needs}");
-    let _ = writeln!(out, "- Total unresolved threads: {unresolved}");
-
-    let mut by_action: Vec<&AuthorRollup> = authors
-        .iter()
-        .filter(|a| a.prs_needing_author_action > 0)
-        .collect();
-    by_action.sort_by(|a, b| {
-        b.prs_needing_author_action
-            .cmp(&a.prs_needing_author_action)
-            .then(a.login.cmp(&b.login))
-    });
-    if !by_action.is_empty() {
-        let top: Vec<String> = by_action
-            .iter()
-            .take(3)
-            .map(|a| format!("@{} ({} PRs)", a.login, a.prs_needing_author_action))
-            .collect();
-        let _ = writeln!(out, "- Top offenders this week: {}", top.join(", "));
-    }
+    let _ = writeln!(
+        out,
+        "- Open PRs: **{open_prs}** ({clean} clean · {dirty} dirty)"
+    );
+    let _ = writeln!(out, "- PRs needing author action: **{needs}**");
+    let _ = writeln!(out, "- Total unresolved threads: **{unresolved}**");
     let _ = writeln!(out);
 }
 
-fn write_top_offenders(out: &mut String, authors: &[AuthorRollup], has_history: bool) {
-    let mut offenders: Vec<&AuthorRollup> = authors
-        .iter()
-        .filter(|a| a.total_unresolved > 0 || a.prs_needing_author_action > 0)
-        .collect();
-    if offenders.is_empty() {
+fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: bool) {
+    if authors.is_empty() {
         return;
     }
-    offenders.sort_by(|a, b| {
-        b.total_score
-            .partial_cmp(&a.total_score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(
-                b.prs_needing_author_action
-                    .cmp(&a.prs_needing_author_action),
-            )
-            .then(b.total_unresolved.cmp(&a.total_unresolved))
-            .then(a.login.cmp(&b.login))
-    });
-    let _ = writeln!(out, "## 🚨 Top offenders");
+    let _ = writeln!(out, "## Scoreboard");
+    let _ = writeln!(
+        out,
+        "_Sorted by dirty PRs (desc). Authors with all-clean PRs sink to the bottom._"
+    );
+    let _ = writeln!(out);
     if has_history {
         let _ = writeln!(
             out,
-            "| Author | Open PRs | Needs action | Unresolved | Oldest stale | Δ vs last week |"
+            "| Author | Open | Clean | Dirty | Needs action | Unresolved | CR | Human | Oldest stale | Score | Δ |"
         );
-        let _ = writeln!(out, "|---|---|---|---|---|---|");
+        let _ = writeln!(
+            out,
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+        );
     } else {
         let _ = writeln!(
             out,
-            "| Author | Open PRs | Needs action | Unresolved | Oldest stale |"
+            "| Author | Open | Clean | Dirty | Needs action | Unresolved | CR | Human | Oldest stale | Score |"
         );
-        let _ = writeln!(out, "|---|---|---|---|---|");
+        let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
     }
-    for a in offenders.iter().take(15) {
-        let oldest = format!("{}d", a.oldest_stale_pr_days.round() as i64);
+    for a in authors {
+        let oldest = if a.dirty_prs == 0 {
+            "—".to_string()
+        } else {
+            format!("{}d", a.oldest_stale_pr_days.round() as i64)
+        };
+        let score = if a.total_score < 0.05 {
+            "—".to_string()
+        } else {
+            format!("{:.1}", a.total_score)
+        };
         if has_history {
             let _ = writeln!(
                 out,
-                "| @{} | {} | {} | {} | {} | {} |",
+                "| @{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 a.login,
                 a.total_open_prs,
+                a.clean_prs,
+                a.dirty_prs,
                 a.prs_needing_author_action,
                 a.total_unresolved,
+                a.unresolved_coderabbit,
+                a.unresolved_human,
                 oldest,
+                score,
                 format_delta(a.delta_vs_last_week),
             );
         } else {
             let _ = writeln!(
                 out,
-                "| @{} | {} | {} | {} | {} |",
-                a.login, a.total_open_prs, a.prs_needing_author_action, a.total_unresolved, oldest,
+                "| @{} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                a.login,
+                a.total_open_prs,
+                a.clean_prs,
+                a.dirty_prs,
+                a.prs_needing_author_action,
+                a.total_unresolved,
+                a.unresolved_coderabbit,
+                a.unresolved_human,
+                oldest,
+                score,
             );
         }
     }
@@ -256,33 +258,6 @@ fn source_breakdown(s: &ScoredPr) -> String {
     parts.join(", ")
 }
 
-fn write_clean_prs(out: &mut String, scored: &[ScoredPr]) {
-    let mut clean: Vec<&ScoredPr> = scored
-        .iter()
-        .filter(|s| !s.pr.raw.is_draft && s.unresolved_total == 0 && !s.pr.needs_author_action)
-        .collect();
-    if clean.is_empty() {
-        return;
-    }
-    clean.sort_by_key(|s| s.pr.raw.number);
-    let _ = writeln!(out, "## Clean PRs (no unresolved, awaiting review)");
-    for s in clean.iter().take(20) {
-        let title = sanitize_inline(&s.pr.raw.title);
-        let _ = writeln!(
-            out,
-            "- [#{} {}]({}) — @{}",
-            s.pr.raw.number,
-            title,
-            s.pr.raw.url,
-            s.pr.raw.author.as_deref().unwrap_or("?")
-        );
-    }
-    if clean.len() > 20 {
-        let _ = writeln!(out, "- _…and {} more._", clean.len() - 20);
-    }
-    let _ = writeln!(out);
-}
-
 fn write_methodology(out: &mut String, ctx: &RenderContext<'_>) {
     let _ = writeln!(out, "## Methodology");
     let _ = writeln!(
@@ -290,7 +265,10 @@ fn write_methodology(out: &mut String, ctx: &RenderContext<'_>) {
         "Generated nightly by [pr-hygiene](https://github.com/dashpay/stale_prs_are_bad). \
          A thread counts as \"unresolved\" when it is open, not outdated, has a comment from \
          someone other than the PR author, and the most recent comment is from a reviewer. \
-         Score weighs threads by severity and amplifies for staleness. \
+         A PR is \"dirty\" when it has at least one such thread; \"needs author action\" further \
+         requires either changes-requested, merge conflict, or that the reviewer commented more \
+         recently than the author last pushed. Score weighs threads by severity \
+         (`high*5 + medium*2 + low*0.5`) and amplifies for staleness (`ln(oldest+1)`). \
          Configurable via [`{}`]({})\u{2014}edit defaults there.",
         ctx.config_path, ctx.config_path
     );
@@ -328,6 +306,36 @@ mod tests {
             commit_sha: Some("abc1234567"),
             config_path: ".pr-hygiene.yml",
             has_history,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rollup(
+        login: &str,
+        total: u32,
+        clean: u32,
+        dirty: u32,
+        needs: u32,
+        unresolved: u32,
+        cr: u32,
+        human: u32,
+        score: f64,
+        oldest: f64,
+        delta: Option<i32>,
+    ) -> AuthorRollup {
+        AuthorRollup {
+            login: login.into(),
+            total_open_prs: total,
+            clean_prs: clean,
+            dirty_prs: dirty,
+            prs_needing_author_action: needs,
+            total_unresolved: unresolved,
+            unresolved_coderabbit: cr,
+            unresolved_human: human,
+            unresolved_bot: 0,
+            total_score: score,
+            oldest_stale_pr_days: oldest,
+            delta_vs_last_week: delta,
         }
     }
 
@@ -412,21 +420,13 @@ mod tests {
     fn empty_report_renders() {
         let out = render(&[], &[], &ctx(true));
         assert!(out.contains("# PR Hygiene Report"));
-        assert!(out.contains("Open PRs: 0"));
+        assert!(out.contains("Open PRs: **0**"));
         assert!(out.contains("Methodology"));
     }
 
     #[test]
     fn no_history_omits_delta_column() {
-        let rollup = vec![AuthorRollup {
-            login: "alice".into(),
-            total_open_prs: 1,
-            prs_needing_author_action: 1,
-            total_unresolved: 1,
-            total_score: 5.0,
-            oldest_stale_pr_days: 3.0,
-            delta_vs_last_week: None,
-        }];
+        let rollup_data = vec![rollup("alice", 1, 0, 1, 1, 1, 0, 1, 5.0, 3.0, None)];
         let scored = vec![pr(
             1,
             "alice",
@@ -435,22 +435,36 @@ mod tests {
             true,
             false,
         )];
-        let out = render(&scored, &rollup, &ctx(false));
-        assert!(!out.contains("Δ vs last week"));
+        let out = render(&scored, &rollup_data, &ctx(false));
+        assert!(!out.contains(" Δ "), "no Δ column header should appear");
         assert!(out.contains("No history snapshot from last week"));
     }
 
     #[test]
+    fn scoreboard_includes_clean_player() {
+        let rollup_data = vec![
+            // Slacker on top.
+            rollup("alice", 3, 0, 3, 2, 8, 5, 3, 24.0, 14.0, Some(2)),
+            // Clean player at bottom.
+            rollup("pasta", 4, 4, 0, 0, 0, 0, 0, 0.0, 0.0, None),
+        ];
+        let out = render(&[], &rollup_data, &ctx(true));
+        assert!(out.contains("@alice"));
+        assert!(out.contains("@pasta"));
+        // Clean row shows "—" for oldest and score.
+        let pasta_line = out
+            .lines()
+            .find(|l| l.contains("@pasta"))
+            .expect("pasta row");
+        assert!(pasta_line.contains("| — |"), "got: {pasta_line}");
+        // Slacker row shows the delta.
+        let alice_line = out.lines().find(|l| l.contains("@alice")).expect("alice");
+        assert!(alice_line.contains("↑ 2"));
+    }
+
+    #[test]
     fn renders_pr_bullet_with_breakdown_and_ci() {
-        let rollup = vec![AuthorRollup {
-            login: "alice".into(),
-            total_open_prs: 1,
-            prs_needing_author_action: 1,
-            total_unresolved: 3,
-            total_score: 12.0,
-            oldest_stale_pr_days: 18.0,
-            delta_vs_last_week: Some(2),
-        }];
+        let rollup_data = vec![rollup("alice", 1, 0, 1, 1, 3, 2, 1, 12.0, 18.0, Some(2))];
         let scored = vec![pr(
             1234,
             "alice",
@@ -468,7 +482,7 @@ mod tests {
             true,
             true,
         )];
-        let out = render(&scored, &rollup, &ctx(true));
+        let out = render(&scored, &rollup_data, &ctx(true));
         assert!(out.contains("[#1234 Add foo support](https://example.com/pr/1234)"));
         assert!(out.contains("3 unresolved (2 CodeRabbit, 1 human)"));
         assert!(out.contains("CI failing"));
@@ -478,15 +492,7 @@ mod tests {
 
     #[test]
     fn sanitizes_pipe_in_titles() {
-        let rollup = vec![AuthorRollup {
-            login: "alice".into(),
-            total_open_prs: 1,
-            prs_needing_author_action: 1,
-            total_unresolved: 1,
-            total_score: 5.0,
-            oldest_stale_pr_days: 1.0,
-            delta_vs_last_week: None,
-        }];
+        let rollup_data = vec![rollup("alice", 1, 0, 1, 1, 1, 0, 1, 5.0, 1.0, None)];
         let scored = vec![pr(
             1,
             "alice",
@@ -495,7 +501,7 @@ mod tests {
             true,
             false,
         )];
-        let out = render(&scored, &rollup, &ctx(false));
+        let out = render(&scored, &rollup_data, &ctx(false));
         assert!(out.contains("add \\| pipe in title"));
     }
 }

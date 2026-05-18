@@ -8,16 +8,18 @@ expression: md
 *Last updated: 2026-05-19 06:00 UTC · commit abc1234*
 
 ## Summary
-- Open PRs: 4
-- PRs needing author action: 2
-- Total unresolved threads: 4
-- Top offenders this week: @alice (2 PRs)
+- Open PRs: **4** (1 clean · 3 dirty)
+- PRs needing author action: **2**
+- Total unresolved threads: **4**
 
-## 🚨 Top offenders
-| Author | Open PRs | Needs action | Unresolved | Oldest stale |
-|---|---|---|---|---|
-| @alice | 2 | 2 | 3 | 39d |
-| @bob | 1 | 0 | 1 | 2d |
+## Scoreboard
+_Sorted by dirty PRs (desc). Authors with all-clean PRs sink to the bottom._
+
+| Author | Open | Clean | Dirty | Needs action | Unresolved | CR | Human | Oldest stale | Score |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| @alice | 2 | 0 | 2 | 2 | 3 | 2 | 1 | 39d | 39.1 |
+| @bob | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 2d | 2.4 |
+| @carol | 1 | 1 | 0 | 0 | 0 | 0 | 0 | — | — |
 
 ## PRs needing author action
 ### @alice
@@ -26,10 +28,7 @@ expression: md
 - [#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict
   - Top thread: "🛠️ Refactor suggestion: extract this loop" — 39 days old
 
-## Clean PRs (no unresolved, awaiting review)
-- [#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — @carol
-
 ## Methodology
-Generated nightly by [pr-hygiene](https://github.com/dashpay/stale_prs_are_bad). A thread counts as "unresolved" when it is open, not outdated, has a comment from someone other than the PR author, and the most recent comment is from a reviewer. Score weighs threads by severity and amplifies for staleness. Configurable via [`.pr-hygiene.yml`](.pr-hygiene.yml)—edit defaults there.
+Generated nightly by [pr-hygiene](https://github.com/dashpay/stale_prs_are_bad). A thread counts as "unresolved" when it is open, not outdated, has a comment from someone other than the PR author, and the most recent comment is from a reviewer. A PR is "dirty" when it has at least one such thread; "needs author action" further requires either changes-requested, merge conflict, or that the reviewer commented more recently than the author last pushed. Score weighs threads by severity (`high*5 + medium*2 + low*0.5`) and amplifies for staleness (`ln(oldest+1)`). Configurable via [`.pr-hygiene.yml`](.pr-hygiene.yml)—edit defaults there.
 
 _No history snapshot from last week was found, so week-over-week deltas are omitted this run._
