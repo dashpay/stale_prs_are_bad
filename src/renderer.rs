@@ -19,9 +19,33 @@ pub fn render(scored: &[ScoredPr], authors: &[AuthorRollup], ctx: &RenderContext
     write_header(&mut out, ctx);
     write_summary(&mut out, scored);
     write_scoreboard(&mut out, authors, ctx.has_history);
-    write_pr_sections(&mut out, scored, authors, ctx.now);
+    write_author_drilldowns(&mut out, scored, authors, ctx.now);
     write_methodology(&mut out, ctx);
     out
+}
+
+/// Slugify a GitHub login into a stable, anchor-safe id.
+fn slug(login: &str) -> String {
+    login
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// Render an integer cell as either a dash (when zero) or a clickable link to
+/// the per-author drilldown subsection.
+fn cell_link(count: u32, login: &str, bucket: &str) -> String {
+    if count == 0 {
+        "—".to_string()
+    } else {
+        format!("[{}](#{}-{})", count, slug(login), bucket)
+    }
 }
 
 fn write_header(out: &mut String, ctx: &RenderContext<'_>) {
@@ -71,16 +95,9 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
     let _ = writeln!(
         out,
         "_Sort: dirty PRs desc → needs-action desc → to-review desc. \
-         Clean players sink to the bottom; pure reviewers appear after authors._"
+         Click any number to jump to the specific PRs it covers._"
     );
     let _ = writeln!(out);
-    let dash = |n: u32| {
-        if n == 0 {
-            "—".to_string()
-        } else {
-            n.to_string()
-        }
-    };
     if has_history {
         let _ = writeln!(
             out,
@@ -101,38 +118,44 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
         );
     }
     for a in authors {
+        let author_link = format!("[@{0}](#{1})", a.login, slug(&a.login));
+        // Unresolved-thread counts (CR/Human/Total) all live on the same dirty PRs,
+        // so the natural drill target for those columns is the dirty subsection.
+        let unresolved_target = cell_link(a.total_unresolved, &a.login, "dirty");
+        let cr_target = cell_link(a.unresolved_coderabbit, &a.login, "dirty");
+        let human_target = cell_link(a.unresolved_human, &a.login, "dirty");
         if has_history {
             let _ = writeln!(
                 out,
-                "| @{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-                a.login,
-                dash(a.total_open_prs),
-                dash(a.clean_prs),
-                dash(a.dirty_prs),
-                dash(a.deferred_prs),
-                dash(a.draft_prs),
-                dash(a.prs_needing_author_action),
-                dash(a.total_unresolved),
-                dash(a.unresolved_coderabbit),
-                dash(a.unresolved_human),
-                dash(a.awaiting_review),
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                author_link,
+                cell_link(a.total_open_prs, &a.login, "open"),
+                cell_link(a.clean_prs, &a.login, "clean"),
+                cell_link(a.dirty_prs, &a.login, "dirty"),
+                cell_link(a.deferred_prs, &a.login, "deferred"),
+                cell_link(a.draft_prs, &a.login, "draft"),
+                cell_link(a.prs_needing_author_action, &a.login, "needs-action"),
+                unresolved_target,
+                cr_target,
+                human_target,
+                cell_link(a.awaiting_review, &a.login, "to-review"),
                 format_delta(a.delta_vs_last_week),
             );
         } else {
             let _ = writeln!(
                 out,
-                "| @{} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-                a.login,
-                dash(a.total_open_prs),
-                dash(a.clean_prs),
-                dash(a.dirty_prs),
-                dash(a.deferred_prs),
-                dash(a.draft_prs),
-                dash(a.prs_needing_author_action),
-                dash(a.total_unresolved),
-                dash(a.unresolved_coderabbit),
-                dash(a.unresolved_human),
-                dash(a.awaiting_review),
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                author_link,
+                cell_link(a.total_open_prs, &a.login, "open"),
+                cell_link(a.clean_prs, &a.login, "clean"),
+                cell_link(a.dirty_prs, &a.login, "dirty"),
+                cell_link(a.deferred_prs, &a.login, "deferred"),
+                cell_link(a.draft_prs, &a.login, "draft"),
+                cell_link(a.prs_needing_author_action, &a.login, "needs-action"),
+                unresolved_target,
+                cr_target,
+                human_target,
+                cell_link(a.awaiting_review, &a.login, "to-review"),
             );
         }
     }
@@ -148,73 +171,142 @@ fn format_delta(d: Option<i32>) -> String {
     }
 }
 
-fn write_pr_sections(
+/// For each author in the scoreboard, emit a top-level `## @login` section
+/// containing one subsection per non-empty bucket. Subsections are anchored so
+/// the scoreboard table cells link directly to them.
+fn write_author_drilldowns(
     out: &mut String,
     scored: &[ScoredPr],
     authors: &[AuthorRollup],
     now: DateTime<Utc>,
 ) {
-    let _ = writeln!(out, "## PRs needing author action");
-    let needs: Vec<&ScoredPr> = scored.iter().filter(|s| s.pr.needs_author_action).collect();
-    if needs.is_empty() {
-        let _ = writeln!(out, "_None._");
+    if authors.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "## Per-author detail");
+    let _ = writeln!(out);
+    for a in authors {
+        write_author_section(out, scored, a, now);
+    }
+}
+
+fn write_author_section(
+    out: &mut String,
+    scored: &[ScoredPr],
+    rollup: &AuthorRollup,
+    now: DateTime<Utc>,
+) {
+    let login = &rollup.login;
+    let s = slug(login);
+    let _ = writeln!(out, "<a id=\"{s}\"></a>");
+    let _ = writeln!(out, "### @{login}");
+
+    let mine: Vec<&ScoredPr> = scored
+        .iter()
+        .filter(|p| p.pr.raw.author.as_deref() == Some(login.as_str()))
+        .collect();
+
+    if mine.is_empty() && rollup.awaiting_review == 0 {
+        // Pure reviewer with no queue right now. Just emit the anchor + an empty notice.
+        let _ = writeln!(out, "_No PRs._");
         let _ = writeln!(out);
         return;
     }
-    let author_order: Vec<&str> = authors.iter().map(|a| a.login.as_str()).collect();
-    for login in author_order {
-        let mut for_author: Vec<&ScoredPr> = needs
-            .iter()
-            .copied()
-            .filter(|s| s.pr.raw.author.as_deref() == Some(login))
-            .collect();
-        if for_author.is_empty() {
-            continue;
-        }
-        for_author.sort_by(|a, b| {
+
+    let mut by_bucket: Vec<(&str, &str, Vec<&ScoredPr>)> = Vec::new();
+    let collect = |pred: &dyn Fn(&&&ScoredPr) -> bool| -> Vec<&ScoredPr> {
+        let mut v: Vec<&ScoredPr> = mine.iter().filter(pred).copied().collect();
+        v.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then(b.unresolved_total.cmp(&a.unresolved_total))
                 .then(a.pr.raw.number.cmp(&b.pr.raw.number))
         });
-        let _ = writeln!(out, "### @{login}");
-        for s in for_author {
-            write_pr_bullet(out, s, now);
-        }
-        let _ = writeln!(out);
-    }
-    let mut orphans: Vec<&ScoredPr> = needs
+        v
+    };
+
+    by_bucket.push(("Open", "open", collect(&|_| true)));
+    by_bucket.push((
+        "Needs action",
+        "needs-action",
+        collect(&|p| p.pr.needs_author_action),
+    ));
+    by_bucket.push((
+        "Dirty",
+        "dirty",
+        collect(&|p| !p.pr.is_deferred && !p.pr.raw.is_draft && p.unresolved_total > 0),
+    ));
+    by_bucket.push(("Deferred", "deferred", collect(&|p| p.pr.is_deferred)));
+    by_bucket.push((
+        "Draft",
+        "draft",
+        collect(&|p| !p.pr.is_deferred && p.pr.raw.is_draft),
+    ));
+    by_bucket.push((
+        "Clean",
+        "clean",
+        collect(&|p| !p.pr.is_deferred && !p.pr.raw.is_draft && p.unresolved_total == 0),
+    ));
+
+    // To-review is authored by someone else; pull from scored at large.
+    let mut to_review: Vec<&ScoredPr> = scored
         .iter()
-        .copied()
-        .filter(|s| s.pr.raw.author.is_none())
+        .filter(|p| {
+            !p.pr.is_deferred
+                && !p.pr.raw.is_draft
+                && p.unresolved_total == 0
+                && !p.pr.has_merge_conflict
+                && p.pr
+                    .raw
+                    .requested_reviewers
+                    .iter()
+                    .any(|r| r.eq_ignore_ascii_case(login))
+                && p.pr
+                    .raw
+                    .author
+                    .as_deref()
+                    .is_some_and(|a| !a.eq_ignore_ascii_case(login))
+        })
         .collect();
-    if !orphans.is_empty() {
-        orphans.sort_by_key(|s| s.pr.raw.number);
-        let _ = writeln!(out, "### (no author)");
-        for s in orphans {
-            write_pr_bullet(out, s, now);
+    to_review.sort_by_key(|p| p.pr.raw.number);
+    by_bucket.push(("To review", "to-review", to_review));
+
+    for (label, anchor, prs) in by_bucket {
+        if prs.is_empty() {
+            continue;
+        }
+        let _ = writeln!(out, "<a id=\"{s}-{anchor}\"></a>");
+        let _ = writeln!(out, "#### {label} ({})", prs.len());
+        for p in prs {
+            write_pr_bullet(out, p, now, anchor == "to-review");
         }
         let _ = writeln!(out);
     }
 }
 
-fn write_pr_bullet(out: &mut String, s: &ScoredPr, now: DateTime<Utc>) {
+fn write_pr_bullet(out: &mut String, s: &ScoredPr, now: DateTime<Utc>, show_author: bool) {
     let title = sanitize_inline(&s.pr.raw.title);
     let url = &s.pr.raw.url;
     let n = s.pr.raw.number;
     let mut detail_bits: Vec<String> = vec![];
-    detail_bits.push(format!("{} unresolved", s.unresolved_total));
-    let breakdown = source_breakdown(s);
-    if !breakdown.is_empty() {
-        // Tack the breakdown onto the unresolved count: "12 unresolved (6 CodeRabbit, 6 human)".
-        let last = detail_bits.last_mut().unwrap();
-        let _ = write!(last, " ({})", breakdown);
+    if show_author {
+        if let Some(a) = &s.pr.raw.author {
+            detail_bits.push(format!("by @{a}"));
+        }
     }
-    detail_bits.push(format!(
-        "{:.0} days stale",
-        s.oldest_thread_age_days.max(0.0)
-    ));
+    if s.unresolved_total > 0 {
+        let mut chunk = format!("{} unresolved", s.unresolved_total);
+        let breakdown = source_breakdown(s);
+        if !breakdown.is_empty() {
+            let _ = write!(chunk, " ({})", breakdown);
+        }
+        detail_bits.push(chunk);
+        detail_bits.push(format!(
+            "{:.0} days stale",
+            s.oldest_thread_age_days.max(0.0)
+        ));
+    }
     if s.pr.has_merge_conflict {
         detail_bits.push("⚠ merge conflict".into());
     }
@@ -224,16 +316,29 @@ fn write_pr_bullet(out: &mut String, s: &ScoredPr, now: DateTime<Utc>) {
     if s.pr.ci_failing {
         detail_bits.push("🔴 CI failing".into());
     }
-    let _ = writeln!(out, "- [#{n} {title}]({url}) — {}", detail_bits.join(" · "));
+    if s.pr.raw.is_draft {
+        detail_bits.push("📝 draft".into());
+    }
+    if s.pr.is_deferred {
+        detail_bits.push("⏸ deferred".into());
+    }
+    let suffix = if detail_bits.is_empty() {
+        String::new()
+    } else {
+        format!(" — {}", detail_bits.join(" · "))
+    };
+    let _ = writeln!(out, "- [#{n} {title}]({url}){suffix}");
 
-    if let Some(top) = pick_top_thread(&s.pr.unresolved_threads) {
-        let days = ((now - top.first_comment_at).num_seconds().max(0) as f64) / 86_400.0;
-        let _ = writeln!(
-            out,
-            "  - Top thread: \"{}\" — {:.0} days old",
-            sanitize_inline(&top.first_comment_excerpt),
-            days
-        );
+    if s.unresolved_total > 0 {
+        if let Some(top) = pick_top_thread(&s.pr.unresolved_threads) {
+            let days = ((now - top.first_comment_at).num_seconds().max(0) as f64) / 86_400.0;
+            let _ = writeln!(
+                out,
+                "  - Top thread: \"{}\" — {:.0} days old",
+                sanitize_inline(&top.first_comment_excerpt),
+                days
+            );
+        }
     }
 }
 
@@ -509,6 +614,58 @@ mod tests {
         assert!(out.contains("CI failing"));
         assert!(out.contains("Top thread: \"This should use error wrapping\""));
         assert!(out.contains("↑ 2"));
+    }
+
+    #[test]
+    fn scoreboard_cells_link_to_drilldown_anchors() {
+        let rollup_data = vec![rollup("Alice-123", 2, 0, 2, 1, 2, 1, 1, 10.0, 9.0, None)];
+        let scored = vec![
+            pr(
+                42,
+                "Alice-123",
+                "feature",
+                vec![thread(Severity::High, ThreadSource::Human, 9, "fix this")],
+                true,
+                false,
+            ),
+            pr(
+                43,
+                "Alice-123",
+                "another",
+                vec![thread(Severity::Medium, ThreadSource::Coderabbit, 2, "y")],
+                false,
+                false,
+            ),
+        ];
+        let out = render(&scored, &rollup_data, &ctx(false));
+        // Login is slugified to lowercase for anchors.
+        assert!(
+            out.contains("[2](#alice-123-open)"),
+            "open cell should link"
+        );
+        assert!(
+            out.contains("[2](#alice-123-dirty)"),
+            "dirty cell should link"
+        );
+        assert!(
+            out.contains("[1](#alice-123-needs-action)"),
+            "needs-action cell should link"
+        );
+        // Zero counts are dashes, no links.
+        let row = out
+            .lines()
+            .find(|l| l.contains("[@Alice-123]"))
+            .expect("row");
+        assert!(
+            row.contains("| — |"),
+            "zero-count cells should be dashes\nrow: {row}"
+        );
+        // Drilldown section exists with the slugified anchor and bucket subsections.
+        assert!(out.contains("<a id=\"alice-123\"></a>"));
+        assert!(out.contains("<a id=\"alice-123-dirty\"></a>"));
+        assert!(out.contains("#### Dirty (2)"));
+        // Author name in the table is also clickable to their section.
+        assert!(out.contains("[@Alice-123](#alice-123)"));
     }
 
     #[test]

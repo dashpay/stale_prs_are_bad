@@ -13,20 +13,74 @@ expression: md
 - Total unresolved threads: **4**
 
 ## Scoreboard
-_Sort: dirty PRs desc → needs-action desc → to-review desc. Clean players sink to the bottom; pure reviewers appear after authors._
+_Sort: dirty PRs desc → needs-action desc → to-review desc. Click any number to jump to the specific PRs it covers._
 
 | Author | Open | Clean | Dirty | Deferred | Draft | Needs action | Unresolved | CR | Human | To review |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| @alice | 3 | — | 2 | 1 | — | 2 | 3 | 2 | 1 | 1 |
-| @bob | 2 | — | 1 | — | 1 | — | 1 | — | 1 | — |
-| @carol | 1 | 1 | — | — | — | — | — | — | — | — |
+| [@alice](#alice) | [3](#alice-open) | — | [2](#alice-dirty) | [1](#alice-deferred) | — | [2](#alice-needs-action) | [3](#alice-dirty) | [2](#alice-dirty) | [1](#alice-dirty) | [1](#alice-to-review) |
+| [@bob](#bob) | [2](#bob-open) | — | [1](#bob-dirty) | — | [1](#bob-draft) | — | [1](#bob-dirty) | — | [1](#bob-dirty) | — |
+| [@carol](#carol) | [1](#carol-open) | [1](#carol-clean) | — | — | — | — | — | — | — | — |
 
-## PRs needing author action
+## Per-author detail
+
+<a id="alice"></a>
 ### @alice
+<a id="alice-open"></a>
+#### Open (3)
 - [#1234 Add foo support](https://github.com/dashpay/platform/pull/1234) — 2 unresolved (1 CodeRabbit, 1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "This should use error wrapping instead of bare returns" — 23 days old
 - [#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict
   - Top thread: "🛠️ Refactor suggestion: extract this loop" — 39 days old
+- [#5000 Postpone wallet migration](https://github.com/dashpay/platform/pull/5000) — ⏸ deferred
+
+<a id="alice-needs-action"></a>
+#### Needs action (2)
+- [#1234 Add foo support](https://github.com/dashpay/platform/pull/1234) — 2 unresolved (1 CodeRabbit, 1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "This should use error wrapping instead of bare returns" — 23 days old
+- [#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict
+  - Top thread: "🛠️ Refactor suggestion: extract this loop" — 39 days old
+
+<a id="alice-dirty"></a>
+#### Dirty (2)
+- [#1234 Add foo support](https://github.com/dashpay/platform/pull/1234) — 2 unresolved (1 CodeRabbit, 1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "This should use error wrapping instead of bare returns" — 23 days old
+- [#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict
+  - Top thread: "🛠️ Refactor suggestion: extract this loop" — 39 days old
+
+<a id="alice-deferred"></a>
+#### Deferred (1)
+- [#5000 Postpone wallet migration](https://github.com/dashpay/platform/pull/5000) — ⏸ deferred
+
+<a id="alice-to-review"></a>
+#### To review (1)
+- [#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — by @carol
+
+<a id="bob"></a>
+### @bob
+<a id="bob-open"></a>
+#### Open (2)
+- [#2001 Bump grpc-tonic to 0.12](https://github.com/dashpay/platform/pull/2001) — 1 unresolved (1 human) · 2 days stale
+  - Top thread: "Did you run the full integration suite?" — 2 days old
+- [#6000 Draft: rework cache layer](https://github.com/dashpay/platform/pull/6000) — 📝 draft
+
+<a id="bob-dirty"></a>
+#### Dirty (1)
+- [#2001 Bump grpc-tonic to 0.12](https://github.com/dashpay/platform/pull/2001) — 1 unresolved (1 human) · 2 days stale
+  - Top thread: "Did you run the full integration suite?" — 2 days old
+
+<a id="bob-draft"></a>
+#### Draft (1)
+- [#6000 Draft: rework cache layer](https://github.com/dashpay/platform/pull/6000) — 📝 draft
+
+<a id="carol"></a>
+### @carol
+<a id="carol-open"></a>
+#### Open (1)
+- [#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000)
+
+<a id="carol-clean"></a>
+#### Clean (1)
+- [#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000)
 
 ## Methodology
 Generated nightly by [pr-hygiene](https://github.com/dashpay/stale_prs_are_bad). A thread counts as "unresolved" when it is open, not outdated, has a comment from someone other than the PR author, and the most recent comment is from a reviewer. **Dirty** = at least one such thread. **Deferred** = carries a configured deferred label (e.g. `postponed`) — visible but not counted as dirty. **Draft** = the PR is still marked draft on GitHub. **Clean** = open, not draft, not deferred, no unresolved threads. **Needs action** further requires changes-requested, merge conflict, or that the reviewer commented more recently than the author last pushed. **To review** counts clean, non-draft PRs (authored by someone else) where this person is in the requested-reviewer list. Configurable via [`.pr-hygiene.yml`](.pr-hygiene.yml)—edit defaults there.
