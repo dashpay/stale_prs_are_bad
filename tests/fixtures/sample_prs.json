@@ -1,0 +1,294 @@
+{
+  "data": {
+    "repository": {
+      "pullRequests": {
+        "pageInfo": { "endCursor": null, "hasNextPage": false },
+        "nodes": [
+          {
+            "id": "PR_kw_1234",
+            "number": 1234,
+            "title": "Add foo support",
+            "url": "https://github.com/dashpay/platform/pull/1234",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "createdAt": "2026-04-01T10:00:00Z",
+            "updatedAt": "2026-05-18T20:00:00Z",
+            "author": { "login": "alice" },
+            "labels": { "nodes": [{ "name": "feature" }] },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-18T12:00:00Z",
+                    "statusCheckRollup": { "state": "FAILURE" }
+                  }
+                }
+              ]
+            },
+            "reviews": {
+              "nodes": [
+                {
+                  "state": "CHANGES_REQUESTED",
+                  "author": { "login": "bob-reviewer" },
+                  "submittedAt": "2026-04-25T15:00:00Z"
+                }
+              ]
+            },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": [
+                {
+                  "id": "t1",
+                  "isResolved": false,
+                  "isOutdated": false,
+                  "comments": {
+                    "pageInfo": { "hasNextPage": false },
+                    "nodes": [
+                      {
+                        "author": { "login": "bob-reviewer" },
+                        "createdAt": "2026-04-26T09:00:00Z",
+                        "body": "This should use error wrapping instead of bare returns"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "t2",
+                  "isResolved": false,
+                  "isOutdated": false,
+                  "comments": {
+                    "pageInfo": { "hasNextPage": false },
+                    "nodes": [
+                      {
+                        "author": { "login": "coderabbitai" },
+                        "createdAt": "2026-05-01T00:00:00Z",
+                        "body": "⚠️ **Potential issue**\n\nNull pointer deref on line 42 when foo is empty."
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "t3-resolved",
+                  "isResolved": true,
+                  "isOutdated": false,
+                  "comments": {
+                    "pageInfo": { "hasNextPage": false },
+                    "nodes": [
+                      {
+                        "author": { "login": "bob-reviewer" },
+                        "createdAt": "2026-04-20T00:00:00Z",
+                        "body": "Done in latest push"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "t4-outdated",
+                  "isResolved": false,
+                  "isOutdated": true,
+                  "comments": {
+                    "pageInfo": { "hasNextPage": false },
+                    "nodes": [
+                      {
+                        "author": { "login": "coderabbitai" },
+                        "createdAt": "2026-04-15T00:00:00Z",
+                        "body": "🧹 Nitpick: rename variable"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "t5-author-replied-last",
+                  "isResolved": false,
+                  "isOutdated": false,
+                  "comments": {
+                    "pageInfo": { "hasNextPage": false },
+                    "nodes": [
+                      {
+                        "author": { "login": "bob-reviewer" },
+                        "createdAt": "2026-04-20T00:00:00Z",
+                        "body": "Question about this"
+                      },
+                      {
+                        "author": { "login": "alice" },
+                        "createdAt": "2026-04-21T00:00:00Z",
+                        "body": "Explained in latest commit"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "PR_kw_1240",
+            "number": 1240,
+            "title": "Refactor scheduler",
+            "url": "https://github.com/dashpay/platform/pull/1240",
+            "isDraft": false,
+            "mergeable": "CONFLICTING",
+            "createdAt": "2026-03-15T00:00:00Z",
+            "updatedAt": "2026-05-10T00:00:00Z",
+            "author": { "login": "alice" },
+            "labels": { "nodes": [] },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-09T00:00:00Z",
+                    "statusCheckRollup": { "state": "SUCCESS" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": [
+                {
+                  "id": "t1",
+                  "isResolved": false,
+                  "isOutdated": false,
+                  "comments": {
+                    "pageInfo": { "hasNextPage": false },
+                    "nodes": [
+                      {
+                        "author": { "login": "coderabbitai" },
+                        "createdAt": "2026-04-10T00:00:00Z",
+                        "body": "🛠️ Refactor suggestion: extract this loop"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "PR_kw_2001",
+            "number": 2001,
+            "title": "Bump grpc-tonic to 0.12",
+            "url": "https://github.com/dashpay/platform/pull/2001",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "createdAt": "2026-05-01T00:00:00Z",
+            "updatedAt": "2026-05-17T00:00:00Z",
+            "author": { "login": "bob" },
+            "labels": { "nodes": [] },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-18T12:00:00Z",
+                    "statusCheckRollup": { "state": "SUCCESS" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": [
+                {
+                  "id": "t1",
+                  "isResolved": false,
+                  "isOutdated": false,
+                  "comments": {
+                    "pageInfo": { "hasNextPage": false },
+                    "nodes": [
+                      {
+                        "author": { "login": "carol" },
+                        "createdAt": "2026-05-17T00:00:00Z",
+                        "body": "Did you run the full integration suite?"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "PR_kw_3000",
+            "number": 3000,
+            "title": "Docs: clarify mempool ordering",
+            "url": "https://github.com/dashpay/platform/pull/3000",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "createdAt": "2026-04-15T00:00:00Z",
+            "updatedAt": "2026-04-15T00:00:00Z",
+            "author": { "login": "carol" },
+            "labels": { "nodes": [] },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-04-15T00:00:00Z",
+                    "statusCheckRollup": { "state": "SUCCESS" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": []
+            }
+          },
+          {
+            "id": "PR_kw_9999",
+            "number": 9999,
+            "title": "WIP: experiment branch",
+            "url": "https://github.com/dashpay/platform/pull/9999",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "createdAt": "2026-05-10T00:00:00Z",
+            "updatedAt": "2026-05-10T00:00:00Z",
+            "author": { "login": "alice" },
+            "labels": { "nodes": [{ "name": "wip" }] },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-10T00:00:00Z",
+                    "statusCheckRollup": { "state": "PENDING" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": []
+            }
+          },
+          {
+            "id": "PR_kw_4001",
+            "number": 4001,
+            "title": "Bump serde to 1.0.220",
+            "url": "https://github.com/dashpay/platform/pull/4001",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "createdAt": "2026-05-18T00:00:00Z",
+            "updatedAt": "2026-05-18T00:00:00Z",
+            "author": { "login": "dependabot[bot]" },
+            "labels": { "nodes": [] },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-18T00:00:00Z",
+                    "statusCheckRollup": { "state": "SUCCESS" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}

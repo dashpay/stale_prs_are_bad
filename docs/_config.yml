@@ -1,0 +1,11 @@
+title: PR Hygiene
+description: Nightly dashboard of open PRs in dashpay/platform with unresolved review feedback.
+theme: jekyll-theme-cayman
+
+# Only the report itself is served. History snapshots and the author cache live
+# elsewhere in the repo and aren't published.
+include:
+  - index.md
+
+# Suppress Jekyll defaults we don't need.
+plugins: []

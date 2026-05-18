@@ -1,0 +1,90 @@
+//! Fixture-driven end-to-end test: parse → analyze → score → render.
+//!
+//! The fixture mimics a real GitHub GraphQL response so the parser, classifier,
+//! scorer, and renderer all exercise their hot paths together.
+
+use chrono::{TimeZone, Utc};
+use std::collections::HashMap;
+
+use pr_hygiene::{analyzer, config::Config, fetcher, renderer, scorer};
+
+fn load_fixture() -> serde_json::Value {
+    let text = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sample_prs.json"),
+    )
+    .expect("fixture missing");
+    serde_json::from_str(&text).expect("fixture not valid JSON")
+}
+
+fn parse_all(fixture: &serde_json::Value) -> Vec<pr_hygiene::model::RawPr> {
+    fixture
+        .pointer("/data/repository/pullRequests/nodes")
+        .and_then(|v| v.as_array())
+        .expect("nodes")
+        .iter()
+        .map(|node| fetcher::parse_pr_node(node).expect("parse").0)
+        .collect()
+}
+
+#[test]
+fn end_to_end_pipeline_matches_snapshot() {
+    let fixture = load_fixture();
+    let raw = parse_all(&fixture);
+    assert_eq!(raw.len(), 6);
+
+    let cfg = Config::default();
+    let now = Utc.with_ymd_and_hms(2026, 5, 19, 6, 0, 0).unwrap();
+    let today = now.date_naive();
+
+    // Two PRs are excluded: WIP-labeled #9999 and dependabot-authored #4001.
+    let analyzed = analyzer::analyze(raw, &cfg, now);
+    let numbers: Vec<u64> = analyzed.iter().map(|p| p.raw.number).collect();
+    assert_eq!(numbers, vec![1234, 1240, 2001, 3000]);
+
+    // No grace-period filtering — all real authors have PRs > 14 days old.
+    let mut cache = HashMap::new();
+    let filtered = analyzer::apply_grace_period(analyzed, &mut cache, 14, today);
+    assert_eq!(filtered.len(), 4);
+
+    let scored = scorer::score_prs(filtered, &cfg, now);
+
+    // PR 1234 should be flagged needs_author_action (changes requested + CI failing).
+    let pr1234 = scored.iter().find(|s| s.pr.raw.number == 1234).unwrap();
+    assert!(pr1234.pr.needs_author_action);
+    assert!(pr1234.pr.changes_requested);
+    assert!(pr1234.pr.ci_failing);
+    // Filtered: t3 (resolved), t4 (outdated), t5 (author replied last).
+    assert_eq!(pr1234.unresolved_total, 2);
+    // Both unresolved threads escalate to High because of CHANGES_REQUESTED.
+    assert_eq!(pr1234.unresolved_by_severity.high, 2);
+
+    // PR 1240 has merge conflict → needs_author_action.
+    let pr1240 = scored.iter().find(|s| s.pr.raw.number == 1240).unwrap();
+    assert!(pr1240.pr.has_merge_conflict);
+    assert!(pr1240.pr.needs_author_action);
+
+    // PR 2001: reviewer commented (carol), author hasn't pushed since → reviewer-owes-response.
+    let pr2001 = scored.iter().find(|s| s.pr.raw.number == 2001).unwrap();
+    assert!(!pr2001.pr.needs_author_action);
+    assert_eq!(pr2001.unresolved_total, 1);
+
+    // PR 3000: clean, no threads.
+    let pr3000 = scored.iter().find(|s| s.pr.raw.number == 3000).unwrap();
+    assert!(!pr3000.pr.needs_author_action);
+    assert_eq!(pr3000.unresolved_total, 0);
+
+    let authors = scorer::rollup_authors(&scored, None);
+    let alice = authors.iter().find(|a| a.login == "alice").unwrap();
+    assert_eq!(alice.total_open_prs, 2);
+    assert_eq!(alice.prs_needing_author_action, 2);
+
+    let ctx = renderer::RenderContext {
+        now,
+        commit_sha: Some("abc1234"),
+        config_path: ".pr-hygiene.yml",
+        has_history: false,
+    };
+    let md = renderer::render(&scored, &authors, &ctx);
+
+    insta::assert_snapshot!(md);
+}

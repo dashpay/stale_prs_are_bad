@@ -1,0 +1,35 @@
+---
+source: tests/end_to_end.rs
+expression: md
+---
+---
+---
+# PR Hygiene Report
+*Last updated: 2026-05-19 06:00 UTC · commit abc1234*
+
+## Summary
+- Open PRs: 4
+- PRs needing author action: 2
+- Total unresolved threads: 4
+- Top offenders this week: @alice (2 PRs)
+
+## 🚨 Top offenders
+| Author | Open PRs | Needs action | Unresolved | Oldest stale |
+|---|---|---|---|---|
+| @alice | 2 | 2 | 3 | 39d |
+| @bob | 1 | 0 | 1 | 2d |
+
+## PRs needing author action
+### @alice
+- [#1234 Add foo support](https://github.com/dashpay/platform/pull/1234) — 2 unresolved (1 CodeRabbit, 1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "This should use error wrapping instead of bare returns" — 23 days old
+- [#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict
+  - Top thread: "🛠️ Refactor suggestion: extract this loop" — 39 days old
+
+## Clean PRs (no unresolved, awaiting review)
+- [#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — @carol
+
+## Methodology
+Generated nightly by [pr-hygiene](https://github.com/dashpay/stale_prs_are_bad). A thread counts as "unresolved" when it is open, not outdated, has a comment from someone other than the PR author, and the most recent comment is from a reviewer. Score weighs threads by severity and amplifies for staleness. Configurable via [`.pr-hygiene.yml`](.pr-hygiene.yml)—edit defaults there.
+
+_No history snapshot from last week was found, so week-over-week deltas are omitted this run._

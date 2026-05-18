@@ -1,0 +1,50 @@
+# Configuration for the PR-hygiene analyzer.
+# All keys are optional. Anything omitted falls back to the documented default.
+
+target_repo: dashpay/platform
+
+# PRs by these authors are skipped entirely.
+excluded_authors:
+  - dependabot[bot]
+  - renovate[bot]
+  - github-actions[bot]
+
+# PRs carrying any of these labels (case-insensitive) are skipped entirely.
+excluded_labels:
+  - wip
+  - blocked
+  - do-not-merge
+  - help-wanted
+
+# Skip authors whose first observed PR is fewer than this many days old.
+# Avoids surfacing brand-new contributors before they've had a chance to learn the workflow.
+grace_period_days: 14
+
+# When false, "low"-severity threads (CodeRabbit nitpicks and trivial) are not counted.
+count_nitpicks: false
+
+# When true, only count threads with at least one comment from a maintainer or CodeRabbit.
+# Useful to filter drive-by review noise.
+maintainer_only: false
+maintainers: []
+
+# Apply the `needs-author-action` label to qualifying PRs. Requires a PAT with
+# `pull-requests: write` on the target repo (see README — the default GITHUB_TOKEN
+# can't write to a *different* repo, only to its own).
+auto_label: true
+needs_author_action_label: needs-author-action
+
+# Scoring weights.
+# score = high * weights.high + medium * weights.medium + low * weights.low
+# score *= max(1, age_multiplier(oldest_thread_age_days + 1))
+weights:
+  high: 5.0
+  medium: 2.0
+  low: 0.5
+
+# How staleness amplifies the score. `ln` gives more spread for very old threads
+# than `log10`; `none` disables the amplifier (the floor of 1.0 then collapses).
+age_multiplier: ln
+
+# Daily snapshots older than this are pruned each run.
+history_retention_days: 90

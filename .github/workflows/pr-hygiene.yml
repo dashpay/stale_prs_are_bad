@@ -1,0 +1,96 @@
+name: PR Hygiene
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write       # commit the regenerated report back to master
+  pull-requests: write  # label PRs on the *target* repo (needs PAT — see README)
+  pages: write          # deploy to GitHub Pages
+  id-token: write       # OIDC for actions/deploy-pages
+
+concurrency:
+  # Don't run analyze and publish for the same repo simultaneously.
+  group: pr-hygiene
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    name: Generate report
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build analyzer (release)
+        run: cargo build --release
+
+      - name: Run analyzer
+        env:
+          # PR_HYGIENE_TOKEN, if set, must be a PAT or fine-grained token with
+          # `contents: read` and `pull-requests: write` on the *target* repo.
+          # Falls back to GITHUB_TOKEN, which can read public PRs on other repos
+          # but cannot label them (see README).
+          GITHUB_TOKEN: ${{ secrets.PR_HYGIENE_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: ./target/release/pr-hygiene
+
+      - name: Commit changes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/ .pr-hygiene/
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(pr-hygiene): nightly snapshot [skip ci]"
+          git push
+
+  publish:
+    name: Publish to Pages
+    needs: analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      # Lets the run page link directly to the deployed URL.
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      # Pull master AFTER the analyze job's commit so we publish the fresh report.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          # Enables Pages on the repo if it isn't already enabled. Idempotent.
+          # First run flips the setting and subsequent runs are no-ops.
+          enablement: true
+
+      - name: Build site with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./_site
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_site
+
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4
