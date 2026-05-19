@@ -173,6 +173,10 @@ pub struct AuthorRollup {
     pub draft_prs: u32,
     /// Open PRs they authored that target a non-default branch or have rotted past the threshold.
     pub stale_prs: u32,
+    /// Open PRs they authored with no unresolved threads but a failing CI run.
+    /// Bucketed between Unresolved Comments and Clean — the comments are addressed
+    /// but the build isn't green yet.
+    pub ci_failing_prs: u32,
     pub prs_needing_author_action: u32,
     pub total_unresolved: u32,
     pub unresolved_coderabbit: u32,
@@ -217,6 +221,9 @@ impl AuthorRollup {
     }
     pub fn combined_stale_prs(&self) -> u32 {
         self.stale_prs + self.sum_aliases(|a| a.stale_prs)
+    }
+    pub fn combined_ci_failing_prs(&self) -> u32 {
+        self.ci_failing_prs + self.sum_aliases(|a| a.ci_failing_prs)
     }
     pub fn combined_prs_needing_author_action(&self) -> u32 {
         self.prs_needing_author_action + self.sum_aliases(|a| a.prs_needing_author_action)
@@ -267,6 +274,8 @@ pub struct AuthorSnapshot {
     pub draft_prs: u32,
     #[serde(default)]
     pub stale_prs: u32,
+    #[serde(default)]
+    pub ci_failing_prs: u32,
     #[serde(default)]
     pub awaiting_review: u32,
     pub prs_needing_author_action: u32,

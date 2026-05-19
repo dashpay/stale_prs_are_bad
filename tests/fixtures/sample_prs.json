@@ -164,6 +164,35 @@
             }
           },
           {
+            "id": "PR_kw_7000",
+            "number": 7000,
+            "title": "fix: handle empty payload gracefully",
+            "url": "https://github.com/dashpay/platform/pull/7000",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "baseRefName": "master",
+            "createdAt": "2026-05-10T00:00:00Z",
+            "updatedAt": "2026-05-18T00:00:00Z",
+            "author": { "login": "carol" },
+            "labels": { "nodes": [] },
+            "files": { "nodes": [] },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-18T00:00:00Z",
+                    "statusCheckRollup": { "state": "FAILURE" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": []
+            }
+          },
+          {
             "id": "PR_kw_3001",
             "number": 3001,
             "title": "ci: tolerate book preview comment errors",

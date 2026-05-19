@@ -30,7 +30,7 @@ fn parse_all(fixture: &serde_json::Value) -> Vec<pr_hygiene::model::RawPr> {
 fn end_to_end_pipeline_matches_snapshot() {
     let fixture = load_fixture();
     let raw = parse_all(&fixture);
-    assert_eq!(raw.len(), 10);
+    assert_eq!(raw.len(), 11);
 
     // The fixture's PRs target `master`; pin that here so the branch-stale check
     // mirrors what main.rs does after auto-detecting from GraphQL.
@@ -47,17 +47,15 @@ fn end_to_end_pipeline_matches_snapshot() {
     let analyzed = analyzer::analyze(raw, &cfg, now);
     let numbers: Vec<u64> = analyzed.iter().map(|p| p.raw.number).collect();
     // #3001 by thepastaclaw will get merged into PastaPastaPasta's row via alias.
+    // #7000 is a CI-failing PR by carol with no unresolved threads.
     assert_eq!(
         numbers,
-        vec![1234, 1240, 3001, 2001, 3000, 5000, 6000, 2988]
+        vec![1234, 1240, 7000, 3001, 2001, 3000, 5000, 6000, 2988]
     );
 
-    // PastaPastaPasta is brand-new to the cache; their oldest PR (#2988, 2026-03-20)
-    // is well past the 14d grace cutoff, so they survive. thepastaclaw likewise
-    // since their first known PR is #3001 on 2026-04-01.
     let mut cache = HashMap::new();
     let filtered = analyzer::apply_grace_period(analyzed, &mut cache, 14, today);
-    assert_eq!(filtered.len(), 8);
+    assert_eq!(filtered.len(), 9);
 
     let scored = scorer::score_prs(filtered, &cfg, now);
 
@@ -92,14 +90,27 @@ fn end_to_end_pipeline_matches_snapshot() {
     assert!(!pr3000.pr.needs_author_action);
     assert_eq!(pr3000.unresolved_total, 0);
 
+    // PR 7000: no threads but CI failing → CI failing bucket.
+    let pr7000 = scored.iter().find(|s| s.pr.raw.number == 7000).unwrap();
+    assert!(pr7000.pr.ci_failing);
+    assert_eq!(pr7000.unresolved_total, 0);
+
     let authors = scorer::rollup_authors(&scored, &cfg, None);
     let alice = authors.iter().find(|a| a.login == "alice").unwrap();
     assert_eq!(alice.total_open_prs, 3); // includes the deferred PR
     assert_eq!(alice.dirty_prs, 2);
     assert_eq!(alice.deferred_prs, 1);
     assert_eq!(alice.prs_needing_author_action, 2);
-    // Alice is the requested reviewer on Carol's clean PR #3000.
+    // Alice is the requested reviewer on Carol's clean PR #3000. PR #7000 is
+    // also by carol but CI is failing, so it does NOT add to alice's queue.
     assert_eq!(alice.awaiting_review, 1);
+
+    // Carol has the clean #3000 and the CI-failing #7000 → 1 clean + 1 ci_failing.
+    let carol = authors.iter().find(|a| a.login == "carol").unwrap();
+    assert_eq!(carol.total_open_prs, 2);
+    assert_eq!(carol.clean_prs, 1);
+    assert_eq!(carol.ci_failing_prs, 1);
+    assert_eq!(carol.dirty_prs, 0);
 
     // Bob has #2001 (dirty) and the new draft #6000.
     let bob = authors.iter().find(|a| a.login == "bob").unwrap();

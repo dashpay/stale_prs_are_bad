@@ -144,6 +144,7 @@ pub fn rollup_authors(
                 deferred_prs: 0,
                 draft_prs: 0,
                 stale_prs: 0,
+                ci_failing_prs: 0,
                 prs_needing_author_action: 0,
                 total_unresolved: 0,
                 unresolved_coderabbit: 0,
@@ -163,17 +164,21 @@ pub fn rollup_authors(
             ensure(&mut by_login, login);
             let entry = by_login.get_mut(login).expect("just inserted");
             entry.total_open_prs += 1;
-            // Precedence: deferred > stale > draft > dirty > clean.
+            // Precedence: deferred > stale > draft > unresolved-comments > ci-failing > clean.
+            // The comments are the more actionable signal — a PR with both unresolved
+            // comments AND failing CI lands in Unresolved Comments, not CI Failing.
             if s.pr.is_deferred {
                 entry.deferred_prs += 1;
             } else if s.pr.is_stale {
                 entry.stale_prs += 1;
             } else if s.pr.raw.is_draft {
                 entry.draft_prs += 1;
-            } else if s.unresolved_total == 0 {
-                entry.clean_prs += 1;
-            } else {
+            } else if s.unresolved_total > 0 {
                 entry.dirty_prs += 1;
+            } else if s.pr.ci_failing {
+                entry.ci_failing_prs += 1;
+            } else {
+                entry.clean_prs += 1;
             }
             if s.pr.needs_author_action {
                 entry.prs_needing_author_action += 1;
@@ -188,12 +193,15 @@ pub fn rollup_authors(
             }
         }
 
-        // Reviewer-side counts: only PRs ready for review count.
+        // Reviewer-side counts: only PRs actually ready for review count.
+        // CI must be passing (or at least not failing) — a red build is the
+        // author's problem, not the reviewer's.
         if s.pr.is_deferred
             || s.pr.is_stale
             || s.pr.raw.is_draft
             || s.unresolved_total > 0
             || s.pr.has_merge_conflict
+            || s.pr.ci_failing
         {
             continue;
         }
@@ -304,6 +312,7 @@ fn apply_alias_merging(
                 deferred_prs: 0,
                 draft_prs: 0,
                 stale_prs: 0,
+                ci_failing_prs: 0,
                 prs_needing_author_action: 0,
                 total_unresolved: 0,
                 unresolved_coderabbit: 0,
@@ -356,6 +365,7 @@ pub fn build_snapshot(
             deferred_prs: a.combined_deferred_prs(),
             draft_prs: a.combined_draft_prs(),
             stale_prs: a.combined_stale_prs(),
+            ci_failing_prs: a.combined_ci_failing_prs(),
             awaiting_review: a.combined_awaiting_review(),
             prs_needing_author_action: a.combined_prs_needing_author_action(),
             total_unresolved: a.combined_total_unresolved(),
@@ -747,6 +757,7 @@ mod tests {
                 deferred_prs: 0,
                 draft_prs: 0,
                 stale_prs: 0,
+                ci_failing_prs: 0,
                 awaiting_review: 0,
                 prs_needing_author_action: 5,
                 total_unresolved: 10,

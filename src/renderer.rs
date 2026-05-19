@@ -103,22 +103,32 @@ fn write_summary(out: &mut String, scored: &[ScoredPr]) {
         .iter()
         .filter(|s| !s.pr.is_deferred && !s.pr.is_stale && s.pr.raw.is_draft)
         .count();
-    let dirty: usize = scored
+    let unresolved_comments: usize = scored
         .iter()
         .filter(|s| {
             !s.pr.is_deferred && !s.pr.is_stale && !s.pr.raw.is_draft && s.unresolved_total > 0
         })
         .count();
-    let clean: usize = open_prs - dirty - deferred - draft - stale;
+    let ci_failing: usize = scored
+        .iter()
+        .filter(|s| {
+            !s.pr.is_deferred
+                && !s.pr.is_stale
+                && !s.pr.raw.is_draft
+                && s.unresolved_total == 0
+                && s.pr.ci_failing
+        })
+        .count();
+    let clean: usize = open_prs - unresolved_comments - ci_failing - deferred - draft - stale;
     let needs: usize = scored.iter().filter(|s| s.pr.needs_author_action).count();
     let unresolved: u32 = scored.iter().map(|s| s.unresolved_total).sum();
     let _ = writeln!(out, "## Summary");
     let _ = writeln!(
         out,
-        "- Open PRs: **{open_prs}** ({clean} clean · {dirty} dirty · {deferred} deferred · {draft} draft · {stale} stale)"
+        "- Open PRs: **{open_prs}** ({clean} clean · {ci_failing} CI failing · {unresolved_comments} unresolved comments · {deferred} deferred · {draft} draft · {stale} stale)"
     );
     let _ = writeln!(out, "- PRs needing author action: **{needs}**");
-    let _ = writeln!(out, "- Total unresolved threads: **{unresolved}**");
+    let _ = writeln!(out, "- Total unresolved comments: **{unresolved}**");
     let _ = writeln!(out);
 }
 
@@ -129,99 +139,43 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
     let _ = writeln!(out, "## Scoreboard");
     let _ = writeln!(
         out,
-        "_Sort: dirty PRs desc → needs-action desc → to-review desc. \
+        "_Sort: unresolved-comments desc → needs-action desc → ready-for-review desc. \
          Click any number to jump to the specific PRs it covers._"
     );
     let _ = writeln!(out);
     if has_history {
         let _ = writeln!(
             out,
-            "| Author | Open | Clean | Dirty | Deferred | Draft | Stale | Needs action | Unresolved | CR | Human | To review | Δ |"
-        );
-        let _ = writeln!(
-            out,
-            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
-        );
-    } else {
-        let _ = writeln!(
-            out,
-            "| Author | Open | Clean | Dirty | Deferred | Draft | Stale | Needs action | Unresolved | CR | Human | To review |"
+            "| Author | Open | Clean | CI failing | Unresolved Comments | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |"
         );
         let _ = writeln!(
             out,
             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "| Author | Open | Clean | CI failing | Unresolved Comments | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review |"
+        );
+        let _ = writeln!(
+            out,
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
         );
     }
     for a in authors {
         let author_link = author_cell(a);
         let login = &a.login;
         let aliases = &a.aliases;
-        // Unresolved-thread counts (CR/Human/Total) all live on the same dirty PRs,
-        // so the natural drill target for those columns is the dirty subsection.
-        let unresolved_target = cell_link(
+        // Total Unresolved Comments lives on the Unresolved Comments bucket PRs,
+        // so that's the natural drill target.
+        let total_unresolved_target = cell_link(
             a.total_unresolved,
             aliases,
             |x| x.total_unresolved,
             login,
-            "dirty",
-        );
-        let cr_target = cell_link(
-            a.unresolved_coderabbit,
-            aliases,
-            |x| x.unresolved_coderabbit,
-            login,
-            "dirty",
-        );
-        let human_target = cell_link(
-            a.unresolved_human,
-            aliases,
-            |x| x.unresolved_human,
-            login,
-            "dirty",
+            "unresolved-comments",
         );
         if has_history {
-            let _ = writeln!(
-                out,
-                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-                author_link,
-                cell_link(
-                    a.total_open_prs,
-                    aliases,
-                    |x| x.total_open_prs,
-                    login,
-                    "open"
-                ),
-                cell_link(a.clean_prs, aliases, |x| x.clean_prs, login, "clean"),
-                cell_link(a.dirty_prs, aliases, |x| x.dirty_prs, login, "dirty"),
-                cell_link(
-                    a.deferred_prs,
-                    aliases,
-                    |x| x.deferred_prs,
-                    login,
-                    "deferred"
-                ),
-                cell_link(a.draft_prs, aliases, |x| x.draft_prs, login, "draft"),
-                cell_link(a.stale_prs, aliases, |x| x.stale_prs, login, "stale"),
-                cell_link(
-                    a.prs_needing_author_action,
-                    aliases,
-                    |x| x.prs_needing_author_action,
-                    login,
-                    "needs-action"
-                ),
-                unresolved_target,
-                cr_target,
-                human_target,
-                cell_link(
-                    a.awaiting_review,
-                    aliases,
-                    |x| x.awaiting_review,
-                    login,
-                    "to-review"
-                ),
-                format_delta(a.delta_vs_last_week),
-            );
-        } else {
             let _ = writeln!(
                 out,
                 "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
@@ -234,7 +188,20 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
                     "open"
                 ),
                 cell_link(a.clean_prs, aliases, |x| x.clean_prs, login, "clean"),
-                cell_link(a.dirty_prs, aliases, |x| x.dirty_prs, login, "dirty"),
+                cell_link(
+                    a.ci_failing_prs,
+                    aliases,
+                    |x| x.ci_failing_prs,
+                    login,
+                    "ci-failing"
+                ),
+                cell_link(
+                    a.dirty_prs,
+                    aliases,
+                    |x| x.dirty_prs,
+                    login,
+                    "unresolved-comments"
+                ),
                 cell_link(
                     a.deferred_prs,
                     aliases,
@@ -251,15 +218,66 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
                     login,
                     "needs-action"
                 ),
-                unresolved_target,
-                cr_target,
-                human_target,
+                total_unresolved_target,
                 cell_link(
                     a.awaiting_review,
                     aliases,
                     |x| x.awaiting_review,
                     login,
-                    "to-review"
+                    "ready-for-review"
+                ),
+                format_delta(a.delta_vs_last_week),
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                author_link,
+                cell_link(
+                    a.total_open_prs,
+                    aliases,
+                    |x| x.total_open_prs,
+                    login,
+                    "open"
+                ),
+                cell_link(a.clean_prs, aliases, |x| x.clean_prs, login, "clean"),
+                cell_link(
+                    a.ci_failing_prs,
+                    aliases,
+                    |x| x.ci_failing_prs,
+                    login,
+                    "ci-failing"
+                ),
+                cell_link(
+                    a.dirty_prs,
+                    aliases,
+                    |x| x.dirty_prs,
+                    login,
+                    "unresolved-comments"
+                ),
+                cell_link(
+                    a.deferred_prs,
+                    aliases,
+                    |x| x.deferred_prs,
+                    login,
+                    "deferred"
+                ),
+                cell_link(a.draft_prs, aliases, |x| x.draft_prs, login, "draft"),
+                cell_link(a.stale_prs, aliases, |x| x.stale_prs, login, "stale"),
+                cell_link(
+                    a.prs_needing_author_action,
+                    aliases,
+                    |x| x.prs_needing_author_action,
+                    login,
+                    "needs-action"
+                ),
+                total_unresolved_target,
+                cell_link(
+                    a.awaiting_review,
+                    aliases,
+                    |x| x.awaiting_review,
+                    login,
+                    "ready-for-review"
                 ),
             );
         }
@@ -359,10 +377,21 @@ fn write_author_section(
         collect(&|p| p.pr.needs_author_action),
     ));
     by_bucket.push((
-        "Dirty",
-        "dirty",
+        "Unresolved Comments",
+        "unresolved-comments",
         collect(&|p| {
             !p.pr.is_deferred && !p.pr.is_stale && !p.pr.raw.is_draft && p.unresolved_total > 0
+        }),
+    ));
+    by_bucket.push((
+        "CI Failing",
+        "ci-failing",
+        collect(&|p| {
+            !p.pr.is_deferred
+                && !p.pr.is_stale
+                && !p.pr.raw.is_draft
+                && p.unresolved_total == 0
+                && p.pr.ci_failing
         }),
     ));
     by_bucket.push(("Deferred", "deferred", collect(&|p| p.pr.is_deferred)));
@@ -380,13 +409,17 @@ fn write_author_section(
         "Clean",
         "clean",
         collect(&|p| {
-            !p.pr.is_deferred && !p.pr.is_stale && !p.pr.raw.is_draft && p.unresolved_total == 0
+            !p.pr.is_deferred
+                && !p.pr.is_stale
+                && !p.pr.raw.is_draft
+                && p.unresolved_total == 0
+                && !p.pr.ci_failing
         }),
     ));
 
-    // To-review is authored by someone else; pull from scored at large.
+    // Ready-for-Review is authored by someone else; pull from scored at large.
     // Match via explicit reviewer requests OR path-based routing, against the
-    // principal's login OR any alias's login.
+    // principal's login OR any alias's login. CI must be green.
     let reviewer_logins: HashSet<String> = owned_logins.clone();
     let mut to_review: Vec<&ScoredPr> = scored
         .iter()
@@ -396,6 +429,7 @@ fn write_author_section(
                 || p.pr.raw.is_draft
                 || p.unresolved_total > 0
                 || p.pr.has_merge_conflict
+                || p.pr.ci_failing
             {
                 return false;
             }
@@ -422,7 +456,7 @@ fn write_author_section(
         })
         .collect();
     to_review.sort_by_key(|p| p.pr.raw.number);
-    by_bucket.push(("To review", "to-review", to_review));
+    by_bucket.push(("Ready for Review", "ready-for-review", to_review));
 
     for (label, anchor, prs) in by_bucket {
         if prs.is_empty() {
@@ -430,7 +464,7 @@ fn write_author_section(
         }
         let _ = writeln!(out, "<a id=\"{s}-{anchor}\"></a>");
         let _ = writeln!(out, "#### {label} ({})", prs.len());
-        let show_author = anchor == "to-review";
+        let show_author = anchor == "ready-for-review";
         let principal = if show_author {
             None
         } else {
@@ -559,17 +593,19 @@ fn write_methodology(out: &mut String, ctx: &RenderContext<'_>) {
          A thread counts as \"unresolved\" when it is open, not outdated, has a comment from \
          someone other than the PR author, and the most recent comment is from a reviewer. \
          **Dirty** = at least one such thread. \
+         **Unresolved Comments** = at least one such thread. \
          **Deferred** = carries a configured deferred label (e.g. `postponed`) — visible \
-         but not counted as dirty. \
+         but not counted toward unresolved-comment counts. \
          **Stale** = targets a non-default branch OR hasn't been touched in \
          the configured threshold (default 120 days, but clean PRs are never reclassified as stale). \
          **Draft** = the PR is still marked draft on GitHub. \
-         **Clean** = open, not draft, not deferred, not stale, no unresolved threads. \
+         **CI failing** = no unresolved comments but the latest commit's status check is failing. \
+         **Clean** = open, not draft, not deferred, not stale, no unresolved comments, CI green. \
          **Needs action** further requires changes-requested, merge conflict, or that the \
          reviewer commented more recently than the author last pushed. \
-         **To review** counts clean, non-draft, non-stale PRs (authored by someone else) where \
-         this person is either an explicit reviewer or implicitly routed via `review_routing` \
-         rules in the config. \
+         **Ready for Review** counts clean, non-draft, non-stale, CI-green PRs (authored by \
+         someone else) where this person is either an explicit reviewer or implicitly routed \
+         via `review_routing` rules in the config. \
          Configurable via [`{}`]({})\u{2014}edit defaults there.",
         ctx.config_path, ctx.config_path
     );
@@ -632,6 +668,7 @@ mod tests {
             deferred_prs: 0,
             draft_prs: 0,
             stale_prs: 0,
+            ci_failing_prs: 0,
             prs_needing_author_action: needs,
             total_unresolved: unresolved,
             unresolved_coderabbit: cr,
@@ -831,8 +868,8 @@ mod tests {
             "open cell should link"
         );
         assert!(
-            out.contains("[2](#alice-123-dirty)"),
-            "dirty cell should link"
+            out.contains("[2](#alice-123-unresolved-comments)"),
+            "unresolved-comments cell should link"
         );
         assert!(
             out.contains("[1](#alice-123-needs-action)"),
@@ -849,8 +886,8 @@ mod tests {
         );
         // Drilldown section exists with the slugified anchor and bucket subsections.
         assert!(out.contains("<a id=\"alice-123\"></a>"));
-        assert!(out.contains("<a id=\"alice-123-dirty\"></a>"));
-        assert!(out.contains("#### Dirty (2)"));
+        assert!(out.contains("<a id=\"alice-123-unresolved-comments\"></a>"));
+        assert!(out.contains("#### Unresolved Comments (2)"));
         // Author name in the table is also clickable to their section.
         assert!(out.contains("[@Alice-123](#alice-123)"));
     }
