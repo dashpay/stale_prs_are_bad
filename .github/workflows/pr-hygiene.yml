@@ -2,7 +2,8 @@ name: PR Hygiene
 
 on:
   schedule:
-    - cron: "0 6 * * *"
+    # Every 6 hours at the top of the hour: 00, 06, 12, 18 UTC.
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 permissions:

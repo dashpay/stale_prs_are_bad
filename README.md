@@ -6,7 +6,7 @@ most open PRs with unresolved review feedback — CodeRabbit and human reviewers
 both — so social pressure replaces 1:1 nagging.
 
 The deliverable is a GitHub Pages site built from [`docs/index.md`](docs/index.md),
-regenerated and re-deployed nightly. URL pattern:
+regenerated and re-deployed every 6 hours. URL pattern:
 
 ```
 https://<owner>.github.io/<repo>/
@@ -69,7 +69,7 @@ your shell sets it from.
 ## GitHub Action + Pages
 
 The included [`.github/workflows/pr-hygiene.yml`](.github/workflows/pr-hygiene.yml)
-runs nightly at `06:00 UTC` and on `workflow_dispatch`. It has two jobs:
+runs every 6 hours (00:00 / 06:00 / 12:00 / 18:00 UTC) and on `workflow_dispatch`. It has two jobs:
 
 1. **`analyze`** — fetches PRs, generates the report, commits `docs/index.md`
    and `.pr-hygiene/` back to `master` with `[skip ci]`, and applies labels.
