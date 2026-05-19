@@ -109,6 +109,16 @@ fn write_summary(out: &mut String, scored: &[ScoredPr]) {
             !s.pr.is_deferred && !s.pr.is_stale && !s.pr.raw.is_draft && s.unresolved_total > 0
         })
         .count();
+    let changes_requested: usize = scored
+        .iter()
+        .filter(|s| {
+            !s.pr.is_deferred
+                && !s.pr.is_stale
+                && !s.pr.raw.is_draft
+                && s.unresolved_total == 0
+                && s.pr.changes_requested
+        })
+        .count();
     let ci_failing: usize = scored
         .iter()
         .filter(|s| {
@@ -116,16 +126,18 @@ fn write_summary(out: &mut String, scored: &[ScoredPr]) {
                 && !s.pr.is_stale
                 && !s.pr.raw.is_draft
                 && s.unresolved_total == 0
+                && !s.pr.changes_requested
                 && s.pr.ci_failing
         })
         .count();
-    let clean: usize = open_prs - unresolved_comments - ci_failing - deferred - draft - stale;
+    let clean: usize =
+        open_prs - unresolved_comments - changes_requested - ci_failing - deferred - draft - stale;
     let needs: usize = scored.iter().filter(|s| s.pr.needs_author_action).count();
     let unresolved: u32 = scored.iter().map(|s| s.unresolved_total).sum();
     let _ = writeln!(out, "## Summary");
     let _ = writeln!(
         out,
-        "- Open PRs: **{open_prs}** ({clean} clean · {ci_failing} CI failing · {unresolved_comments} unresolved comments · {deferred} deferred · {draft} draft · {stale} stale)"
+        "- Open PRs: **{open_prs}** ({clean} clean · {ci_failing} CI failing · {changes_requested} changes requested · {unresolved_comments} unresolved comments · {deferred} deferred · {draft} draft · {stale} stale)"
     );
     let _ = writeln!(out, "- PRs needing author action: **{needs}**");
     let _ = writeln!(out, "- Total unresolved comments: **{unresolved}**");
@@ -146,20 +158,20 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
     if has_history {
         let _ = writeln!(
             out,
-            "| Author | Open | Clean | CI failing | Unresolved Comments | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |"
+            "| Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |"
         );
         let _ = writeln!(
             out,
-            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
         );
     } else {
         let _ = writeln!(
             out,
-            "| Author | Open | Clean | CI failing | Unresolved Comments | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review |"
+            "| Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review |"
         );
         let _ = writeln!(
             out,
-            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
         );
     }
     for a in authors {
@@ -178,7 +190,7 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
         if has_history {
             let _ = writeln!(
                 out,
-                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 author_link,
                 cell_link(
                     a.total_open_prs,
@@ -201,6 +213,13 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
                     |x| x.dirty_prs,
                     login,
                     "unresolved-comments"
+                ),
+                cell_link(
+                    a.changes_requested_prs,
+                    aliases,
+                    |x| x.changes_requested_prs,
+                    login,
+                    "changes-requested"
                 ),
                 cell_link(
                     a.deferred_prs,
@@ -231,7 +250,7 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
         } else {
             let _ = writeln!(
                 out,
-                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 author_link,
                 cell_link(
                     a.total_open_prs,
@@ -254,6 +273,13 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
                     |x| x.dirty_prs,
                     login,
                     "unresolved-comments"
+                ),
+                cell_link(
+                    a.changes_requested_prs,
+                    aliases,
+                    |x| x.changes_requested_prs,
+                    login,
+                    "changes-requested"
                 ),
                 cell_link(
                     a.deferred_prs,
@@ -384,6 +410,17 @@ fn write_author_section(
         }),
     ));
     by_bucket.push((
+        "Changes Requested",
+        "changes-requested",
+        collect(&|p| {
+            !p.pr.is_deferred
+                && !p.pr.is_stale
+                && !p.pr.raw.is_draft
+                && p.unresolved_total == 0
+                && p.pr.changes_requested
+        }),
+    ));
+    by_bucket.push((
         "CI Failing",
         "ci-failing",
         collect(&|p| {
@@ -391,6 +428,7 @@ fn write_author_section(
                 && !p.pr.is_stale
                 && !p.pr.raw.is_draft
                 && p.unresolved_total == 0
+                && !p.pr.changes_requested
                 && p.pr.ci_failing
         }),
     ));
@@ -413,13 +451,15 @@ fn write_author_section(
                 && !p.pr.is_stale
                 && !p.pr.raw.is_draft
                 && p.unresolved_total == 0
+                && !p.pr.changes_requested
                 && !p.pr.ci_failing
         }),
     ));
 
     // Ready-for-Review is authored by someone else; pull from scored at large.
-    // Match via explicit reviewer requests OR path-based routing, against the
-    // principal's login OR any alias's login. CI must be green.
+    // Mirrors the rollup logic: when path routing matches, the routed reviewers
+    // are THE queue (explicit reviewers are ignored); otherwise explicit
+    // requested-reviewers apply. CHANGES_REQUESTED and red CI disqualify the PR.
     let reviewer_logins: HashSet<String> = owned_logins.clone();
     let mut to_review: Vec<&ScoredPr> = scored
         .iter()
@@ -430,10 +470,10 @@ fn write_author_section(
                 || p.unresolved_total > 0
                 || p.pr.has_merge_conflict
                 || p.pr.ci_failing
+                || p.pr.changes_requested
             {
                 return false;
             }
-            // Self-review: the PR's author OR any of the principal's aliases.
             if p.pr
                 .raw
                 .author
@@ -443,16 +483,16 @@ fn write_author_section(
             {
                 return false;
             }
-            let in_requested =
+            if p.routing_matched {
+                p.routed_reviewers
+                    .iter()
+                    .any(|r| reviewer_logins.contains(&r.to_ascii_lowercase()))
+            } else {
                 p.pr.raw
                     .requested_reviewers
                     .iter()
-                    .any(|r| reviewer_logins.contains(&r.to_ascii_lowercase()));
-            let in_routed = p
-                .routed_reviewers
-                .iter()
-                .any(|r| reviewer_logins.contains(&r.to_ascii_lowercase()));
-            in_requested || in_routed
+                    .any(|r| reviewer_logins.contains(&r.to_ascii_lowercase()))
+            }
         })
         .collect();
     to_review.sort_by_key(|p| p.pr.raw.number);
@@ -594,18 +634,21 @@ fn write_methodology(out: &mut String, ctx: &RenderContext<'_>) {
          someone other than the PR author, and the most recent comment is from a reviewer. \
          **Dirty** = at least one such thread. \
          **Unresolved Comments** = at least one such thread. \
+         **Changes Requested** = no unresolved threads but a reviewer's most recent review \
+         is CHANGES_REQUESTED (still blocking until someone re-approves or dismisses). \
          **Deferred** = carries a configured deferred label (e.g. `postponed`) — visible \
          but not counted toward unresolved-comment counts. \
          **Stale** = targets a non-default branch OR hasn't been touched in \
          the configured threshold (default 120 days, but clean PRs are never reclassified as stale). \
          **Draft** = the PR is still marked draft on GitHub. \
-         **CI failing** = no unresolved comments but the latest commit's status check is failing. \
-         **Clean** = open, not draft, not deferred, not stale, no unresolved comments, CI green. \
+         **CI failing** = no unresolved comments, no changes-requested, but the latest commit's status check is failing. \
+         **Clean** = open, not draft, not deferred, not stale, no unresolved comments, no changes-requested, CI green. \
          **Needs action** further requires changes-requested, merge conflict, or that the \
          reviewer commented more recently than the author last pushed. \
-         **Ready for Review** counts clean, non-draft, non-stale, CI-green PRs (authored by \
-         someone else) where this person is either an explicit reviewer or implicitly routed \
-         via `review_routing` rules in the config. \
+         **Ready for Review** counts clean PRs (authored by someone else) where this person \
+         owes a review. When a `review_routing` rule matches a PR's changed files, the routed \
+         reviewer IS the queue (explicit GitHub reviewers are ignored); a routed reviewer who \
+         has already submitted any review is excluded — their job is done. \
          Configurable via [`{}`]({})\u{2014}edit defaults there.",
         ctx.config_path, ctx.config_path
     );
@@ -669,6 +712,7 @@ mod tests {
             draft_prs: 0,
             stale_prs: 0,
             ci_failing_prs: 0,
+            changes_requested_prs: 0,
             prs_needing_author_action: needs,
             total_unresolved: unresolved,
             unresolved_coderabbit: cr,
@@ -746,6 +790,7 @@ mod tests {
             unresolved_by_source: bsrc,
             unresolved_total: total,
             routed_reviewers: vec![],
+            routing_matched: false,
         }
     }
 

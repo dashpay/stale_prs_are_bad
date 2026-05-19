@@ -130,6 +130,7 @@ mod tests {
                 draft_prs: 0,
                 stale_prs: 0,
                 ci_failing_prs: 0,
+                changes_requested_prs: 0,
                 awaiting_review: 0,
                 prs_needing_author_action: 1,
                 total_unresolved: 2,

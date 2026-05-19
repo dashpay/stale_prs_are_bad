@@ -103,6 +103,11 @@ impl Default for Config {
                     primary: "llbartekll".into(),
                     fallback: Some("ZocoLini".into()),
                 },
+                RoutingRule {
+                    paths: vec!["**/dashmate/**".into()],
+                    primary: "shumkov".into(),
+                    fallback: Some("QuantumExplorer".into()),
+                },
             ],
             grace_period_days: 14,
             count_nitpicks: false,

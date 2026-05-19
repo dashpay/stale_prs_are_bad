@@ -49,6 +49,10 @@ review_routing:
       - "**/ios/**"
     primary: llbartekll       # bartozs — edit if the login is different
     fallback: ZocoLini
+  - paths:
+      - "**/dashmate/**"
+    primary: shumkov
+    fallback: QuantumExplorer
 
 # AI-assistant accounts that should be attributed to a human in the scoreboard.
 # The principal's row shows as "@principal + (@alias)" with cells like "13+(5)".

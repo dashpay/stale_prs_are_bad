@@ -164,6 +164,43 @@
             }
           },
           {
+            "id": "PR_kw_8000",
+            "number": 8000,
+            "title": "refactor: extract validation helpers",
+            "url": "https://github.com/dashpay/platform/pull/8000",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "baseRefName": "master",
+            "createdAt": "2026-04-25T00:00:00Z",
+            "updatedAt": "2026-05-12T00:00:00Z",
+            "author": { "login": "carol" },
+            "labels": { "nodes": [] },
+            "files": { "nodes": [{ "path": "src/validators.rs" }] },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-12T00:00:00Z",
+                    "statusCheckRollup": { "state": "SUCCESS" }
+                  }
+                }
+              ]
+            },
+            "reviews": {
+              "nodes": [
+                {
+                  "state": "CHANGES_REQUESTED",
+                  "author": { "login": "bob" },
+                  "submittedAt": "2026-05-05T00:00:00Z"
+                }
+              ]
+            },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": []
+            }
+          },
+          {
             "id": "PR_kw_7000",
             "number": 7000,
             "title": "fix: handle empty payload gracefully",

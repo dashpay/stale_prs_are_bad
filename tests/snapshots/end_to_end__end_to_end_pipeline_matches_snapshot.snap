@@ -8,19 +8,19 @@ expression: md
 *Last updated: 2026-05-19 06:00 UTC · commit abc1234*
 
 ## Summary
-- Open PRs: **9** (2 clean · 1 CI failing · 3 unresolved comments · 1 deferred · 1 draft · 1 stale)
-- PRs needing author action: **2**
+- Open PRs: **10** (2 clean · 1 CI failing · 1 changes requested · 3 unresolved comments · 1 deferred · 1 draft · 1 stale)
+- PRs needing author action: **3**
 - Total unresolved comments: **4**
 
 ## Scoreboard
 _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc. Click any number to jump to the specific PRs it covers._
 
-| Author | Open | Clean | CI failing | Unresolved Comments | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [@alice](#alice) | [3](#alice-open) | — | — | [2](#alice-unresolved-comments) | [1](#alice-deferred) | — | — | [2](#alice-needs-action) | [3](#alice-unresolved-comments) | [1](#alice-ready-for-review) |
-| [@bob](#bob) | [2](#bob-open) | — | — | [1](#bob-unresolved-comments) | — | [1](#bob-draft) | — | — | [1](#bob-unresolved-comments) | — |
-| [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [1+(1)](#pastapastapasta-open) | [0+(1)](#pastapastapasta-clean) | — | — | — | — | [1+(0)](#pastapastapasta-stale) | — | — | — |
-| [@carol](#carol) | [2](#carol-open) | [1](#carol-clean) | [1](#carol-ci-failing) | — | — | — | — | — | — | — |
+| Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| [@alice](#alice) | [3](#alice-open) | — | — | [2](#alice-unresolved-comments) | — | [1](#alice-deferred) | — | — | [2](#alice-needs-action) | [3](#alice-unresolved-comments) | [1](#alice-ready-for-review) |
+| [@bob](#bob) | [2](#bob-open) | — | — | [1](#bob-unresolved-comments) | — | — | [1](#bob-draft) | — | — | [1](#bob-unresolved-comments) | — |
+| [@carol](#carol) | [3](#carol-open) | [1](#carol-clean) | [1](#carol-ci-failing) | — | [1](#carol-changes-requested) | — | — | — | [1](#carol-needs-action) | — | — |
+| [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [1+(1)](#pastapastapasta-open) | [0+(1)](#pastapastapasta-clean) | — | — | — | — | — | [1+(0)](#pastapastapasta-stale) | — | — | — |
 
 ## Per-author detail
 
@@ -73,6 +73,30 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Draft (1)
 - [#6000 Draft: rework cache layer](https://github.com/dashpay/platform/pull/6000) — 📝 draft
 
+<a id="carol"></a>
+### @carol
+<a id="carol-open"></a>
+#### Open (3)
+- [#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000)
+- [#7000 fix: handle empty payload gracefully](https://github.com/dashpay/platform/pull/7000) — 🔴 CI failing
+- [#8000 refactor: extract validation helpers](https://github.com/dashpay/platform/pull/8000) — ✋ changes requested
+
+<a id="carol-needs-action"></a>
+#### Needs action (1)
+- [#8000 refactor: extract validation helpers](https://github.com/dashpay/platform/pull/8000) — ✋ changes requested
+
+<a id="carol-changes-requested"></a>
+#### Changes Requested (1)
+- [#8000 refactor: extract validation helpers](https://github.com/dashpay/platform/pull/8000) — ✋ changes requested
+
+<a id="carol-ci-failing"></a>
+#### CI Failing (1)
+- [#7000 fix: handle empty payload gracefully](https://github.com/dashpay/platform/pull/7000) — 🔴 CI failing
+
+<a id="carol-clean"></a>
+#### Clean (1)
+- [#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000)
+
 <a id="pastapastapasta"></a>
 ### @PastaPastaPasta + (@thepastaclaw)
 <a id="pastapastapasta-open"></a>
@@ -88,22 +112,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Clean (1)
 - [#3001 ci: tolerate book preview comment errors](https://github.com/dashpay/platform/pull/3001) — via @thepastaclaw
 
-<a id="carol"></a>
-### @carol
-<a id="carol-open"></a>
-#### Open (2)
-- [#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000)
-- [#7000 fix: handle empty payload gracefully](https://github.com/dashpay/platform/pull/7000) — 🔴 CI failing
-
-<a id="carol-ci-failing"></a>
-#### CI Failing (1)
-- [#7000 fix: handle empty payload gracefully](https://github.com/dashpay/platform/pull/7000) — 🔴 CI failing
-
-<a id="carol-clean"></a>
-#### Clean (1)
-- [#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000)
-
 ## Methodology
-Generated nightly by [pr-hygiene](https://github.com/dashpay/stale_prs_are_bad). A thread counts as "unresolved" when it is open, not outdated, has a comment from someone other than the PR author, and the most recent comment is from a reviewer. **Dirty** = at least one such thread. **Unresolved Comments** = at least one such thread. **Deferred** = carries a configured deferred label (e.g. `postponed`) — visible but not counted toward unresolved-comment counts. **Stale** = targets a non-default branch OR hasn't been touched in the configured threshold (default 120 days, but clean PRs are never reclassified as stale). **Draft** = the PR is still marked draft on GitHub. **CI failing** = no unresolved comments but the latest commit's status check is failing. **Clean** = open, not draft, not deferred, not stale, no unresolved comments, CI green. **Needs action** further requires changes-requested, merge conflict, or that the reviewer commented more recently than the author last pushed. **Ready for Review** counts clean, non-draft, non-stale, CI-green PRs (authored by someone else) where this person is either an explicit reviewer or implicitly routed via `review_routing` rules in the config. Configurable via [`.pr-hygiene.yml`](.pr-hygiene.yml)—edit defaults there.
+Generated nightly by [pr-hygiene](https://github.com/dashpay/stale_prs_are_bad). A thread counts as "unresolved" when it is open, not outdated, has a comment from someone other than the PR author, and the most recent comment is from a reviewer. **Dirty** = at least one such thread. **Unresolved Comments** = at least one such thread. **Changes Requested** = no unresolved threads but a reviewer's most recent review is CHANGES_REQUESTED (still blocking until someone re-approves or dismisses). **Deferred** = carries a configured deferred label (e.g. `postponed`) — visible but not counted toward unresolved-comment counts. **Stale** = targets a non-default branch OR hasn't been touched in the configured threshold (default 120 days, but clean PRs are never reclassified as stale). **Draft** = the PR is still marked draft on GitHub. **CI failing** = no unresolved comments, no changes-requested, but the latest commit's status check is failing. **Clean** = open, not draft, not deferred, not stale, no unresolved comments, no changes-requested, CI green. **Needs action** further requires changes-requested, merge conflict, or that the reviewer commented more recently than the author last pushed. **Ready for Review** counts clean PRs (authored by someone else) where this person owes a review. When a `review_routing` rule matches a PR's changed files, the routed reviewer IS the queue (explicit GitHub reviewers are ignored); a routed reviewer who has already submitted any review is excluded — their job is done. Configurable via [`.pr-hygiene.yml`](.pr-hygiene.yml)—edit defaults there.
 
 _No history snapshot from last week was found, so week-over-week deltas are omitted this run._

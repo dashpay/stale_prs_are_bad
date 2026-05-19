@@ -29,15 +29,21 @@ fn compile_rules(rules: &[RoutingRule]) -> Vec<(Vec<Pattern>, &RoutingRule)> {
         .collect()
 }
 
-fn route_reviewers(pr: &AnalyzedPr, rules: &[(Vec<Pattern>, &RoutingRule)]) -> Vec<String> {
+/// Returns (routed_reviewers_still_owing_review, any_rule_matched).
+/// When a rule matches but the resolved reviewer has already submitted a review
+/// on this PR (any state), they're omitted from the list — they've done their
+/// job. The `matched` flag stays true so callers know routing is in play.
+fn route_reviewers(pr: &AnalyzedPr, rules: &[(Vec<Pattern>, &RoutingRule)]) -> (Vec<String>, bool) {
     let mut out: Vec<String> = Vec::new();
-    let already: HashSet<String> = pr
-        .raw
-        .requested_reviewers
-        .iter()
-        .map(|r| r.to_ascii_lowercase())
-        .collect();
+    let mut any_matched = false;
     let author_lc = pr.raw.author.as_deref().map(str::to_ascii_lowercase);
+    let reviewed_logins: HashSet<String> = pr
+        .raw
+        .reviews
+        .iter()
+        .filter_map(|r| r.author.as_deref())
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
     for (patterns, rule) in rules {
         let matches = pr.raw.changed_files.iter().any(|f| {
             let path = std::path::Path::new(f);
@@ -48,6 +54,7 @@ fn route_reviewers(pr: &AnalyzedPr, rules: &[(Vec<Pattern>, &RoutingRule)]) -> V
         if !matches {
             continue;
         }
+        any_matched = true;
         let Some(login) = resolve_routed_reviewer(rule, pr.raw.author.as_deref()) else {
             continue;
         };
@@ -55,14 +62,15 @@ fn route_reviewers(pr: &AnalyzedPr, rules: &[(Vec<Pattern>, &RoutingRule)]) -> V
         if Some(&lc) == author_lc.as_ref() {
             continue;
         }
-        if already.contains(&lc) {
+        if reviewed_logins.contains(&lc) {
+            // Routed primary already reviewed — they don't owe another review.
             continue;
         }
         if !out.iter().any(|r| r.eq_ignore_ascii_case(login)) {
             out.push(login.to_string());
         }
     }
-    out
+    (out, any_matched)
 }
 
 fn score_one(
@@ -96,7 +104,7 @@ fn score_one(
     let mult = age_multiplier(oldest_age, cfg.age_multiplier);
     let score = base * mult;
     let unresolved_total = pr.unresolved_threads.len() as u32;
-    let routed_reviewers = route_reviewers(&pr, rules);
+    let (routed_reviewers, routing_matched) = route_reviewers(&pr, rules);
     ScoredPr {
         pr,
         score,
@@ -105,6 +113,7 @@ fn score_one(
         unresolved_by_source: by_source,
         unresolved_total,
         routed_reviewers,
+        routing_matched,
     }
 }
 
@@ -145,6 +154,7 @@ pub fn rollup_authors(
                 draft_prs: 0,
                 stale_prs: 0,
                 ci_failing_prs: 0,
+                changes_requested_prs: 0,
                 prs_needing_author_action: 0,
                 total_unresolved: 0,
                 unresolved_coderabbit: 0,
@@ -164,9 +174,10 @@ pub fn rollup_authors(
             ensure(&mut by_login, login);
             let entry = by_login.get_mut(login).expect("just inserted");
             entry.total_open_prs += 1;
-            // Precedence: deferred > stale > draft > unresolved-comments > ci-failing > clean.
-            // The comments are the more actionable signal — a PR with both unresolved
-            // comments AND failing CI lands in Unresolved Comments, not CI Failing.
+            // Precedence: deferred > stale > draft > unresolved-comments > changes-requested > ci-failing > clean.
+            // The threads describe specific changes; the formal CHANGES_REQUESTED
+            // state is what's left when all threads are resolved but the reviewer
+            // hasn't re-approved yet.
             if s.pr.is_deferred {
                 entry.deferred_prs += 1;
             } else if s.pr.is_stale {
@@ -175,6 +186,8 @@ pub fn rollup_authors(
                 entry.draft_prs += 1;
             } else if s.unresolved_total > 0 {
                 entry.dirty_prs += 1;
+            } else if s.pr.changes_requested {
+                entry.changes_requested_prs += 1;
             } else if s.pr.ci_failing {
                 entry.ci_failing_prs += 1;
             } else {
@@ -194,14 +207,15 @@ pub fn rollup_authors(
         }
 
         // Reviewer-side counts: only PRs actually ready for review count.
-        // CI must be passing (or at least not failing) — a red build is the
-        // author's problem, not the reviewer's.
+        // CI must be passing (or at least not failing); CHANGES_REQUESTED means
+        // the reviewer formally said no and the author owes a fix first.
         if s.pr.is_deferred
             || s.pr.is_stale
             || s.pr.raw.is_draft
             || s.unresolved_total > 0
             || s.pr.has_merge_conflict
             || s.pr.ci_failing
+            || s.pr.changes_requested
         {
             continue;
         }
@@ -224,11 +238,18 @@ pub fn rollup_authors(
             ensure(map, login);
             map.get_mut(login).expect("just inserted").awaiting_review += 1;
         };
-        for r in &s.pr.raw.requested_reviewers {
-            bump(&mut by_login, r);
-        }
-        for r in &s.routed_reviewers {
-            bump(&mut by_login, r);
+        // When a routing rule matched, the routed reviewers ARE the queue —
+        // explicit GitHub reviewers are ignored. (If routing matched but the
+        // routed primary already reviewed, routed_reviewers is empty → queue is
+        // empty → PR is "handled by the owner".)
+        if s.routing_matched {
+            for r in &s.routed_reviewers {
+                bump(&mut by_login, r);
+            }
+        } else {
+            for r in &s.pr.raw.requested_reviewers {
+                bump(&mut by_login, r);
+            }
         }
     }
 
@@ -313,6 +334,7 @@ fn apply_alias_merging(
                 draft_prs: 0,
                 stale_prs: 0,
                 ci_failing_prs: 0,
+                changes_requested_prs: 0,
                 prs_needing_author_action: 0,
                 total_unresolved: 0,
                 unresolved_coderabbit: 0,
@@ -366,6 +388,7 @@ pub fn build_snapshot(
             draft_prs: a.combined_draft_prs(),
             stale_prs: a.combined_stale_prs(),
             ci_failing_prs: a.combined_ci_failing_prs(),
+            changes_requested_prs: a.combined_changes_requested_prs(),
             awaiting_review: a.combined_awaiting_review(),
             prs_needing_author_action: a.combined_prs_needing_author_action(),
             total_unresolved: a.combined_total_unresolved(),
@@ -618,7 +641,9 @@ mod tests {
     }
 
     #[test]
-    fn path_routing_doesnt_double_count_explicit_reviewer() {
+    fn routing_match_makes_routed_reviewer_authoritative() {
+        // When a routing rule matches, the routed reviewer IS the queue. Any
+        // explicit GitHub-requested reviewers are ignored — we trust the routing.
         let cfg = Config {
             review_routing: vec![RoutingRule {
                 paths: vec!["**/wasm-sdk/**".into()],
@@ -631,14 +656,47 @@ mod tests {
 
         let mut pr = analyzed("pasta", vec![], false);
         pr.raw.changed_files = vec!["packages/wasm-sdk/x.ts".into()];
-        pr.raw.requested_reviewers = vec!["shumkov".into()];
+        // 'random-person' is explicitly requested but routing trumps that.
+        pr.raw.requested_reviewers = vec!["random-person".into()];
         let scored = score_prs(vec![pr], &cfg, now);
-        // routed_reviewers excludes already-requested.
-        assert!(scored[0].routed_reviewers.is_empty());
+        assert!(scored[0].routing_matched);
+        assert_eq!(scored[0].routed_reviewers, vec!["shumkov"]);
         let rolled = rollup_authors(&scored, &cfg, None);
-        // shumkov still counted exactly once via requested_reviewers.
         let shumkov = rolled.iter().find(|r| r.login == "shumkov").unwrap();
         assert_eq!(shumkov.awaiting_review, 1);
+        // The explicitly-requested reviewer is NOT in the queue.
+        assert!(!rolled.iter().any(|r| r.login == "random-person"));
+    }
+
+    #[test]
+    fn routed_reviewer_who_already_reviewed_is_dropped() {
+        let cfg = Config {
+            review_routing: vec![RoutingRule {
+                paths: vec!["**/dashmate/**".into()],
+                primary: "shumkov".into(),
+                fallback: None,
+            }],
+            ..Config::default()
+        };
+        let now = dt("2026-05-19T00:00:00Z");
+
+        let mut pr = analyzed("alice", vec![], false);
+        pr.raw.changed_files = vec!["packages/dashmate/lib/x.js".into()];
+        // shumkov already submitted a review of any kind.
+        pr.raw.reviews = vec![crate::model::Review {
+            state: crate::model::ReviewState::Approved,
+            author: Some("shumkov".into()),
+            submitted_at: Some(dt("2026-05-18T00:00:00Z")),
+        }];
+        let scored = score_prs(vec![pr], &cfg, now);
+        assert!(scored[0].routing_matched);
+        assert!(
+            scored[0].routed_reviewers.is_empty(),
+            "shumkov already reviewed; should not owe another review"
+        );
+        let rolled = rollup_authors(&scored, &cfg, None);
+        // No one is in the queue — the routed primary handled it.
+        assert!(rolled.iter().all(|r| r.awaiting_review == 0));
     }
 
     #[test]
@@ -758,6 +816,7 @@ mod tests {
                 draft_prs: 0,
                 stale_prs: 0,
                 ci_failing_prs: 0,
+                changes_requested_prs: 0,
                 awaiting_review: 0,
                 prs_needing_author_action: 5,
                 total_unresolved: 10,

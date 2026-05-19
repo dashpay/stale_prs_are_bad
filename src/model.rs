@@ -154,8 +154,14 @@ pub struct ScoredPr {
     pub unresolved_by_source: BySource,
     pub unresolved_total: u32,
     /// Logins that are responsible for reviewing this PR via path-based routing
-    /// rules (already dedupe-against-author and against `requested_reviewers`).
+    /// rules, excluding anyone who has already submitted a review (their job is
+    /// done). The list is dedupe-against-author.
     pub routed_reviewers: Vec<String>,
+    /// True when at least one `review_routing` rule matched this PR. When true,
+    /// the routed_reviewers list is the AUTHORITATIVE queue: explicit
+    /// `requested_reviewers` from GitHub are ignored. (Empty routed_reviewers +
+    /// routing_matched == true means "the owner already reviewed; PR is handled".)
+    pub routing_matched: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -177,6 +183,10 @@ pub struct AuthorRollup {
     /// Bucketed between Unresolved Comments and Clean — the comments are addressed
     /// but the build isn't green yet.
     pub ci_failing_prs: u32,
+    /// Open PRs where a reviewer's most recent review is CHANGES_REQUESTED.
+    /// Bucketed after Unresolved Comments — even with all threads resolved, the
+    /// formal review state is still blocking until someone re-approves or dismisses.
+    pub changes_requested_prs: u32,
     pub prs_needing_author_action: u32,
     pub total_unresolved: u32,
     pub unresolved_coderabbit: u32,
@@ -224,6 +234,9 @@ impl AuthorRollup {
     }
     pub fn combined_ci_failing_prs(&self) -> u32 {
         self.ci_failing_prs + self.sum_aliases(|a| a.ci_failing_prs)
+    }
+    pub fn combined_changes_requested_prs(&self) -> u32 {
+        self.changes_requested_prs + self.sum_aliases(|a| a.changes_requested_prs)
     }
     pub fn combined_prs_needing_author_action(&self) -> u32 {
         self.prs_needing_author_action + self.sum_aliases(|a| a.prs_needing_author_action)
@@ -276,6 +289,8 @@ pub struct AuthorSnapshot {
     pub stale_prs: u32,
     #[serde(default)]
     pub ci_failing_prs: u32,
+    #[serde(default)]
+    pub changes_requested_prs: u32,
     #[serde(default)]
     pub awaiting_review: u32,
     pub prs_needing_author_action: u32,
