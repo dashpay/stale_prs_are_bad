@@ -1,30 +1,30 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-05-19 01:14 UTC · commit 22ae477*
+*Last updated: 2026-05-19 01:48 UTC · commit c897952*
 
 ## Summary
-- Open PRs: **65** (3 clean · 4 CI failing · 19 unresolved comments · 9 deferred · 16 draft · 14 stale)
-- PRs needing author action: **18**
-- Total unresolved comments: **188**
+- Open PRs: **65** (0 clean · 3 CI failing · 3 changes requested · 20 unresolved comments · 9 deferred · 16 draft · 14 stale)
+- PRs needing author action: **20**
+- Total unresolved comments: **194**
 
 ## Scoreboard
 _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc. Click any number to jump to the specific PRs it covers._
 
-| Author | Open | Clean | CI failing | Unresolved Comments | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [@lklimek + (@Claudius-Maginificent)](#lklimek) | [13+(5)](#lklimek-open) | [2+(0)](#lklimek-clean) | [2+(0)](#lklimek-ci-failing) | [2+(3)](#lklimek-unresolved-comments) | [5+(0)](#lklimek-deferred) | [2+(1)](#lklimek-draft) | [0+(1)](#lklimek-stale) | [4+(3)](#lklimek-needs-action) | [8+(37)](#lklimek-unresolved-comments) | — |
-| [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [7+(7)](#pastapastapasta-open) | — | — | [3+(1)](#pastapastapasta-unresolved-comments) | — | [2+(6)](#pastapastapasta-draft) | [2+(0)](#pastapastapasta-stale) | [3+(0)](#pastapastapasta-needs-action) | [21+(7)](#pastapastapasta-unresolved-comments) | — |
-| [@QuantumExplorer](#quantumexplorer) | [6](#quantumexplorer-open) | — | — | [3](#quantumexplorer-unresolved-comments) | [2](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | — | [2](#quantumexplorer-needs-action) | [42](#quantumexplorer-unresolved-comments) | [2](#quantumexplorer-ready-for-review) |
-| [@shumkov](#shumkov) | [8](#shumkov-open) | — | [1](#shumkov-ci-failing) | [2](#shumkov-unresolved-comments) | [1](#shumkov-deferred) | [1](#shumkov-draft) | [3](#shumkov-stale) | [2](#shumkov-needs-action) | [15](#shumkov-unresolved-comments) | — |
-| [@ZocoLini](#zocolini) | [5](#zocolini-open) | — | [1](#zocolini-ci-failing) | [2](#zocolini-unresolved-comments) | — | [2](#zocolini-draft) | — | [2](#zocolini-needs-action) | [6](#zocolini-unresolved-comments) | — |
-| [@thephez](#thephez) | [2](#thephez-open) | — | — | [2](#thephez-unresolved-comments) | — | — | — | [2](#thephez-needs-action) | [6](#thephez-unresolved-comments) | — |
-| [@llbartekll](#llbartekll) | [2](#llbartekll-open) | — | — | [1](#llbartekll-unresolved-comments) | — | [1](#llbartekll-draft) | — | — | [16](#llbartekll-unresolved-comments) | — |
-| [@pshenmic](#pshenmic) | [4](#pshenmic-open) | — | — | — | — | — | [4](#pshenmic-stale) | — | [29](#pshenmic-unresolved-comments) | — |
-| [@Inna333-cuber](#inna333-cuber) | [1](#inna333-cuber-open) | — | — | — | — | — | [1](#inna333-cuber-stale) | — | [1](#inna333-cuber-unresolved-comments) | — |
-| [@ktechmidas](#ktechmidas) | [1](#ktechmidas-open) | [1](#ktechmidas-clean) | — | — | — | — | — | — | — | — |
-| [@ogabrielides](#ogabrielides) | [1](#ogabrielides-open) | — | — | — | [1](#ogabrielides-deferred) | — | — | — | — | — |
-| [@pauldelucia](#pauldelucia) | [3](#pauldelucia-open) | — | — | — | — | — | [3](#pauldelucia-stale) | — | — | — |
+| Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| [@lklimek + (@Claudius-Maginificent)](#lklimek) | [13+(5)](#lklimek-open) | — | [1+(0)](#lklimek-ci-failing) | [2+(3)](#lklimek-unresolved-comments) | [3+(0)](#lklimek-changes-requested) | [5+(0)](#lklimek-deferred) | [2+(1)](#lklimek-draft) | [0+(1)](#lklimek-stale) | [5+(3)](#lklimek-needs-action) | [8+(37)](#lklimek-unresolved-comments) | — |
+| [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [7+(7)](#pastapastapasta-open) | — | — | [3+(1)](#pastapastapasta-unresolved-comments) | — | — | [2+(6)](#pastapastapasta-draft) | [2+(0)](#pastapastapasta-stale) | [3+(0)](#pastapastapasta-needs-action) | [21+(7)](#pastapastapasta-unresolved-comments) | — |
+| [@QuantumExplorer](#quantumexplorer) | [6](#quantumexplorer-open) | — | — | [3](#quantumexplorer-unresolved-comments) | — | [2](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | — | [2](#quantumexplorer-needs-action) | [42](#quantumexplorer-unresolved-comments) | — |
+| [@shumkov](#shumkov) | [8](#shumkov-open) | — | [1](#shumkov-ci-failing) | [2](#shumkov-unresolved-comments) | — | [1](#shumkov-deferred) | [1](#shumkov-draft) | [3](#shumkov-stale) | [2](#shumkov-needs-action) | [15](#shumkov-unresolved-comments) | — |
+| [@ZocoLini](#zocolini) | [5](#zocolini-open) | — | [1](#zocolini-ci-failing) | [2](#zocolini-unresolved-comments) | — | — | [2](#zocolini-draft) | — | [2](#zocolini-needs-action) | [6](#zocolini-unresolved-comments) | — |
+| [@thephez](#thephez) | [2](#thephez-open) | — | — | [2](#thephez-unresolved-comments) | — | — | — | — | [2](#thephez-needs-action) | [6](#thephez-unresolved-comments) | — |
+| [@ktechmidas](#ktechmidas) | [1](#ktechmidas-open) | — | — | [1](#ktechmidas-unresolved-comments) | — | — | — | — | [1](#ktechmidas-needs-action) | [6](#ktechmidas-unresolved-comments) | — |
+| [@llbartekll](#llbartekll) | [2](#llbartekll-open) | — | — | [1](#llbartekll-unresolved-comments) | — | — | [1](#llbartekll-draft) | — | — | [16](#llbartekll-unresolved-comments) | — |
+| [@pshenmic](#pshenmic) | [4](#pshenmic-open) | — | — | — | — | — | — | [4](#pshenmic-stale) | — | [29](#pshenmic-unresolved-comments) | — |
+| [@Inna333-cuber](#inna333-cuber) | [1](#inna333-cuber-open) | — | — | — | — | — | — | [1](#inna333-cuber-stale) | — | [1](#inna333-cuber-unresolved-comments) | — |
+| [@ogabrielides](#ogabrielides) | [1](#ogabrielides-open) | — | — | — | — | [1](#ogabrielides-deferred) | — | — | — | — | — |
+| [@pauldelucia](#pauldelucia) | [3](#pauldelucia-open) | — | — | — | — | — | — | [3](#pauldelucia-stale) | — | — | — |
 
 ## Per-author detail
 
@@ -51,7 +51,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#2993 feat: identity reference validation](https://github.com/dashpay/platform/pull/2993) — 📝 draft · ⏸ deferred
 - [#3009 feat: contract reference validation](https://github.com/dashpay/platform/pull/3009) — 📝 draft · ⏸ deferred
 - [#3032 feat: document creation restriction by group membership](https://github.com/dashpay/platform/pull/3032) — 📝 draft · ⏸ deferred
-- [#3647 feat(platform-wallet): watermark monotonic-merge](https://github.com/dashpay/platform/pull/3647)
+- [#3647 feat(platform-wallet): watermark monotonic-merge](https://github.com/dashpay/platform/pull/3647) — ✋ changes requested
 - [#3648 fix(platform-wallet): local-ledger ownership guard (V27-007)](https://github.com/dashpay/platform/pull/3648) — ✋ changes requested
 - [#3650 fix(sdk): address-sync no longer silently discards balance changes for post-snapshot addresses (Found-025)](https://github.com/dashpay/platform/pull/3650) — 🔴 CI failing
 - [#3651 feat(platform-wallet): SPV cancel_background/identity_ids accessors + FFI no-selectable-inputs error mapping](https://github.com/dashpay/platform/pull/3651) — ✋ changes requested · 🔴 CI failing
@@ -59,7 +59,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3659 fix(rs-platform-wallet): fail-closed on registration persist error (Found-017) [backport\]](https://github.com/dashpay/platform/pull/3659) — 🔴 CI failing · 📝 draft
 
 <a id="lklimek-needs-action"></a>
-#### Needs action (7)
+#### Needs action (8)
 - [#3350 fix(rs-dapi,sdk): decode base64 CBOR error messages from Tenderdash](https://github.com/dashpay/platform/pull/3350) — 3 unresolved (3 human) · 9 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=7594525c23d8 -->" — 9 days old
 - [#3636 feat(platform-wallet): add birth_height_override to wallet creation API](https://github.com/dashpay/platform/pull/3636) — 5 unresolved (1 CodeRabbit, 4 human) · 6 days stale
@@ -70,6 +70,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=6301a94999c2 -->" — 7 days old
 - [#3554 fix(platform-wallet): auto_select_inputs honors Σ inputs == Σ outputs](https://github.com/dashpay/platform/pull/3554) — via @Claudius-Maginificent · 1 unresolved (1 human) · 6 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=5faa46ca0095 dedupe=97e40e670beeb9b9 -->" — 6 days old
+- [#3647 feat(platform-wallet): watermark monotonic-merge](https://github.com/dashpay/platform/pull/3647) — ✋ changes requested
 - [#3648 fix(platform-wallet): local-ledger ownership guard (V27-007)](https://github.com/dashpay/platform/pull/3648) — ✋ changes requested
 - [#3651 feat(platform-wallet): SPV cancel_background/identity_ids accessors + FFI no-selectable-inputs error mapping](https://github.com/dashpay/platform/pull/3651) — ✋ changes requested · 🔴 CI failing
 
@@ -86,10 +87,15 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3554 fix(platform-wallet): auto_select_inputs honors Σ inputs == Σ outputs](https://github.com/dashpay/platform/pull/3554) — via @Claudius-Maginificent · 1 unresolved (1 human) · 6 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=5faa46ca0095 dedupe=97e40e670beeb9b9 -->" — 6 days old
 
-<a id="lklimek-ci-failing"></a>
-#### CI Failing (2)
-- [#3650 fix(sdk): address-sync no longer silently discards balance changes for post-snapshot addresses (Found-025)](https://github.com/dashpay/platform/pull/3650) — 🔴 CI failing
+<a id="lklimek-changes-requested"></a>
+#### Changes Requested (3)
+- [#3647 feat(platform-wallet): watermark monotonic-merge](https://github.com/dashpay/platform/pull/3647) — ✋ changes requested
+- [#3648 fix(platform-wallet): local-ledger ownership guard (V27-007)](https://github.com/dashpay/platform/pull/3648) — ✋ changes requested
 - [#3651 feat(platform-wallet): SPV cancel_background/identity_ids accessors + FFI no-selectable-inputs error mapping](https://github.com/dashpay/platform/pull/3651) — ✋ changes requested · 🔴 CI failing
+
+<a id="lklimek-ci-failing"></a>
+#### CI Failing (1)
+- [#3650 fix(sdk): address-sync no longer silently discards balance changes for post-snapshot addresses (Found-025)](https://github.com/dashpay/platform/pull/3650) — 🔴 CI failing
 
 <a id="lklimek-deferred"></a>
 #### Deferred (5)
@@ -110,11 +116,6 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Stale (1)
 - [#3549 test(rs-platform-wallet): e2e suite, Found-025 fix + triage pins](https://github.com/dashpay/platform/pull/3549) — via @Claudius-Maginificent · 22 unresolved (22 human) · 16 days stale · 🔴 CI failing · 📝 draft · 🐢 targets fix/rs-platform-wallet-auto-select-inputs
   - Top thread: "<!-- thepastaclaw-review v1 finding=a3725e9d50ca -->" — 16 days old
-
-<a id="lklimek-clean"></a>
-#### Clean (2)
-- [#3647 feat(platform-wallet): watermark monotonic-merge](https://github.com/dashpay/platform/pull/3647)
-- [#3648 fix(platform-wallet): local-ledger ownership guard (V27-007)](https://github.com/dashpay/platform/pull/3648) — ✋ changes requested
 
 <a id="pastapastapasta"></a>
 ### @PastaPastaPasta + (@thepastaclaw)
@@ -216,19 +217,14 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Draft (1)
 - [#3417 feat(swift-sdk): use SPV-synced quorums for Platform proof verification](https://github.com/dashpay/platform/pull/3417) — ⚠ merge conflict · 🔴 CI failing · 📝 draft
 
-<a id="quantumexplorer-ready-for-review"></a>
-#### Ready for Review (2)
-- [#3162 fix(dashmate): prevent orphaned verification container blocking SSL renewal](https://github.com/dashpay/platform/pull/3162) — by @ktechmidas
-- [#3647 feat(platform-wallet): watermark monotonic-merge](https://github.com/dashpay/platform/pull/3647) — by @lklimek
-
 <a id="shumkov"></a>
 ### @shumkov
 <a id="shumkov-open"></a>
 #### Open (8)
 - [#3166 chore: integrate Claude Code into devcontainer for autonomus development](https://github.com/dashpay/platform/pull/3166) — 8 unresolved (8 human) · 73 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
   - Top thread: "as above." — 73 days old
-- [#3634 feat: identity registration with asset-lock proofs](https://github.com/dashpay/platform/pull/3634) — 7 unresolved (1 CodeRabbit, 6 human) · 4 days stale · ✋ changes requested
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 4 days old
+- [#3634 feat: identity registration with asset-lock proofs](https://github.com/dashpay/platform/pull/3634) — 7 unresolved (1 CodeRabbit, 6 human) · 5 days stale · ✋ changes requested
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 5 days old
 - [#2392 feat(dashmate): single node local network [WIP\]](https://github.com/dashpay/platform/pull/2392) — 🔴 CI failing · 🐢 targets v2.0-dev
 - [#2518 feat: token marketplace](https://github.com/dashpay/platform/pull/2518) — 📝 draft · ⏸ deferred
 - [#2552 perf(dapi): fetch only specific unconfirmed transaction](https://github.com/dashpay/platform/pull/2552) — ⚠ merge conflict · 🔴 CI failing · 🐢 targets v2.1-dev
@@ -240,15 +236,15 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Needs action (2)
 - [#3166 chore: integrate Claude Code into devcontainer for autonomus development](https://github.com/dashpay/platform/pull/3166) — 8 unresolved (8 human) · 73 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
   - Top thread: "as above." — 73 days old
-- [#3634 feat: identity registration with asset-lock proofs](https://github.com/dashpay/platform/pull/3634) — 7 unresolved (1 CodeRabbit, 6 human) · 4 days stale · ✋ changes requested
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 4 days old
+- [#3634 feat: identity registration with asset-lock proofs](https://github.com/dashpay/platform/pull/3634) — 7 unresolved (1 CodeRabbit, 6 human) · 5 days stale · ✋ changes requested
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 5 days old
 
 <a id="shumkov-unresolved-comments"></a>
 #### Unresolved Comments (2)
 - [#3166 chore: integrate Claude Code into devcontainer for autonomus development](https://github.com/dashpay/platform/pull/3166) — 8 unresolved (8 human) · 73 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
   - Top thread: "as above." — 73 days old
-- [#3634 feat: identity registration with asset-lock proofs](https://github.com/dashpay/platform/pull/3634) — 7 unresolved (1 CodeRabbit, 6 human) · 4 days stale · ✋ changes requested
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 4 days old
+- [#3634 feat: identity registration with asset-lock proofs](https://github.com/dashpay/platform/pull/3634) — 7 unresolved (1 CodeRabbit, 6 human) · 5 days stale · ✋ changes requested
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 5 days old
 
 <a id="shumkov-ci-failing"></a>
 #### CI Failing (1)
@@ -326,6 +322,23 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3471 fix(dpp): remove erroneous keywords field from document-meta schema and fix contract keywords docs](https://github.com/dashpay/platform/pull/3471) — 2 unresolved (2 human) · 26 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=72d0df4348f6 -->" — 26 days old
 
+<a id="ktechmidas"></a>
+### @ktechmidas
+<a id="ktechmidas-open"></a>
+#### Open (1)
+- [#3162 fix(dashmate): prevent orphaned verification container blocking SSL renewal](https://github.com/dashpay/platform/pull/3162) — 6 unresolved (6 human) · 0 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=d7ee272d2ab4 dedupe=d8f79f6f47c868dc -->" — 0 days old
+
+<a id="ktechmidas-needs-action"></a>
+#### Needs action (1)
+- [#3162 fix(dashmate): prevent orphaned verification container blocking SSL renewal](https://github.com/dashpay/platform/pull/3162) — 6 unresolved (6 human) · 0 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=d7ee272d2ab4 dedupe=d8f79f6f47c868dc -->" — 0 days old
+
+<a id="ktechmidas-unresolved-comments"></a>
+#### Unresolved Comments (1)
+- [#3162 fix(dashmate): prevent orphaned verification container blocking SSL renewal](https://github.com/dashpay/platform/pull/3162) — 6 unresolved (6 human) · 0 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=d7ee272d2ab4 dedupe=d8f79f6f47c868dc -->" — 0 days old
+
 <a id="llbartekll"></a>
 ### @llbartekll
 <a id="llbartekll-open"></a>
@@ -379,16 +392,6 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#2499 docs: replaced the icon with twitter](https://github.com/dashpay/platform/pull/2499) — 1 unresolved (1 human) · 49 days stale · 🐢 targets v2.0-dev
   - Top thread: "<!-- thepastaclaw-review v1 finding=1314ffa7c907 -->" — 49 days old
 
-<a id="ktechmidas"></a>
-### @ktechmidas
-<a id="ktechmidas-open"></a>
-#### Open (1)
-- [#3162 fix(dashmate): prevent orphaned verification container blocking SSL renewal](https://github.com/dashpay/platform/pull/3162)
-
-<a id="ktechmidas-clean"></a>
-#### Clean (1)
-- [#3162 fix(dashmate): prevent orphaned verification container blocking SSL renewal](https://github.com/dashpay/platform/pull/3162)
-
 <a id="ogabrielides"></a>
 ### @ogabrielides
 <a id="ogabrielides-open"></a>
@@ -414,6 +417,6 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#2996 fix(drive-abci): version fix for decryption bounded key validation in contract bounds](https://github.com/dashpay/platform/pull/2996) — 🔴 CI failing · 🐢 targets v3.0-dev
 
 ## Methodology
-Generated nightly by [pr-hygiene](https://github.com/dashpay/stale_prs_are_bad). A thread counts as "unresolved" when it is open, not outdated, has a comment from someone other than the PR author, and the most recent comment is from a reviewer. **Dirty** = at least one such thread. **Unresolved Comments** = at least one such thread. **Deferred** = carries a configured deferred label (e.g. `postponed`) — visible but not counted toward unresolved-comment counts. **Stale** = targets a non-default branch OR hasn't been touched in the configured threshold (default 120 days, but clean PRs are never reclassified as stale). **Draft** = the PR is still marked draft on GitHub. **CI failing** = no unresolved comments but the latest commit's status check is failing. **Clean** = open, not draft, not deferred, not stale, no unresolved comments, CI green. **Needs action** further requires changes-requested, merge conflict, or that the reviewer commented more recently than the author last pushed. **Ready for Review** counts clean, non-draft, non-stale, CI-green PRs (authored by someone else) where this person is either an explicit reviewer or implicitly routed via `review_routing` rules in the config. Configurable via [`https://github.com/dashpay/stale_prs_are_bad/blob/master/.pr-hygiene.yml`](https://github.com/dashpay/stale_prs_are_bad/blob/master/.pr-hygiene.yml)—edit defaults there.
+Generated nightly by [pr-hygiene](https://github.com/dashpay/stale_prs_are_bad). A thread counts as "unresolved" when it is open, not outdated, has a comment from someone other than the PR author, and the most recent comment is from a reviewer. **Dirty** = at least one such thread. **Unresolved Comments** = at least one such thread. **Changes Requested** = no unresolved threads but a reviewer's most recent review is CHANGES_REQUESTED (still blocking until someone re-approves or dismisses). **Deferred** = carries a configured deferred label (e.g. `postponed`) — visible but not counted toward unresolved-comment counts. **Stale** = targets a non-default branch OR hasn't been touched in the configured threshold (default 120 days, but clean PRs are never reclassified as stale). **Draft** = the PR is still marked draft on GitHub. **CI failing** = no unresolved comments, no changes-requested, but the latest commit's status check is failing. **Clean** = open, not draft, not deferred, not stale, no unresolved comments, no changes-requested, CI green. **Needs action** further requires changes-requested, merge conflict, or that the reviewer commented more recently than the author last pushed. **Ready for Review** counts clean PRs (authored by someone else) where this person owes a review. When a `review_routing` rule matches a PR's changed files, the routed reviewer IS the queue (explicit GitHub reviewers are ignored); a routed reviewer who has already submitted any review is excluded — their job is done. Configurable via [`https://github.com/dashpay/stale_prs_are_bad/blob/master/.pr-hygiene.yml`](https://github.com/dashpay/stale_prs_are_bad/blob/master/.pr-hygiene.yml)—edit defaults there.
 
 _No history snapshot from last week was found, so week-over-week deltas are omitted this run._
