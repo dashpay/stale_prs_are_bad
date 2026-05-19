@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use crate::model::{AnalyzedThread, AuthorRollup, ScoredPr, Severity};
@@ -38,14 +39,42 @@ fn slug(login: &str) -> String {
         .collect()
 }
 
-/// Render an integer cell as either a dash (when zero) or a clickable link to
-/// the per-author drilldown subsection.
-fn cell_link(count: u32, login: &str, bucket: &str) -> String {
-    if count == 0 {
-        "—".to_string()
-    } else {
-        format!("[{}](#{}-{})", count, slug(login), bucket)
+/// Format the Author column cell. When the rollup has aliases, show
+/// `[@principal + (@alias) + (@alias2)](#principal-slug)`.
+fn author_cell(a: &AuthorRollup) -> String {
+    let url = format!("#{}", slug(&a.login));
+    let mut display = format!("@{}", a.login);
+    for alias in &a.aliases {
+        display.push_str(&format!(" + (@{})", alias.login));
     }
+    format!("[{display}]({url})")
+}
+
+/// Render an integer cell. When the rollup has aliases, format as
+/// `principal+(alias)+(alias2)`; otherwise just the principal count.
+/// Always links to the principal's drilldown subsection.
+fn cell_link(
+    principal: u32,
+    aliases: &[AuthorRollup],
+    project: impl Fn(&AuthorRollup) -> u32,
+    login: &str,
+    bucket: &str,
+) -> String {
+    let alias_counts: Vec<u32> = aliases.iter().map(&project).collect();
+    let combined: u32 = principal + alias_counts.iter().sum::<u32>();
+    if combined == 0 {
+        return "—".to_string();
+    }
+    let url = format!("#{}-{}", slug(login), bucket);
+    if aliases.is_empty() {
+        return format!("[{principal}]({url})");
+    }
+    // Compact display with explicit numbers so the breakdown is readable.
+    let mut parts = vec![principal.to_string()];
+    for n in alias_counts {
+        parts.push(format!("({n})"));
+    }
+    format!("[{}]({})", parts.join("+"), url)
 }
 
 fn write_header(out: &mut String, ctx: &RenderContext<'_>) {
@@ -124,28 +153,72 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
         );
     }
     for a in authors {
-        let author_link = format!("[@{0}](#{1})", a.login, slug(&a.login));
+        let author_link = author_cell(a);
+        let login = &a.login;
+        let aliases = &a.aliases;
         // Unresolved-thread counts (CR/Human/Total) all live on the same dirty PRs,
         // so the natural drill target for those columns is the dirty subsection.
-        let unresolved_target = cell_link(a.total_unresolved, &a.login, "dirty");
-        let cr_target = cell_link(a.unresolved_coderabbit, &a.login, "dirty");
-        let human_target = cell_link(a.unresolved_human, &a.login, "dirty");
+        let unresolved_target = cell_link(
+            a.total_unresolved,
+            aliases,
+            |x| x.total_unresolved,
+            login,
+            "dirty",
+        );
+        let cr_target = cell_link(
+            a.unresolved_coderabbit,
+            aliases,
+            |x| x.unresolved_coderabbit,
+            login,
+            "dirty",
+        );
+        let human_target = cell_link(
+            a.unresolved_human,
+            aliases,
+            |x| x.unresolved_human,
+            login,
+            "dirty",
+        );
         if has_history {
             let _ = writeln!(
                 out,
                 "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 author_link,
-                cell_link(a.total_open_prs, &a.login, "open"),
-                cell_link(a.clean_prs, &a.login, "clean"),
-                cell_link(a.dirty_prs, &a.login, "dirty"),
-                cell_link(a.deferred_prs, &a.login, "deferred"),
-                cell_link(a.draft_prs, &a.login, "draft"),
-                cell_link(a.stale_prs, &a.login, "stale"),
-                cell_link(a.prs_needing_author_action, &a.login, "needs-action"),
+                cell_link(
+                    a.total_open_prs,
+                    aliases,
+                    |x| x.total_open_prs,
+                    login,
+                    "open"
+                ),
+                cell_link(a.clean_prs, aliases, |x| x.clean_prs, login, "clean"),
+                cell_link(a.dirty_prs, aliases, |x| x.dirty_prs, login, "dirty"),
+                cell_link(
+                    a.deferred_prs,
+                    aliases,
+                    |x| x.deferred_prs,
+                    login,
+                    "deferred"
+                ),
+                cell_link(a.draft_prs, aliases, |x| x.draft_prs, login, "draft"),
+                cell_link(a.stale_prs, aliases, |x| x.stale_prs, login, "stale"),
+                cell_link(
+                    a.prs_needing_author_action,
+                    aliases,
+                    |x| x.prs_needing_author_action,
+                    login,
+                    "needs-action"
+                ),
                 unresolved_target,
                 cr_target,
                 human_target,
-                cell_link(a.awaiting_review, &a.login, "to-review"),
+                cell_link(
+                    a.awaiting_review,
+                    aliases,
+                    |x| x.awaiting_review,
+                    login,
+                    "to-review"
+                ),
                 format_delta(a.delta_vs_last_week),
             );
         } else {
@@ -153,17 +226,41 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
                 out,
                 "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 author_link,
-                cell_link(a.total_open_prs, &a.login, "open"),
-                cell_link(a.clean_prs, &a.login, "clean"),
-                cell_link(a.dirty_prs, &a.login, "dirty"),
-                cell_link(a.deferred_prs, &a.login, "deferred"),
-                cell_link(a.draft_prs, &a.login, "draft"),
-                cell_link(a.stale_prs, &a.login, "stale"),
-                cell_link(a.prs_needing_author_action, &a.login, "needs-action"),
+                cell_link(
+                    a.total_open_prs,
+                    aliases,
+                    |x| x.total_open_prs,
+                    login,
+                    "open"
+                ),
+                cell_link(a.clean_prs, aliases, |x| x.clean_prs, login, "clean"),
+                cell_link(a.dirty_prs, aliases, |x| x.dirty_prs, login, "dirty"),
+                cell_link(
+                    a.deferred_prs,
+                    aliases,
+                    |x| x.deferred_prs,
+                    login,
+                    "deferred"
+                ),
+                cell_link(a.draft_prs, aliases, |x| x.draft_prs, login, "draft"),
+                cell_link(a.stale_prs, aliases, |x| x.stale_prs, login, "stale"),
+                cell_link(
+                    a.prs_needing_author_action,
+                    aliases,
+                    |x| x.prs_needing_author_action,
+                    login,
+                    "needs-action"
+                ),
                 unresolved_target,
                 cr_target,
                 human_target,
-                cell_link(a.awaiting_review, &a.login, "to-review"),
+                cell_link(
+                    a.awaiting_review,
+                    aliases,
+                    |x| x.awaiting_review,
+                    login,
+                    "to-review"
+                ),
             );
         }
     }
@@ -207,14 +304,35 @@ fn write_author_section(
     let login = &rollup.login;
     let s = slug(login);
     let _ = writeln!(out, "<a id=\"{s}\"></a>");
-    let _ = writeln!(out, "### @{login}");
+    let header = if rollup.aliases.is_empty() {
+        format!("### @{login}")
+    } else {
+        let mut h = format!("### @{login}");
+        for alias in &rollup.aliases {
+            h.push_str(&format!(" + (@{})", alias.login));
+        }
+        h
+    };
+    let _ = writeln!(out, "{header}");
+
+    // All logins owned by this principal (own login + every alias's login),
+    // lowercased for case-insensitive matching against PR authors.
+    let owned_logins: HashSet<String> = std::iter::once(login.to_ascii_lowercase())
+        .chain(rollup.aliases.iter().map(|a| a.login.to_ascii_lowercase()))
+        .collect();
 
     let mine: Vec<&ScoredPr> = scored
         .iter()
-        .filter(|p| p.pr.raw.author.as_deref() == Some(login.as_str()))
+        .filter(|p| {
+            p.pr.raw
+                .author
+                .as_deref()
+                .map(|a| owned_logins.contains(&a.to_ascii_lowercase()))
+                .unwrap_or(false)
+        })
         .collect();
 
-    if mine.is_empty() && rollup.awaiting_review == 0 {
+    if mine.is_empty() && rollup.combined_awaiting_review() == 0 {
         // Pure reviewer with no queue right now. Just emit the anchor + an empty notice.
         let _ = writeln!(out, "_No PRs._");
         let _ = writeln!(out);
@@ -267,7 +385,9 @@ fn write_author_section(
     ));
 
     // To-review is authored by someone else; pull from scored at large.
-    // Match via explicit reviewer requests OR path-based routing.
+    // Match via explicit reviewer requests OR path-based routing, against the
+    // principal's login OR any alias's login.
+    let reviewer_logins: HashSet<String> = owned_logins.clone();
     let mut to_review: Vec<&ScoredPr> = scored
         .iter()
         .filter(|p| {
@@ -279,11 +399,13 @@ fn write_author_section(
             {
                 return false;
             }
+            // Self-review: the PR's author OR any of the principal's aliases.
             if p.pr
                 .raw
                 .author
                 .as_deref()
-                .is_some_and(|a| a.eq_ignore_ascii_case(login))
+                .map(|a| reviewer_logins.contains(&a.to_ascii_lowercase()))
+                .unwrap_or(false)
             {
                 return false;
             }
@@ -291,11 +413,11 @@ fn write_author_section(
                 p.pr.raw
                     .requested_reviewers
                     .iter()
-                    .any(|r| r.eq_ignore_ascii_case(login));
+                    .any(|r| reviewer_logins.contains(&r.to_ascii_lowercase()));
             let in_routed = p
                 .routed_reviewers
                 .iter()
-                .any(|r| r.eq_ignore_ascii_case(login));
+                .any(|r| reviewer_logins.contains(&r.to_ascii_lowercase()));
             in_requested || in_routed
         })
         .collect();
@@ -308,14 +430,26 @@ fn write_author_section(
         }
         let _ = writeln!(out, "<a id=\"{s}-{anchor}\"></a>");
         let _ = writeln!(out, "#### {label} ({})", prs.len());
+        let show_author = anchor == "to-review";
+        let principal = if show_author {
+            None
+        } else {
+            Some(login.as_str())
+        };
         for p in prs {
-            write_pr_bullet(out, p, now, anchor == "to-review");
+            write_pr_bullet(out, p, now, show_author, principal);
         }
         let _ = writeln!(out);
     }
 }
 
-fn write_pr_bullet(out: &mut String, s: &ScoredPr, now: DateTime<Utc>, show_author: bool) {
+fn write_pr_bullet(
+    out: &mut String,
+    s: &ScoredPr,
+    now: DateTime<Utc>,
+    show_author: bool,
+    principal_login: Option<&str>,
+) {
     let title = sanitize_inline(&s.pr.raw.title);
     let url = &s.pr.raw.url;
     let n = s.pr.raw.number;
@@ -323,6 +457,12 @@ fn write_pr_bullet(out: &mut String, s: &ScoredPr, now: DateTime<Utc>, show_auth
     if show_author {
         if let Some(a) = &s.pr.raw.author {
             detail_bits.push(format!("by @{a}"));
+        }
+    } else if let (Some(principal), Some(a)) = (principal_login, s.pr.raw.author.as_deref()) {
+        // In the principal's own drilldown section, PRs authored by an alias get
+        // the "via @alias" attribution so the reader knows the original account.
+        if !a.eq_ignore_ascii_case(principal) {
+            detail_bits.push(format!("via @{a}"));
         }
     }
     if s.unresolved_total > 0 {
@@ -501,6 +641,7 @@ mod tests {
             total_score: score,
             oldest_stale_pr_days: oldest,
             delta_vs_last_week: delta,
+            aliases: vec![],
         }
     }
 

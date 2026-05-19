@@ -98,7 +98,7 @@ async fn main() -> Result<()> {
     let history_dir = PathBuf::from(history::HISTORY_DIR);
     let previous = history::load_previous(&history_dir, today)?;
     let has_history = previous.is_some();
-    let authors = scorer::rollup_authors(&scored, previous.as_ref());
+    let authors = scorer::rollup_authors(&scored, &cfg, previous.as_ref());
     let snapshot = scorer::build_snapshot(today, &scored, &authors);
 
     // When running in Actions, link to the config file on github.com (the file isn't in

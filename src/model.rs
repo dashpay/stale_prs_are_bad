@@ -186,6 +186,56 @@ pub struct AuthorRollup {
     /// Difference in `prs_needing_author_action` vs the snapshot from ~7 days ago.
     /// `None` when no comparable snapshot exists.
     pub delta_vs_last_week: Option<i32>,
+    /// Alias rollups merged into this principal's row. Each alias keeps its own
+    /// counts so the report can show "13+(5)". Nested aliases (alias of alias)
+    /// aren't supported — this vec is always empty on the inner rollups.
+    pub aliases: Vec<AuthorRollup>,
+}
+
+impl AuthorRollup {
+    fn sum_aliases<F: Fn(&AuthorRollup) -> u32>(&self, f: F) -> u32 {
+        self.aliases.iter().map(f).sum()
+    }
+    fn sum_aliases_f64<F: Fn(&AuthorRollup) -> f64>(&self, f: F) -> f64 {
+        self.aliases.iter().map(f).sum()
+    }
+
+    pub fn combined_total_open_prs(&self) -> u32 {
+        self.total_open_prs + self.sum_aliases(|a| a.total_open_prs)
+    }
+    pub fn combined_clean_prs(&self) -> u32 {
+        self.clean_prs + self.sum_aliases(|a| a.clean_prs)
+    }
+    pub fn combined_dirty_prs(&self) -> u32 {
+        self.dirty_prs + self.sum_aliases(|a| a.dirty_prs)
+    }
+    pub fn combined_deferred_prs(&self) -> u32 {
+        self.deferred_prs + self.sum_aliases(|a| a.deferred_prs)
+    }
+    pub fn combined_draft_prs(&self) -> u32 {
+        self.draft_prs + self.sum_aliases(|a| a.draft_prs)
+    }
+    pub fn combined_stale_prs(&self) -> u32 {
+        self.stale_prs + self.sum_aliases(|a| a.stale_prs)
+    }
+    pub fn combined_prs_needing_author_action(&self) -> u32 {
+        self.prs_needing_author_action + self.sum_aliases(|a| a.prs_needing_author_action)
+    }
+    pub fn combined_total_unresolved(&self) -> u32 {
+        self.total_unresolved + self.sum_aliases(|a| a.total_unresolved)
+    }
+    pub fn combined_unresolved_coderabbit(&self) -> u32 {
+        self.unresolved_coderabbit + self.sum_aliases(|a| a.unresolved_coderabbit)
+    }
+    pub fn combined_unresolved_human(&self) -> u32 {
+        self.unresolved_human + self.sum_aliases(|a| a.unresolved_human)
+    }
+    pub fn combined_awaiting_review(&self) -> u32 {
+        self.awaiting_review + self.sum_aliases(|a| a.awaiting_review)
+    }
+    pub fn combined_total_score(&self) -> f64 {
+        self.total_score + self.sum_aliases_f64(|a| a.total_score)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -50,6 +50,14 @@ review_routing:
     primary: llbartekll       # bartozs — edit if the login is different
     fallback: ZocoLini
 
+# AI-assistant accounts that should be attributed to a human in the scoreboard.
+# The principal's row shows as "@principal + (@alias)" with cells like "13+(5)".
+# Aliases also count as the principal for self-review detection (so the human
+# isn't put in their own AI-assistant's PR's review queue).
+author_aliases:
+  Claudius-Maginificent: lklimek
+  thepastaclaw: PastaPastaPasta
+
 # Skip authors whose first observed PR is fewer than this many days old.
 # Avoids surfacing brand-new contributors before they've had a chance to learn the workflow.
 grace_period_days: 14

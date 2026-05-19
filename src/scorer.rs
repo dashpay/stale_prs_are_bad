@@ -128,7 +128,11 @@ fn age_multiplier(days: f64, kind: AgeMultiplier) -> f64 {
     raw.max(1.0)
 }
 
-pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<AuthorRollup> {
+pub fn rollup_authors(
+    scored: &[ScoredPr],
+    cfg: &Config,
+    previous: Option<&Snapshot>,
+) -> Vec<AuthorRollup> {
     let mut by_login: HashMap<String, AuthorRollup> = HashMap::new();
     let ensure = |map: &mut HashMap<String, AuthorRollup>, login: &str| {
         map.entry(login.to_string())
@@ -149,6 +153,7 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
                 total_score: 0.0,
                 oldest_stale_pr_days: 0.0,
                 delta_vs_last_week: None,
+                aliases: vec![],
             });
     };
 
@@ -159,11 +164,6 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
             let entry = by_login.get_mut(login).expect("just inserted");
             entry.total_open_prs += 1;
             // Precedence: deferred > stale > draft > dirty > clean.
-            // - Deferred wins (intentionally on hold).
-            // - Stale next: targets a non-default branch, OR untouched > threshold (the
-            //   would-be-clean exception lives in the analyzer so stale never overrides clean).
-            // - Draft is independent author state.
-            // - Dirty vs clean comes from unresolved-thread counts.
             if s.pr.is_deferred {
                 entry.deferred_prs += 1;
             } else if s.pr.is_stale {
@@ -188,9 +188,7 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
             }
         }
 
-        // Reviewer-side counts: only PRs that are actually ready for review
-        // count. Stale, deferred, draft, dirty, and merge-conflicting PRs are
-        // not in anyone's review queue.
+        // Reviewer-side counts: only PRs ready for review count.
         if s.pr.is_deferred
             || s.pr.is_stale
             || s.pr.raw.is_draft
@@ -200,21 +198,20 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
             continue;
         }
 
-        // GitHub-requested reviewers + path-routed reviewers (the latter are
-        // already deduplicated against requested_reviewers and the author).
+        let author = s.pr.raw.author.as_deref();
         let mut seen_lc: HashSet<String> = HashSet::new();
         let mut bump = |map: &mut HashMap<String, AuthorRollup>, login: &str| {
             let lc = login.to_ascii_lowercase();
             if !seen_lc.insert(lc) {
                 return;
             }
-            if s.pr
-                .raw
-                .author
-                .as_deref()
-                .is_some_and(|a| a.eq_ignore_ascii_case(login))
-            {
-                return;
+            // Self-review never counts. Compare via alias-canonical login so that
+            // an AI-assistant account reviewing its principal's PR (or vice versa)
+            // is treated as self-review.
+            if let Some(a) = author {
+                if same_principal(a, login, &cfg.author_aliases) {
+                    return;
+                }
             }
             ensure(map, login);
             map.get_mut(login).expect("just inserted").awaiting_review += 1;
@@ -227,6 +224,8 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
         }
     }
 
+    // Delta-vs-last-week lookup keys by snapshot's login. Compute BEFORE merging
+    // aliases so each rollup compares against its own historical entry.
     if let Some(prev) = previous {
         let prev_map: HashMap<&str, u32> = prev
             .per_author
@@ -241,25 +240,100 @@ pub fn rollup_authors(scored: &[ScoredPr], previous: Option<&Snapshot>) -> Vec<A
         }
     }
 
+    // Apply alias merging: move each alias's rollup into the principal's `aliases` vec.
+    apply_alias_merging(&mut by_login, &cfg.author_aliases);
+
     let mut out: Vec<AuthorRollup> = by_login.into_values().collect();
-    // Sort: author-side slackers float to top, then reviewer-side slackers, then clean players.
+    // Sort by COMBINED (principal + aliases) so an aliased row's true weight
+    // determines its position.
     out.sort_by(|a, b| {
-        b.dirty_prs
-            .cmp(&a.dirty_prs)
+        b.combined_dirty_prs()
+            .cmp(&a.combined_dirty_prs())
             .then(
-                b.prs_needing_author_action
-                    .cmp(&a.prs_needing_author_action),
+                b.combined_prs_needing_author_action()
+                    .cmp(&a.combined_prs_needing_author_action()),
             )
-            .then(b.awaiting_review.cmp(&a.awaiting_review))
             .then(
-                b.total_score
-                    .partial_cmp(&a.total_score)
+                b.combined_awaiting_review()
+                    .cmp(&a.combined_awaiting_review()),
+            )
+            .then(
+                b.combined_total_score()
+                    .partial_cmp(&a.combined_total_score())
                     .unwrap_or(std::cmp::Ordering::Equal),
             )
-            .then(b.total_unresolved.cmp(&a.total_unresolved))
+            .then(
+                b.combined_total_unresolved()
+                    .cmp(&a.combined_total_unresolved()),
+            )
             .then(a.login.cmp(&b.login))
     });
     out
+}
+
+/// Move alias rollups into their principals' `aliases` vec. Case-insensitive matching.
+/// If the principal has no rollup yet (e.g., they haven't authored any PRs of their own
+/// and aren't a reviewer), one is created so the principal still appears in the scoreboard
+/// with the alias's data attached.
+fn apply_alias_merging(
+    by_login: &mut HashMap<String, AuthorRollup>,
+    aliases: &HashMap<String, String>,
+) {
+    for (alias_login, principal_login) in aliases {
+        let actual_alias_key = by_login
+            .keys()
+            .find(|k| k.eq_ignore_ascii_case(alias_login))
+            .cloned();
+        let Some(alias_key) = actual_alias_key else {
+            continue;
+        };
+        let alias_rollup = by_login.remove(&alias_key).expect("just confirmed present");
+
+        let actual_principal_key = by_login
+            .keys()
+            .find(|k| k.eq_ignore_ascii_case(principal_login))
+            .cloned()
+            .unwrap_or_else(|| principal_login.clone());
+        let principal = by_login
+            .entry(actual_principal_key)
+            .or_insert_with(|| AuthorRollup {
+                login: principal_login.clone(),
+                total_open_prs: 0,
+                clean_prs: 0,
+                dirty_prs: 0,
+                deferred_prs: 0,
+                draft_prs: 0,
+                stale_prs: 0,
+                prs_needing_author_action: 0,
+                total_unresolved: 0,
+                unresolved_coderabbit: 0,
+                unresolved_human: 0,
+                unresolved_bot: 0,
+                awaiting_review: 0,
+                total_score: 0.0,
+                oldest_stale_pr_days: 0.0,
+                delta_vs_last_week: None,
+                aliases: vec![],
+            });
+        principal.aliases.push(alias_rollup);
+    }
+}
+
+/// True when two logins resolve to the same canonical principal via the alias map.
+/// An alias maps to its principal; a principal maps to itself.
+fn same_principal(a: &str, b: &str, aliases: &HashMap<String, String>) -> bool {
+    let canon_a = canonicalize(a, aliases);
+    let canon_b = canonicalize(b, aliases);
+    canon_a.eq_ignore_ascii_case(canon_b)
+}
+
+fn canonicalize<'a>(login: &'a str, aliases: &'a HashMap<String, String>) -> &'a str {
+    for (alias, principal) in aliases {
+        if alias.eq_ignore_ascii_case(login) {
+            return principal.as_str();
+        }
+    }
+    login
 }
 
 pub fn build_snapshot(
@@ -270,20 +344,22 @@ pub fn build_snapshot(
     let open_prs = scored.len() as u32;
     let prs_needing = scored.iter().filter(|s| s.pr.needs_author_action).count() as u32;
     let total_unresolved: u32 = scored.iter().map(|s| s.unresolved_total).sum();
+    // Snapshot stores COMBINED (principal + aliases) values so delta_vs_last_week
+    // is computed against the principal's full attribution.
     let per_author = authors
         .iter()
         .map(|a| AuthorSnapshot {
             login: a.login.clone(),
-            total_open_prs: a.total_open_prs,
-            clean_prs: a.clean_prs,
-            dirty_prs: a.dirty_prs,
-            deferred_prs: a.deferred_prs,
-            draft_prs: a.draft_prs,
-            stale_prs: a.stale_prs,
-            awaiting_review: a.awaiting_review,
-            prs_needing_author_action: a.prs_needing_author_action,
-            total_unresolved: a.total_unresolved,
-            total_score: a.total_score,
+            total_open_prs: a.combined_total_open_prs(),
+            clean_prs: a.combined_clean_prs(),
+            dirty_prs: a.combined_dirty_prs(),
+            deferred_prs: a.combined_deferred_prs(),
+            draft_prs: a.combined_draft_prs(),
+            stale_prs: a.combined_stale_prs(),
+            awaiting_review: a.combined_awaiting_review(),
+            prs_needing_author_action: a.combined_prs_needing_author_action(),
+            total_unresolved: a.combined_total_unresolved(),
+            total_score: a.combined_total_score(),
             oldest_stale_pr_days: a.oldest_stale_pr_days,
         })
         .collect();
@@ -437,7 +513,7 @@ mod tests {
             &cfg,
             now,
         );
-        let rolled = rollup_authors(&prs, None);
+        let rolled = rollup_authors(&prs, &cfg, None);
         assert_eq!(rolled[0].login, "alice");
         assert_eq!(rolled[1].login, "bob");
         assert!(rolled.iter().all(|r| r.delta_vs_last_week.is_none()));
@@ -471,7 +547,7 @@ mod tests {
         draft.raw.is_draft = true;
 
         let scored = score_prs(vec![clean, dirty, deferred, draft], &cfg, now);
-        let rolled = rollup_authors(&scored, None);
+        let rolled = rollup_authors(&scored, &cfg, None);
         let bob = rolled
             .iter()
             .find(|r| r.login == "reviewer-bob")
@@ -494,7 +570,7 @@ mod tests {
         p.raw.is_draft = true;
         p.needs_author_action = false; // mirrors analyzer's draft-suppression
         let scored = score_prs(vec![p], &cfg, now);
-        let rolled = rollup_authors(&scored, None);
+        let rolled = rollup_authors(&scored, &cfg, None);
         let alice = &rolled[0];
         assert_eq!(alice.total_open_prs, 1);
         assert_eq!(alice.draft_prs, 1);
@@ -520,7 +596,7 @@ mod tests {
         clean.raw.changed_files = vec!["packages/wasm-sdk/index.ts".into()];
         let scored = score_prs(vec![clean], &cfg, now);
         assert_eq!(scored[0].routed_reviewers, vec!["shumkov"]);
-        let rolled = rollup_authors(&scored, None);
+        let rolled = rollup_authors(&scored, &cfg, None);
         let shumkov = rolled.iter().find(|r| r.login == "shumkov").unwrap();
         assert_eq!(shumkov.awaiting_review, 1);
 
@@ -549,10 +625,69 @@ mod tests {
         let scored = score_prs(vec![pr], &cfg, now);
         // routed_reviewers excludes already-requested.
         assert!(scored[0].routed_reviewers.is_empty());
-        let rolled = rollup_authors(&scored, None);
+        let rolled = rollup_authors(&scored, &cfg, None);
         // shumkov still counted exactly once via requested_reviewers.
         let shumkov = rolled.iter().find(|r| r.login == "shumkov").unwrap();
         assert_eq!(shumkov.awaiting_review, 1);
+    }
+
+    #[test]
+    fn aliases_merge_into_principal_row() {
+        let mut cfg = Config {
+            default_target_branch: Some("master".into()),
+            ..Config::default()
+        };
+        cfg.author_aliases.clear();
+        cfg.author_aliases
+            .insert("claude-bot".into(), "alice".into());
+        let now = dt("2026-05-19T00:00:00Z");
+
+        let alice_pr = analyzed("alice", vec![], false);
+        let bot_pr = analyzed(
+            "claude-bot",
+            vec![thread(Severity::Medium, ThreadSource::Human, 2)],
+            false,
+        );
+        let scored = score_prs(vec![alice_pr, bot_pr], &cfg, now);
+        let rolled = rollup_authors(&scored, &cfg, None);
+
+        // The bot's row is absorbed into alice's. Only alice appears in the output.
+        assert_eq!(rolled.len(), 1);
+        let alice = &rolled[0];
+        assert_eq!(alice.login, "alice");
+        assert_eq!(alice.aliases.len(), 1);
+        assert_eq!(alice.aliases[0].login, "claude-bot");
+        // alice's own clean = 1, alias's dirty = 1
+        assert_eq!(alice.clean_prs, 1);
+        assert_eq!(alice.aliases[0].dirty_prs, 1);
+        // Combined helpers expose the sum
+        assert_eq!(alice.combined_total_open_prs(), 2);
+        assert_eq!(alice.combined_dirty_prs(), 1);
+        assert_eq!(alice.combined_clean_prs(), 1);
+    }
+
+    #[test]
+    fn alias_authoring_principal_reviewing_is_self_review() {
+        // alice has a claude-bot alias. claude-bot authors a clean PR with alice
+        // as the requested reviewer. alice shouldn't end up in her own to-review.
+        let mut cfg = Config {
+            default_target_branch: Some("master".into()),
+            ..Config::default()
+        };
+        cfg.author_aliases.clear();
+        cfg.author_aliases
+            .insert("claude-bot".into(), "alice".into());
+        let now = dt("2026-05-19T00:00:00Z");
+
+        let mut pr = analyzed("claude-bot", vec![], false);
+        pr.raw.requested_reviewers = vec!["alice".into()];
+        let scored = score_prs(vec![pr], &cfg, now);
+        let rolled = rollup_authors(&scored, &cfg, None);
+
+        // Only one merged row, with awaiting_review = 0 (self-review).
+        assert_eq!(rolled.len(), 1);
+        assert_eq!(rolled[0].login, "alice");
+        assert_eq!(rolled[0].combined_awaiting_review(), 0);
     }
 
     #[test]
@@ -563,7 +698,7 @@ mod tests {
         p.raw.is_draft = true;
         p.is_deferred = true;
         let scored = score_prs(vec![p], &cfg, now);
-        let rolled = rollup_authors(&scored, None);
+        let rolled = rollup_authors(&scored, &cfg, None);
         let alice = &rolled[0];
         assert_eq!(alice.deferred_prs, 1);
         assert_eq!(alice.draft_prs, 0);
@@ -576,7 +711,7 @@ mod tests {
         let mut p = analyzed("alice", vec![], false);
         p.is_deferred = true;
         let scored = score_prs(vec![p], &cfg, now);
-        let rolled = rollup_authors(&scored, None);
+        let rolled = rollup_authors(&scored, &cfg, None);
         let alice = &rolled[0];
         assert_eq!(alice.total_open_prs, 1);
         assert_eq!(alice.deferred_prs, 1);
@@ -620,7 +755,7 @@ mod tests {
             }],
             per_pr: vec![],
         };
-        let rolled = rollup_authors(&prs, Some(&previous));
+        let rolled = rollup_authors(&prs, &cfg, Some(&previous));
         assert_eq!(rolled[0].delta_vs_last_week, Some(1 - 5));
     }
 }

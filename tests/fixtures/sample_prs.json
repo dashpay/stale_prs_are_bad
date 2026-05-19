@@ -164,6 +164,39 @@
             }
           },
           {
+            "id": "PR_kw_3001",
+            "number": 3001,
+            "title": "ci: tolerate book preview comment errors",
+            "url": "https://github.com/dashpay/platform/pull/3001",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "baseRefName": "master",
+            "createdAt": "2026-04-01T00:00:00Z",
+            "updatedAt": "2026-05-18T00:00:00Z",
+            "author": { "login": "thepastaclaw" },
+            "labels": { "nodes": [] },
+            "files": {
+              "nodes": [
+                { "path": ".github/workflows/book.yml" }
+              ]
+            },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-18T00:00:00Z",
+                    "statusCheckRollup": { "state": "SUCCESS" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": []
+            }
+          },
+          {
             "id": "PR_kw_2001",
             "number": 2001,
             "title": "Bump grpc-tonic to 0.12",

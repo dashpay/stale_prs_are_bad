@@ -30,7 +30,7 @@ fn parse_all(fixture: &serde_json::Value) -> Vec<pr_hygiene::model::RawPr> {
 fn end_to_end_pipeline_matches_snapshot() {
     let fixture = load_fixture();
     let raw = parse_all(&fixture);
-    assert_eq!(raw.len(), 9);
+    assert_eq!(raw.len(), 10);
 
     // The fixture's PRs target `master`; pin that here so the branch-stale check
     // mirrors what main.rs does after auto-detecting from GraphQL.
@@ -46,13 +46,18 @@ fn end_to_end_pipeline_matches_snapshot() {
     // all survive.
     let analyzed = analyzer::analyze(raw, &cfg, now);
     let numbers: Vec<u64> = analyzed.iter().map(|p| p.raw.number).collect();
-    assert_eq!(numbers, vec![1234, 1240, 2001, 3000, 5000, 6000, 2988]);
+    // #3001 by thepastaclaw will get merged into PastaPastaPasta's row via alias.
+    assert_eq!(
+        numbers,
+        vec![1234, 1240, 3001, 2001, 3000, 5000, 6000, 2988]
+    );
 
     // PastaPastaPasta is brand-new to the cache; their oldest PR (#2988, 2026-03-20)
-    // is well past the 14d grace cutoff, so they survive.
+    // is well past the 14d grace cutoff, so they survive. thepastaclaw likewise
+    // since their first known PR is #3001 on 2026-04-01.
     let mut cache = HashMap::new();
     let filtered = analyzer::apply_grace_period(analyzed, &mut cache, 14, today);
-    assert_eq!(filtered.len(), 7);
+    assert_eq!(filtered.len(), 8);
 
     let scored = scorer::score_prs(filtered, &cfg, now);
 
@@ -87,7 +92,7 @@ fn end_to_end_pipeline_matches_snapshot() {
     assert!(!pr3000.pr.needs_author_action);
     assert_eq!(pr3000.unresolved_total, 0);
 
-    let authors = scorer::rollup_authors(&scored, None);
+    let authors = scorer::rollup_authors(&scored, &cfg, None);
     let alice = authors.iter().find(|a| a.login == "alice").unwrap();
     assert_eq!(alice.total_open_prs, 3); // includes the deferred PR
     assert_eq!(alice.dirty_prs, 2);
@@ -105,12 +110,22 @@ fn end_to_end_pipeline_matches_snapshot() {
 
     // PR #2988 targets v3.0 → stale. Touches wasm-sdk/ → routes to shumkov.
     // But it's stale, so it should NOT enter shumkov's "To review" queue.
+    // PR #3001 by thepastaclaw should merge into PastaPastaPasta's row via alias.
     let pasta = authors
         .iter()
         .find(|a| a.login == "PastaPastaPasta")
         .unwrap();
-    assert_eq!(pasta.stale_prs, 1);
-    assert_eq!(pasta.dirty_prs, 0);
+    assert_eq!(pasta.stale_prs, 1, "their own PR #2988 is stale");
+    assert_eq!(pasta.dirty_prs, 0, "no dirty PRs of their own");
+    assert_eq!(pasta.aliases.len(), 1);
+    assert_eq!(pasta.aliases[0].login, "thepastaclaw");
+    assert_eq!(
+        pasta.aliases[0].clean_prs, 1,
+        "thepastaclaw's #3001 is clean"
+    );
+    assert_eq!(pasta.combined_total_open_prs(), 2); // #2988 + #3001
+                                                    // No standalone thepastaclaw row in the output — it was absorbed.
+    assert!(!authors.iter().any(|a| a.login == "thepastaclaw"));
     assert!(
         !authors.iter().any(|a| a.login == "shumkov"),
         "shumkov should NOT be added — the only routable PR is stale"

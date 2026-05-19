@@ -31,6 +31,13 @@ pub struct Config {
     pub age_multiplier: AgeMultiplier,
     pub history_retention_days: i64,
     pub needs_author_action_label: String,
+    /// Merge one author's row into another's in the scoreboard. Map keys are
+    /// "alias" logins (e.g. AI-assistant accounts); values are the human "principal"
+    /// who's actually accountable. The principal's row is displayed as
+    /// "@principal + (@alias)" with cells like "X+(Y)". Aliases also count as
+    /// the principal for self-review detection.
+    #[serde(default)]
+    pub author_aliases: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +113,12 @@ impl Default for Config {
             age_multiplier: AgeMultiplier::Ln,
             history_retention_days: 90,
             needs_author_action_label: "needs-author-action".into(),
+            author_aliases: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("Claudius-Maginificent".into(), "lklimek".into());
+                m.insert("thepastaclaw".into(), "PastaPastaPasta".into());
+                m
+            },
         }
     }
 }

@@ -8,7 +8,7 @@ expression: md
 *Last updated: 2026-05-19 06:00 UTC · commit abc1234*
 
 ## Summary
-- Open PRs: **7** (1 clean · 3 dirty · 1 deferred · 1 draft · 1 stale)
+- Open PRs: **8** (2 clean · 3 dirty · 1 deferred · 1 draft · 1 stale)
 - PRs needing author action: **2**
 - Total unresolved threads: **4**
 
@@ -19,7 +19,7 @@ _Sort: dirty PRs desc → needs-action desc → to-review desc. Click any number
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | [@alice](#alice) | [3](#alice-open) | — | [2](#alice-dirty) | [1](#alice-deferred) | — | — | [2](#alice-needs-action) | [3](#alice-dirty) | [2](#alice-dirty) | [1](#alice-dirty) | [1](#alice-to-review) |
 | [@bob](#bob) | [2](#bob-open) | — | [1](#bob-dirty) | — | [1](#bob-draft) | — | — | [1](#bob-dirty) | — | [1](#bob-dirty) | — |
-| [@PastaPastaPasta](#pastapastapasta) | [1](#pastapastapasta-open) | — | — | — | — | [1](#pastapastapasta-stale) | — | — | — | — | — |
+| [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [1+(1)](#pastapastapasta-open) | [0+(1)](#pastapastapasta-clean) | — | — | — | [1+(0)](#pastapastapasta-stale) | — | — | — | — | — |
 | [@carol](#carol) | [1](#carol-open) | [1](#carol-clean) | — | — | — | — | — | — | — | — | — |
 
 ## Per-author detail
@@ -74,14 +74,19 @@ _Sort: dirty PRs desc → needs-action desc → to-review desc. Click any number
 - [#6000 Draft: rework cache layer](https://github.com/dashpay/platform/pull/6000) — 📝 draft
 
 <a id="pastapastapasta"></a>
-### @PastaPastaPasta
+### @PastaPastaPasta + (@thepastaclaw)
 <a id="pastapastapasta-open"></a>
-#### Open (1)
+#### Open (2)
 - [#2988 WASM SDK: feature work targeting 3.0](https://github.com/dashpay/platform/pull/2988) — 🐢 targets v3.0
+- [#3001 ci: tolerate book preview comment errors](https://github.com/dashpay/platform/pull/3001) — via @thepastaclaw
 
 <a id="pastapastapasta-stale"></a>
 #### Stale (1)
 - [#2988 WASM SDK: feature work targeting 3.0](https://github.com/dashpay/platform/pull/2988) — 🐢 targets v3.0
+
+<a id="pastapastapasta-clean"></a>
+#### Clean (1)
+- [#3001 ci: tolerate book preview comment errors](https://github.com/dashpay/platform/pull/3001) — via @thepastaclaw
 
 <a id="carol"></a>
 ### @carol
