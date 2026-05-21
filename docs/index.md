@@ -1,10 +1,10 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-05-21 00:48 UTC · commit b364680*
+*Last updated: 2026-05-21 07:21 UTC · commit 585aee2*
 
 ## Summary
-- Open PRs: **65** (2 clean · 5 CI failing · 8 changes requested · 8 unresolved comments · 9 deferred · 20 draft · 13 stale)
+- Open PRs: **65** (2 clean · 6 CI failing · 8 changes requested · 8 unresolved comments · 9 deferred · 19 draft · 13 stale)
 - PRs needing author action: **14**
 - Total unresolved comments: **95**
 
@@ -13,7 +13,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 | Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [@lklimek + (@Claudius-Maginificent)](#lklimek) | [13+(8)](#lklimek-open) | — | — | [1+(1)](#lklimek-unresolved-comments) | [3+(2)](#lklimek-changes-requested) | [5+(0)](#lklimek-deferred) | [4+(1)](#lklimek-draft) | [0+(4)](#lklimek-stale) | [4+(3)](#lklimek-needs-action) | [1+(30)](#lklimek-unresolved-comments) | — |
+| [@lklimek + (@Claudius-Maginificent)](#lklimek) | [13+(8)](#lklimek-open) | — | [1+(0)](#lklimek-ci-failing) | [1+(1)](#lklimek-unresolved-comments) | [3+(2)](#lklimek-changes-requested) | [5+(0)](#lklimek-deferred) | [3+(1)](#lklimek-draft) | [0+(4)](#lklimek-stale) | [4+(3)](#lklimek-needs-action) | [1+(30)](#lklimek-unresolved-comments) | — |
 | [@QuantumExplorer](#quantumexplorer) | [6](#quantumexplorer-open) | — | — | [2](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-changes-requested) | [2](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | — | [2](#quantumexplorer-needs-action) | [12](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-ready-for-review) |
 | [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [8+(9)](#pastapastapasta-open) | [1+(0)](#pastapastapasta-clean) | [2+(0)](#pastapastapasta-ci-failing) | [1+(1)](#pastapastapasta-unresolved-comments) | — | — | [4+(6)](#pastapastapasta-draft) | [0+(2)](#pastapastapasta-stale) | [1+(0)](#pastapastapasta-needs-action) | [1+(7)](#pastapastapasta-unresolved-comments) | — |
 | [@shumkov](#shumkov) | [9](#shumkov-open) | — | [2](#shumkov-ci-failing) | [1](#shumkov-unresolved-comments) | — | [1](#shumkov-deferred) | [2](#shumkov-draft) | [3](#shumkov-stale) | [1](#shumkov-needs-action) | [8](#shumkov-unresolved-comments) | [1](#shumkov-ready-for-review) |
@@ -31,9 +31,9 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Open (21)
 - [#3549 test(platform-wallet): e2e framework + full test suite — triage pins, Found-*/PA-* guards, fail-closed persist, Stage-2 merge](https://github.com/dashpay/platform/pull/3549) — via @Claudius-Maginificent · 21 unresolved (21 human) · 18 days stale · 📝 draft · 🐢 targets fix/rs-platform-wallet-auto-select-inputs
   - Top thread: "<!-- thepastaclaw-review v1 finding=a3725e9d50ca -->" — 18 days old
-- [#3625 feat(platform-wallet): add platform-wallet-storage crate (sqlite persister)](https://github.com/dashpay/platform/pull/3625) — via @Claudius-Maginificent · 4 unresolved (4 CodeRabbit) · 9 days stale · 📝 draft
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 9 days old
-- [#3637 feat(platform-wallet): serde support](https://github.com/dashpay/platform/pull/3637) — via @Claudius-Maginificent · 5 unresolved (1 CodeRabbit, 4 human) · 7 days stale · ⚠ merge conflict
+- [#3625 feat(platform-wallet): add platform-wallet-storage crate (sqlite persister)](https://github.com/dashpay/platform/pull/3625) — via @Claudius-Maginificent · 4 unresolved (4 CodeRabbit) · 10 days stale · 📝 draft
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 10 days old
+- [#3637 feat(platform-wallet): serde support](https://github.com/dashpay/platform/pull/3637) — via @Claudius-Maginificent · 5 unresolved (1 CodeRabbit, 4 human) · 8 days stale · ⚠ merge conflict
   - Top thread: "_⚠️ Potential issue_ \| _🔴 Critical_" — 7 days old
 - [#3650 fix(sdk): address-sync no longer silently discards balance changes for post-snapshot addresses (Found-025)](https://github.com/dashpay/platform/pull/3650) — 1 unresolved (1 CodeRabbit) · 2 days stale · 🔴 CI failing
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 2 days old
@@ -53,11 +53,11 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3692 feat(platform-wallet): add full wallet rehydration from persistor + seed (skip-and-report)](https://github.com/dashpay/platform/pull/3692) — via @Claudius-Maginificent · 📝 draft · 🐢 targets feat/platform-wallet-storage-secrets
 - [#3693 feat(platform-wallet): add contacts and identity-key rehydration (item G)](https://github.com/dashpay/platform/pull/3693) — via @Claudius-Maginificent · 📝 draft · 🐢 targets feat/platform-wallet-rehydration
 - [#3699 fix(rs-sdk,drive-abci): SDK emits incompatible getDocuments wire against pre-v3.1 networks](https://github.com/dashpay/platform/pull/3699) — 🔴 CI failing · 📝 draft
-- [#3711 fix(rs-sdk,drive-abci): SDK emits incompatible getDocuments wire against pre-v3.1 networks (QueryContext approach)](https://github.com/dashpay/platform/pull/3711) — 🔴 CI failing · 📝 draft
+- [#3711 fix(rs-sdk,drive-abci): SDK emits incompatible getDocuments wire against pre-v3.1 networks (QueryContext approach)](https://github.com/dashpay/platform/pull/3711) — 🔴 CI failing
 
 <a id="lklimek-needs-action"></a>
 #### Needs action (7)
-- [#3637 feat(platform-wallet): serde support](https://github.com/dashpay/platform/pull/3637) — via @Claudius-Maginificent · 5 unresolved (1 CodeRabbit, 4 human) · 7 days stale · ⚠ merge conflict
+- [#3637 feat(platform-wallet): serde support](https://github.com/dashpay/platform/pull/3637) — via @Claudius-Maginificent · 5 unresolved (1 CodeRabbit, 4 human) · 8 days stale · ⚠ merge conflict
   - Top thread: "_⚠️ Potential issue_ \| _🔴 Critical_" — 7 days old
 - [#3650 fix(sdk): address-sync no longer silently discards balance changes for post-snapshot addresses (Found-025)](https://github.com/dashpay/platform/pull/3650) — 1 unresolved (1 CodeRabbit) · 2 days stale · 🔴 CI failing
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 2 days old
@@ -69,7 +69,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="lklimek-unresolved-comments"></a>
 #### Unresolved Comments (2)
-- [#3637 feat(platform-wallet): serde support](https://github.com/dashpay/platform/pull/3637) — via @Claudius-Maginificent · 5 unresolved (1 CodeRabbit, 4 human) · 7 days stale · ⚠ merge conflict
+- [#3637 feat(platform-wallet): serde support](https://github.com/dashpay/platform/pull/3637) — via @Claudius-Maginificent · 5 unresolved (1 CodeRabbit, 4 human) · 8 days stale · ⚠ merge conflict
   - Top thread: "_⚠️ Potential issue_ \| _🔴 Critical_" — 7 days old
 - [#3650 fix(sdk): address-sync no longer silently discards balance changes for post-snapshot addresses (Found-025)](https://github.com/dashpay/platform/pull/3650) — 1 unresolved (1 CodeRabbit) · 2 days stale · 🔴 CI failing
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 2 days old
@@ -82,6 +82,10 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3648 fix(platform-wallet): local-ledger ownership guard (V27-007)](https://github.com/dashpay/platform/pull/3648) — ✋ changes requested
 - [#3651 feat(platform-wallet): SPV cancel_background/identity_ids accessors + FFI no-selectable-inputs error mapping](https://github.com/dashpay/platform/pull/3651) — ✋ changes requested · 🔴 CI failing
 
+<a id="lklimek-ci-failing"></a>
+#### CI Failing (1)
+- [#3711 fix(rs-sdk,drive-abci): SDK emits incompatible getDocuments wire against pre-v3.1 networks (QueryContext approach)](https://github.com/dashpay/platform/pull/3711) — 🔴 CI failing
+
 <a id="lklimek-deferred"></a>
 #### Deferred (5)
 - [#2679 fix(drive-abci): don't panic on unsupported version error](https://github.com/dashpay/platform/pull/2679) — ⏸ deferred
@@ -91,13 +95,12 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3032 feat: document creation restriction by group membership](https://github.com/dashpay/platform/pull/3032) — 📝 draft · ⏸ deferred
 
 <a id="lklimek-draft"></a>
-#### Draft (5)
-- [#3625 feat(platform-wallet): add platform-wallet-storage crate (sqlite persister)](https://github.com/dashpay/platform/pull/3625) — via @Claudius-Maginificent · 4 unresolved (4 CodeRabbit) · 9 days stale · 📝 draft
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 9 days old
+#### Draft (4)
+- [#3625 feat(platform-wallet): add platform-wallet-storage crate (sqlite persister)](https://github.com/dashpay/platform/pull/3625) — via @Claudius-Maginificent · 4 unresolved (4 CodeRabbit) · 10 days stale · 📝 draft
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 10 days old
 - [#3658 fix(rs-platform-wallet): reserve platform receive address on hand-out (Found-026) [backport\]](https://github.com/dashpay/platform/pull/3658) — 🔴 CI failing · 📝 draft
 - [#3659 fix(platform-wallet): fail-closed on registration persist error (Found-017) [backport\]](https://github.com/dashpay/platform/pull/3659) — 📝 draft
 - [#3699 fix(rs-sdk,drive-abci): SDK emits incompatible getDocuments wire against pre-v3.1 networks](https://github.com/dashpay/platform/pull/3699) — 🔴 CI failing · 📝 draft
-- [#3711 fix(rs-sdk,drive-abci): SDK emits incompatible getDocuments wire against pre-v3.1 networks (QueryContext approach)](https://github.com/dashpay/platform/pull/3711) — 🔴 CI failing · 📝 draft
 
 <a id="lklimek-stale"></a>
 #### Stale (4)
@@ -219,8 +222,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @shumkov
 <a id="shumkov-open"></a>
 #### Open (9)
-- [#3166 chore: integrate Claude Code into devcontainer for autonomus development](https://github.com/dashpay/platform/pull/3166) — 8 unresolved (8 human) · 75 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "as above." — 75 days old
+- [#3166 chore: integrate Claude Code into devcontainer for autonomus development](https://github.com/dashpay/platform/pull/3166) — 8 unresolved (8 human) · 76 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "as above." — 76 days old
 - [#2392 feat(dashmate): single node local network [WIP\]](https://github.com/dashpay/platform/pull/2392) — 🔴 CI failing · 🐢 targets v2.0-dev
 - [#2518 feat: token marketplace](https://github.com/dashpay/platform/pull/2518) — 📝 draft · ⏸ deferred
 - [#2552 perf(dapi): fetch only specific unconfirmed transaction](https://github.com/dashpay/platform/pull/2552) — ⚠ merge conflict · 🔴 CI failing · 🐢 targets v2.1-dev
@@ -232,13 +235,13 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="shumkov-needs-action"></a>
 #### Needs action (1)
-- [#3166 chore: integrate Claude Code into devcontainer for autonomus development](https://github.com/dashpay/platform/pull/3166) — 8 unresolved (8 human) · 75 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "as above." — 75 days old
+- [#3166 chore: integrate Claude Code into devcontainer for autonomus development](https://github.com/dashpay/platform/pull/3166) — 8 unresolved (8 human) · 76 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "as above." — 76 days old
 
 <a id="shumkov-unresolved-comments"></a>
 #### Unresolved Comments (1)
-- [#3166 chore: integrate Claude Code into devcontainer for autonomus development](https://github.com/dashpay/platform/pull/3166) — 8 unresolved (8 human) · 75 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "as above." — 75 days old
+- [#3166 chore: integrate Claude Code into devcontainer for autonomus development](https://github.com/dashpay/platform/pull/3166) — 8 unresolved (8 human) · 76 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "as above." — 76 days old
 
 <a id="shumkov-ci-failing"></a>
 #### CI Failing (2)
@@ -339,8 +342,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "_:warning: Potential issue_" — 448 days old
 - [#2465 fix(sdk): replace seeds with ip address](https://github.com/dashpay/platform/pull/2465) — 7 unresolved (7 human) · 458 days stale · ✋ changes requested · 🐢 targets master
   - Top thread: "Why do we use testnet seeds for mainnet?" — 458 days old
-- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 476 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 467 days
-  - Top thread: "_:warning: Potential issue_" — 476 days old
+- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 477 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 467 days
+  - Top thread: "_:warning: Potential issue_" — 477 days old
 - [#2727 fix(drive): fix verification data contract verification logic with keeps history](https://github.com/dashpay/platform/pull/2727) — 🔴 CI failing · 🐢 targets v2.1-dev
 
 <a id="pshenmic-stale"></a>
@@ -349,8 +352,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "_:warning: Potential issue_" — 448 days old
 - [#2465 fix(sdk): replace seeds with ip address](https://github.com/dashpay/platform/pull/2465) — 7 unresolved (7 human) · 458 days stale · ✋ changes requested · 🐢 targets master
   - Top thread: "Why do we use testnet seeds for mainnet?" — 458 days old
-- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 476 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 467 days
-  - Top thread: "_:warning: Potential issue_" — 476 days old
+- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 477 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 467 days
+  - Top thread: "_:warning: Potential issue_" — 477 days old
 - [#2727 fix(drive): fix verification data contract verification logic with keeps history](https://github.com/dashpay/platform/pull/2727) — 🔴 CI failing · 🐢 targets v2.1-dev
 
 <a id="ogabrielides"></a>
