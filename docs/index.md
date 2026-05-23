@@ -1,7 +1,7 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-05-23 06:59 UTC · commit d33d3b9*
+*Last updated: 2026-05-23 12:24 UTC · commit d16866a*
 
 ## Summary
 - Open PRs: **59** (3 clean · 0 CI failing · 12 changes requested · 8 unresolved comments · 9 deferred · 14 draft · 13 stale)
@@ -29,8 +29,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @lklimek + (@Claudius-Maginificent)
 <a id="lklimek-open"></a>
 #### Open (20)
-- [#3549 test(platform-wallet): e2e framework + full test suite — triage pins, Found-*/PA-* guards, fail-closed persist, Stage-2 merge](https://github.com/dashpay/platform/pull/3549) — via @Claudius-Maginificent · 20 unresolved (20 human) · 20 days stale · 📝 draft · 🐢 targets fix/rs-platform-wallet-auto-select-inputs
-  - Top thread: "<!-- thepastaclaw-review v1 finding=a3725e9d50ca -->" — 20 days old
+- [#3549 test(platform-wallet): e2e framework + full test suite — triage pins, Found-*/PA-* guards, fail-closed persist, Stage-2 merge](https://github.com/dashpay/platform/pull/3549) — via @Claudius-Maginificent · 20 unresolved (20 human) · 21 days stale · 📝 draft · 🐢 targets fix/rs-platform-wallet-auto-select-inputs
+  - Top thread: "<!-- thepastaclaw-review v1 finding=a3725e9d50ca -->" — 21 days old
 - [#3672 feat(platform-wallet): keyring_core secret backends — encrypted-file + OS keyring (secrets feature)](https://github.com/dashpay/platform/pull/3672) — via @Claudius-Maginificent · 14 unresolved (14 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🐢 targets feat/platform-wallet-sqlite-persistor
   - Top thread: "`SecretString::drop` creates a `&mut [u8\]` over the entire `String` capacity via `from_raw_parts_mut(ptr, cap)`. The byt…" — 1 days old
 - [#3637 feat(platform-wallet): serde support](https://github.com/dashpay/platform/pull/3637) — via @Claudius-Maginificent · 5 unresolved (1 CodeRabbit, 4 human) · 10 days stale · ⚠ merge conflict
@@ -96,8 +96,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="lklimek-stale"></a>
 #### Stale (5)
-- [#3549 test(platform-wallet): e2e framework + full test suite — triage pins, Found-*/PA-* guards, fail-closed persist, Stage-2 merge](https://github.com/dashpay/platform/pull/3549) — via @Claudius-Maginificent · 20 unresolved (20 human) · 20 days stale · 📝 draft · 🐢 targets fix/rs-platform-wallet-auto-select-inputs
-  - Top thread: "<!-- thepastaclaw-review v1 finding=a3725e9d50ca -->" — 20 days old
+- [#3549 test(platform-wallet): e2e framework + full test suite — triage pins, Found-*/PA-* guards, fail-closed persist, Stage-2 merge](https://github.com/dashpay/platform/pull/3549) — via @Claudius-Maginificent · 20 unresolved (20 human) · 21 days stale · 📝 draft · 🐢 targets fix/rs-platform-wallet-auto-select-inputs
+  - Top thread: "<!-- thepastaclaw-review v1 finding=a3725e9d50ca -->" — 21 days old
 - [#3672 feat(platform-wallet): keyring_core secret backends — encrypted-file + OS keyring (secrets feature)](https://github.com/dashpay/platform/pull/3672) — via @Claudius-Maginificent · 14 unresolved (14 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🐢 targets feat/platform-wallet-sqlite-persistor
   - Top thread: "`SecretString::drop` creates a `&mut [u8\]` over the entire `String` capacity via `from_raw_parts_mut(ptr, cap)`. The byt…" — 1 days old
 - [#3692 feat(platform-wallet): add full wallet rehydration from persistor + seed (skip-and-report)](https://github.com/dashpay/platform/pull/3692) — via @Claudius-Maginificent · 📝 draft · 🐢 targets feat/platform-wallet-storage-secrets
@@ -115,8 +115,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Open (18)
 - [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 94 days stale · 📝 draft
   - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 91 days old
-- [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 20 days stale · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=d3df3e197206 -->" — 20 days old
+- [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 21 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=d3df3e197206 -->" — 21 days old
 - [#3725 feat(drive): add document history retrieval](https://github.com/dashpay/platform/pull/3725) — 1 unresolved (1 CodeRabbit) · 2 days stale · ✋ changes requested
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 2 days old
 - [#2988 feat(wasm-sdk): auto-generate entropy for document creation when not provided](https://github.com/dashpay/platform/pull/2988) — 1 unresolved (1 human) · 2 days stale · 🔴 CI failing
@@ -138,8 +138,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="pastapastapasta-needs-action"></a>
 #### Needs action (4)
-- [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 20 days stale · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=d3df3e197206 -->" — 20 days old
+- [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 21 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=d3df3e197206 -->" — 21 days old
 - [#3725 feat(drive): add document history retrieval](https://github.com/dashpay/platform/pull/3725) — 1 unresolved (1 CodeRabbit) · 2 days stale · ✋ changes requested
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 2 days old
 - [#2988 feat(wasm-sdk): auto-generate entropy for document creation when not provided](https://github.com/dashpay/platform/pull/2988) — 1 unresolved (1 human) · 2 days stale · 🔴 CI failing
@@ -148,8 +148,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="pastapastapasta-unresolved-comments"></a>
 #### Unresolved Comments (3)
-- [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 20 days stale · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=d3df3e197206 -->" — 20 days old
+- [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 21 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=d3df3e197206 -->" — 21 days old
 - [#3725 feat(drive): add document history retrieval](https://github.com/dashpay/platform/pull/3725) — 1 unresolved (1 CodeRabbit) · 2 days stale · ✋ changes requested
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 2 days old
 - [#2988 feat(wasm-sdk): auto-generate entropy for document creation when not provided](https://github.com/dashpay/platform/pull/2988) — 1 unresolved (1 human) · 2 days stale · 🔴 CI failing
