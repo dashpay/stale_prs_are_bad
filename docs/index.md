@@ -1,11 +1,11 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-05-25 18:36 UTC · commit 022a702*
+*Last updated: 2026-05-26 00:46 UTC · commit 5f5c8eb*
 
 ## Summary
-- Open PRs: **62** (5 clean · 0 CI failing · 11 changes requested · 7 unresolved comments · 9 deferred · 17 draft · 13 stale)
-- PRs needing author action: **18**
+- Open PRs: **63** (5 clean · 0 CI failing · 12 changes requested · 7 unresolved comments · 9 deferred · 17 draft · 13 stale)
+- PRs needing author action: **19**
 - Total unresolved comments: **90**
 
 ## Scoreboard
@@ -15,12 +15,12 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [8+(11)](#pastapastapasta-open) | [1+(0)](#pastapastapasta-clean) | — | [3+(0)](#pastapastapasta-unresolved-comments) | [0+(1)](#pastapastapasta-changes-requested) | — | [4+(8)](#pastapastapasta-draft) | [0+(2)](#pastapastapasta-stale) | [3+(1)](#pastapastapasta-needs-action) | [3+(5)](#pastapastapasta-unresolved-comments) | — | ↓ 1 |
 | [@QuantumExplorer](#quantumexplorer) | [6](#quantumexplorer-open) | [1](#quantumexplorer-clean) | — | [2](#quantumexplorer-unresolved-comments) | — | [2](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | — | [2](#quantumexplorer-needs-action) | [16](#quantumexplorer-unresolved-comments) | [4](#quantumexplorer-ready-for-review) | — |
-| [@lklimek + (@Claudius-Maginificent)](#lklimek) | [10+(9)](#lklimek-open) | [2+(1)](#lklimek-clean) | — | [0+(1)](#lklimek-unresolved-comments) | [2+(2)](#lklimek-changes-requested) | [5+(0)](#lklimek-deferred) | [0+(1)](#lklimek-draft) | [1+(4)](#lklimek-stale) | [2+(3)](#lklimek-needs-action) | [0+(30)](#lklimek-unresolved-comments) | — | ↓ 2 |
-| [@ktechmidas](#ktechmidas) | [1](#ktechmidas-open) | — | — | [1](#ktechmidas-unresolved-comments) | — | — | — | — | [1](#ktechmidas-needs-action) | [6](#ktechmidas-unresolved-comments) | — | ↑ 1 |
-| [@shumkov](#shumkov) | [6](#shumkov-open) | — | — | — | [2](#shumkov-changes-requested) | [1](#shumkov-deferred) | [1](#shumkov-draft) | [2](#shumkov-stale) | [2](#shumkov-needs-action) | — | [3](#shumkov-ready-for-review) | ↓ 1 |
-| [@llbartekll](#llbartekll) | [3](#llbartekll-open) | — | — | — | [2](#llbartekll-changes-requested) | — | [1](#llbartekll-draft) | — | [2](#llbartekll-needs-action) | [1](#llbartekll-unresolved-comments) | [1](#llbartekll-ready-for-review) | ↑ 2 |
-| [@ZocoLini](#zocolini) | [3](#zocolini-open) | — | — | — | [2](#zocolini-changes-requested) | — | [1](#zocolini-draft) | — | [2](#zocolini-needs-action) | — | — | — |
-| [@pshenmic](#pshenmic) | [4](#pshenmic-open) | — | — | — | — | — | — | [4](#pshenmic-stale) | — | [29](#pshenmic-unresolved-comments) | — | ↓ 2 |
+| [@lklimek + (@Claudius-Maginificent)](#lklimek) | [10+(9)](#lklimek-open) | [2+(1)](#lklimek-clean) | — | [0+(1)](#lklimek-unresolved-comments) | [2+(2)](#lklimek-changes-requested) | [5+(0)](#lklimek-deferred) | [0+(1)](#lklimek-draft) | [1+(4)](#lklimek-stale) | [2+(3)](#lklimek-needs-action) | [0+(30)](#lklimek-unresolved-comments) | — | ↓ 7 |
+| [@ktechmidas](#ktechmidas) | [1](#ktechmidas-open) | — | — | [1](#ktechmidas-unresolved-comments) | — | — | — | — | [1](#ktechmidas-needs-action) | [6](#ktechmidas-unresolved-comments) | — | — |
+| [@ZocoLini](#zocolini) | [4](#zocolini-open) | — | — | — | [3](#zocolini-changes-requested) | — | [1](#zocolini-draft) | — | [3](#zocolini-needs-action) | — | — | — |
+| [@shumkov](#shumkov) | [6](#shumkov-open) | — | — | — | [2](#shumkov-changes-requested) | [1](#shumkov-deferred) | [1](#shumkov-draft) | [2](#shumkov-stale) | [2](#shumkov-needs-action) | — | [3](#shumkov-ready-for-review) | ↑ 1 |
+| [@llbartekll](#llbartekll) | [3](#llbartekll-open) | — | — | — | [2](#llbartekll-changes-requested) | — | [1](#llbartekll-draft) | — | [2](#llbartekll-needs-action) | [1](#llbartekll-unresolved-comments) | [1](#llbartekll-ready-for-review) | ↑ 1 |
+| [@pshenmic](#pshenmic) | [4](#pshenmic-open) | — | — | — | — | — | — | [4](#pshenmic-stale) | — | [29](#pshenmic-unresolved-comments) | — | — |
 | [@ogabrielides](#ogabrielides) | [1](#ogabrielides-open) | — | — | — | — | [1](#ogabrielides-deferred) | — | — | — | — | — | — |
 
 ## Per-author detail
@@ -29,7 +29,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @PastaPastaPasta + (@thepastaclaw)
 <a id="pastapastapasta-open"></a>
 #### Open (19)
-- [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 96 days stale · 📝 draft
+- [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 97 days stale · 📝 draft
   - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 94 days old
 - [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=d3df3e197206 -->" — 23 days old
@@ -79,7 +79,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="pastapastapasta-draft"></a>
 #### Draft (12)
-- [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 96 days stale · 📝 draft
+- [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 97 days stale · 📝 draft
   - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 94 days old
 - [#3734 feat(rs-sdk-ffi): expose SDK protocol version pinning](https://github.com/dashpay/platform/pull/3734) — via @thepastaclaw · 1 unresolved (1 human) · 0 days stale · 📝 draft
   - Top thread: "The Python example updates the call to `dash_sdk_create_with_protocol_version`, but the `DashSDKConfig` ctypes definitio…" — 0 days old
@@ -107,8 +107,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @QuantumExplorer
 <a id="quantumexplorer-open"></a>
 #### Open (6)
-- [#3557 feat(platform-wallet): instrument wallet_manager RwLock behind lock-stats feature](https://github.com/dashpay/platform/pull/3557) — 11 unresolved (2 CodeRabbit, 9 human) · 27 days stale
-  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 27 days old
+- [#3557 feat(platform-wallet): instrument wallet_manager RwLock behind lock-stats feature](https://github.com/dashpay/platform/pull/3557) — 11 unresolved (2 CodeRabbit, 9 human) · 28 days stale
+  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 28 days old
 - [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 0 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 0 days old
 - [#1834 feat(drive-abci)!: Statesync](https://github.com/dashpay/platform/pull/1834) — 📝 draft · ⏸ deferred
@@ -118,15 +118,15 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="quantumexplorer-needs-action"></a>
 #### Needs action (2)
-- [#3557 feat(platform-wallet): instrument wallet_manager RwLock behind lock-stats feature](https://github.com/dashpay/platform/pull/3557) — 11 unresolved (2 CodeRabbit, 9 human) · 27 days stale
-  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 27 days old
+- [#3557 feat(platform-wallet): instrument wallet_manager RwLock behind lock-stats feature](https://github.com/dashpay/platform/pull/3557) — 11 unresolved (2 CodeRabbit, 9 human) · 28 days stale
+  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 28 days old
 - [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 0 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 0 days old
 
 <a id="quantumexplorer-unresolved-comments"></a>
 #### Unresolved Comments (2)
-- [#3557 feat(platform-wallet): instrument wallet_manager RwLock behind lock-stats feature](https://github.com/dashpay/platform/pull/3557) — 11 unresolved (2 CodeRabbit, 9 human) · 27 days stale
-  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 27 days old
+- [#3557 feat(platform-wallet): instrument wallet_manager RwLock behind lock-stats feature](https://github.com/dashpay/platform/pull/3557) — 11 unresolved (2 CodeRabbit, 9 human) · 28 days stale
+  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 28 days old
 - [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 0 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 0 days old
 
@@ -241,6 +241,31 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3162 fix(dashmate): prevent orphaned verification container blocking SSL renewal](https://github.com/dashpay/platform/pull/3162) — 6 unresolved (6 human) · 7 days stale
   - Top thread: "<!-- thepastaclaw-review v1 finding=d7ee272d2ab4 dedupe=d8f79f6f47c868dc -->" — 7 days old
 
+<a id="zocolini"></a>
+### @ZocoLini
+<a id="zocolini-open"></a>
+#### Open (4)
+- [#3479 test(swift-sdk): swift-sdk test updated and added to CI](https://github.com/dashpay/platform/pull/3479) — ✋ changes requested
+- [#3639 feat(platform-wallet): external signable wallets](https://github.com/dashpay/platform/pull/3639) — ✋ changes requested
+- [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712) — 📝 draft
+- [#3742 fix(platform-wallet): fix spv client deadlocking himself when trying to stop](https://github.com/dashpay/platform/pull/3742) — ✋ changes requested
+
+<a id="zocolini-needs-action"></a>
+#### Needs action (3)
+- [#3479 test(swift-sdk): swift-sdk test updated and added to CI](https://github.com/dashpay/platform/pull/3479) — ✋ changes requested
+- [#3639 feat(platform-wallet): external signable wallets](https://github.com/dashpay/platform/pull/3639) — ✋ changes requested
+- [#3742 fix(platform-wallet): fix spv client deadlocking himself when trying to stop](https://github.com/dashpay/platform/pull/3742) — ✋ changes requested
+
+<a id="zocolini-changes-requested"></a>
+#### Changes Requested (3)
+- [#3479 test(swift-sdk): swift-sdk test updated and added to CI](https://github.com/dashpay/platform/pull/3479) — ✋ changes requested
+- [#3639 feat(platform-wallet): external signable wallets](https://github.com/dashpay/platform/pull/3639) — ✋ changes requested
+- [#3742 fix(platform-wallet): fix spv client deadlocking himself when trying to stop](https://github.com/dashpay/platform/pull/3742) — ✋ changes requested
+
+<a id="zocolini-draft"></a>
+#### Draft (1)
+- [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712) — 📝 draft
+
 <a id="shumkov"></a>
 ### @shumkov
 <a id="shumkov-open"></a>
@@ -285,8 +310,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @llbartekll
 <a id="llbartekll-open"></a>
 #### Open (3)
-- [#3481 feat(swift-sdk): expose rich transaction fields in WalletTransaction](https://github.com/dashpay/platform/pull/3481) — 1 unresolved (1 CodeRabbit) · 42 days stale · ⚠ merge conflict · 🔴 CI failing · 📝 draft
-  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 42 days old
+- [#3481 feat(swift-sdk): expose rich transaction fields in WalletTransaction](https://github.com/dashpay/platform/pull/3481) — 1 unresolved (1 CodeRabbit) · 43 days stale · ⚠ merge conflict · 🔴 CI failing · 📝 draft
+  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 43 days old
 - [#3560 test(swift-sdk): add testnet identity-discovery UI test](https://github.com/dashpay/platform/pull/3560) — ✋ changes requested
 - [#3694 fix(swift-example-app): unhide Create Identity submit button and auto-dismiss sheet on success](https://github.com/dashpay/platform/pull/3694) — ✋ changes requested · 🔴 CI failing
 
@@ -302,54 +327,32 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="llbartekll-draft"></a>
 #### Draft (1)
-- [#3481 feat(swift-sdk): expose rich transaction fields in WalletTransaction](https://github.com/dashpay/platform/pull/3481) — 1 unresolved (1 CodeRabbit) · 42 days stale · ⚠ merge conflict · 🔴 CI failing · 📝 draft
-  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 42 days old
+- [#3481 feat(swift-sdk): expose rich transaction fields in WalletTransaction](https://github.com/dashpay/platform/pull/3481) — 1 unresolved (1 CodeRabbit) · 43 days stale · ⚠ merge conflict · 🔴 CI failing · 📝 draft
+  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 43 days old
 
 <a id="llbartekll-ready-for-review"></a>
 #### Ready for Review (1)
 - [#3733 fix(swift-sdk): tie shielded completion suppression to a sync generation](https://github.com/dashpay/platform/pull/3733) — by @QuantumExplorer
 
-<a id="zocolini"></a>
-### @ZocoLini
-<a id="zocolini-open"></a>
-#### Open (3)
-- [#3479 test(swift-sdk): swift-sdk test updated and added to CI](https://github.com/dashpay/platform/pull/3479) — ✋ changes requested
-- [#3639 feat(platform-wallet): external signable wallets](https://github.com/dashpay/platform/pull/3639) — ✋ changes requested
-- [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712) — 📝 draft
-
-<a id="zocolini-needs-action"></a>
-#### Needs action (2)
-- [#3479 test(swift-sdk): swift-sdk test updated and added to CI](https://github.com/dashpay/platform/pull/3479) — ✋ changes requested
-- [#3639 feat(platform-wallet): external signable wallets](https://github.com/dashpay/platform/pull/3639) — ✋ changes requested
-
-<a id="zocolini-changes-requested"></a>
-#### Changes Requested (2)
-- [#3479 test(swift-sdk): swift-sdk test updated and added to CI](https://github.com/dashpay/platform/pull/3479) — ✋ changes requested
-- [#3639 feat(platform-wallet): external signable wallets](https://github.com/dashpay/platform/pull/3639) — ✋ changes requested
-
-<a id="zocolini-draft"></a>
-#### Draft (1)
-- [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712) — 📝 draft
-
 <a id="pshenmic"></a>
 ### @pshenmic
 <a id="pshenmic-open"></a>
 #### Open (4)
-- [#2444 feat(sdk): add NFT actions in the JS Dash SDK](https://github.com/dashpay/platform/pull/2444) — 17 unresolved (5 CodeRabbit, 12 human) · 452 days stale · ⚠ merge conflict · ✋ changes requested · 🐢 targets v2.0-dev
-  - Top thread: "_:warning: Potential issue_" — 452 days old
-- [#2465 fix(sdk): replace seeds with ip address](https://github.com/dashpay/platform/pull/2465) — 7 unresolved (7 human) · 462 days stale · ✋ changes requested · 🐢 targets master
-  - Top thread: "Why do we use testnet seeds for mainnet?" — 462 days old
-- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 481 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 471 days
+- [#2444 feat(sdk): add NFT actions in the JS Dash SDK](https://github.com/dashpay/platform/pull/2444) — 17 unresolved (5 CodeRabbit, 12 human) · 453 days stale · ⚠ merge conflict · ✋ changes requested · 🐢 targets v2.0-dev
+  - Top thread: "_:warning: Potential issue_" — 453 days old
+- [#2465 fix(sdk): replace seeds with ip address](https://github.com/dashpay/platform/pull/2465) — 7 unresolved (7 human) · 463 days stale · ✋ changes requested · 🐢 targets master
+  - Top thread: "Why do we use testnet seeds for mainnet?" — 463 days old
+- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 481 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 472 days
   - Top thread: "_:warning: Potential issue_" — 481 days old
 - [#2727 fix(drive): fix verification data contract verification logic with keeps history](https://github.com/dashpay/platform/pull/2727) — 🔴 CI failing · 🐢 targets v2.1-dev
 
 <a id="pshenmic-stale"></a>
 #### Stale (4)
-- [#2444 feat(sdk): add NFT actions in the JS Dash SDK](https://github.com/dashpay/platform/pull/2444) — 17 unresolved (5 CodeRabbit, 12 human) · 452 days stale · ⚠ merge conflict · ✋ changes requested · 🐢 targets v2.0-dev
-  - Top thread: "_:warning: Potential issue_" — 452 days old
-- [#2465 fix(sdk): replace seeds with ip address](https://github.com/dashpay/platform/pull/2465) — 7 unresolved (7 human) · 462 days stale · ✋ changes requested · 🐢 targets master
-  - Top thread: "Why do we use testnet seeds for mainnet?" — 462 days old
-- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 481 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 471 days
+- [#2444 feat(sdk): add NFT actions in the JS Dash SDK](https://github.com/dashpay/platform/pull/2444) — 17 unresolved (5 CodeRabbit, 12 human) · 453 days stale · ⚠ merge conflict · ✋ changes requested · 🐢 targets v2.0-dev
+  - Top thread: "_:warning: Potential issue_" — 453 days old
+- [#2465 fix(sdk): replace seeds with ip address](https://github.com/dashpay/platform/pull/2465) — 7 unresolved (7 human) · 463 days stale · ✋ changes requested · 🐢 targets master
+  - Top thread: "Why do we use testnet seeds for mainnet?" — 463 days old
+- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 481 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 472 days
   - Top thread: "_:warning: Potential issue_" — 481 days old
 - [#2727 fix(drive): fix verification data contract verification logic with keeps history](https://github.com/dashpay/platform/pull/2727) — 🔴 CI failing · 🐢 targets v2.1-dev
 
