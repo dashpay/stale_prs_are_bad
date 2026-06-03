@@ -1,12 +1,12 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-06-03 13:42 UTC · commit b0ae121*
+*Last updated: 2026-06-03 19:23 UTC · commit e0c9391*
 
 ## Summary
-- Open PRs: **45** (2 clean · 0 CI failing · 2 changes requested · 13 unresolved comments · 10 deferred · 10 draft · 8 stale)
+- Open PRs: **46** (2 clean · 0 CI failing · 2 changes requested · 13 unresolved comments · 10 deferred · 11 draft · 8 stale)
 - PRs needing author action: **14**
-- Total unresolved comments: **140**
+- Total unresolved comments: **138**
 
 ## Scoreboard
 _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc. Click any number to jump to the specific PRs it covers._
@@ -17,7 +17,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 | [@lklimek + (@Claudius-Maginificent)](#lklimek) | [7+(7)](#lklimek-open) | — | — | [1+(3)](#lklimek-unresolved-comments) | — | [5+(0)](#lklimek-deferred) | [0+(1)](#lklimek-draft) | [1+(3)](#lklimek-stale) | [1+(2)](#lklimek-needs-action) | [4+(71)](#lklimek-unresolved-comments) | — | ↓ 2 |
 | [@QuantumExplorer](#quantumexplorer) | [7](#quantumexplorer-open) | — | — | [3](#quantumexplorer-unresolved-comments) | — | [2](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | [1](#quantumexplorer-stale) | [3](#quantumexplorer-needs-action) | [19](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-ready-for-review) | — |
 | [@llbartekll](#llbartekll) | [2](#llbartekll-open) | — | — | [2](#llbartekll-unresolved-comments) | — | — | — | — | [2](#llbartekll-needs-action) | [3](#llbartekll-unresolved-comments) | [2](#llbartekll-ready-for-review) | — |
-| [@ZocoLini](#zocolini) | [5](#zocolini-open) | [2](#zocolini-clean) | — | — | [1](#zocolini-changes-requested) | — | [2](#zocolini-draft) | — | [1](#zocolini-needs-action) | [24](#zocolini-unresolved-comments) | — | ↓ 2 |
+| [@ZocoLini](#zocolini) | [6](#zocolini-open) | [2](#zocolini-clean) | — | — | [1](#zocolini-changes-requested) | — | [3](#zocolini-draft) | — | [1](#zocolini-needs-action) | [22](#zocolini-unresolved-comments) | — | ↓ 2 |
 | [@shumkov](#shumkov) | [3](#shumkov-open) | — | — | — | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | — | — | [1](#shumkov-needs-action) | — | — | ↓ 1 |
 | [@pshenmic](#pshenmic) | [1](#pshenmic-open) | — | — | — | — | — | — | [1](#pshenmic-stale) | — | [5](#pshenmic-unresolved-comments) | — | — |
 | [@ogabrielides](#ogabrielides) | [1](#ogabrielides-open) | — | — | — | — | [1](#ogabrielides-deferred) | — | — | — | — | — | — |
@@ -228,14 +228,15 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="zocolini"></a>
 ### @ZocoLini
 <a id="zocolini-open"></a>
-#### Open (5)
+#### Open (6)
 - [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712) — 21 unresolved (5 CodeRabbit, 16 human) · 8 days stale · ⚠ merge conflict · 📝 draft
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 8 days old
-- [#3777 fix(swift-sdk): fixed mempool tx categorization after restart](https://github.com/dashpay/platform/pull/3777) — 3 unresolved (3 human) · 2 days stale · ✋ changes requested · 📝 draft
-  - Top thread: "<!-- thepastaclaw-review v1 finding=4c76c73115ff dedupe=cf003a662290709d -->" — 2 days old
+- [#3777 fix(swift-sdk): fixed mempool tx categorization after restart](https://github.com/dashpay/platform/pull/3777) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested · 📝 draft
+  - Top thread: "<!-- thepastaclaw-review v1 finding=201231901e56 dedupe=6fb1937ea0c605d4 -->" — 2 days old
 - [#3639 feat(platform-wallet): external signable wallets](https://github.com/dashpay/platform/pull/3639) — ✋ changes requested
 - [#3778 ci(swift-sdk): remove swift-sdk artifact upload](https://github.com/dashpay/platform/pull/3778)
 - [#3785 feat(swift-sdk): iOS simluator writes logs to disk](https://github.com/dashpay/platform/pull/3785)
+- [#3788 chore: bump rust-dashcore to rev without Network in dashcore::Address](https://github.com/dashpay/platform/pull/3788) — 📝 draft
 
 <a id="zocolini-needs-action"></a>
 #### Needs action (1)
@@ -246,11 +247,12 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3639 feat(platform-wallet): external signable wallets](https://github.com/dashpay/platform/pull/3639) — ✋ changes requested
 
 <a id="zocolini-draft"></a>
-#### Draft (2)
+#### Draft (3)
 - [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712) — 21 unresolved (5 CodeRabbit, 16 human) · 8 days stale · ⚠ merge conflict · 📝 draft
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 8 days old
-- [#3777 fix(swift-sdk): fixed mempool tx categorization after restart](https://github.com/dashpay/platform/pull/3777) — 3 unresolved (3 human) · 2 days stale · ✋ changes requested · 📝 draft
-  - Top thread: "<!-- thepastaclaw-review v1 finding=4c76c73115ff dedupe=cf003a662290709d -->" — 2 days old
+- [#3777 fix(swift-sdk): fixed mempool tx categorization after restart](https://github.com/dashpay/platform/pull/3777) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested · 📝 draft
+  - Top thread: "<!-- thepastaclaw-review v1 finding=201231901e56 dedupe=6fb1937ea0c605d4 -->" — 2 days old
+- [#3788 chore: bump rust-dashcore to rev without Network in dashcore::Address](https://github.com/dashpay/platform/pull/3788) — 📝 draft
 
 <a id="zocolini-clean"></a>
 #### Clean (2)
