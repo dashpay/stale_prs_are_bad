@@ -1,23 +1,23 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-06-04 13:08 UTC · commit b20176b*
+*Last updated: 2026-06-04 18:49 UTC · commit c76f5d2*
 
 ## Summary
 - Open PRs: **50** (3 clean · 0 CI failing · 2 changes requested · 16 unresolved comments · 10 deferred · 11 draft · 8 stale)
 - PRs needing author action: **17**
-- Total unresolved comments: **131**
+- Total unresolved comments: **127**
 
 ## Scoreboard
 _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc. Click any number to jump to the specific PRs it covers._
 
 | Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [@QuantumExplorer](#quantumexplorer) | [9](#quantumexplorer-open) | — | — | [5](#quantumexplorer-unresolved-comments) | — | [2](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | [1](#quantumexplorer-stale) | [5](#quantumexplorer-needs-action) | [32](#quantumexplorer-unresolved-comments) | [2](#quantumexplorer-ready-for-review) | ↑ 2 |
+| [@QuantumExplorer](#quantumexplorer) | [11](#quantumexplorer-open) | [1](#quantumexplorer-clean) | — | [6](#quantumexplorer-unresolved-comments) | — | [2](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | [1](#quantumexplorer-stale) | [6](#quantumexplorer-needs-action) | [33](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-ready-for-review) | ↑ 3 |
 | [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [5+(7)](#pastapastapasta-open) | — | — | [4+(0)](#pastapastapasta-unresolved-comments) | — | — | [1+(5)](#pastapastapasta-draft) | [0+(2)](#pastapastapasta-stale) | [4+(0)](#pastapastapasta-needs-action) | [10+(4)](#pastapastapasta-unresolved-comments) | — | ↓ 1 |
 | [@lklimek + (@Claudius-Maginificent)](#lklimek) | [7+(7)](#lklimek-open) | — | — | [1+(3)](#lklimek-unresolved-comments) | — | [5+(0)](#lklimek-deferred) | [0+(1)](#lklimek-draft) | [1+(3)](#lklimek-stale) | [1+(2)](#lklimek-needs-action) | [4+(47)](#lklimek-unresolved-comments) | — | ↓ 1 |
 | [@llbartekll](#llbartekll) | [2](#llbartekll-open) | — | — | [2](#llbartekll-unresolved-comments) | — | — | — | — | [2](#llbartekll-needs-action) | [3](#llbartekll-unresolved-comments) | [2](#llbartekll-ready-for-review) | — |
-| [@shumkov](#shumkov) | [5](#shumkov-open) | [1](#shumkov-clean) | — | [1](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | — | — | [2](#shumkov-needs-action) | [5](#shumkov-unresolved-comments) | — | — |
+| [@shumkov](#shumkov) | [3](#shumkov-open) | — | — | — | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | — | — | [1](#shumkov-needs-action) | — | [1](#shumkov-ready-for-review) | ↓ 1 |
 | [@ZocoLini](#zocolini) | [6](#zocolini-open) | [2](#zocolini-clean) | — | — | [1](#zocolini-changes-requested) | — | [3](#zocolini-draft) | — | [1](#zocolini-needs-action) | [21](#zocolini-unresolved-comments) | — | ↓ 2 |
 | [@pshenmic](#pshenmic) | [1](#pshenmic-open) | — | — | — | — | — | — | [1](#pshenmic-stale) | — | [5](#pshenmic-unresolved-comments) | — | — |
 | [@ogabrielides](#ogabrielides) | [1](#ogabrielides-open) | — | — | — | — | [1](#ogabrielides-deferred) | — | — | — | — | — | — |
@@ -27,7 +27,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="quantumexplorer"></a>
 ### @QuantumExplorer
 <a id="quantumexplorer-open"></a>
-#### Open (9)
+#### Open (11)
 - [#3557 feat(platform-wallet): instrument wallet_manager RwLock behind lock-stats feature](https://github.com/dashpay/platform/pull/3557) — 11 unresolved (2 CodeRabbit, 9 human) · 37 days stale · ⚠ merge conflict
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 37 days old
 - [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 10 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
@@ -38,13 +38,16 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=563381bccfc4 dedupe=825462de0dd092bd -->" — 0 days old
 - [#3772 fix(sdk): wallet-flow network fixes for SwiftExampleApp](https://github.com/dashpay/platform/pull/3772) — 3 unresolved (1 CodeRabbit, 2 human) · 4 days stale · ⚠ merge conflict
   - Top thread: "_🛠️ Refactor suggestion_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 4 days old
+- [#3797 fix(platform-wallet): zeroize private keys when freeing preview rows](https://github.com/dashpay/platform/pull/3797) — 1 unresolved (1 human) · 0 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=34578ec6f4bd dedupe=8800415a805a44ed -->" — 0 days old
 - [#1834 feat(drive-abci)!: Statesync](https://github.com/dashpay/platform/pull/1834) — 📝 draft · ⏸ deferred
 - [#3021 feat(platform): better contract state transitions](https://github.com/dashpay/platform/pull/3021) — 📝 draft · ⏸ deferred
 - [#3417 feat(swift-sdk): use SPV-synced quorums for Platform proof verification](https://github.com/dashpay/platform/pull/3417) — ⚠ merge conflict · 🔴 CI failing · 📝 draft
 - [#3784 docs: clarify address-sync catch-up nonce and buffer comments](https://github.com/dashpay/platform/pull/3784) — 🐢 targets fix/rs-sdk-address-sync-found-025
+- [#3798 fix(rs-sdk-ffi): shrink signature allocation to len before leaking (capacity UB)](https://github.com/dashpay/platform/pull/3798)
 
 <a id="quantumexplorer-needs-action"></a>
-#### Needs action (5)
+#### Needs action (6)
 - [#3557 feat(platform-wallet): instrument wallet_manager RwLock behind lock-stats feature](https://github.com/dashpay/platform/pull/3557) — 11 unresolved (2 CodeRabbit, 9 human) · 37 days stale · ⚠ merge conflict
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 37 days old
 - [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 10 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
@@ -55,9 +58,11 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=563381bccfc4 dedupe=825462de0dd092bd -->" — 0 days old
 - [#3772 fix(sdk): wallet-flow network fixes for SwiftExampleApp](https://github.com/dashpay/platform/pull/3772) — 3 unresolved (1 CodeRabbit, 2 human) · 4 days stale · ⚠ merge conflict
   - Top thread: "_🛠️ Refactor suggestion_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 4 days old
+- [#3797 fix(platform-wallet): zeroize private keys when freeing preview rows](https://github.com/dashpay/platform/pull/3797) — 1 unresolved (1 human) · 0 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=34578ec6f4bd dedupe=8800415a805a44ed -->" — 0 days old
 
 <a id="quantumexplorer-unresolved-comments"></a>
-#### Unresolved Comments (5)
+#### Unresolved Comments (6)
 - [#3557 feat(platform-wallet): instrument wallet_manager RwLock behind lock-stats feature](https://github.com/dashpay/platform/pull/3557) — 11 unresolved (2 CodeRabbit, 9 human) · 37 days stale · ⚠ merge conflict
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 37 days old
 - [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 10 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
@@ -68,6 +73,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=563381bccfc4 dedupe=825462de0dd092bd -->" — 0 days old
 - [#3772 fix(sdk): wallet-flow network fixes for SwiftExampleApp](https://github.com/dashpay/platform/pull/3772) — 3 unresolved (1 CodeRabbit, 2 human) · 4 days stale · ⚠ merge conflict
   - Top thread: "_🛠️ Refactor suggestion_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 4 days old
+- [#3797 fix(platform-wallet): zeroize private keys when freeing preview rows](https://github.com/dashpay/platform/pull/3797) — 1 unresolved (1 human) · 0 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=34578ec6f4bd dedupe=8800415a805a44ed -->" — 0 days old
 
 <a id="quantumexplorer-deferred"></a>
 #### Deferred (2)
@@ -82,17 +89,20 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Stale (1)
 - [#3784 docs: clarify address-sync catch-up nonce and buffer comments](https://github.com/dashpay/platform/pull/3784) — 🐢 targets fix/rs-sdk-address-sync-found-025
 
+<a id="quantumexplorer-clean"></a>
+#### Clean (1)
+- [#3798 fix(rs-sdk-ffi): shrink signature allocation to len before leaking (capacity UB)](https://github.com/dashpay/platform/pull/3798)
+
 <a id="quantumexplorer-ready-for-review"></a>
-#### Ready for Review (2)
+#### Ready for Review (1)
 - [#3778 ci(swift-sdk): remove swift-sdk artifact upload](https://github.com/dashpay/platform/pull/3778) — by @ZocoLini
-- [#3795 chore(release): update changelog and bump version to 4.0.0-beta.3](https://github.com/dashpay/platform/pull/3795) — by @shumkov
 
 <a id="pastapastapasta"></a>
 ### @PastaPastaPasta + (@thepastaclaw)
 <a id="pastapastapasta-open"></a>
 #### Open (12)
 - [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 106 days stale · 📝 draft
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 103 days old
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 104 days old
 - [#3680 refactor(dapi,dpp)!: move dapi-client and Identifier off Buffer to Uint8Array](https://github.com/dashpay/platform/pull/3680) — 5 unresolved (5 human) · 9 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=1c101f507542 -->" — 9 days old
 - [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 33 days stale · ✋ changes requested · 🔴 CI failing
@@ -134,7 +144,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="pastapastapasta-draft"></a>
 #### Draft (6)
 - [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 106 days stale · 📝 draft
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 103 days old
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 104 days old
 - [#3091 feat(wasm-sdk): add prepare_* APIs for idempotent document state transitions](https://github.com/dashpay/platform/pull/3091) — via @thepastaclaw · ✋ changes requested · 📝 draft
 - [#3092 feat(rs-sdk): expose transition hash from state transition methods](https://github.com/dashpay/platform/pull/3092) — via @thepastaclaw · ✋ changes requested · 📝 draft
 - [#3133 fix(sdk): validate batch base structure before signing](https://github.com/dashpay/platform/pull/3133) — via @thepastaclaw · ✋ changes requested · 📝 draft
@@ -241,24 +251,14 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="shumkov"></a>
 ### @shumkov
 <a id="shumkov-open"></a>
-#### Open (5)
-- [#3789 fix: bump grovedb to develop (v11 consensus + orchard 0.14) and migrate shielded verifier](https://github.com/dashpay/platform/pull/3789) — 5 unresolved (1 CodeRabbit, 4 human) · 0 days stale
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+#### Open (3)
 - [#2392 feat(dashmate): single node local network [WIP\]](https://github.com/dashpay/platform/pull/2392) — ⏸ deferred
 - [#2518 feat: token marketplace](https://github.com/dashpay/platform/pull/2518) — 📝 draft · ⏸ deferred
 - [#3573 feat(dpp): unify JSON/Value conversion traits + comprehensive round-trip tests](https://github.com/dashpay/platform/pull/3573) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-- [#3795 chore(release): update changelog and bump version to 4.0.0-beta.3](https://github.com/dashpay/platform/pull/3795)
 
 <a id="shumkov-needs-action"></a>
-#### Needs action (2)
-- [#3789 fix: bump grovedb to develop (v11 consensus + orchard 0.14) and migrate shielded verifier](https://github.com/dashpay/platform/pull/3789) — 5 unresolved (1 CodeRabbit, 4 human) · 0 days stale
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+#### Needs action (1)
 - [#3573 feat(dpp): unify JSON/Value conversion traits + comprehensive round-trip tests](https://github.com/dashpay/platform/pull/3573) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-
-<a id="shumkov-unresolved-comments"></a>
-#### Unresolved Comments (1)
-- [#3789 fix: bump grovedb to develop (v11 consensus + orchard 0.14) and migrate shielded verifier](https://github.com/dashpay/platform/pull/3789) — 5 unresolved (1 CodeRabbit, 4 human) · 0 days stale
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
 
 <a id="shumkov-changes-requested"></a>
 #### Changes Requested (1)
@@ -269,9 +269,9 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#2392 feat(dashmate): single node local network [WIP\]](https://github.com/dashpay/platform/pull/2392) — ⏸ deferred
 - [#2518 feat: token marketplace](https://github.com/dashpay/platform/pull/2518) — 📝 draft · ⏸ deferred
 
-<a id="shumkov-clean"></a>
-#### Clean (1)
-- [#3795 chore(release): update changelog and bump version to 4.0.0-beta.3](https://github.com/dashpay/platform/pull/3795)
+<a id="shumkov-ready-for-review"></a>
+#### Ready for Review (1)
+- [#3798 fix(rs-sdk-ffi): shrink signature allocation to len before leaking (capacity UB)](https://github.com/dashpay/platform/pull/3798) — by @QuantumExplorer
 
 <a id="zocolini"></a>
 ### @ZocoLini
