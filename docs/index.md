@@ -1,11 +1,11 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-06-06 12:31 UTC · commit bbdba2d*
+*Last updated: 2026-06-06 18:30 UTC · commit d8910c6*
 
 ## Summary
-- Open PRs: **49** (2 clean · 1 CI failing · 2 changes requested · 15 unresolved comments · 10 deferred · 11 draft · 8 stale)
-- PRs needing author action: **16**
+- Open PRs: **49** (3 clean · 1 CI failing · 1 changes requested · 15 unresolved comments · 10 deferred · 11 draft · 8 stale)
+- PRs needing author action: **15**
 - Total unresolved comments: **118**
 
 ## Scoreboard
@@ -13,7 +13,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 | Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [@QuantumExplorer](#quantumexplorer) | [11](#quantumexplorer-open) | [1](#quantumexplorer-clean) | — | [4](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-changes-requested) | [2](#quantumexplorer-deferred) | [2](#quantumexplorer-draft) | [1](#quantumexplorer-stale) | [5](#quantumexplorer-needs-action) | [26](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-ready-for-review) | ↑ 2 |
+| [@QuantumExplorer](#quantumexplorer) | [11](#quantumexplorer-open) | [2](#quantumexplorer-clean) | — | [4](#quantumexplorer-unresolved-comments) | — | [2](#quantumexplorer-deferred) | [2](#quantumexplorer-draft) | [1](#quantumexplorer-stale) | [4](#quantumexplorer-needs-action) | [26](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-ready-for-review) | ↑ 1 |
 | [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [5+(7)](#pastapastapasta-open) | — | — | [4+(0)](#pastapastapasta-unresolved-comments) | — | — | [1+(5)](#pastapastapasta-draft) | [0+(2)](#pastapastapasta-stale) | [4+(0)](#pastapastapasta-needs-action) | [10+(4)](#pastapastapasta-unresolved-comments) | — | ↓ 1 |
 | [@lklimek + (@Claudius-Maginificent)](#lklimek) | [7+(7)](#lklimek-open) | — | — | [1+(3)](#lklimek-unresolved-comments) | — | [5+(0)](#lklimek-deferred) | [0+(1)](#lklimek-draft) | [1+(3)](#lklimek-stale) | [1+(2)](#lklimek-needs-action) | [4+(47)](#lklimek-unresolved-comments) | — | ↓ 2 |
 | [@llbartekll](#llbartekll) | [2](#llbartekll-open) | — | — | [2](#llbartekll-unresolved-comments) | — | — | — | — | [2](#llbartekll-needs-action) | [3](#llbartekll-unresolved-comments) | [1](#llbartekll-ready-for-review) | — |
@@ -43,10 +43,10 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3417 feat(swift-sdk): use SPV-synced quorums for Platform proof verification](https://github.com/dashpay/platform/pull/3417) — ⚠ merge conflict · 🔴 CI failing · 📝 draft
 - [#3784 docs: clarify address-sync catch-up nonce and buffer comments](https://github.com/dashpay/platform/pull/3784) — 🐢 targets fix/rs-sdk-address-sync-found-025
 - [#3799 fix(dpp): return error instead of panicking on storage-fee refund div-by-zero](https://github.com/dashpay/platform/pull/3799)
-- [#3800 fix(drive): charge fees for unshield and shielded withdrawal](https://github.com/dashpay/platform/pull/3800) — ✋ changes requested
+- [#3800 fix(drive): charge fees for unshield and shielded withdrawal](https://github.com/dashpay/platform/pull/3800)
 
 <a id="quantumexplorer-needs-action"></a>
-#### Needs action (5)
+#### Needs action (4)
 - [#3557 feat(platform-wallet): instrument wallet_manager RwLock behind lock-stats feature](https://github.com/dashpay/platform/pull/3557) — 11 unresolved (2 CodeRabbit, 9 human) · 39 days stale · ⚠ merge conflict
   - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_" — 39 days old
 - [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 12 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
@@ -55,7 +55,6 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "_🛠️ Refactor suggestion_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 6 days old
 - [#3793 fix(drive): conserve credits in shield, debit only the shielded amount](https://github.com/dashpay/platform/pull/3793) — 4 unresolved (4 human) · 2 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=563381bccfc4 dedupe=825462de0dd092bd -->" — 2 days old
-- [#3800 fix(drive): charge fees for unshield and shielded withdrawal](https://github.com/dashpay/platform/pull/3800) — ✋ changes requested
 
 <a id="quantumexplorer-unresolved-comments"></a>
 #### Unresolved Comments (4)
@@ -67,10 +66,6 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "_🛠️ Refactor suggestion_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 6 days old
 - [#3793 fix(drive): conserve credits in shield, debit only the shielded amount](https://github.com/dashpay/platform/pull/3793) — 4 unresolved (4 human) · 2 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=563381bccfc4 dedupe=825462de0dd092bd -->" — 2 days old
-
-<a id="quantumexplorer-changes-requested"></a>
-#### Changes Requested (1)
-- [#3800 fix(drive): charge fees for unshield and shielded withdrawal](https://github.com/dashpay/platform/pull/3800) — ✋ changes requested
 
 <a id="quantumexplorer-deferred"></a>
 #### Deferred (2)
@@ -88,8 +83,9 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3784 docs: clarify address-sync catch-up nonce and buffer comments](https://github.com/dashpay/platform/pull/3784) — 🐢 targets fix/rs-sdk-address-sync-found-025
 
 <a id="quantumexplorer-clean"></a>
-#### Clean (1)
+#### Clean (2)
 - [#3799 fix(dpp): return error instead of panicking on storage-fee refund div-by-zero](https://github.com/dashpay/platform/pull/3799)
+- [#3800 fix(drive): charge fees for unshield and shielded withdrawal](https://github.com/dashpay/platform/pull/3800)
 
 <a id="quantumexplorer-ready-for-review"></a>
 #### Ready for Review (1)
@@ -100,7 +96,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="pastapastapasta-open"></a>
 #### Open (12)
 - [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 108 days stale · 📝 draft
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 105 days old
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 106 days old
 - [#3680 refactor(dapi,dpp)!: move dapi-client and Identifier off Buffer to Uint8Array](https://github.com/dashpay/platform/pull/3680) — 5 unresolved (5 human) · 11 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=1c101f507542 -->" — 11 days old
 - [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 35 days stale · ✋ changes requested · 🔴 CI failing
@@ -142,7 +138,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="pastapastapasta-draft"></a>
 #### Draft (6)
 - [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 108 days stale · 📝 draft
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 105 days old
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 106 days old
 - [#3091 feat(wasm-sdk): add prepare_* APIs for idempotent document state transitions](https://github.com/dashpay/platform/pull/3091) — via @thepastaclaw · ✋ changes requested · 📝 draft
 - [#3092 feat(rs-sdk): expose transition hash from state transition methods](https://github.com/dashpay/platform/pull/3092) — via @thepastaclaw · ✋ changes requested · 📝 draft
 - [#3133 fix(sdk): validate batch base structure before signing](https://github.com/dashpay/platform/pull/3133) — via @thepastaclaw · ✋ changes requested · 📝 draft
