@@ -1,22 +1,22 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-06-25 00:49 UTC · commit 8d0f416*
+*Last updated: 2026-06-25 07:15 UTC · commit 9d06968*
 
 ## Summary
-- Open PRs: **57** (10 clean · 4 CI failing · 3 changes requested · 12 unresolved comments · 10 deferred · 14 draft · 4 stale)
+- Open PRs: **58** (10 clean · 4 CI failing · 3 changes requested · 12 unresolved comments · 10 deferred · 15 draft · 4 stale)
 - PRs needing author action: **16**
-- Total unresolved comments: **71**
+- Total unresolved comments: **64**
 
 ## Scoreboard
 _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc. Click any number to jump to the specific PRs it covers._
 
 | Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [@llbartekll](#llbartekll) | [5](#llbartekll-open) | — | — | [4](#llbartekll-unresolved-comments) | [1](#llbartekll-changes-requested) | — | — | — | [5](#llbartekll-needs-action) | [5](#llbartekll-unresolved-comments) | [3](#llbartekll-ready-for-review) | ↑ 2 |
+| [@llbartekll](#llbartekll) | [5](#llbartekll-open) | — | — | [4](#llbartekll-unresolved-comments) | [1](#llbartekll-changes-requested) | — | — | — | [5](#llbartekll-needs-action) | [6](#llbartekll-unresolved-comments) | [3](#llbartekll-ready-for-review) | ↑ 2 |
 | [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [5+(9)](#pastapastapasta-open) | [0+(3)](#pastapastapasta-clean) | [0+(1)](#pastapastapasta-ci-failing) | [4+(0)](#pastapastapasta-unresolved-comments) | — | — | [1+(4)](#pastapastapasta-draft) | [0+(1)](#pastapastapasta-stale) | [4+(0)](#pastapastapasta-needs-action) | [10+(4)](#pastapastapasta-unresolved-comments) | — | — |
 | [@ZocoLini](#zocolini) | [7](#zocolini-open) | [4](#zocolini-clean) | [1](#zocolini-ci-failing) | [1](#zocolini-unresolved-comments) | [1](#zocolini-changes-requested) | — | — | — | [3](#zocolini-needs-action) | [3](#zocolini-unresolved-comments) | — | ↑ 1 |
-| [@shumkov](#shumkov) | [5](#shumkov-open) | — | — | [1](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | [1](#shumkov-draft) | — | [2](#shumkov-needs-action) | [13](#shumkov-unresolved-comments) | [3](#shumkov-ready-for-review) | ↓ 1 |
+| [@shumkov](#shumkov) | [6](#shumkov-open) | — | — | [1](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | [2](#shumkov-draft) | — | [2](#shumkov-needs-action) | [5](#shumkov-unresolved-comments) | [3](#shumkov-ready-for-review) | ↓ 1 |
 | [@QuantumExplorer](#quantumexplorer) | [6](#quantumexplorer-open) | — | [1](#quantumexplorer-ci-failing) | [1](#quantumexplorer-unresolved-comments) | — | [2](#quantumexplorer-deferred) | [2](#quantumexplorer-draft) | — | [1](#quantumexplorer-needs-action) | [6](#quantumexplorer-unresolved-comments) | [5](#quantumexplorer-ready-for-review) | ↓ 3 |
 | [@lklimek + (@Claudius-Maginificent)](#lklimek) | [6+(8)](#lklimek-open) | [1+(1)](#lklimek-clean) | — | [0+(1)](#lklimek-unresolved-comments) | — | [5+(0)](#lklimek-deferred) | [0+(4)](#lklimek-draft) | [0+(2)](#lklimek-stale) | [0+(1)](#lklimek-needs-action) | [0+(23)](#lklimek-unresolved-comments) | [1+(0)](#lklimek-ready-for-review) | ↓ 2 |
 | [@pshenmic](#pshenmic) | [1](#pshenmic-open) | — | — | — | — | — | — | [1](#pshenmic-stale) | — | [5](#pshenmic-unresolved-comments) | — | — |
@@ -30,37 +30,37 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @llbartekll
 <a id="llbartekll-open"></a>
 #### Open (5)
-- [#3560 test(swift-sdk): add testnet identity-discovery UI test](https://github.com/dashpay/platform/pull/3560) — 2 unresolved (2 human) · 23 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=379c84ed00e1 dedupe=08a70e07f6e9ae45 -->" — 23 days old
-- [#3694 fix(swift-example-app): unhide Create Identity submit button and auto-dismiss sheet on success](https://github.com/dashpay/platform/pull/3694) — 1 unresolved (1 human) · 23 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=e3a849e745d0 dedupe=d76d5740c5bc0f94 -->" — 23 days old
+- [#3560 test(swift-sdk): add testnet identity-discovery UI test](https://github.com/dashpay/platform/pull/3560) — 2 unresolved (2 human) · 24 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=379c84ed00e1 dedupe=08a70e07f6e9ae45 -->" — 24 days old
+- [#3694 fix(swift-example-app): unhide Create Identity submit button and auto-dismiss sheet on success](https://github.com/dashpay/platform/pull/3694) — 1 unresolved (1 human) · 24 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=e3a849e745d0 dedupe=d76d5740c5bc0f94 -->" — 24 days old
 - [#3817 feat(platform-wallet): sweep + recover CoinJoin mixed coins for the DashSync→SDK migration](https://github.com/dashpay/platform/pull/3817) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=532723c01cf5 dedupe=ee75815c73fdbb8a -->" — 2 days old
-- [#3959 fix(swift-example-app): make Platform Sync "Clear" actually clear synced data](https://github.com/dashpay/platform/pull/3959) — 1 unresolved (1 human) · 0 days stale · ✋ changes requested
+- [#3959 fix(swift-example-app): make Platform Sync "Clear" actually clear synced data](https://github.com/dashpay/platform/pull/3959) — 2 unresolved (2 human) · 0 days stale
   - Top thread: "<!-- thepastaclaw-review v1 finding=7e65c5ee3de2 dedupe=581925e2b37c633f -->" — 0 days old
 - [#3952 feat(swift-example-app): rebrand to "Dash Developer Pro" for TestFlight](https://github.com/dashpay/platform/pull/3952) — ✋ changes requested
 
 <a id="llbartekll-needs-action"></a>
 #### Needs action (5)
-- [#3560 test(swift-sdk): add testnet identity-discovery UI test](https://github.com/dashpay/platform/pull/3560) — 2 unresolved (2 human) · 23 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=379c84ed00e1 dedupe=08a70e07f6e9ae45 -->" — 23 days old
-- [#3694 fix(swift-example-app): unhide Create Identity submit button and auto-dismiss sheet on success](https://github.com/dashpay/platform/pull/3694) — 1 unresolved (1 human) · 23 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=e3a849e745d0 dedupe=d76d5740c5bc0f94 -->" — 23 days old
+- [#3560 test(swift-sdk): add testnet identity-discovery UI test](https://github.com/dashpay/platform/pull/3560) — 2 unresolved (2 human) · 24 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=379c84ed00e1 dedupe=08a70e07f6e9ae45 -->" — 24 days old
+- [#3694 fix(swift-example-app): unhide Create Identity submit button and auto-dismiss sheet on success](https://github.com/dashpay/platform/pull/3694) — 1 unresolved (1 human) · 24 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=e3a849e745d0 dedupe=d76d5740c5bc0f94 -->" — 24 days old
 - [#3817 feat(platform-wallet): sweep + recover CoinJoin mixed coins for the DashSync→SDK migration](https://github.com/dashpay/platform/pull/3817) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=532723c01cf5 dedupe=ee75815c73fdbb8a -->" — 2 days old
-- [#3959 fix(swift-example-app): make Platform Sync "Clear" actually clear synced data](https://github.com/dashpay/platform/pull/3959) — 1 unresolved (1 human) · 0 days stale · ✋ changes requested
+- [#3959 fix(swift-example-app): make Platform Sync "Clear" actually clear synced data](https://github.com/dashpay/platform/pull/3959) — 2 unresolved (2 human) · 0 days stale
   - Top thread: "<!-- thepastaclaw-review v1 finding=7e65c5ee3de2 dedupe=581925e2b37c633f -->" — 0 days old
 - [#3952 feat(swift-example-app): rebrand to "Dash Developer Pro" for TestFlight](https://github.com/dashpay/platform/pull/3952) — ✋ changes requested
 
 <a id="llbartekll-unresolved-comments"></a>
 #### Unresolved Comments (4)
-- [#3560 test(swift-sdk): add testnet identity-discovery UI test](https://github.com/dashpay/platform/pull/3560) — 2 unresolved (2 human) · 23 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=379c84ed00e1 dedupe=08a70e07f6e9ae45 -->" — 23 days old
-- [#3694 fix(swift-example-app): unhide Create Identity submit button and auto-dismiss sheet on success](https://github.com/dashpay/platform/pull/3694) — 1 unresolved (1 human) · 23 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=e3a849e745d0 dedupe=d76d5740c5bc0f94 -->" — 23 days old
+- [#3560 test(swift-sdk): add testnet identity-discovery UI test](https://github.com/dashpay/platform/pull/3560) — 2 unresolved (2 human) · 24 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=379c84ed00e1 dedupe=08a70e07f6e9ae45 -->" — 24 days old
+- [#3694 fix(swift-example-app): unhide Create Identity submit button and auto-dismiss sheet on success](https://github.com/dashpay/platform/pull/3694) — 1 unresolved (1 human) · 24 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=e3a849e745d0 dedupe=d76d5740c5bc0f94 -->" — 24 days old
 - [#3817 feat(platform-wallet): sweep + recover CoinJoin mixed coins for the DashSync→SDK migration](https://github.com/dashpay/platform/pull/3817) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=532723c01cf5 dedupe=ee75815c73fdbb8a -->" — 2 days old
-- [#3959 fix(swift-example-app): make Platform Sync "Clear" actually clear synced data](https://github.com/dashpay/platform/pull/3959) — 1 unresolved (1 human) · 0 days stale · ✋ changes requested
+- [#3959 fix(swift-example-app): make Platform Sync "Clear" actually clear synced data](https://github.com/dashpay/platform/pull/3959) — 2 unresolved (2 human) · 0 days stale
   - Top thread: "<!-- thepastaclaw-review v1 finding=7e65c5ee3de2 dedupe=581925e2b37c633f -->" — 0 days old
 
 <a id="llbartekll-changes-requested"></a>
@@ -71,7 +71,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Ready for Review (3)
 - [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712) — by @ZocoLini
 - [#3869 chore(swift-sdk): reduce swift-sdk test time in CI](https://github.com/dashpay/platform/pull/3869) — by @ZocoLini
-- [#3954 feat(platform-wallet)!: shutdown() joins coordinator threads and returns CoordinatorExitStatus](https://github.com/dashpay/platform/pull/3954) — by @Claudius-Maginificent
+- [#3954 feat(platform-wallet)!: shared ThreadRegistry for coordinator lifecycle + shutdown UAF/data-loss fixes](https://github.com/dashpay/platform/pull/3954) — by @Claudius-Maginificent
 
 <a id="pastapastapasta"></a>
 ### @PastaPastaPasta + (@thepastaclaw)
@@ -83,10 +83,10 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=1c101f507542 -->" — 29 days old
 - [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 53 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=d3df3e197206 -->" — 53 days old
-- [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 23 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=7d40971bd5ff dedupe=2846c55b07c76472 -->" — 23 days old
-- [#2988 feat(wasm-sdk): auto-generate entropy for document creation when not provided](https://github.com/dashpay/platform/pull/2988) — 1 unresolved (1 human) · 34 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=30cbefe1c9ef -->" — 34 days old
+- [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 24 days stale · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=7d40971bd5ff dedupe=2846c55b07c76472 -->" — 24 days old
+- [#2988 feat(wasm-sdk): auto-generate entropy for document creation when not provided](https://github.com/dashpay/platform/pull/2988) — 1 unresolved (1 human) · 35 days stale · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=30cbefe1c9ef -->" — 35 days old
 - [#3091 feat(wasm-sdk): add prepare_* APIs for idempotent document state transitions](https://github.com/dashpay/platform/pull/3091) — via @thepastaclaw · ✋ changes requested · 📝 draft
 - [#3092 feat(rs-sdk): expose transition hash from state transition methods](https://github.com/dashpay/platform/pull/3092) — via @thepastaclaw · ⚠ merge conflict · ✋ changes requested · 📝 draft
 - [#3133 fix(sdk): validate batch base structure before signing](https://github.com/dashpay/platform/pull/3133) — via @thepastaclaw · ⚠ merge conflict · ✋ changes requested · 📝 draft
@@ -103,10 +103,10 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=1c101f507542 -->" — 29 days old
 - [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 53 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=d3df3e197206 -->" — 53 days old
-- [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 23 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=7d40971bd5ff dedupe=2846c55b07c76472 -->" — 23 days old
-- [#2988 feat(wasm-sdk): auto-generate entropy for document creation when not provided](https://github.com/dashpay/platform/pull/2988) — 1 unresolved (1 human) · 34 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=30cbefe1c9ef -->" — 34 days old
+- [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 24 days stale · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=7d40971bd5ff dedupe=2846c55b07c76472 -->" — 24 days old
+- [#2988 feat(wasm-sdk): auto-generate entropy for document creation when not provided](https://github.com/dashpay/platform/pull/2988) — 1 unresolved (1 human) · 35 days stale · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=30cbefe1c9ef -->" — 35 days old
 
 <a id="pastapastapasta-unresolved-comments"></a>
 #### Unresolved Comments (4)
@@ -114,10 +114,10 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=1c101f507542 -->" — 29 days old
 - [#3509 fix(platform): default omitted proved query limits](https://github.com/dashpay/platform/pull/3509) — 1 unresolved (1 human) · 53 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=d3df3e197206 -->" — 53 days old
-- [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 23 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=7d40971bd5ff dedupe=2846c55b07c76472 -->" — 23 days old
-- [#2988 feat(wasm-sdk): auto-generate entropy for document creation when not provided](https://github.com/dashpay/platform/pull/2988) — 1 unresolved (1 human) · 34 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=30cbefe1c9ef -->" — 34 days old
+- [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 24 days stale · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=7d40971bd5ff dedupe=2846c55b07c76472 -->" — 24 days old
+- [#2988 feat(wasm-sdk): auto-generate entropy for document creation when not provided](https://github.com/dashpay/platform/pull/2988) — 1 unresolved (1 human) · 35 days stale · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=30cbefe1c9ef -->" — 35 days old
 
 <a id="pastapastapasta-ci-failing"></a>
 #### CI Failing (1)
@@ -185,25 +185,26 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="shumkov"></a>
 ### @shumkov
 <a id="shumkov-open"></a>
-#### Open (5)
-- [#3841 fix(platform-wallet)!: complete dashpay](https://github.com/dashpay/platform/pull/3841) — 10 unresolved (10 human) · 1 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=8bd25f9c638d dedupe=97bae38b651a90fd -->" — 1 days old
+#### Open (6)
 - [#3936 chore(drive-abci): update to nested address in SML](https://github.com/dashpay/platform/pull/3936) — 3 unresolved (3 human) · 6 days stale · ⚠ merge conflict · 📝 draft
   - Top thread: "<!-- thepastaclaw-review v1 finding=2e1950367681 dedupe=494e3310440bc19a -->" — 6 days old
+- [#3841 fix(platform-wallet)!: complete dashpay](https://github.com/dashpay/platform/pull/3841) — 2 unresolved (2 human) · 0 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=f6f70bfe2201 dedupe=10e98082f2b7fe1d -->" — 0 days old
 - [#2392 feat(dashmate): single node local network [WIP\]](https://github.com/dashpay/platform/pull/2392) — ⏸ deferred
 - [#2518 feat: token marketplace](https://github.com/dashpay/platform/pull/2518) — 📝 draft · ⏸ deferred
 - [#3573 feat(dpp): unify JSON/Value conversion traits + comprehensive round-trip tests](https://github.com/dashpay/platform/pull/3573) — ✋ changes requested · 🔴 CI failing
+- [#3962 docs(dashpay): expand DashPay QA test cases for DIP-15/16 (DP-07..10)](https://github.com/dashpay/platform/pull/3962) — 🔴 CI failing · 📝 draft
 
 <a id="shumkov-needs-action"></a>
 #### Needs action (2)
-- [#3841 fix(platform-wallet)!: complete dashpay](https://github.com/dashpay/platform/pull/3841) — 10 unresolved (10 human) · 1 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=8bd25f9c638d dedupe=97bae38b651a90fd -->" — 1 days old
+- [#3841 fix(platform-wallet)!: complete dashpay](https://github.com/dashpay/platform/pull/3841) — 2 unresolved (2 human) · 0 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=f6f70bfe2201 dedupe=10e98082f2b7fe1d -->" — 0 days old
 - [#3573 feat(dpp): unify JSON/Value conversion traits + comprehensive round-trip tests](https://github.com/dashpay/platform/pull/3573) — ✋ changes requested · 🔴 CI failing
 
 <a id="shumkov-unresolved-comments"></a>
 #### Unresolved Comments (1)
-- [#3841 fix(platform-wallet)!: complete dashpay](https://github.com/dashpay/platform/pull/3841) — 10 unresolved (10 human) · 1 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=8bd25f9c638d dedupe=97bae38b651a90fd -->" — 1 days old
+- [#3841 fix(platform-wallet)!: complete dashpay](https://github.com/dashpay/platform/pull/3841) — 2 unresolved (2 human) · 0 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=f6f70bfe2201 dedupe=10e98082f2b7fe1d -->" — 0 days old
 
 <a id="shumkov-changes-requested"></a>
 #### Changes Requested (1)
@@ -215,9 +216,10 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#2518 feat: token marketplace](https://github.com/dashpay/platform/pull/2518) — 📝 draft · ⏸ deferred
 
 <a id="shumkov-draft"></a>
-#### Draft (1)
+#### Draft (2)
 - [#3936 chore(drive-abci): update to nested address in SML](https://github.com/dashpay/platform/pull/3936) — 3 unresolved (3 human) · 6 days stale · ⚠ merge conflict · 📝 draft
   - Top thread: "<!-- thepastaclaw-review v1 finding=2e1950367681 dedupe=494e3310440bc19a -->" — 6 days old
+- [#3962 docs(dashpay): expand DashPay QA test cases for DIP-15/16 (DP-07..10)](https://github.com/dashpay/platform/pull/3962) — 🔴 CI failing · 📝 draft
 
 <a id="shumkov-ready-for-review"></a>
 #### Ready for Review (3)
@@ -229,8 +231,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @QuantumExplorer
 <a id="quantumexplorer-open"></a>
 #### Open (6)
-- [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 30 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 30 days old
+- [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 31 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 31 days old
 - [#3792 fix(drive): authenticate boundary in compacted absence proofs](https://github.com/dashpay/platform/pull/3792) — 1 unresolved (1 human) · 20 days stale · 📝 draft
   - Top thread: "<!-- thepastaclaw-review v1 finding=be8cd7f6fd00 dedupe=bb18c40415f6c4c4 -->" — 20 days old
 - [#1834 feat(drive-abci)!: Statesync](https://github.com/dashpay/platform/pull/1834) — 📝 draft · ⏸ deferred
@@ -240,13 +242,13 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="quantumexplorer-needs-action"></a>
 #### Needs action (1)
-- [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 30 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 30 days old
+- [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 31 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 31 days old
 
 <a id="quantumexplorer-unresolved-comments"></a>
 #### Unresolved Comments (1)
-- [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 30 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 30 days old
+- [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — 5 unresolved (5 CodeRabbit) · 31 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "_⚠️ Potential issue_ \| _🟠 Major_ \| _⚡ Quick win_" — 31 days old
 
 <a id="quantumexplorer-ci-failing"></a>
 #### CI Failing (1)
@@ -291,7 +293,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3750 feat(platform-wallet)!: [NO MERGE\] consumer hardening — CODE-001/003-callsite/017/018 + PROJ-001 FFI + CODE-008/012/013](https://github.com/dashpay/platform/pull/3750) — via @Claudius-Maginificent · ⚠ merge conflict · 📝 draft
 - [#3940 build(dashmate): update Tenderdash image to v1.6.0](https://github.com/dashpay/platform/pull/3940) — via @Claudius-Maginificent · 📝 draft
 - [#3953 feat(platform-wallet-storage)!: layered opt-in secret protection (Tier-2 password envelope)](https://github.com/dashpay/platform/pull/3953) — via @Claudius-Maginificent · 🔴 CI failing · 📝 draft · 🐢 targets fix/wallet-core-derived-rehydration
-- [#3954 feat(platform-wallet)!: shutdown() joins coordinator threads and returns CoordinatorExitStatus](https://github.com/dashpay/platform/pull/3954) — via @Claudius-Maginificent
+- [#3954 feat(platform-wallet)!: shared ThreadRegistry for coordinator lifecycle + shutdown UAF/data-loss fixes](https://github.com/dashpay/platform/pull/3954) — via @Claudius-Maginificent
 
 <a id="lklimek-needs-action"></a>
 #### Needs action (1)
@@ -328,7 +330,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="lklimek-clean"></a>
 #### Clean (2)
 - [#3650 fix(sdk): address-sync no longer silently discards balance changes for post-snapshot addresses (Found-025)](https://github.com/dashpay/platform/pull/3650)
-- [#3954 feat(platform-wallet)!: shutdown() joins coordinator threads and returns CoordinatorExitStatus](https://github.com/dashpay/platform/pull/3954) — via @Claudius-Maginificent
+- [#3954 feat(platform-wallet)!: shared ThreadRegistry for coordinator lifecycle + shutdown UAF/data-loss fixes](https://github.com/dashpay/platform/pull/3954) — via @Claudius-Maginificent
 
 <a id="lklimek-ready-for-review"></a>
 #### Ready for Review (1)
@@ -338,13 +340,13 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @pshenmic
 <a id="pshenmic-open"></a>
 #### Open (1)
-- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 511 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 502 days
-  - Top thread: "_:warning: Potential issue_" — 511 days old
+- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 512 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 502 days
+  - Top thread: "_:warning: Potential issue_" — 512 days old
 
 <a id="pshenmic-stale"></a>
 #### Stale (1)
-- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 511 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 502 days
-  - Top thread: "_:warning: Potential issue_" — 511 days old
+- [#2446 feat(js-dapi-client): add contested resources query methods](https://github.com/dashpay/platform/pull/2446) — 5 unresolved (5 CodeRabbit) · 512 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets v2.0-dev, untouched 502 days
+  - Top thread: "_:warning: Potential issue_" — 512 days old
 
 <a id="thephez"></a>
 ### @thephez
