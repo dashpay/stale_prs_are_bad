@@ -1,12 +1,12 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-07-05 12:31 UTC · commit 44e7dcf*
+*Last updated: 2026-07-05 18:25 UTC · commit ac5e61d*
 
 ## Summary
-- Open PRs: **56** (12 clean · 1 CI failing · 2 changes requested · 13 unresolved comments · 10 deferred · 9 draft · 9 stale)
+- Open PRs: **55** (11 clean · 2 CI failing · 2 changes requested · 12 unresolved comments · 10 deferred · 9 draft · 9 stale)
 - PRs needing author action: **17**
-- Total unresolved comments: **78**
+- Total unresolved comments: **77**
 
 ## Scoreboard
 _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc. Click any number to jump to the specific PRs it covers._
@@ -14,12 +14,12 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 | Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [5+(9)](#pastapastapasta-open) | [0+(2)](#pastapastapasta-clean) | — | [4+(1)](#pastapastapasta-unresolved-comments) | — | — | [1+(2)](#pastapastapasta-draft) | [0+(4)](#pastapastapasta-stale) | [4+(0)](#pastapastapasta-needs-action) | [10+(4)](#pastapastapasta-unresolved-comments) | — | — |
-| [@shumkov](#shumkov) | [7](#shumkov-open) | [1](#shumkov-clean) | — | [2](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | [1](#shumkov-draft) | — | [3](#shumkov-needs-action) | [5](#shumkov-unresolved-comments) | [1](#shumkov-ready-for-review) | ↑ 1 |
+| [@shumkov](#shumkov) | [6](#shumkov-open) | — | — | [2](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | [1](#shumkov-draft) | — | [3](#shumkov-needs-action) | [5](#shumkov-unresolved-comments) | [1](#shumkov-ready-for-review) | ↑ 1 |
 | [@llbartekll](#llbartekll) | [3](#llbartekll-open) | — | — | [2](#llbartekll-unresolved-comments) | — | — | [1](#llbartekll-draft) | — | [2](#llbartekll-needs-action) | [14](#llbartekll-unresolved-comments) | [4](#llbartekll-ready-for-review) | ↓ 1 |
-| [@ZocoLini](#zocolini) | [8](#zocolini-open) | [6](#zocolini-clean) | — | [1](#zocolini-unresolved-comments) | [1](#zocolini-changes-requested) | — | — | — | [4](#zocolini-needs-action) | [1](#zocolini-unresolved-comments) | — | ↑ 3 |
 | [@lklimek + (@Claudius-Maginificent)](#lklimek) | [6+(7)](#lklimek-open) | [0+(2)](#lklimek-clean) | — | [1+(0)](#lklimek-unresolved-comments) | — | [5+(0)](#lklimek-deferred) | [0+(2)](#lklimek-draft) | [0+(3)](#lklimek-stale) | [1+(1)](#lklimek-needs-action) | [1+(29)](#lklimek-unresolved-comments) | [1+(0)](#lklimek-ready-for-review) | ↑ 1 |
-| [@QuantumExplorer](#quantumexplorer) | [5](#quantumexplorer-open) | — | — | [1](#quantumexplorer-unresolved-comments) | — | [2](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | [1](#quantumexplorer-stale) | [1](#quantumexplorer-needs-action) | [6](#quantumexplorer-unresolved-comments) | [4](#quantumexplorer-ready-for-review) | — |
+| [@QuantumExplorer](#quantumexplorer) | [5](#quantumexplorer-open) | — | — | [1](#quantumexplorer-unresolved-comments) | — | [2](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | [1](#quantumexplorer-stale) | [1](#quantumexplorer-needs-action) | [6](#quantumexplorer-unresolved-comments) | [3](#quantumexplorer-ready-for-review) | — |
 | [@thephez](#thephez) | [3](#thephez-open) | — | [1](#thephez-ci-failing) | [1](#thephez-unresolved-comments) | — | — | [1](#thephez-draft) | — | [1](#thephez-needs-action) | [3](#thephez-unresolved-comments) | — | — |
+| [@ZocoLini](#zocolini) | [8](#zocolini-open) | [6](#zocolini-clean) | [1](#zocolini-ci-failing) | — | [1](#zocolini-changes-requested) | — | — | — | [4](#zocolini-needs-action) | — | — | ↑ 3 |
 | [@pshenmic](#pshenmic) | [1](#pshenmic-open) | — | — | — | — | — | — | [1](#pshenmic-stale) | — | [5](#pshenmic-unresolved-comments) | — | — |
 | [@densmirnov](#densmirnov) | [1](#densmirnov-open) | [1](#densmirnov-clean) | — | — | — | — | — | — | — | — | — | — |
 | [@ogabrielides](#ogabrielides) | [1](#ogabrielides-open) | — | — | — | — | [1](#ogabrielides-deferred) | — | — | — | — | — | — |
@@ -30,8 +30,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @PastaPastaPasta + (@thepastaclaw)
 <a id="pastapastapasta-open"></a>
 #### Open (14)
-- [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 137 days stale · 🔴 CI failing
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 134 days old
+- [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 137 days stale
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 135 days old
 - [#3680 refactor(dapi,dpp)!: move dapi-client and Identifier off Buffer to Uint8Array](https://github.com/dashpay/platform/pull/3680) — 5 unresolved (5 human) · 40 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=1c101f507542 -->" — 40 days old
 - [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 34 days stale · 🔴 CI failing
@@ -63,8 +63,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="pastapastapasta-unresolved-comments"></a>
 #### Unresolved Comments (5)
-- [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 137 days stale · 🔴 CI failing
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 134 days old
+- [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 137 days stale
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 135 days old
 - [#3680 refactor(dapi,dpp)!: move dapi-client and Identifier off Buffer to Uint8Array](https://github.com/dashpay/platform/pull/3680) — 5 unresolved (5 human) · 40 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=1c101f507542 -->" — 40 days old
 - [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 34 days stale · 🔴 CI failing
@@ -95,21 +95,20 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="shumkov"></a>
 ### @shumkov
 <a id="shumkov-open"></a>
-#### Open (7)
+#### Open (6)
 - [#3936 chore(drive-abci): update to nested address in SML](https://github.com/dashpay/platform/pull/3936) — 2 unresolved (2 human) · 16 days stale · ⚠ merge conflict · 📝 draft
   - Top thread: "<!-- thepastaclaw-review v1 finding=2e1950367681 dedupe=494e3310440bc19a -->" — 16 days old
-- [#3841 feat: complete dashpay in platform wallet and swift example app](https://github.com/dashpay/platform/pull/3841) — 2 unresolved (2 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+- [#3841 feat: complete dashpay in platform wallet and swift example app](https://github.com/dashpay/platform/pull/3841) — 2 unresolved (2 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=dfe9934351f8 dedupe=081dd223519a0c44 -->" — 1 days old
 - [#3974 docs(book): fix drifted source links in the count group-by chapters](https://github.com/dashpay/platform/pull/3974) — 1 unresolved (1 human) · 4 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=84431ddef276 dedupe=7651eb50687937ba -->" — 4 days old
 - [#2392 feat(dashmate): single node local network [WIP\]](https://github.com/dashpay/platform/pull/2392) — ⏸ deferred
 - [#2518 feat: token marketplace](https://github.com/dashpay/platform/pull/2518) — 📝 draft · ⏸ deferred
 - [#3573 feat(dpp): unify JSON/Value conversion traits + comprehensive round-trip tests](https://github.com/dashpay/platform/pull/3573) — ✋ changes requested · 🔴 CI failing
-- [#3983 docs: point README badges + NIGHTLY_STATUS at v4.1-dev (new default)](https://github.com/dashpay/platform/pull/3983)
 
 <a id="shumkov-needs-action"></a>
 #### Needs action (3)
-- [#3841 feat: complete dashpay in platform wallet and swift example app](https://github.com/dashpay/platform/pull/3841) — 2 unresolved (2 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+- [#3841 feat: complete dashpay in platform wallet and swift example app](https://github.com/dashpay/platform/pull/3841) — 2 unresolved (2 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=dfe9934351f8 dedupe=081dd223519a0c44 -->" — 1 days old
 - [#3974 docs(book): fix drifted source links in the count group-by chapters](https://github.com/dashpay/platform/pull/3974) — 1 unresolved (1 human) · 4 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=84431ddef276 dedupe=7651eb50687937ba -->" — 4 days old
@@ -117,7 +116,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="shumkov-unresolved-comments"></a>
 #### Unresolved Comments (2)
-- [#3841 feat: complete dashpay in platform wallet and swift example app](https://github.com/dashpay/platform/pull/3841) — 2 unresolved (2 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+- [#3841 feat: complete dashpay in platform wallet and swift example app](https://github.com/dashpay/platform/pull/3841) — 2 unresolved (2 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=dfe9934351f8 dedupe=081dd223519a0c44 -->" — 1 days old
 - [#3974 docs(book): fix drifted source links in the count group-by chapters](https://github.com/dashpay/platform/pull/3974) — 1 unresolved (1 human) · 4 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=84431ddef276 dedupe=7651eb50687937ba -->" — 4 days old
@@ -135,10 +134,6 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Draft (1)
 - [#3936 chore(drive-abci): update to nested address in SML](https://github.com/dashpay/platform/pull/3936) — 2 unresolved (2 human) · 16 days stale · ⚠ merge conflict · 📝 draft
   - Top thread: "<!-- thepastaclaw-review v1 finding=2e1950367681 dedupe=494e3310440bc19a -->" — 16 days old
-
-<a id="shumkov-clean"></a>
-#### Clean (1)
-- [#3983 docs: point README badges + NIGHTLY_STATUS at v4.1-dev (new default)](https://github.com/dashpay/platform/pull/3983)
 
 <a id="shumkov-ready-for-review"></a>
 #### Ready for Review (1)
@@ -180,46 +175,6 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712) — by @ZocoLini
 - [#3853 fix(swift-sdk): drop legacy headers pre-processing in build_ios.sh](https://github.com/dashpay/platform/pull/3853) — by @ZocoLini
 - [#3950 chore(swift-sdk): script to get spv stortage from iOS sim](https://github.com/dashpay/platform/pull/3950) — by @ZocoLini
-
-<a id="zocolini"></a>
-### @ZocoLini
-<a id="zocolini-open"></a>
-#### Open (8)
-- [#3970 refactor(platform-wallet): expose the new core TransactionBuilder API + rust-dashcore bump](https://github.com/dashpay/platform/pull/3970) — 1 unresolved (1 human) · 1 days stale · ⚠ merge conflict · 🔴 CI failing
-  - Top thread: "Why do we need this getter?" — 1 days old
-- [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712)
-- [#3853 fix(swift-sdk): drop legacy headers pre-processing in build_ios.sh](https://github.com/dashpay/platform/pull/3853)
-- [#3869 chore(swift-sdk): reduce swift-sdk test time in CI](https://github.com/dashpay/platform/pull/3869) — ⚠ merge conflict
-- [#3948 chore: remove ignored cargo build config](https://github.com/dashpay/platform/pull/3948)
-- [#3949 chore(swift-sdk): correctly refer to the swift sdk as swift in the build script and cargo profiles](https://github.com/dashpay/platform/pull/3949) — ✋ changes requested · 🔴 CI failing
-- [#3950 chore(swift-sdk): script to get spv stortage from iOS sim](https://github.com/dashpay/platform/pull/3950)
-- [#3955 chore: bump rust-dashcore rev to 95a3c8ff04d75d7abe324db4af01e8521092aff9](https://github.com/dashpay/platform/pull/3955) — ⚠ merge conflict
-
-<a id="zocolini-needs-action"></a>
-#### Needs action (4)
-- [#3970 refactor(platform-wallet): expose the new core TransactionBuilder API + rust-dashcore bump](https://github.com/dashpay/platform/pull/3970) — 1 unresolved (1 human) · 1 days stale · ⚠ merge conflict · 🔴 CI failing
-  - Top thread: "Why do we need this getter?" — 1 days old
-- [#3869 chore(swift-sdk): reduce swift-sdk test time in CI](https://github.com/dashpay/platform/pull/3869) — ⚠ merge conflict
-- [#3949 chore(swift-sdk): correctly refer to the swift sdk as swift in the build script and cargo profiles](https://github.com/dashpay/platform/pull/3949) — ✋ changes requested · 🔴 CI failing
-- [#3955 chore: bump rust-dashcore rev to 95a3c8ff04d75d7abe324db4af01e8521092aff9](https://github.com/dashpay/platform/pull/3955) — ⚠ merge conflict
-
-<a id="zocolini-unresolved-comments"></a>
-#### Unresolved Comments (1)
-- [#3970 refactor(platform-wallet): expose the new core TransactionBuilder API + rust-dashcore bump](https://github.com/dashpay/platform/pull/3970) — 1 unresolved (1 human) · 1 days stale · ⚠ merge conflict · 🔴 CI failing
-  - Top thread: "Why do we need this getter?" — 1 days old
-
-<a id="zocolini-changes-requested"></a>
-#### Changes Requested (1)
-- [#3949 chore(swift-sdk): correctly refer to the swift sdk as swift in the build script and cargo profiles](https://github.com/dashpay/platform/pull/3949) — ✋ changes requested · 🔴 CI failing
-
-<a id="zocolini-clean"></a>
-#### Clean (6)
-- [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712)
-- [#3853 fix(swift-sdk): drop legacy headers pre-processing in build_ios.sh](https://github.com/dashpay/platform/pull/3853)
-- [#3869 chore(swift-sdk): reduce swift-sdk test time in CI](https://github.com/dashpay/platform/pull/3869) — ⚠ merge conflict
-- [#3948 chore: remove ignored cargo build config](https://github.com/dashpay/platform/pull/3948)
-- [#3950 chore(swift-sdk): script to get spv stortage from iOS sim](https://github.com/dashpay/platform/pull/3950)
-- [#3955 chore: bump rust-dashcore rev to 95a3c8ff04d75d7abe324db4af01e8521092aff9](https://github.com/dashpay/platform/pull/3955) — ⚠ merge conflict
 
 <a id="lklimek"></a>
 ### @lklimek + (@Claudius-Maginificent)
@@ -324,11 +279,10 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=be8cd7f6fd00 dedupe=bb18c40415f6c4c4 -->" — 30 days old
 
 <a id="quantumexplorer-ready-for-review"></a>
-#### Ready for Review (4)
+#### Ready for Review (3)
 - [#3635 ci: tolerate book preview comment permission errors](https://github.com/dashpay/platform/pull/3635) — by @thepastaclaw
 - [#3787 docs: add DashPay contact request encryption guide](https://github.com/dashpay/platform/pull/3787) — by @densmirnov
 - [#3938 test(rs-sdk): expect network floor in mock sdk seed test](https://github.com/dashpay/platform/pull/3938) — by @thepastaclaw
-- [#3983 docs: point README badges + NIGHTLY_STATUS at v4.1-dev (new default)](https://github.com/dashpay/platform/pull/3983) — by @shumkov
 
 <a id="thephez"></a>
 ### @thephez
@@ -356,6 +310,43 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="thephez-draft"></a>
 #### Draft (1)
 - [#3928 test(dpp,drive-abci): pin keepHistory + canBeDeleted contradiction](https://github.com/dashpay/platform/pull/3928) — 📝 draft
+
+<a id="zocolini"></a>
+### @ZocoLini
+<a id="zocolini-open"></a>
+#### Open (8)
+- [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712)
+- [#3853 fix(swift-sdk): drop legacy headers pre-processing in build_ios.sh](https://github.com/dashpay/platform/pull/3853)
+- [#3869 chore(swift-sdk): reduce swift-sdk test time in CI](https://github.com/dashpay/platform/pull/3869) — ⚠ merge conflict
+- [#3948 chore: remove ignored cargo build config](https://github.com/dashpay/platform/pull/3948)
+- [#3949 chore(swift-sdk): correctly refer to the swift sdk as swift in the build script and cargo profiles](https://github.com/dashpay/platform/pull/3949) — ✋ changes requested · 🔴 CI failing
+- [#3950 chore(swift-sdk): script to get spv stortage from iOS sim](https://github.com/dashpay/platform/pull/3950)
+- [#3955 chore: bump rust-dashcore rev to 95a3c8ff04d75d7abe324db4af01e8521092aff9](https://github.com/dashpay/platform/pull/3955) — ⚠ merge conflict
+- [#3970 refactor(platform-wallet): expose the new core TransactionBuilder API + rust-dashcore bump](https://github.com/dashpay/platform/pull/3970) — ⚠ merge conflict · 🔴 CI failing
+
+<a id="zocolini-needs-action"></a>
+#### Needs action (4)
+- [#3869 chore(swift-sdk): reduce swift-sdk test time in CI](https://github.com/dashpay/platform/pull/3869) — ⚠ merge conflict
+- [#3949 chore(swift-sdk): correctly refer to the swift sdk as swift in the build script and cargo profiles](https://github.com/dashpay/platform/pull/3949) — ✋ changes requested · 🔴 CI failing
+- [#3955 chore: bump rust-dashcore rev to 95a3c8ff04d75d7abe324db4af01e8521092aff9](https://github.com/dashpay/platform/pull/3955) — ⚠ merge conflict
+- [#3970 refactor(platform-wallet): expose the new core TransactionBuilder API + rust-dashcore bump](https://github.com/dashpay/platform/pull/3970) — ⚠ merge conflict · 🔴 CI failing
+
+<a id="zocolini-changes-requested"></a>
+#### Changes Requested (1)
+- [#3949 chore(swift-sdk): correctly refer to the swift sdk as swift in the build script and cargo profiles](https://github.com/dashpay/platform/pull/3949) — ✋ changes requested · 🔴 CI failing
+
+<a id="zocolini-ci-failing"></a>
+#### CI Failing (1)
+- [#3970 refactor(platform-wallet): expose the new core TransactionBuilder API + rust-dashcore bump](https://github.com/dashpay/platform/pull/3970) — ⚠ merge conflict · 🔴 CI failing
+
+<a id="zocolini-clean"></a>
+#### Clean (6)
+- [#3712 test(swift-sdk): first swift sdk integration tests with local network](https://github.com/dashpay/platform/pull/3712)
+- [#3853 fix(swift-sdk): drop legacy headers pre-processing in build_ios.sh](https://github.com/dashpay/platform/pull/3853)
+- [#3869 chore(swift-sdk): reduce swift-sdk test time in CI](https://github.com/dashpay/platform/pull/3869) — ⚠ merge conflict
+- [#3948 chore: remove ignored cargo build config](https://github.com/dashpay/platform/pull/3948)
+- [#3950 chore(swift-sdk): script to get spv stortage from iOS sim](https://github.com/dashpay/platform/pull/3950)
+- [#3955 chore: bump rust-dashcore rev to 95a3c8ff04d75d7abe324db4af01e8521092aff9](https://github.com/dashpay/platform/pull/3955) — ⚠ merge conflict
 
 <a id="pshenmic"></a>
 ### @pshenmic
