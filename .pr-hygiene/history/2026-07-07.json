@@ -1,9 +1,9 @@
 {
   "date": "2026-07-07",
   "summary": {
-    "open_prs": 56,
-    "prs_needing_author_action": 17,
-    "total_unresolved": 80
+    "open_prs": 55,
+    "prs_needing_author_action": 16,
+    "total_unresolved": 77
   },
   "per_author": [
     {
@@ -19,24 +19,8 @@
       "awaiting_review": 0,
       "prs_needing_author_action": 4,
       "total_unresolved": 14,
-      "total_score": 156.79902053203028,
-      "oldest_stale_pr_days": 65.13336805555555
-    },
-    {
-      "login": "QuantumExplorer",
-      "total_open_prs": 7,
-      "clean_prs": 0,
-      "dirty_prs": 3,
-      "deferred_prs": 2,
-      "draft_prs": 1,
-      "stale_prs": 1,
-      "ci_failing_prs": 0,
-      "changes_requested_prs": 0,
-      "awaiting_review": 3,
-      "prs_needing_author_action": 3,
-      "total_unresolved": 9,
-      "total_score": 107.15827683585397,
-      "oldest_stale_pr_days": 42.277372685185185
+      "total_score": 156.96767610833868,
+      "oldest_stale_pr_days": 65.40613425925926
     },
     {
       "login": "llbartekll",
@@ -48,11 +32,11 @@
       "stale_prs": 0,
       "ci_failing_prs": 0,
       "changes_requested_prs": 0,
-      "awaiting_review": 2,
+      "awaiting_review": 1,
       "prs_needing_author_action": 3,
       "total_unresolved": 5,
-      "total_score": 69.24538047717937,
-      "oldest_stale_pr_days": 35.36390046296296
+      "total_score": 69.92898167197475,
+      "oldest_stale_pr_days": 35.63666666666666
     },
     {
       "login": "shumkov",
@@ -67,8 +51,24 @@
       "awaiting_review": 1,
       "prs_needing_author_action": 2,
       "total_unresolved": 17,
-      "total_score": 58.47631097487375,
-      "oldest_stale_pr_days": 17.571261574074075
+      "total_score": 58.61500676005802,
+      "oldest_stale_pr_days": 17.84402777777778
+    },
+    {
+      "login": "QuantumExplorer",
+      "total_open_prs": 6,
+      "clean_prs": 0,
+      "dirty_prs": 1,
+      "deferred_prs": 2,
+      "draft_prs": 1,
+      "stale_prs": 2,
+      "ci_failing_prs": 0,
+      "changes_requested_prs": 0,
+      "awaiting_review": 3,
+      "prs_needing_author_action": 1,
+      "total_unresolved": 6,
+      "total_score": 101.33202455614627,
+      "oldest_stale_pr_days": 42.55013888888889
     },
     {
       "login": "thephez",
@@ -83,8 +83,8 @@
       "awaiting_review": 0,
       "prs_needing_author_action": 1,
       "total_unresolved": 3,
-      "total_score": 15.074531901434643,
-      "oldest_stale_pr_days": 11.33476851851852
+      "total_score": 15.205767774345194,
+      "oldest_stale_pr_days": 11.607534722222223
     },
     {
       "login": "ZocoLini",
@@ -113,9 +113,9 @@
       "ci_failing_prs": 0,
       "changes_requested_prs": 0,
       "awaiting_review": 1,
-      "prs_needing_author_action": 1,
+      "prs_needing_author_action": 2,
       "total_unresolved": 27,
-      "total_score": 220.16907426004602,
+      "total_score": 222.4013941092378,
       "oldest_stale_pr_days": 0.0
     },
     {
@@ -131,8 +131,8 @@
       "awaiting_review": 0,
       "prs_needing_author_action": 0,
       "total_unresolved": 5,
-      "total_score": 118.98113471082748,
-      "oldest_stale_pr_days": 523.3529282407408
+      "total_score": 118.99101586164429,
+      "oldest_stale_pr_days": 523.6256944444444
     },
     {
       "login": "densmirnov",
@@ -169,43 +169,26 @@
   ],
   "per_pr": [
     {
-      "number": 4033,
+      "number": 4035,
       "author": "QuantumExplorer",
-      "score": 2.0,
-      "unresolved_total": 1,
+      "score": 0.0,
+      "unresolved_total": 0,
       "by_severity": {
         "high": 0,
-        "medium": 1,
+        "medium": 0,
         "low": 0
       },
       "by_source": {
         "coderabbit": 0,
         "bot": 0,
-        "human": 1
+        "human": 0
       },
-      "needs_author_action": true
-    },
-    {
-      "number": 4032,
-      "author": "QuantumExplorer",
-      "score": 4.0,
-      "unresolved_total": 2,
-      "by_severity": {
-        "high": 0,
-        "medium": 2,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 0,
-        "human": 2
-      },
-      "needs_author_action": true
+      "needs_author_action": false
     },
     {
       "number": 3549,
       "author": "Claudius-Maginificent",
-      "score": 167.65689034935153,
+      "score": 167.82157179947743,
       "unresolved_total": 20,
       "by_severity": {
         "high": 0,
@@ -222,7 +205,7 @@
     {
       "number": 3992,
       "author": "Claudius-Maginificent",
-      "score": 29.62356627477353,
+      "score": 30.826997787696143,
       "unresolved_total": 4,
       "by_severity": {
         "high": 4,
@@ -251,12 +234,12 @@
         "bot": 0,
         "human": 0
       },
-      "needs_author_action": false
+      "needs_author_action": true
     },
     {
       "number": 3968,
       "author": "Claudius-Maginificent",
-      "score": 22.888617635920955,
+      "score": 23.752824522064223,
       "unresolved_total": 3,
       "by_severity": {
         "high": 3,
@@ -341,7 +324,7 @@
     {
       "number": 3981,
       "author": "llbartekll",
-      "score": 15.342203505543468,
+      "score": 15.913705841907898,
       "unresolved_total": 2,
       "by_severity": {
         "high": 2,
@@ -409,7 +392,7 @@
     {
       "number": 3096,
       "author": "thepastaclaw",
-      "score": 69.13720964305762,
+      "score": 69.16454890082987,
       "unresolved_total": 4,
       "by_severity": {
         "high": 2,
@@ -460,7 +443,7 @@
     {
       "number": 3961,
       "author": "thephez",
-      "score": 15.074531901434643,
+      "score": 15.205767774345194,
       "unresolved_total": 3,
       "by_severity": {
         "high": 0,
@@ -528,7 +511,7 @@
     {
       "number": 3936,
       "author": "shumkov",
-      "score": 11.686461236778388,
+      "score": 11.744784139712314,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -562,7 +545,7 @@
     {
       "number": 3694,
       "author": "llbartekll",
-      "score": 17.967411601488696,
+      "score": 18.004780225939868,
       "unresolved_total": 1,
       "by_severity": {
         "high": 1,
@@ -630,7 +613,7 @@
     {
       "number": 3792,
       "author": "QuantumExplorer",
-      "score": 6.967528644858867,
+      "score": 6.9842022442532725,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -647,7 +630,7 @@
     {
       "number": 3509,
       "author": "PastaPastaPasta",
-      "score": 20.958367156080634,
+      "score": 20.978947178189408,
       "unresolved_total": 1,
       "by_severity": {
         "high": 1,
@@ -732,7 +715,7 @@
     {
       "number": 3680,
       "author": "PastaPastaPasta",
-      "score": 37.42374143097824,
+      "score": 37.488172933082076,
       "unresolved_total": 5,
       "by_severity": {
         "high": 0,
@@ -817,7 +800,7 @@
     {
       "number": 3560,
       "author": "llbartekll",
-      "score": 35.935765370147195,
+      "score": 36.01049560412699,
       "unresolved_total": 2,
       "by_severity": {
         "high": 2,
@@ -834,7 +817,7 @@
     {
       "number": 3740,
       "author": "QuantumExplorer",
-      "score": 94.19074819099511,
+      "score": 94.347822311893,
       "unresolved_total": 5,
       "by_severity": {
         "high": 5,
@@ -936,7 +919,7 @@
     {
       "number": 3462,
       "author": "PastaPastaPasta",
-      "score": 21.563647348820254,
+      "score": 21.60846920118119,
       "unresolved_total": 3,
       "by_severity": {
         "high": 0,
@@ -953,7 +936,7 @@
     {
       "number": 2988,
       "author": "PastaPastaPasta",
-      "score": 7.716054953093514,
+      "score": 7.727537895056129,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -1004,7 +987,7 @@
     {
       "number": 3974,
       "author": "shumkov",
-      "score": 3.789849738095365,
+      "score": 3.8702226203457077,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -1106,7 +1089,7 @@
     {
       "number": 2446,
       "author": "pshenmic",
-      "score": 118.98113471082748,
+      "score": 118.99101586164429,
       "unresolved_total": 5,
       "by_severity": {
         "high": 3,
