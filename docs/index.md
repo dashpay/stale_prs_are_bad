@@ -1,7 +1,7 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-07-29 14:05 UTC · commit ffb17bd*
+*Last updated: 2026-07-29 19:12 UTC · commit 7aef60c*
 
 ## Summary
 - Open PRs: **54** (4 clean · 2 CI failing · 3 changes requested · 26 unresolved comments · 11 deferred · 6 draft · 2 stale)
@@ -34,19 +34,19 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#4195 feat(platform-wallet): allocate txMetadata encryptionKeyIndex in Rust, not the host (stacked on #4186)](https://github.com/dashpay/platform/pull/4195) — 10 unresolved (10 human) · 6 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=d6f036f0e17a dedupe=d55b1e77ca845fdc -->" — 6 days old
 - [#4247 feat(kotlin-sdk): union-funding build_signed_payment send API (core primitive + FFI/JNI/Kotlin)](https://github.com/dashpay/platform/pull/4247) — 8 unresolved (2 CodeRabbit, 6 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3db3f420804b dedupe=5f14b7f8796f13c3 -->" — 0 days old
-- [#4184 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4184) — 3 unresolved (3 human) · 5 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=f015408c624a dedupe=8f314b58221e4f8c -->" — 5 days old
-- [#4204 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4204) — 7 unresolved (2 CodeRabbit, 5 human) · 5 days stale
-  - Top thread: "<!-- thepastaclaw-review v1 finding=cc2b890af356 dedupe=864a088719a9b104 -->" — 5 days old
+  - Top thread: "<!-- thepastaclaw-review v1 finding=3db3f420804b dedupe=5f14b7f8796f13c3 -->" — 1 days old
+- [#4184 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4184) — 3 unresolved (3 human) · 6 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=f015408c624a dedupe=8f314b58221e4f8c -->" — 6 days old
+- [#4204 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4204) — 7 unresolved (2 CodeRabbit, 5 human) · 6 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=cc2b890af356 dedupe=864a088719a9b104 -->" — 6 days old
 - [#4186 feat(kotlin-sdk): wire-compatible encrypted txMetadata document create + decrypt-on-fetch](https://github.com/dashpay/platform/pull/4186) — 5 unresolved (5 human) · 5 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=02bc78a3519f dedupe=9a959dd67ee262d6 -->" — 5 days old
 - [#4196 fix(platform-wallet): age-guard the V2 finalized-transaction handle broadcast (stacked on #4185)](https://github.com/dashpay/platform/pull/4196) — 3 unresolved (3 human) · 6 days stale · ⚠ merge conflict · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=8c93f86ba99d dedupe=1a072494405ae03d -->" — 6 days old
 - [#4185 feat(kotlin-sdk): split build/broadcast with reservation release for BIP70-style deferred submission](https://github.com/dashpay/platform/pull/4185) — 2 unresolved (2 human) · 6 days stale
   - Top thread: "<!-- thepastaclaw-review v1 finding=f37f8de736e4 dedupe=f44ae14fc273d813 -->" — 6 days old
-- [#4183 feat(kotlin-sdk)!: keystore rework — policy-alias split, layered key recovery, durable repair, structured signer errors (stacked on #4191)](https://github.com/dashpay/platform/pull/4183) — 2 unresolved (2 human) · 5 days stale
-  - Top thread: "<!-- thepastaclaw-review v1 finding=4efa67555719 dedupe=e8ff87653dae49fe -->" — 5 days old
+- [#4183 feat(kotlin-sdk)!: keystore rework — policy-alias split, layered key recovery, durable repair, structured signer errors (stacked on #4191)](https://github.com/dashpay/platform/pull/4183) — 2 unresolved (2 human) · 6 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=4efa67555719 dedupe=e8ff87653dae49fe -->" — 6 days old
 - [#4240 feat(kotlin-sdk): L1 invitation create/claim JNI bridge + DIP-13 invitation persistence](https://github.com/dashpay/platform/pull/4240) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=7b438a901bb8 dedupe=acbbad9c10bd852c -->" — 2 days old
 - [#4194 feat(swift-sdk): wrappers for the txMetadata encrypted-document FFI exports (stacked on #4186)](https://github.com/dashpay/platform/pull/4194) — 1 unresolved (1 human) · 6 days stale · 🔴 CI failing
@@ -58,11 +58,11 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#4195 feat(platform-wallet): allocate txMetadata encryptionKeyIndex in Rust, not the host (stacked on #4186)](https://github.com/dashpay/platform/pull/4195) — 10 unresolved (10 human) · 6 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=d6f036f0e17a dedupe=d55b1e77ca845fdc -->" — 6 days old
 - [#4247 feat(kotlin-sdk): union-funding build_signed_payment send API (core primitive + FFI/JNI/Kotlin)](https://github.com/dashpay/platform/pull/4247) — 8 unresolved (2 CodeRabbit, 6 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3db3f420804b dedupe=5f14b7f8796f13c3 -->" — 0 days old
-- [#4184 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4184) — 3 unresolved (3 human) · 5 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=f015408c624a dedupe=8f314b58221e4f8c -->" — 5 days old
-- [#4204 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4204) — 7 unresolved (2 CodeRabbit, 5 human) · 5 days stale
-  - Top thread: "<!-- thepastaclaw-review v1 finding=cc2b890af356 dedupe=864a088719a9b104 -->" — 5 days old
+  - Top thread: "<!-- thepastaclaw-review v1 finding=3db3f420804b dedupe=5f14b7f8796f13c3 -->" — 1 days old
+- [#4184 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4184) — 3 unresolved (3 human) · 6 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=f015408c624a dedupe=8f314b58221e4f8c -->" — 6 days old
+- [#4204 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4204) — 7 unresolved (2 CodeRabbit, 5 human) · 6 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=cc2b890af356 dedupe=864a088719a9b104 -->" — 6 days old
 - [#4186 feat(kotlin-sdk): wire-compatible encrypted txMetadata document create + decrypt-on-fetch](https://github.com/dashpay/platform/pull/4186) — 5 unresolved (5 human) · 5 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=02bc78a3519f dedupe=9a959dd67ee262d6 -->" — 5 days old
 - [#4196 fix(platform-wallet): age-guard the V2 finalized-transaction handle broadcast (stacked on #4185)](https://github.com/dashpay/platform/pull/4196) — 3 unresolved (3 human) · 6 days stale · ⚠ merge conflict · 🔴 CI failing
@@ -79,19 +79,19 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#4195 feat(platform-wallet): allocate txMetadata encryptionKeyIndex in Rust, not the host (stacked on #4186)](https://github.com/dashpay/platform/pull/4195) — 10 unresolved (10 human) · 6 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=d6f036f0e17a dedupe=d55b1e77ca845fdc -->" — 6 days old
 - [#4247 feat(kotlin-sdk): union-funding build_signed_payment send API (core primitive + FFI/JNI/Kotlin)](https://github.com/dashpay/platform/pull/4247) — 8 unresolved (2 CodeRabbit, 6 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3db3f420804b dedupe=5f14b7f8796f13c3 -->" — 0 days old
-- [#4184 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4184) — 3 unresolved (3 human) · 5 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=f015408c624a dedupe=8f314b58221e4f8c -->" — 5 days old
-- [#4204 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4204) — 7 unresolved (2 CodeRabbit, 5 human) · 5 days stale
-  - Top thread: "<!-- thepastaclaw-review v1 finding=cc2b890af356 dedupe=864a088719a9b104 -->" — 5 days old
+  - Top thread: "<!-- thepastaclaw-review v1 finding=3db3f420804b dedupe=5f14b7f8796f13c3 -->" — 1 days old
+- [#4184 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4184) — 3 unresolved (3 human) · 6 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=f015408c624a dedupe=8f314b58221e4f8c -->" — 6 days old
+- [#4204 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4204) — 7 unresolved (2 CodeRabbit, 5 human) · 6 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=cc2b890af356 dedupe=864a088719a9b104 -->" — 6 days old
 - [#4186 feat(kotlin-sdk): wire-compatible encrypted txMetadata document create + decrypt-on-fetch](https://github.com/dashpay/platform/pull/4186) — 5 unresolved (5 human) · 5 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=02bc78a3519f dedupe=9a959dd67ee262d6 -->" — 5 days old
 - [#4196 fix(platform-wallet): age-guard the V2 finalized-transaction handle broadcast (stacked on #4185)](https://github.com/dashpay/platform/pull/4196) — 3 unresolved (3 human) · 6 days stale · ⚠ merge conflict · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=8c93f86ba99d dedupe=1a072494405ae03d -->" — 6 days old
 - [#4185 feat(kotlin-sdk): split build/broadcast with reservation release for BIP70-style deferred submission](https://github.com/dashpay/platform/pull/4185) — 2 unresolved (2 human) · 6 days stale
   - Top thread: "<!-- thepastaclaw-review v1 finding=f37f8de736e4 dedupe=f44ae14fc273d813 -->" — 6 days old
-- [#4183 feat(kotlin-sdk)!: keystore rework — policy-alias split, layered key recovery, durable repair, structured signer errors (stacked on #4191)](https://github.com/dashpay/platform/pull/4183) — 2 unresolved (2 human) · 5 days stale
-  - Top thread: "<!-- thepastaclaw-review v1 finding=4efa67555719 dedupe=e8ff87653dae49fe -->" — 5 days old
+- [#4183 feat(kotlin-sdk)!: keystore rework — policy-alias split, layered key recovery, durable repair, structured signer errors (stacked on #4191)](https://github.com/dashpay/platform/pull/4183) — 2 unresolved (2 human) · 6 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=4efa67555719 dedupe=e8ff87653dae49fe -->" — 6 days old
 - [#4240 feat(kotlin-sdk): L1 invitation create/claim JNI bridge + DIP-13 invitation persistence](https://github.com/dashpay/platform/pull/4240) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=7b438a901bb8 dedupe=acbbad9c10bd852c -->" — 2 days old
 - [#4194 feat(swift-sdk): wrappers for the txMetadata encrypted-document FFI exports (stacked on #4186)](https://github.com/dashpay/platform/pull/4194) — 1 unresolved (1 human) · 6 days stale · 🔴 CI failing
@@ -168,8 +168,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=2e1950367681 dedupe=494e3310440bc19a -->" — 40 days old
 - [#4214 fix(test-suite): stabilize platform e2e tests](https://github.com/dashpay/platform/pull/4214) — 2 unresolved (2 human) · 1 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=c8f20e91f313 dedupe=96a3f897adcfa060 -->" — 1 days old
-- [#4248 fix(dashmate)!: stop read-only commands rewriting config and clobbering concurrent updates](https://github.com/dashpay/platform/pull/4248) — 2 unresolved (2 human) · 0 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=b8036d97c225 dedupe=e50c710ea7b3b467 -->" — 0 days old
+- [#4248 fix(dashmate)!: stop read-only commands rewriting config and clobbering concurrent updates](https://github.com/dashpay/platform/pull/4248) — 2 unresolved (2 human) · 1 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=b8036d97c225 dedupe=e50c710ea7b3b467 -->" — 1 days old
 - [#2392 feat(dashmate): single node local network [WIP\]](https://github.com/dashpay/platform/pull/2392) — ⏸ deferred
 - [#2518 feat: token marketplace](https://github.com/dashpay/platform/pull/2518) — 📝 draft · ⏸ deferred
 - [#4228 ci: release Kotlin and Swift SDKs with the platform release](https://github.com/dashpay/platform/pull/4228) — 🔴 CI failing
@@ -181,8 +181,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=6e17e9411ed6 dedupe=b820b74128c9eccb -->" — 1 days old
 - [#4214 fix(test-suite): stabilize platform e2e tests](https://github.com/dashpay/platform/pull/4214) — 2 unresolved (2 human) · 1 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=c8f20e91f313 dedupe=96a3f897adcfa060 -->" — 1 days old
-- [#4248 fix(dashmate)!: stop read-only commands rewriting config and clobbering concurrent updates](https://github.com/dashpay/platform/pull/4248) — 2 unresolved (2 human) · 0 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=b8036d97c225 dedupe=e50c710ea7b3b467 -->" — 0 days old
+- [#4248 fix(dashmate)!: stop read-only commands rewriting config and clobbering concurrent updates](https://github.com/dashpay/platform/pull/4248) — 2 unresolved (2 human) · 1 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=b8036d97c225 dedupe=e50c710ea7b3b467 -->" — 1 days old
 - [#4229 fix(release): base changelog on the immediately-preceding release](https://github.com/dashpay/platform/pull/4229) — ✋ changes requested · 🔴 CI failing
 
 <a id="shumkov-unresolved-comments"></a>
@@ -191,8 +191,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=6e17e9411ed6 dedupe=b820b74128c9eccb -->" — 1 days old
 - [#4214 fix(test-suite): stabilize platform e2e tests](https://github.com/dashpay/platform/pull/4214) — 2 unresolved (2 human) · 1 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=c8f20e91f313 dedupe=96a3f897adcfa060 -->" — 1 days old
-- [#4248 fix(dashmate)!: stop read-only commands rewriting config and clobbering concurrent updates](https://github.com/dashpay/platform/pull/4248) — 2 unresolved (2 human) · 0 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=b8036d97c225 dedupe=e50c710ea7b3b467 -->" — 0 days old
+- [#4248 fix(dashmate)!: stop read-only commands rewriting config and clobbering concurrent updates](https://github.com/dashpay/platform/pull/4248) — 2 unresolved (2 human) · 1 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=b8036d97c225 dedupe=e50c710ea7b3b467 -->" — 1 days old
 
 <a id="shumkov-changes-requested"></a>
 #### Changes Requested (1)
