@@ -1,22 +1,22 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-08-04 14:12 UTC · commit 9b0aa92*
+*Last updated: 2026-08-04 19:28 UTC · commit 7599014*
 
 ## Summary
-- Open PRs: **60** (4 clean · 2 CI failing · 3 changes requested · 29 unresolved comments · 11 deferred · 7 draft · 4 stale)
+- Open PRs: **59** (5 clean · 1 CI failing · 2 changes requested · 29 unresolved comments · 11 deferred · 7 draft · 4 stale)
 - PRs needing author action: **25**
-- Total unresolved comments: **132**
+- Total unresolved comments: **144**
 
 ## Scoreboard
 _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc. Click any number to jump to the specific PRs it covers._
 
 | Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [@bfoss765](#bfoss765) | [9](#bfoss765-open) | — | — | [9](#bfoss765-unresolved-comments) | — | — | — | — | [3](#bfoss765-needs-action) | [36](#bfoss765-unresolved-comments) | — | ↓ 6 |
-| [@QuantumExplorer](#quantumexplorer) | [11](#quantumexplorer-open) | [1](#quantumexplorer-clean) | — | [5](#quantumexplorer-unresolved-comments) | [2](#quantumexplorer-changes-requested) | [3](#quantumexplorer-deferred) | — | — | [7](#quantumexplorer-needs-action) | [13](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-ready-for-review) | ↑ 4 |
+| [@bfoss765](#bfoss765) | [9](#bfoss765-open) | — | — | [9](#bfoss765-unresolved-comments) | — | — | — | — | [3](#bfoss765-needs-action) | [38](#bfoss765-unresolved-comments) | — | ↓ 6 |
 | [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [5+(6)](#pastapastapasta-open) | [0+(3)](#pastapastapasta-clean) | — | [4+(1)](#pastapastapasta-unresolved-comments) | — | — | [1+(2)](#pastapastapasta-draft) | — | [4+(0)](#pastapastapasta-needs-action) | [10+(4)](#pastapastapasta-unresolved-comments) | — | — |
-| [@shumkov](#shumkov) | [12](#shumkov-open) | — | [2](#shumkov-ci-failing) | [3](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | [2](#shumkov-draft) | [2](#shumkov-stale) | [4](#shumkov-needs-action) | [7](#shumkov-unresolved-comments) | [2](#shumkov-ready-for-review) | ↑ 2 |
+| [@QuantumExplorer](#quantumexplorer) | [10](#quantumexplorer-open) | [2](#quantumexplorer-clean) | — | [4](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-changes-requested) | [3](#quantumexplorer-deferred) | — | — | [6](#quantumexplorer-needs-action) | [15](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-ready-for-review) | ↑ 3 |
+| [@shumkov](#shumkov) | [12](#shumkov-open) | — | [1](#shumkov-ci-failing) | [4](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | [2](#shumkov-draft) | [2](#shumkov-stale) | [5](#shumkov-needs-action) | [15](#shumkov-unresolved-comments) | [2](#shumkov-ready-for-review) | ↑ 3 |
 | [@llbartekll](#llbartekll) | [3](#llbartekll-open) | — | — | [2](#llbartekll-unresolved-comments) | — | — | [1](#llbartekll-draft) | — | [2](#llbartekll-needs-action) | [5](#llbartekll-unresolved-comments) | [2](#llbartekll-ready-for-review) | — |
 | [@lklimek + (@Claudius-Maginificent)](#lklimek) | [5+(4)](#lklimek-open) | — | — | [0+(2)](#lklimek-unresolved-comments) | — | [5+(0)](#lklimek-deferred) | [0+(1)](#lklimek-draft) | [0+(1)](#lklimek-stale) | [0+(2)](#lklimek-needs-action) | [0+(40)](#lklimek-unresolved-comments) | — | ↓ 2 |
 | [@ZocoLini](#zocolini) | [1](#zocolini-open) | — | — | [1](#zocolini-unresolved-comments) | — | — | — | — | [1](#zocolini-needs-action) | [8](#zocolini-unresolved-comments) | — | — |
@@ -31,122 +31,54 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @bfoss765
 <a id="bfoss765-open"></a>
 #### Open (9)
-- [#4247 feat(kotlin-sdk): single-account build_signed_payment send API (funding_path)](https://github.com/dashpay/platform/pull/4247) — 8 unresolved (6 CodeRabbit, 2 human) · 6 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=f33dd4dd99a9 dedupe=2dce8715c4ebb562 -->" — 6 days old
-- [#4184 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4184) — 6 unresolved (6 human) · 11 days stale
-  - Top thread: "<!-- thepastaclaw-review v1 finding=f015408c624a dedupe=8f314b58221e4f8c -->" — 11 days old
-- [#4256 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4256) — 6 unresolved (6 human) · 4 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=cb9e14c705ab dedupe=72fbc887dcdebc99 -->" — 4 days old
-- [#4240 feat(kotlin-sdk): add L1 invitation create/claim JNI bridge + DIP-13 invitation persistence](https://github.com/dashpay/platform/pull/4240) — 6 unresolved (6 human) · 4 days stale
+- [#4247 feat(kotlin-sdk): single-account build_signed_payment send API (funding_path)](https://github.com/dashpay/platform/pull/4247) — 8 unresolved (6 CodeRabbit, 2 human) · 7 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=f33dd4dd99a9 dedupe=2dce8715c4ebb562 -->" — 7 days old
+- [#4184 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4184) — 6 unresolved (6 human) · 12 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=f015408c624a dedupe=8f314b58221e4f8c -->" — 12 days old
+- [#4240 feat(kotlin-sdk): add L1 invitation create/claim JNI bridge + DIP-13 invitation persistence](https://github.com/dashpay/platform/pull/4240) — 8 unresolved (8 human) · 4 days stale
   - Top thread: "<!-- thepastaclaw-review v1 finding=575ced22d638 dedupe=9f46dd464bcb1ddf -->" — 4 days old
-- [#4196 fix(platform-wallet): age-guard the V2 finalized-transaction handle broadcast (stacked on #4185)](https://github.com/dashpay/platform/pull/4196) — 3 unresolved (3 human) · 12 days stale · 🔴 CI failing
+- [#4196 fix(platform-wallet): age-guard the V2 finalized-transaction handle broadcast (stacked on #4185)](https://github.com/dashpay/platform/pull/4196) — 3 unresolved (3 human) · 12 days stale
   - Top thread: "<!-- thepastaclaw-review v1 finding=8c93f86ba99d dedupe=1a072494405ae03d -->" — 12 days old
-- [#4204 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4204) — 3 unresolved (2 CodeRabbit, 1 human) · 11 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=cc2b890af356 dedupe=864a088719a9b104 -->" — 11 days old
-- [#4194 feat(swift-sdk): Swift wrappers for the encrypted-txMetadata FFI exports](https://github.com/dashpay/platform/pull/4194) — 1 unresolved (1 human) · 12 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=158e033ecf95 dedupe=388d8b432b12c1fc -->" — 12 days old
-- [#4261 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4261) — 2 unresolved (2 CodeRabbit) · 0 days stale
+- [#4204 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4204) — 3 unresolved (2 CodeRabbit, 1 human) · 12 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=cc2b890af356 dedupe=864a088719a9b104 -->" — 12 days old
+- [#4256 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4256) — 4 unresolved (4 human) · 4 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=cb9e14c705ab dedupe=72fbc887dcdebc99 -->" — 4 days old
+- [#4261 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4261) — 4 unresolved (2 CodeRabbit, 2 human) · 0 days stale
   - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+- [#4194 feat(swift-sdk): add Swift wrappers for the encrypted-txMetadata FFI exports](https://github.com/dashpay/platform/pull/4194) — 1 unresolved (1 human) · 12 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=158e033ecf95 dedupe=388d8b432b12c1fc -->" — 12 days old
 - [#4185 feat(kotlin-sdk): split build/broadcast with reservation release for BIP70-style deferred submission](https://github.com/dashpay/platform/pull/4185) — 1 unresolved (1 CodeRabbit) · 3 days stale · 🔴 CI failing
   - Top thread: "_🔒 Security & Privacy_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 3 days old
 
 <a id="bfoss765-needs-action"></a>
 #### Needs action (3)
-- [#4256 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4256) — 6 unresolved (6 human) · 4 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=cb9e14c705ab dedupe=72fbc887dcdebc99 -->" — 4 days old
-- [#4261 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4261) — 2 unresolved (2 CodeRabbit) · 0 days stale
+- [#4240 feat(kotlin-sdk): add L1 invitation create/claim JNI bridge + DIP-13 invitation persistence](https://github.com/dashpay/platform/pull/4240) — 8 unresolved (8 human) · 4 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=575ced22d638 dedupe=9f46dd464bcb1ddf -->" — 4 days old
+- [#4261 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4261) — 4 unresolved (2 CodeRabbit, 2 human) · 0 days stale
   - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
 - [#4185 feat(kotlin-sdk): split build/broadcast with reservation release for BIP70-style deferred submission](https://github.com/dashpay/platform/pull/4185) — 1 unresolved (1 CodeRabbit) · 3 days stale · 🔴 CI failing
   - Top thread: "_🔒 Security & Privacy_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 3 days old
 
 <a id="bfoss765-unresolved-comments"></a>
 #### Unresolved Comments (9)
-- [#4247 feat(kotlin-sdk): single-account build_signed_payment send API (funding_path)](https://github.com/dashpay/platform/pull/4247) — 8 unresolved (6 CodeRabbit, 2 human) · 6 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=f33dd4dd99a9 dedupe=2dce8715c4ebb562 -->" — 6 days old
-- [#4184 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4184) — 6 unresolved (6 human) · 11 days stale
-  - Top thread: "<!-- thepastaclaw-review v1 finding=f015408c624a dedupe=8f314b58221e4f8c -->" — 11 days old
-- [#4256 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4256) — 6 unresolved (6 human) · 4 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=cb9e14c705ab dedupe=72fbc887dcdebc99 -->" — 4 days old
-- [#4240 feat(kotlin-sdk): add L1 invitation create/claim JNI bridge + DIP-13 invitation persistence](https://github.com/dashpay/platform/pull/4240) — 6 unresolved (6 human) · 4 days stale
+- [#4247 feat(kotlin-sdk): single-account build_signed_payment send API (funding_path)](https://github.com/dashpay/platform/pull/4247) — 8 unresolved (6 CodeRabbit, 2 human) · 7 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=f33dd4dd99a9 dedupe=2dce8715c4ebb562 -->" — 7 days old
+- [#4184 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4184) — 6 unresolved (6 human) · 12 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=f015408c624a dedupe=8f314b58221e4f8c -->" — 12 days old
+- [#4240 feat(kotlin-sdk): add L1 invitation create/claim JNI bridge + DIP-13 invitation persistence](https://github.com/dashpay/platform/pull/4240) — 8 unresolved (8 human) · 4 days stale
   - Top thread: "<!-- thepastaclaw-review v1 finding=575ced22d638 dedupe=9f46dd464bcb1ddf -->" — 4 days old
-- [#4196 fix(platform-wallet): age-guard the V2 finalized-transaction handle broadcast (stacked on #4185)](https://github.com/dashpay/platform/pull/4196) — 3 unresolved (3 human) · 12 days stale · 🔴 CI failing
+- [#4196 fix(platform-wallet): age-guard the V2 finalized-transaction handle broadcast (stacked on #4185)](https://github.com/dashpay/platform/pull/4196) — 3 unresolved (3 human) · 12 days stale
   - Top thread: "<!-- thepastaclaw-review v1 finding=8c93f86ba99d dedupe=1a072494405ae03d -->" — 12 days old
-- [#4204 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4204) — 3 unresolved (2 CodeRabbit, 1 human) · 11 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=cc2b890af356 dedupe=864a088719a9b104 -->" — 11 days old
-- [#4194 feat(swift-sdk): Swift wrappers for the encrypted-txMetadata FFI exports](https://github.com/dashpay/platform/pull/4194) — 1 unresolved (1 human) · 12 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=158e033ecf95 dedupe=388d8b432b12c1fc -->" — 12 days old
-- [#4261 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4261) — 2 unresolved (2 CodeRabbit) · 0 days stale
+- [#4204 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4204) — 3 unresolved (2 CodeRabbit, 1 human) · 12 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=cc2b890af356 dedupe=864a088719a9b104 -->" — 12 days old
+- [#4256 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4256) — 4 unresolved (4 human) · 4 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=cb9e14c705ab dedupe=72fbc887dcdebc99 -->" — 4 days old
+- [#4261 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4261) — 4 unresolved (2 CodeRabbit, 2 human) · 0 days stale
   - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+- [#4194 feat(swift-sdk): add Swift wrappers for the encrypted-txMetadata FFI exports](https://github.com/dashpay/platform/pull/4194) — 1 unresolved (1 human) · 12 days stale
+  - Top thread: "<!-- thepastaclaw-review v1 finding=158e033ecf95 dedupe=388d8b432b12c1fc -->" — 12 days old
 - [#4185 feat(kotlin-sdk): split build/broadcast with reservation release for BIP70-style deferred submission](https://github.com/dashpay/platform/pull/4185) — 1 unresolved (1 CodeRabbit) · 3 days stale · 🔴 CI failing
   - Top thread: "_🔒 Security & Privacy_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 3 days old
-
-<a id="quantumexplorer"></a>
-### @QuantumExplorer
-<a id="quantumexplorer-open"></a>
-#### Open (11)
-- [#4272 feat(dpp)!: payment addresses and payment key purposes (DIP-33)](https://github.com/dashpay/platform/pull/4272) — 9 unresolved (3 CodeRabbit, 6 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=754e3f1b8923 dedupe=5e6944517d4fedbc -->" — 1 days old
-- [#4218 fix(platform): reject contradictory keep-history document deletes](https://github.com/dashpay/platform/pull/4218) — 1 unresolved (1 human) · 11 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=e868506e7d4f dedupe=effb5abb63dcd615 -->" — 11 days old
-- [#4279 Revert "feat(platform-wallet): add encrypted txMetadata document support"](https://github.com/dashpay/platform/pull/4279) — 1 unresolved (1 human) · 0 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3d155f53b2a6 dedupe=4171067aeaca5e49 -->" — 0 days old
-- [#4280 fix(dpp): derive deterministic names for unnamed document type indexes](https://github.com/dashpay/platform/pull/4280) — 1 unresolved (1 CodeRabbit) · 0 days stale · 🔴 CI failing
-  - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
-- [#4281 fix(drive-abci)!: cross-check the contested index of a prefunded voting balance at protocol v14](https://github.com/dashpay/platform/pull/4281) — 1 unresolved (1 CodeRabbit) · 0 days stale · 🔴 CI failing
-  - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟠 Major_ \| _⚡ Quick win_" — 0 days old
-- [#1834 feat(drive-abci)!: Statesync](https://github.com/dashpay/platform/pull/1834) — 📝 draft · ⏸ deferred
-- [#3021 feat(platform): better contract state transitions](https://github.com/dashpay/platform/pull/3021) — 📝 draft · ⏸ deferred
-- [#3417 feat(swift-sdk): use SPV-synced quorums for Platform proof verification](https://github.com/dashpay/platform/pull/3417) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-- [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — ⏸ deferred
-- [#4221 feat(sdk): prefer DAPI peers supporting the client's latest protocol version](https://github.com/dashpay/platform/pull/4221)
-- [#4266 feat: ranked aggregate indexes with provable top-K queries (protocol v14)](https://github.com/dashpay/platform/pull/4266) — ✋ changes requested
-
-<a id="quantumexplorer-needs-action"></a>
-#### Needs action (7)
-- [#4272 feat(dpp)!: payment addresses and payment key purposes (DIP-33)](https://github.com/dashpay/platform/pull/4272) — 9 unresolved (3 CodeRabbit, 6 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=754e3f1b8923 dedupe=5e6944517d4fedbc -->" — 1 days old
-- [#4218 fix(platform): reject contradictory keep-history document deletes](https://github.com/dashpay/platform/pull/4218) — 1 unresolved (1 human) · 11 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=e868506e7d4f dedupe=effb5abb63dcd615 -->" — 11 days old
-- [#4279 Revert "feat(platform-wallet): add encrypted txMetadata document support"](https://github.com/dashpay/platform/pull/4279) — 1 unresolved (1 human) · 0 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3d155f53b2a6 dedupe=4171067aeaca5e49 -->" — 0 days old
-- [#4280 fix(dpp): derive deterministic names for unnamed document type indexes](https://github.com/dashpay/platform/pull/4280) — 1 unresolved (1 CodeRabbit) · 0 days stale · 🔴 CI failing
-  - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
-- [#4281 fix(drive-abci)!: cross-check the contested index of a prefunded voting balance at protocol v14](https://github.com/dashpay/platform/pull/4281) — 1 unresolved (1 CodeRabbit) · 0 days stale · 🔴 CI failing
-  - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟠 Major_ \| _⚡ Quick win_" — 0 days old
-- [#3417 feat(swift-sdk): use SPV-synced quorums for Platform proof verification](https://github.com/dashpay/platform/pull/3417) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-- [#4266 feat: ranked aggregate indexes with provable top-K queries (protocol v14)](https://github.com/dashpay/platform/pull/4266) — ✋ changes requested
-
-<a id="quantumexplorer-unresolved-comments"></a>
-#### Unresolved Comments (5)
-- [#4272 feat(dpp)!: payment addresses and payment key purposes (DIP-33)](https://github.com/dashpay/platform/pull/4272) — 9 unresolved (3 CodeRabbit, 6 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=754e3f1b8923 dedupe=5e6944517d4fedbc -->" — 1 days old
-- [#4218 fix(platform): reject contradictory keep-history document deletes](https://github.com/dashpay/platform/pull/4218) — 1 unresolved (1 human) · 11 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=e868506e7d4f dedupe=effb5abb63dcd615 -->" — 11 days old
-- [#4279 Revert "feat(platform-wallet): add encrypted txMetadata document support"](https://github.com/dashpay/platform/pull/4279) — 1 unresolved (1 human) · 0 days stale · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3d155f53b2a6 dedupe=4171067aeaca5e49 -->" — 0 days old
-- [#4280 fix(dpp): derive deterministic names for unnamed document type indexes](https://github.com/dashpay/platform/pull/4280) — 1 unresolved (1 CodeRabbit) · 0 days stale · 🔴 CI failing
-  - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
-- [#4281 fix(drive-abci)!: cross-check the contested index of a prefunded voting balance at protocol v14](https://github.com/dashpay/platform/pull/4281) — 1 unresolved (1 CodeRabbit) · 0 days stale · 🔴 CI failing
-  - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟠 Major_ \| _⚡ Quick win_" — 0 days old
-
-<a id="quantumexplorer-changes-requested"></a>
-#### Changes Requested (2)
-- [#3417 feat(swift-sdk): use SPV-synced quorums for Platform proof verification](https://github.com/dashpay/platform/pull/3417) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-- [#4266 feat: ranked aggregate indexes with provable top-K queries (protocol v14)](https://github.com/dashpay/platform/pull/4266) — ✋ changes requested
-
-<a id="quantumexplorer-deferred"></a>
-#### Deferred (3)
-- [#1834 feat(drive-abci)!: Statesync](https://github.com/dashpay/platform/pull/1834) — 📝 draft · ⏸ deferred
-- [#3021 feat(platform): better contract state transitions](https://github.com/dashpay/platform/pull/3021) — 📝 draft · ⏸ deferred
-- [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — ⏸ deferred
-
-<a id="quantumexplorer-clean"></a>
-#### Clean (1)
-- [#4221 feat(sdk): prefer DAPI peers supporting the client's latest protocol version](https://github.com/dashpay/platform/pull/4221)
-
-<a id="quantumexplorer-ready-for-review"></a>
-#### Ready for Review (1)
-- [#3635 ci: tolerate book preview comment permission errors](https://github.com/dashpay/platform/pull/3635) — by @thepastaclaw
 
 <a id="pastapastapasta"></a>
 ### @PastaPastaPasta + (@thepastaclaw)
@@ -205,16 +137,82 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3898 fix(dashmate): re-sync stale 3.x Drive and rs-dapi images](https://github.com/dashpay/platform/pull/3898) — via @thepastaclaw
 - [#4015 fix(swift-example-app): gate identity resumes by funding type](https://github.com/dashpay/platform/pull/4015) — via @thepastaclaw
 
+<a id="quantumexplorer"></a>
+### @QuantumExplorer
+<a id="quantumexplorer-open"></a>
+#### Open (10)
+- [#4272 feat(dpp)!: payment addresses and payment key purposes (DIP-33)](https://github.com/dashpay/platform/pull/4272) — 9 unresolved (3 CodeRabbit, 6 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=754e3f1b8923 dedupe=5e6944517d4fedbc -->" — 1 days old
+- [#4281 fix(drive-abci)!: cross-check the contested index of a prefunded voting balance at protocol v14](https://github.com/dashpay/platform/pull/4281) — 2 unresolved (1 CodeRabbit, 1 human) · 0 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=af3825bf76bd dedupe=e6c5b2351eab5b1c -->" — 0 days old
+- [#4280 fix(dpp): derive deterministic names for unnamed document type indexes](https://github.com/dashpay/platform/pull/4280) — 3 unresolved (1 CodeRabbit, 2 human) · 0 days stale · 🔴 CI failing
+  - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+- [#4218 fix(platform): reject contradictory keep-history document deletes](https://github.com/dashpay/platform/pull/4218) — 1 unresolved (1 human) · 11 days stale · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=e868506e7d4f dedupe=effb5abb63dcd615 -->" — 11 days old
+- [#1834 feat(drive-abci)!: Statesync](https://github.com/dashpay/platform/pull/1834) — 📝 draft · ⏸ deferred
+- [#3021 feat(platform): better contract state transitions](https://github.com/dashpay/platform/pull/3021) — 📝 draft · ⏸ deferred
+- [#3417 feat(swift-sdk): use SPV-synced quorums for Platform proof verification](https://github.com/dashpay/platform/pull/3417) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+- [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — ⏸ deferred
+- [#4221 feat(sdk): prefer DAPI peers supporting the client's latest protocol version](https://github.com/dashpay/platform/pull/4221)
+- [#4266 feat: ranked aggregate indexes with provable top-K queries (protocol v14)](https://github.com/dashpay/platform/pull/4266) — ⚠ merge conflict
+
+<a id="quantumexplorer-needs-action"></a>
+#### Needs action (6)
+- [#4272 feat(dpp)!: payment addresses and payment key purposes (DIP-33)](https://github.com/dashpay/platform/pull/4272) — 9 unresolved (3 CodeRabbit, 6 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=754e3f1b8923 dedupe=5e6944517d4fedbc -->" — 1 days old
+- [#4281 fix(drive-abci)!: cross-check the contested index of a prefunded voting balance at protocol v14](https://github.com/dashpay/platform/pull/4281) — 2 unresolved (1 CodeRabbit, 1 human) · 0 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=af3825bf76bd dedupe=e6c5b2351eab5b1c -->" — 0 days old
+- [#4280 fix(dpp): derive deterministic names for unnamed document type indexes](https://github.com/dashpay/platform/pull/4280) — 3 unresolved (1 CodeRabbit, 2 human) · 0 days stale · 🔴 CI failing
+  - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+- [#4218 fix(platform): reject contradictory keep-history document deletes](https://github.com/dashpay/platform/pull/4218) — 1 unresolved (1 human) · 11 days stale · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=e868506e7d4f dedupe=effb5abb63dcd615 -->" — 11 days old
+- [#3417 feat(swift-sdk): use SPV-synced quorums for Platform proof verification](https://github.com/dashpay/platform/pull/3417) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+- [#4266 feat: ranked aggregate indexes with provable top-K queries (protocol v14)](https://github.com/dashpay/platform/pull/4266) — ⚠ merge conflict
+
+<a id="quantumexplorer-unresolved-comments"></a>
+#### Unresolved Comments (4)
+- [#4272 feat(dpp)!: payment addresses and payment key purposes (DIP-33)](https://github.com/dashpay/platform/pull/4272) — 9 unresolved (3 CodeRabbit, 6 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=754e3f1b8923 dedupe=5e6944517d4fedbc -->" — 1 days old
+- [#4281 fix(drive-abci)!: cross-check the contested index of a prefunded voting balance at protocol v14](https://github.com/dashpay/platform/pull/4281) — 2 unresolved (1 CodeRabbit, 1 human) · 0 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=af3825bf76bd dedupe=e6c5b2351eab5b1c -->" — 0 days old
+- [#4280 fix(dpp): derive deterministic names for unnamed document type indexes](https://github.com/dashpay/platform/pull/4280) — 3 unresolved (1 CodeRabbit, 2 human) · 0 days stale · 🔴 CI failing
+  - Top thread: "_🗄️ Data Integrity & Integration_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+- [#4218 fix(platform): reject contradictory keep-history document deletes](https://github.com/dashpay/platform/pull/4218) — 1 unresolved (1 human) · 11 days stale · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=e868506e7d4f dedupe=effb5abb63dcd615 -->" — 11 days old
+
+<a id="quantumexplorer-changes-requested"></a>
+#### Changes Requested (1)
+- [#3417 feat(swift-sdk): use SPV-synced quorums for Platform proof verification](https://github.com/dashpay/platform/pull/3417) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+
+<a id="quantumexplorer-deferred"></a>
+#### Deferred (3)
+- [#1834 feat(drive-abci)!: Statesync](https://github.com/dashpay/platform/pull/1834) — 📝 draft · ⏸ deferred
+- [#3021 feat(platform): better contract state transitions](https://github.com/dashpay/platform/pull/3021) — 📝 draft · ⏸ deferred
+- [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — ⏸ deferred
+
+<a id="quantumexplorer-clean"></a>
+#### Clean (2)
+- [#4221 feat(sdk): prefer DAPI peers supporting the client's latest protocol version](https://github.com/dashpay/platform/pull/4221)
+- [#4266 feat: ranked aggregate indexes with provable top-K queries (protocol v14)](https://github.com/dashpay/platform/pull/4266) — ⚠ merge conflict
+
+<a id="quantumexplorer-ready-for-review"></a>
+#### Ready for Review (1)
+- [#3635 ci: tolerate book preview comment permission errors](https://github.com/dashpay/platform/pull/3635) — by @thepastaclaw
+
 <a id="shumkov"></a>
 ### @shumkov
 <a id="shumkov-open"></a>
 #### Open (12)
+- [#4284 feat(kotlin-sdk): DashPay invitations — create, claim, reclaim, persistence (DIP-13)](https://github.com/dashpay/platform/pull/4284) — 5 unresolved (5 human) · 0 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · 🐢 targets v4.1-dev
+  - Top thread: "<!-- thepastaclaw-review v1 finding=38619078385e dedupe=5cb9e279be89ed4c -->" — 0 days old
 - [#3936 chore(drive-abci): update to nested address in SML](https://github.com/dashpay/platform/pull/3936) — 2 unresolved (2 human) · 46 days stale · ⚠ merge conflict · 📝 draft
   - Top thread: "<!-- thepastaclaw-review v1 finding=2e1950367681 dedupe=494e3310440bc19a -->" — 46 days old
-- [#4248 fix(dashmate)!: stop concurrent commands reverting each other's config changes](https://github.com/dashpay/platform/pull/4248) — 1 unresolved (1 human) · 6 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=283db0d490a7 dedupe=2b445bd7e1066073 -->" — 6 days old
-- [#4282 fix(dashmate)!: give Debian packages versions apt can order](https://github.com/dashpay/platform/pull/4282) — 3 unresolved (3 CodeRabbit) · 0 days stale · 🔴 CI failing
-  - Top thread: "_🩺 Stability & Availability_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+- [#4283 fix(dashmate): keep the node up when an image pull fails, and stop reporting success when it did not](https://github.com/dashpay/platform/pull/4283) — 3 unresolved (3 human) · 0 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=00d71d6c14ff dedupe=7febbb362c746b49 -->" — 0 days old
+- [#4248 fix(dashmate)!: stop concurrent commands reverting each other's config changes](https://github.com/dashpay/platform/pull/4248) — 1 unresolved (1 human) · 7 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=283db0d490a7 dedupe=2b445bd7e1066073 -->" — 7 days old
+- [#4282 fix(dashmate)!: give Debian packages versions apt can order](https://github.com/dashpay/platform/pull/4282) — 3 unresolved (1 CodeRabbit, 2 human) · 0 days stale · 🔴 CI failing
+  - Top thread: "_🔒 Security & Privacy_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
 - [#4243 fix(sdk)!: complete encrypted txMetadata parity](https://github.com/dashpay/platform/pull/4243) — 1 unresolved (1 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=c04ff7f0edf6 dedupe=18617c60846284f5 -->" — 1 days old
 - [#2392 feat(dashmate): single node local network [WIP\]](https://github.com/dashpay/platform/pull/2392) — ⏸ deferred
@@ -222,26 +220,28 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#4228 ci: release Kotlin and Swift SDKs with the platform release](https://github.com/dashpay/platform/pull/4228) — 🔴 CI failing
 - [#4229 fix(release): base changelog on the immediately-preceding release](https://github.com/dashpay/platform/pull/4229) — ✋ changes requested · 🔴 CI failing
 - [#4274 feat(dashmate): expose Tenderdash consensus DoS rate-limit knobs](https://github.com/dashpay/platform/pull/4274) — 🔴 CI failing · 📝 draft
-- [#4283 fix(dashmate): keep the node up when an image pull fails, and stop reporting success when it did not](https://github.com/dashpay/platform/pull/4283) — 🔴 CI failing
-- [#4284 feat(kotlin-sdk): DashPay invitations — create, claim, reclaim, persistence (DIP-13)](https://github.com/dashpay/platform/pull/4284) — ⚠ merge conflict · 🔴 CI failing · 🐢 targets v4.1-dev
 - [#4285 feat(platform-wallet)!: invitation links are AppsFlyer applinks only](https://github.com/dashpay/platform/pull/4285) — 🔴 CI failing · 📝 draft · 🐢 targets feat/kotlin-dashpay-invitations
 
 <a id="shumkov-needs-action"></a>
-#### Needs action (4)
-- [#4248 fix(dashmate)!: stop concurrent commands reverting each other's config changes](https://github.com/dashpay/platform/pull/4248) — 1 unresolved (1 human) · 6 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=283db0d490a7 dedupe=2b445bd7e1066073 -->" — 6 days old
-- [#4282 fix(dashmate)!: give Debian packages versions apt can order](https://github.com/dashpay/platform/pull/4282) — 3 unresolved (3 CodeRabbit) · 0 days stale · 🔴 CI failing
-  - Top thread: "_🩺 Stability & Availability_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+#### Needs action (5)
+- [#4283 fix(dashmate): keep the node up when an image pull fails, and stop reporting success when it did not](https://github.com/dashpay/platform/pull/4283) — 3 unresolved (3 human) · 0 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=00d71d6c14ff dedupe=7febbb362c746b49 -->" — 0 days old
+- [#4248 fix(dashmate)!: stop concurrent commands reverting each other's config changes](https://github.com/dashpay/platform/pull/4248) — 1 unresolved (1 human) · 7 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=283db0d490a7 dedupe=2b445bd7e1066073 -->" — 7 days old
+- [#4282 fix(dashmate)!: give Debian packages versions apt can order](https://github.com/dashpay/platform/pull/4282) — 3 unresolved (1 CodeRabbit, 2 human) · 0 days stale · 🔴 CI failing
+  - Top thread: "_🔒 Security & Privacy_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
 - [#4243 fix(sdk)!: complete encrypted txMetadata parity](https://github.com/dashpay/platform/pull/4243) — 1 unresolved (1 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=c04ff7f0edf6 dedupe=18617c60846284f5 -->" — 1 days old
 - [#4229 fix(release): base changelog on the immediately-preceding release](https://github.com/dashpay/platform/pull/4229) — ✋ changes requested · 🔴 CI failing
 
 <a id="shumkov-unresolved-comments"></a>
-#### Unresolved Comments (3)
-- [#4248 fix(dashmate)!: stop concurrent commands reverting each other's config changes](https://github.com/dashpay/platform/pull/4248) — 1 unresolved (1 human) · 6 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=283db0d490a7 dedupe=2b445bd7e1066073 -->" — 6 days old
-- [#4282 fix(dashmate)!: give Debian packages versions apt can order](https://github.com/dashpay/platform/pull/4282) — 3 unresolved (3 CodeRabbit) · 0 days stale · 🔴 CI failing
-  - Top thread: "_🩺 Stability & Availability_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+#### Unresolved Comments (4)
+- [#4283 fix(dashmate): keep the node up when an image pull fails, and stop reporting success when it did not](https://github.com/dashpay/platform/pull/4283) — 3 unresolved (3 human) · 0 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=00d71d6c14ff dedupe=7febbb362c746b49 -->" — 0 days old
+- [#4248 fix(dashmate)!: stop concurrent commands reverting each other's config changes](https://github.com/dashpay/platform/pull/4248) — 1 unresolved (1 human) · 7 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=283db0d490a7 dedupe=2b445bd7e1066073 -->" — 7 days old
+- [#4282 fix(dashmate)!: give Debian packages versions apt can order](https://github.com/dashpay/platform/pull/4282) — 3 unresolved (1 CodeRabbit, 2 human) · 0 days stale · 🔴 CI failing
+  - Top thread: "_🔒 Security & Privacy_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
 - [#4243 fix(sdk)!: complete encrypted txMetadata parity](https://github.com/dashpay/platform/pull/4243) — 1 unresolved (1 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=c04ff7f0edf6 dedupe=18617c60846284f5 -->" — 1 days old
 
@@ -250,9 +250,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#4229 fix(release): base changelog on the immediately-preceding release](https://github.com/dashpay/platform/pull/4229) — ✋ changes requested · 🔴 CI failing
 
 <a id="shumkov-ci-failing"></a>
-#### CI Failing (2)
+#### CI Failing (1)
 - [#4228 ci: release Kotlin and Swift SDKs with the platform release](https://github.com/dashpay/platform/pull/4228) — 🔴 CI failing
-- [#4283 fix(dashmate): keep the node up when an image pull fails, and stop reporting success when it did not](https://github.com/dashpay/platform/pull/4283) — 🔴 CI failing
 
 <a id="shumkov-deferred"></a>
 #### Deferred (2)
@@ -267,7 +266,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="shumkov-stale"></a>
 #### Stale (2)
-- [#4284 feat(kotlin-sdk): DashPay invitations — create, claim, reclaim, persistence (DIP-13)](https://github.com/dashpay/platform/pull/4284) — ⚠ merge conflict · 🔴 CI failing · 🐢 targets v4.1-dev
+- [#4284 feat(kotlin-sdk): DashPay invitations — create, claim, reclaim, persistence (DIP-13)](https://github.com/dashpay/platform/pull/4284) — 5 unresolved (5 human) · 0 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · 🐢 targets v4.1-dev
+  - Top thread: "<!-- thepastaclaw-review v1 finding=38619078385e dedupe=5cb9e279be89ed4c -->" — 0 days old
 - [#4285 feat(platform-wallet)!: invitation links are AppsFlyer applinks only](https://github.com/dashpay/platform/pull/4285) — 🔴 CI failing · 📝 draft · 🐢 targets feat/kotlin-dashpay-invitations
 
 <a id="shumkov-ready-for-review"></a>
@@ -398,18 +398,18 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @infraclaw-dash
 <a id="infraclaw-dash-open"></a>
 #### Open (1)
-- [#3958 ci: add Platform testnet sync status reporting](https://github.com/dashpay/platform/pull/3958) — 2 unresolved (2 human) · 41 days stale · ⚠ merge conflict
-  - Top thread: "<!-- thepastaclaw-review v1 finding=5ae1197b579a dedupe=6feca8368dcb61f8 -->" — 41 days old
+- [#3958 ci: add Platform testnet sync status reporting](https://github.com/dashpay/platform/pull/3958) — 2 unresolved (2 human) · 42 days stale · ⚠ merge conflict
+  - Top thread: "<!-- thepastaclaw-review v1 finding=5ae1197b579a dedupe=6feca8368dcb61f8 -->" — 42 days old
 
 <a id="infraclaw-dash-needs-action"></a>
 #### Needs action (1)
-- [#3958 ci: add Platform testnet sync status reporting](https://github.com/dashpay/platform/pull/3958) — 2 unresolved (2 human) · 41 days stale · ⚠ merge conflict
-  - Top thread: "<!-- thepastaclaw-review v1 finding=5ae1197b579a dedupe=6feca8368dcb61f8 -->" — 41 days old
+- [#3958 ci: add Platform testnet sync status reporting](https://github.com/dashpay/platform/pull/3958) — 2 unresolved (2 human) · 42 days stale · ⚠ merge conflict
+  - Top thread: "<!-- thepastaclaw-review v1 finding=5ae1197b579a dedupe=6feca8368dcb61f8 -->" — 42 days old
 
 <a id="infraclaw-dash-unresolved-comments"></a>
 #### Unresolved Comments (1)
-- [#3958 ci: add Platform testnet sync status reporting](https://github.com/dashpay/platform/pull/3958) — 2 unresolved (2 human) · 41 days stale · ⚠ merge conflict
-  - Top thread: "<!-- thepastaclaw-review v1 finding=5ae1197b579a dedupe=6feca8368dcb61f8 -->" — 41 days old
+- [#3958 ci: add Platform testnet sync status reporting](https://github.com/dashpay/platform/pull/3958) — 2 unresolved (2 human) · 42 days stale · ⚠ merge conflict
+  - Top thread: "<!-- thepastaclaw-review v1 finding=5ae1197b579a dedupe=6feca8368dcb61f8 -->" — 42 days old
 
 <a id="pshenmic"></a>
 ### @pshenmic
