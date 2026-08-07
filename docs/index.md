@@ -1,19 +1,19 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-08-07 12:17 UTC · commit 93e4d30*
+*Last updated: 2026-08-07 18:17 UTC · commit b57da01*
 
 ## Summary
-- Open PRs: **55** (7 clean · 0 CI failing · 3 changes requested · 23 unresolved comments · 11 deferred · 8 draft · 3 stale)
-- PRs needing author action: **27**
-- Total unresolved comments: **124**
+- Open PRs: **54** (7 clean · 0 CI failing · 3 changes requested · 22 unresolved comments · 11 deferred · 8 draft · 3 stale)
+- PRs needing author action: **26**
+- Total unresolved comments: **123**
 
 ## Scoreboard
 _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc. Click any number to jump to the specific PRs it covers._
 
 | Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [@bfoss765](#bfoss765) | [9](#bfoss765-open) | [1](#bfoss765-clean) | — | [8](#bfoss765-unresolved-comments) | — | — | — | — | [9](#bfoss765-needs-action) | [38](#bfoss765-unresolved-comments) | — | ↓ 2 |
+| [@bfoss765](#bfoss765) | [8](#bfoss765-open) | [1](#bfoss765-clean) | — | [7](#bfoss765-unresolved-comments) | — | — | — | — | [8](#bfoss765-needs-action) | [37](#bfoss765-unresolved-comments) | — | ↓ 3 |
 | [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [5+(6)](#pastapastapasta-open) | [0+(2)](#pastapastapasta-clean) | — | [4+(1)](#pastapastapasta-unresolved-comments) | — | — | [1+(2)](#pastapastapasta-draft) | [0+(1)](#pastapastapasta-stale) | [4+(0)](#pastapastapasta-needs-action) | [10+(4)](#pastapastapasta-unresolved-comments) | — | — |
 | [@shumkov](#shumkov) | [10](#shumkov-open) | [1](#shumkov-clean) | — | [2](#shumkov-unresolved-comments) | [2](#shumkov-changes-requested) | [2](#shumkov-deferred) | [3](#shumkov-draft) | — | [5](#shumkov-needs-action) | [8](#shumkov-unresolved-comments) | [2](#shumkov-ready-for-review) | ↑ 1 |
 | [@QuantumExplorer](#quantumexplorer) | [8](#quantumexplorer-open) | [2](#quantumexplorer-clean) | — | [2](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-changes-requested) | [3](#quantumexplorer-deferred) | — | — | [3](#quantumexplorer-needs-action) | [10](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-ready-for-review) | — |
@@ -30,63 +30,57 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="bfoss765"></a>
 ### @bfoss765
 <a id="bfoss765-open"></a>
-#### Open (9)
-- [#4310 feat(kotlin-sdk): single-account build_signed_payment send API (funding_path)](https://github.com/dashpay/platform/pull/4310) — 13 unresolved (4 CodeRabbit, 9 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=9515faef4ca7 dedupe=14153f195b077360 -->" — 1 days old
-- [#4311 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4311) — 13 unresolved (8 CodeRabbit, 5 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=c85378dde81e dedupe=785509120f6ac873 -->" — 1 days old
-- [#4313 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4313) — 4 unresolved (3 CodeRabbit, 1 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=d19c5cf84a9f dedupe=53bcfc51c6e43512 -->" — 1 days old
-- [#4312 feat(platform-wallet): multi-output shielded transfers + output-aware fee predictor (two-note invites)](https://github.com/dashpay/platform/pull/4312) — 2 unresolved (1 CodeRabbit, 1 human) · 1 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3a18a774d281 dedupe=409ef31f76ca593c -->" — 1 days old
+#### Open (8)
+- [#4310 feat(kotlin-sdk): single-account build_signed_payment send API (funding_path)](https://github.com/dashpay/platform/pull/4310) — 13 unresolved (4 CodeRabbit, 9 human) · 2 days stale · ⚠ merge conflict · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=9515faef4ca7 dedupe=14153f195b077360 -->" — 2 days old
+- [#4311 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4311) — 13 unresolved (8 CodeRabbit, 5 human) · 2 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=c85378dde81e dedupe=785509120f6ac873 -->" — 2 days old
+- [#4313 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4313) — 4 unresolved (3 CodeRabbit, 1 human) · 2 days stale · ⚠ merge conflict · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=d19c5cf84a9f dedupe=53bcfc51c6e43512 -->" — 2 days old
+- [#4312 feat(platform-wallet): multi-output shielded transfers + output-aware fee predictor (two-note invites)](https://github.com/dashpay/platform/pull/4312) — 2 unresolved (1 CodeRabbit, 1 human) · 2 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=3a18a774d281 dedupe=409ef31f76ca593c -->" — 2 days old
 - [#4309 fix(platform-wallet): age-guard the V2 finalized-transaction handle broadcast](https://github.com/dashpay/platform/pull/4309) — 3 unresolved (1 CodeRabbit, 2 human) · 1 days stale · ⚠ merge conflict
   - Top thread: "_📐 Maintainability & Code Quality_ \| _🟡 Minor_ \| _⚡ Quick win_" — 1 days old
-- [#4316 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4316) — 1 unresolved (1 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=134106565880 dedupe=5d403abf91a6c35a -->" — 1 days old
-- [#4317 feat(swift-sdk): add Swift wrappers for the encrypted-txMetadata FFI exports](https://github.com/dashpay/platform/pull/4317) — 1 unresolved (1 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=b57d6ce7f630 dedupe=bad399d8cdf29704 -->" — 1 days old
-- [#4318 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4318) — 1 unresolved (1 human) · 1 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=5310f59011b8 dedupe=0e038a8a3ff78997 -->" — 1 days old
+- [#4317 feat(swift-sdk): add Swift wrappers for the encrypted-txMetadata FFI exports](https://github.com/dashpay/platform/pull/4317) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=b57d6ce7f630 dedupe=bad399d8cdf29704 -->" — 2 days old
+- [#4318 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4318) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=5310f59011b8 dedupe=0e038a8a3ff78997 -->" — 2 days old
 - [#4240 feat(kotlin-sdk): add L1 invitation create/claim JNI bridge + DIP-13 invitation persistence](https://github.com/dashpay/platform/pull/4240) — ⚠ merge conflict
 
 <a id="bfoss765-needs-action"></a>
-#### Needs action (9)
-- [#4310 feat(kotlin-sdk): single-account build_signed_payment send API (funding_path)](https://github.com/dashpay/platform/pull/4310) — 13 unresolved (4 CodeRabbit, 9 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=9515faef4ca7 dedupe=14153f195b077360 -->" — 1 days old
-- [#4311 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4311) — 13 unresolved (8 CodeRabbit, 5 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=c85378dde81e dedupe=785509120f6ac873 -->" — 1 days old
-- [#4313 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4313) — 4 unresolved (3 CodeRabbit, 1 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=d19c5cf84a9f dedupe=53bcfc51c6e43512 -->" — 1 days old
-- [#4312 feat(platform-wallet): multi-output shielded transfers + output-aware fee predictor (two-note invites)](https://github.com/dashpay/platform/pull/4312) — 2 unresolved (1 CodeRabbit, 1 human) · 1 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3a18a774d281 dedupe=409ef31f76ca593c -->" — 1 days old
+#### Needs action (8)
+- [#4310 feat(kotlin-sdk): single-account build_signed_payment send API (funding_path)](https://github.com/dashpay/platform/pull/4310) — 13 unresolved (4 CodeRabbit, 9 human) · 2 days stale · ⚠ merge conflict · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=9515faef4ca7 dedupe=14153f195b077360 -->" — 2 days old
+- [#4311 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4311) — 13 unresolved (8 CodeRabbit, 5 human) · 2 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=c85378dde81e dedupe=785509120f6ac873 -->" — 2 days old
+- [#4313 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4313) — 4 unresolved (3 CodeRabbit, 1 human) · 2 days stale · ⚠ merge conflict · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=d19c5cf84a9f dedupe=53bcfc51c6e43512 -->" — 2 days old
+- [#4312 feat(platform-wallet): multi-output shielded transfers + output-aware fee predictor (two-note invites)](https://github.com/dashpay/platform/pull/4312) — 2 unresolved (1 CodeRabbit, 1 human) · 2 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=3a18a774d281 dedupe=409ef31f76ca593c -->" — 2 days old
 - [#4309 fix(platform-wallet): age-guard the V2 finalized-transaction handle broadcast](https://github.com/dashpay/platform/pull/4309) — 3 unresolved (1 CodeRabbit, 2 human) · 1 days stale · ⚠ merge conflict
   - Top thread: "_📐 Maintainability & Code Quality_ \| _🟡 Minor_ \| _⚡ Quick win_" — 1 days old
-- [#4316 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4316) — 1 unresolved (1 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=134106565880 dedupe=5d403abf91a6c35a -->" — 1 days old
-- [#4317 feat(swift-sdk): add Swift wrappers for the encrypted-txMetadata FFI exports](https://github.com/dashpay/platform/pull/4317) — 1 unresolved (1 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=b57d6ce7f630 dedupe=bad399d8cdf29704 -->" — 1 days old
-- [#4318 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4318) — 1 unresolved (1 human) · 1 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=5310f59011b8 dedupe=0e038a8a3ff78997 -->" — 1 days old
+- [#4317 feat(swift-sdk): add Swift wrappers for the encrypted-txMetadata FFI exports](https://github.com/dashpay/platform/pull/4317) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=b57d6ce7f630 dedupe=bad399d8cdf29704 -->" — 2 days old
+- [#4318 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4318) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=5310f59011b8 dedupe=0e038a8a3ff78997 -->" — 2 days old
 - [#4240 feat(kotlin-sdk): add L1 invitation create/claim JNI bridge + DIP-13 invitation persistence](https://github.com/dashpay/platform/pull/4240) — ⚠ merge conflict
 
 <a id="bfoss765-unresolved-comments"></a>
-#### Unresolved Comments (8)
-- [#4310 feat(kotlin-sdk): single-account build_signed_payment send API (funding_path)](https://github.com/dashpay/platform/pull/4310) — 13 unresolved (4 CodeRabbit, 9 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=9515faef4ca7 dedupe=14153f195b077360 -->" — 1 days old
-- [#4311 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4311) — 13 unresolved (8 CodeRabbit, 5 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=c85378dde81e dedupe=785509120f6ac873 -->" — 1 days old
-- [#4313 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4313) — 4 unresolved (3 CodeRabbit, 1 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=d19c5cf84a9f dedupe=53bcfc51c6e43512 -->" — 1 days old
-- [#4312 feat(platform-wallet): multi-output shielded transfers + output-aware fee predictor (two-note invites)](https://github.com/dashpay/platform/pull/4312) — 2 unresolved (1 CodeRabbit, 1 human) · 1 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3a18a774d281 dedupe=409ef31f76ca593c -->" — 1 days old
+#### Unresolved Comments (7)
+- [#4310 feat(kotlin-sdk): single-account build_signed_payment send API (funding_path)](https://github.com/dashpay/platform/pull/4310) — 13 unresolved (4 CodeRabbit, 9 human) · 2 days stale · ⚠ merge conflict · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=9515faef4ca7 dedupe=14153f195b077360 -->" — 2 days old
+- [#4311 feat(platform-wallet): token-minting finalize from a funding path (spendable DashPay receival accounts)](https://github.com/dashpay/platform/pull/4311) — 13 unresolved (8 CodeRabbit, 5 human) · 2 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=c85378dde81e dedupe=785509120f6ac873 -->" — 2 days old
+- [#4313 feat(kotlin-sdk): one-time Orchard key shielded-invite API (inviter + claim)](https://github.com/dashpay/platform/pull/4313) — 4 unresolved (3 CodeRabbit, 1 human) · 2 days stale · ⚠ merge conflict · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=d19c5cf84a9f dedupe=53bcfc51c6e43512 -->" — 2 days old
+- [#4312 feat(platform-wallet): multi-output shielded transfers + output-aware fee predictor (two-note invites)](https://github.com/dashpay/platform/pull/4312) — 2 unresolved (1 CodeRabbit, 1 human) · 2 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=3a18a774d281 dedupe=409ef31f76ca593c -->" — 2 days old
 - [#4309 fix(platform-wallet): age-guard the V2 finalized-transaction handle broadcast](https://github.com/dashpay/platform/pull/4309) — 3 unresolved (1 CodeRabbit, 2 human) · 1 days stale · ⚠ merge conflict
   - Top thread: "_📐 Maintainability & Code Quality_ \| _🟡 Minor_ \| _⚡ Quick win_" — 1 days old
-- [#4316 fix: shield asset-lock funding from all funds accounts incl. CoinJoin (#4073)](https://github.com/dashpay/platform/pull/4316) — 1 unresolved (1 human) · 1 days stale · ⚠ merge conflict · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=134106565880 dedupe=5d403abf91a6c35a -->" — 1 days old
-- [#4317 feat(swift-sdk): add Swift wrappers for the encrypted-txMetadata FFI exports](https://github.com/dashpay/platform/pull/4317) — 1 unresolved (1 human) · 1 days stale · ✋ changes requested · 🔴 CI failing
-  - Top thread: "<!-- thepastaclaw-review v1 finding=b57d6ce7f630 dedupe=bad399d8cdf29704 -->" — 1 days old
-- [#4318 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4318) — 1 unresolved (1 human) · 1 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=5310f59011b8 dedupe=0e038a8a3ff78997 -->" — 1 days old
+- [#4317 feat(swift-sdk): add Swift wrappers for the encrypted-txMetadata FFI exports](https://github.com/dashpay/platform/pull/4317) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=b57d6ce7f630 dedupe=bad399d8cdf29704 -->" — 2 days old
+- [#4318 docs(platform-wallet): error-code registry for the FFI result space](https://github.com/dashpay/platform/pull/4318) — 1 unresolved (1 human) · 2 days stale · ✋ changes requested
+  - Top thread: "<!-- thepastaclaw-review v1 finding=5310f59011b8 dedupe=0e038a8a3ff78997 -->" — 2 days old
 
 <a id="bfoss765-clean"></a>
 #### Clean (1)
@@ -97,7 +91,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="pastapastapasta-open"></a>
 #### Open (11)
 - [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 170 days stale
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 167 days old
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 168 days old
 - [#3680 refactor(dapi,dpp)!: move dapi-client and Identifier off Buffer to Uint8Array](https://github.com/dashpay/platform/pull/3680) — 5 unresolved (5 human) · 73 days stale · ⚠ merge conflict · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=1c101f507542 -->" — 73 days old
 - [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 67 days stale · 🔴 CI failing
@@ -127,7 +121,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="pastapastapasta-unresolved-comments"></a>
 #### Unresolved Comments (5)
 - [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 170 days stale
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 167 days old
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 168 days old
 - [#3680 refactor(dapi,dpp)!: move dapi-client and Identifier off Buffer to Uint8Array](https://github.com/dashpay/platform/pull/3680) — 5 unresolved (5 human) · 73 days stale · ⚠ merge conflict · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=1c101f507542 -->" — 73 days old
 - [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 67 days stale · 🔴 CI failing
@@ -226,7 +220,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#3417 feat(swift-sdk): use SPV-synced quorums for Platform proof verification](https://github.com/dashpay/platform/pull/3417) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing
 - [#3740 feat: add time-range indexes for trending/leaderboard queries](https://github.com/dashpay/platform/pull/3740) — ⏸ deferred
 - [#4221 feat(sdk): prefer DAPI peers supporting the client's latest protocol version](https://github.com/dashpay/platform/pull/4221)
-- [#4328 feat(swift-sdk): typed DPNS contested-name browsing for voters](https://github.com/dashpay/platform/pull/4328)
+- [#4331 feat(sdk): expose the label each contender actually requested](https://github.com/dashpay/platform/pull/4331)
 
 <a id="quantumexplorer-needs-action"></a>
 #### Needs action (3)
@@ -256,7 +250,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="quantumexplorer-clean"></a>
 #### Clean (2)
 - [#4221 feat(sdk): prefer DAPI peers supporting the client's latest protocol version](https://github.com/dashpay/platform/pull/4221)
-- [#4328 feat(swift-sdk): typed DPNS contested-name browsing for voters](https://github.com/dashpay/platform/pull/4328)
+- [#4331 feat(sdk): expose the label each contender actually requested](https://github.com/dashpay/platform/pull/4331)
 
 <a id="quantumexplorer-ready-for-review"></a>
 #### Ready for Review (1)
@@ -296,7 +290,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 #### Ready for Review (3)
 - [#4064 test(swift-sdk): cover imported-wallet history either side of registration](https://github.com/dashpay/platform/pull/4064) — by @ZocoLini
 - [#4221 feat(sdk): prefer DAPI peers supporting the client's latest protocol version](https://github.com/dashpay/platform/pull/4221) — by @QuantumExplorer
-- [#4328 feat(swift-sdk): typed DPNS contested-name browsing for voters](https://github.com/dashpay/platform/pull/4328) — by @QuantumExplorer
+- [#4331 feat(sdk): expose the label each contender actually requested](https://github.com/dashpay/platform/pull/4331) — by @QuantumExplorer
 
 <a id="lklimek"></a>
 ### @lklimek + (@Claudius-Maginificent)
