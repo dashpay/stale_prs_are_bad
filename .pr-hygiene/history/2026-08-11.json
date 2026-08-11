@@ -3,7 +3,7 @@
   "summary": {
     "open_prs": 59,
     "prs_needing_author_action": 30,
-    "total_unresolved": 111
+    "total_unresolved": 112
   },
   "per_author": [
     {
@@ -19,8 +19,8 @@
       "awaiting_review": 0,
       "prs_needing_author_action": 8,
       "total_unresolved": 16,
-      "total_score": 58.51722946180826,
-      "oldest_stale_pr_days": 4.842962962962963
+      "total_score": 59.48743495981911,
+      "oldest_stale_pr_days": 5.093796296296296
     },
     {
       "login": "PastaPastaPasta",
@@ -35,8 +35,8 @@
       "awaiting_review": 0,
       "prs_needing_author_action": 5,
       "total_unresolved": 15,
-      "total_score": 175.24099410813471,
-      "oldest_stale_pr_days": 100.11788194444445
+      "total_score": 175.3330692619088,
+      "oldest_stale_pr_days": 100.36871527777778
     },
     {
       "login": "QuantumExplorer",
@@ -51,8 +51,8 @@
       "awaiting_review": 1,
       "prs_needing_author_action": 5,
       "total_unresolved": 17,
-      "total_score": 115.54121051106584,
-      "oldest_stale_pr_days": 17.595289351851854
+      "total_score": 116.59643413571295,
+      "oldest_stale_pr_days": 17.846122685185186
     },
     {
       "login": "shumkov",
@@ -66,9 +66,9 @@
       "changes_requested_prs": 1,
       "awaiting_review": 3,
       "prs_needing_author_action": 5,
-      "total_unresolved": 9,
-      "total_score": 62.79819492971765,
-      "oldest_stale_pr_days": 52.55577546296296
+      "total_unresolved": 10,
+      "total_score": 68.52208516674943,
+      "oldest_stale_pr_days": 52.806608796296295
     },
     {
       "login": "llbartekll",
@@ -83,8 +83,8 @@
       "awaiting_review": 2,
       "prs_needing_author_action": 3,
       "total_unresolved": 5,
-      "total_score": 95.0050930178171,
-      "oldest_stale_pr_days": 70.34841435185186
+      "total_score": 95.17019301867043,
+      "oldest_stale_pr_days": 70.59924768518519
     },
     {
       "login": "lklimek",
@@ -99,7 +99,7 @@
       "awaiting_review": 0,
       "prs_needing_author_action": 2,
       "total_unresolved": 40,
-      "total_score": 509.14349647808433,
+      "total_score": 510.01770384758856,
       "oldest_stale_pr_days": 0.0
     },
     {
@@ -115,8 +115,8 @@
       "awaiting_review": 0,
       "prs_needing_author_action": 1,
       "total_unresolved": 2,
-      "total_score": 21.458629521620974,
-      "oldest_stale_pr_days": 20.445578703703703
+      "total_score": 21.540028320721806,
+      "oldest_stale_pr_days": 20.69641203703704
     },
     {
       "login": "infraclaw-dash",
@@ -131,8 +131,8 @@
       "awaiting_review": 0,
       "prs_needing_author_action": 1,
       "total_unresolved": 2,
-      "total_score": 15.542987044329804,
-      "oldest_stale_pr_days": 47.70329861111111
+      "total_score": 15.56353510778043,
+      "oldest_stale_pr_days": 47.95413194444444
     },
     {
       "login": "ZocoLini",
@@ -163,8 +163,8 @@
       "awaiting_review": 0,
       "prs_needing_author_action": 0,
       "total_unresolved": 5,
-      "total_score": 120.20830594005461,
-      "oldest_stale_pr_days": 558.3374421296296
+      "total_score": 120.21682452772892,
+      "oldest_stale_pr_days": 558.588275462963
     },
     {
       "login": "ogabrielides",
@@ -184,6 +184,23 @@
     }
   ],
   "per_pr": [
+    {
+      "number": 4248,
+      "author": "shumkov",
+      "score": 10.0,
+      "unresolved_total": 2,
+      "by_severity": {
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      },
+      "by_source": {
+        "coderabbit": 0,
+        "bot": 0,
+        "human": 2
+      },
+      "needs_author_action": true
+    },
     {
       "number": 4360,
       "author": "llbartekll",
@@ -304,23 +321,6 @@
       "needs_author_action": true
     },
     {
-      "number": 4248,
-      "author": "shumkov",
-      "score": 5.0,
-      "unresolved_total": 1,
-      "by_severity": {
-        "high": 1,
-        "medium": 0,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 0,
-        "human": 1
-      },
-      "needs_author_action": true
-    },
-    {
       "number": 4344,
       "author": "PastaPastaPasta",
       "score": 2.0,
@@ -391,7 +391,7 @@
     {
       "number": 3462,
       "author": "PastaPastaPasta",
-      "score": 25.60656603565687,
+      "score": 25.627618808133278,
       "unresolved_total": 3,
       "by_severity": {
         "high": 0,
@@ -408,7 +408,7 @@
     {
       "number": 3936,
       "author": "shumkov",
-      "score": 15.922894571443443,
+      "score": 15.941585198813483,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -442,7 +442,7 @@
     {
       "number": 2988,
       "author": "PastaPastaPasta",
-      "score": 8.822110666135423,
+      "score": 8.828192824520402,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -493,7 +493,7 @@
     {
       "number": 3096,
       "author": "thepastaclaw",
-      "score": 72.26914601385842,
+      "score": 72.2892525712884,
       "unresolved_total": 4,
       "by_severity": {
         "high": 2,
@@ -510,7 +510,7 @@
     {
       "number": 4312,
       "author": "bfoss765",
-      "score": 12.356666173949973,
+      "score": 12.650898771532638,
       "unresolved_total": 2,
       "by_severity": {
         "high": 1,
@@ -527,7 +527,7 @@
     {
       "number": 4313,
       "author": "bfoss765",
-      "score": 19.39301229959418,
+      "score": 19.8563917300737,
       "unresolved_total": 4,
       "by_severity": {
         "high": 1,
@@ -544,7 +544,7 @@
     {
       "number": 4318,
       "author": "bfoss765",
-      "score": 8.767550988264112,
+      "score": 8.98014445821278,
       "unresolved_total": 1,
       "by_severity": {
         "high": 1,
@@ -612,7 +612,7 @@
     {
       "number": 3509,
       "author": "PastaPastaPasta",
-      "score": 23.081434921091915,
+      "score": 23.093822578600065,
       "unresolved_total": 1,
       "by_severity": {
         "high": 1,
@@ -629,7 +629,7 @@
     {
       "number": 4283,
       "author": "shumkov",
-      "score": 29.79729122338142,
+      "score": 30.304737210668126,
       "unresolved_total": 3,
       "by_severity": {
         "high": 3,
@@ -646,7 +646,7 @@
     {
       "number": 4282,
       "author": "shumkov",
-      "score": 12.078009134892792,
+      "score": 12.275762757267831,
       "unresolved_total": 3,
       "by_severity": {
         "high": 0,
@@ -680,7 +680,7 @@
     {
       "number": 4272,
       "author": "QuantumExplorer",
-      "score": 77.69539393508558,
+      "score": 78.72381973642761,
       "unresolved_total": 9,
       "by_severity": {
         "high": 6,
@@ -714,7 +714,7 @@
     {
       "number": 3968,
       "author": "Claudius-Maginificent",
-      "score": 186.2442775406115,
+      "score": 186.7090898827746,
       "unresolved_total": 11,
       "by_severity": {
         "high": 11,
@@ -731,7 +731,7 @@
     {
       "number": 4257,
       "author": "Claudius-Maginificent",
-      "score": 9.687932316239134,
+      "score": 9.775997010547963,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -799,7 +799,7 @@
     {
       "number": 3549,
       "author": "Claudius-Maginificent",
-      "score": 184.64490875624276,
+      "score": 184.7440262763904,
       "unresolved_total": 20,
       "by_severity": {
         "high": 0,
@@ -867,7 +867,7 @@
     {
       "number": 4218,
       "author": "QuantumExplorer",
-      "score": 5.845816575980269,
+      "score": 5.8726143992853395,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -884,7 +884,7 @@
     {
       "number": 4189,
       "author": "vivekgsharma",
-      "score": 21.458629521620974,
+      "score": 21.540028320721806,
       "unresolved_total": 2,
       "by_severity": {
         "high": 1,
@@ -901,7 +901,7 @@
     {
       "number": 4170,
       "author": "llbartekll",
-      "score": 30.991706305479156,
+      "score": 31.104163766726675,
       "unresolved_total": 2,
       "by_severity": {
         "high": 2,
@@ -918,7 +918,7 @@
     {
       "number": 3958,
       "author": "infraclaw-dash",
-      "score": 15.542987044329804,
+      "score": 15.56353510778043,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -935,7 +935,7 @@
     {
       "number": 3694,
       "author": "llbartekll",
-      "score": 21.337635510778412,
+      "score": 21.35518358473127,
       "unresolved_total": 1,
       "by_severity": {
         "high": 1,
@@ -969,7 +969,7 @@
     {
       "number": 3680,
       "author": "PastaPastaPasta",
-      "score": 43.46173647139207,
+      "score": 43.49418247936665,
       "unresolved_total": 5,
       "by_severity": {
         "high": 0,
@@ -986,7 +986,7 @@
     {
       "number": 3560,
       "author": "llbartekll",
-      "score": 42.675751201559535,
+      "score": 42.71084566721248,
       "unresolved_total": 2,
       "by_severity": {
         "high": 2,
@@ -1122,7 +1122,7 @@
     {
       "number": 3992,
       "author": "Claudius-Maginificent",
-      "score": 128.56637786499093,
+      "score": 128.78859067787562,
       "unresolved_total": 7,
       "by_severity": {
         "high": 7,
@@ -1173,7 +1173,7 @@
     {
       "number": 2446,
       "author": "pshenmic",
-      "score": 120.20830594005461,
+      "score": 120.21682452772892,
       "unresolved_total": 5,
       "by_severity": {
         "high": 3,
