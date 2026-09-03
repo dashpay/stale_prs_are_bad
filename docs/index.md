@@ -1,12 +1,12 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-09-03 12:16 UTC · commit 473c12b*
+*Last updated: 2026-09-03 18:13 UTC · commit 3234b84*
 
 ## Summary
-- Open PRs: **79** (6 clean · 7 CI failing · 3 changes requested · 24 unresolved comments · 6 deferred · 17 draft · 16 stale)
+- Open PRs: **79** (8 clean · 7 CI failing · 3 changes requested · 23 unresolved comments · 6 deferred · 16 draft · 16 stale)
 - PRs needing author action: **29**
-- Total unresolved comments: **157**
+- Total unresolved comments: **154**
 
 ## Scoreboard
 _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc. Click any number to jump to the specific PRs it covers._
@@ -14,16 +14,16 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 | Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [24+(4)](#pastapastapasta-open) | [0+(1)](#pastapastapasta-clean) | [3+(0)](#pastapastapasta-ci-failing) | [6+(1)](#pastapastapasta-unresolved-comments) | [1+(0)](#pastapastapasta-changes-requested) | — | [9+(1)](#pastapastapasta-draft) | [5+(1)](#pastapastapasta-stale) | [7+(1)](#pastapastapasta-needs-action) | [53+(4)](#pastapastapasta-unresolved-comments) | — | ↑ 3 |
-| [@QuantumExplorer](#quantumexplorer) | [12](#quantumexplorer-open) | [1](#quantumexplorer-clean) | [2](#quantumexplorer-ci-failing) | [4](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-changes-requested) | [3](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | — | [6](#quantumexplorer-needs-action) | [18](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-ready-for-review) | ↓ 2 |
-| [@llbartekll](#llbartekll) | [4](#llbartekll-open) | — | — | [3](#llbartekll-unresolved-comments) | — | — | [1](#llbartekll-draft) | — | [3](#llbartekll-needs-action) | [9](#llbartekll-unresolved-comments) | [3](#llbartekll-ready-for-review) | — |
-| [@romchornyi](#romchornyi) | [10](#romchornyi-open) | [2](#romchornyi-clean) | — | [3](#romchornyi-unresolved-comments) | — | — | — | [5](#romchornyi-stale) | [2](#romchornyi-needs-action) | [10](#romchornyi-unresolved-comments) | — | ↑ 1 |
+| [@QuantumExplorer](#quantumexplorer) | [12](#quantumexplorer-open) | [1](#quantumexplorer-clean) | [2](#quantumexplorer-ci-failing) | [4](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-changes-requested) | [3](#quantumexplorer-deferred) | [1](#quantumexplorer-draft) | — | [6](#quantumexplorer-needs-action) | [18](#quantumexplorer-unresolved-comments) | [2](#quantumexplorer-ready-for-review) | ↓ 2 |
+| [@llbartekll](#llbartekll) | [4](#llbartekll-open) | — | — | [3](#llbartekll-unresolved-comments) | — | — | [1](#llbartekll-draft) | — | [3](#llbartekll-needs-action) | [9](#llbartekll-unresolved-comments) | [4](#llbartekll-ready-for-review) | — |
+| [@lklimek + (@Claudius-Maginificent)](#lklimek) | [0+(8)](#lklimek-open) | [0+(1)](#lklimek-clean) | — | [0+(2)](#lklimek-unresolved-comments) | — | — | [0+(2)](#lklimek-draft) | [0+(3)](#lklimek-stale) | [0+(2)](#lklimek-needs-action) | [0+(31)](#lklimek-unresolved-comments) | [2+(0)](#lklimek-ready-for-review) | ↓ 1 |
 | [@bfoss765](#bfoss765) | [2](#bfoss765-open) | — | — | [2](#bfoss765-unresolved-comments) | — | — | — | — | [2](#bfoss765-needs-action) | [3](#bfoss765-unresolved-comments) | — | ↓ 3 |
-| [@shumkov](#shumkov) | [8](#shumkov-open) | [1](#shumkov-clean) | [1](#shumkov-ci-failing) | [1](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | [2](#shumkov-draft) | — | [4](#shumkov-needs-action) | [3](#shumkov-unresolved-comments) | [2](#shumkov-ready-for-review) | — |
-| [@lklimek + (@Claudius-Maginificent)](#lklimek) | [0+(8)](#lklimek-open) | [0+(1)](#lklimek-clean) | — | [0+(1)](#lklimek-unresolved-comments) | — | — | [0+(3)](#lklimek-draft) | [0+(3)](#lklimek-stale) | [0+(1)](#lklimek-needs-action) | [0+(30)](#lklimek-unresolved-comments) | [1+(0)](#lklimek-ready-for-review) | ↓ 1 |
+| [@shumkov](#shumkov) | [8](#shumkov-open) | [1](#shumkov-clean) | [1](#shumkov-ci-failing) | [1](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | [2](#shumkov-deferred) | [2](#shumkov-draft) | — | [4](#shumkov-needs-action) | [3](#shumkov-unresolved-comments) | [3](#shumkov-ready-for-review) | — |
 | [@HashEngineering](#hashengineering) | [2](#hashengineering-open) | — | — | [1](#hashengineering-unresolved-comments) | — | — | — | [1](#hashengineering-stale) | [1](#hashengineering-needs-action) | [18](#hashengineering-unresolved-comments) | — | ↓ 2 |
+| [@romchornyi](#romchornyi) | [10](#romchornyi-open) | [4](#romchornyi-clean) | — | [1](#romchornyi-unresolved-comments) | — | — | — | [5](#romchornyi-stale) | [1](#romchornyi-needs-action) | [6](#romchornyi-unresolved-comments) | — | — |
 | [@vivekgsharma](#vivekgsharma) | [1](#vivekgsharma-open) | — | — | [1](#vivekgsharma-unresolved-comments) | — | — | — | — | [1](#vivekgsharma-needs-action) | [2](#vivekgsharma-unresolved-comments) | — | — |
 | [@infraclaw-dash](#infraclaw-dash) | [1](#infraclaw-dash-open) | — | — | [1](#infraclaw-dash-unresolved-comments) | — | — | — | — | [1](#infraclaw-dash-needs-action) | [2](#infraclaw-dash-unresolved-comments) | — | — |
-| [@ZocoLini](#zocolini) | — | — | — | — | — | — | — | — | — | — | [2](#zocolini-ready-for-review) | — |
+| [@ZocoLini](#zocolini) | — | — | — | — | — | — | — | — | — | — | [3](#zocolini-ready-for-review) | — |
 | [@pshenmic](#pshenmic) | [1](#pshenmic-open) | — | — | — | — | — | — | [1](#pshenmic-stale) | — | [5](#pshenmic-unresolved-comments) | — | — |
 | [@ogabrielides](#ogabrielides) | [1](#ogabrielides-open) | — | — | — | — | [1](#ogabrielides-deferred) | — | — | — | — | — | — |
 | [@thephez](#thephez) | [1](#thephez-open) | — | [1](#thephez-ci-failing) | — | — | — | — | — | — | — | — | — |
@@ -35,7 +35,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="pastapastapasta-open"></a>
 #### Open (28)
 - [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 197 days stale
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 194 days old
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 195 days old
 - [#4480 fix(sdk): backport proved current-epoch fetch fix to v4.1](https://github.com/dashpay/platform/pull/4480) — 4 unresolved (4 human) · 9 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets v4.1-dev
   - Top thread: "<!-- thepastaclaw-review v1 finding=9452a6481fe8 dedupe=ab8743337f46e768 -->" — 9 days old
 - [#4389 refactor(sdk): shared wire-request decode and pure DPNS/DashPay document builders](https://github.com/dashpay/platform/pull/4389) — 8 unresolved (8 human) · 14 days stale · ⚠ merge conflict · 🔴 CI failing · 🐢 targets refactor/dpns-dashpay-document-assembly
@@ -54,18 +54,18 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=e3a04c131535 dedupe=d5f891a951fa3e5f -->" — 3 days old
 - [#4530 test(dashmate): live state sync e2e — join tooling, churn, re-sync and fallback coverage](https://github.com/dashpay/platform/pull/4530) — 6 unresolved (6 human) · 4 days stale · ⚠ merge conflict · 📝 draft
   - Top thread: "<!-- thepastaclaw-review v1 finding=96c0b33d852f dedupe=2eb0bea4c0fda21e -->" — 4 days old
-- [#4392 perf(swift-sdk): linear wallet-changeset rounds via per-round bulk-prefetch cache](https://github.com/dashpay/platform/pull/4392) — 2 unresolved (2 CodeRabbit) · 21 days stale · ⚠ merge conflict
-  - Top thread: "_🎯 Functional Correctness_ \| _🟡 Minor_ \| _⚡ Quick win_" — 21 days old
+- [#4392 perf(swift-sdk): linear wallet-changeset rounds via per-round bulk-prefetch cache](https://github.com/dashpay/platform/pull/4392) — 2 unresolved (2 CodeRabbit) · 22 days stale · ⚠ merge conflict
+  - Top thread: "_🎯 Functional Correctness_ \| _🟡 Minor_ \| _⚡ Quick win_" — 22 days old
 - [#4478 refactor(sdk): separate DPNS and DashPay document assembly from networked flows](https://github.com/dashpay/platform/pull/4478) — 2 unresolved (2 human) · 9 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=e66dda4b61f5 dedupe=d36ab3814b395713 -->" — 9 days old
+- [#4562 ci: build release SDKs and NPM packages on self-hosted runners](https://github.com/dashpay/platform/pull/4562) — 3 unresolved (3 CodeRabbit) · 2 days stale
+  - Top thread: "_🎯 Functional Correctness_ \| _🟠 Major_ \| _⚡ Quick win_" — 2 days old
 - [#4521 feat(dashmate): state sync configuration for tenderdash and drive snapshots](https://github.com/dashpay/platform/pull/4521) — 2 unresolved (2 human) · 4 days stale · 📝 draft
   - Top thread: "<!-- thepastaclaw-review v1 finding=911fd05d988e dedupe=f89a9f09546346e0 -->" — 4 days old
 - [#4538 fix(sdk): honor explicit regtest addresses in dapi-client; tolerate empty discovery in wasm-sdk trusted context](https://github.com/dashpay/platform/pull/4538) — 2 unresolved (2 human) · 4 days stale · 📝 draft
   - Top thread: "<!-- thepastaclaw-review v1 finding=116b1bea7469 dedupe=f9e30e8382d1fd94 -->" — 4 days old
-- [#4562 ci: build release SDKs and NPM packages on self-hosted runners](https://github.com/dashpay/platform/pull/4562) — 3 unresolved (3 CodeRabbit) · 2 days stale
-  - Top thread: "_🎯 Functional Correctness_ \| _🟠 Major_ \| _⚡ Quick win_" — 2 days old
-- [#4572 perf(drive-abci): fetch the next core height's masternode and quorum lists ahead of time](https://github.com/dashpay/platform/pull/4572) — 1 unresolved (1 CodeRabbit) · 2 days stale
-  - Top thread: "_🩺 Stability & Availability_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 2 days old
+- [#4572 perf(drive-abci): fetch the next core height's masternode and quorum lists ahead of time](https://github.com/dashpay/platform/pull/4572) — 1 unresolved (1 CodeRabbit) · 3 days stale
+  - Top thread: "_🩺 Stability & Availability_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 3 days old
 - [#4016 fix(platform-wallet): close asset-lock resume broadcast race](https://github.com/dashpay/platform/pull/4016) — via @thepastaclaw · ⚠ merge conflict · 📝 draft
 - [#4136 fix(dashmate): use live Tenderdash app version for protocol status](https://github.com/dashpay/platform/pull/4136) — via @thepastaclaw · ⚠ merge conflict
 - [#4298 fix(dashmate): load ZeroSSL config in force mode](https://github.com/dashpay/platform/pull/4298) — via @thepastaclaw · 🐢 targets v4.1-dev
@@ -85,33 +85,33 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=7d40971bd5ff dedupe=2846c55b07c76472 -->" — 94 days old
 - [#4536 fix(drive-abci): sync mainnet blocks 32326-32329 without crash-restarts](https://github.com/dashpay/platform/pull/4536) — 3 unresolved (1 CodeRabbit, 2 human) · 4 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=e3a04c131535 dedupe=d5f891a951fa3e5f -->" — 3 days old
-- [#4392 perf(swift-sdk): linear wallet-changeset rounds via per-round bulk-prefetch cache](https://github.com/dashpay/platform/pull/4392) — 2 unresolved (2 CodeRabbit) · 21 days stale · ⚠ merge conflict
-  - Top thread: "_🎯 Functional Correctness_ \| _🟡 Minor_ \| _⚡ Quick win_" — 21 days old
+- [#4392 perf(swift-sdk): linear wallet-changeset rounds via per-round bulk-prefetch cache](https://github.com/dashpay/platform/pull/4392) — 2 unresolved (2 CodeRabbit) · 22 days stale · ⚠ merge conflict
+  - Top thread: "_🎯 Functional Correctness_ \| _🟡 Minor_ \| _⚡ Quick win_" — 22 days old
 - [#4478 refactor(sdk): separate DPNS and DashPay document assembly from networked flows](https://github.com/dashpay/platform/pull/4478) — 2 unresolved (2 human) · 9 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=e66dda4b61f5 dedupe=d36ab3814b395713 -->" — 9 days old
 - [#4562 ci: build release SDKs and NPM packages on self-hosted runners](https://github.com/dashpay/platform/pull/4562) — 3 unresolved (3 CodeRabbit) · 2 days stale
   - Top thread: "_🎯 Functional Correctness_ \| _🟠 Major_ \| _⚡ Quick win_" — 2 days old
-- [#4572 perf(drive-abci): fetch the next core height's masternode and quorum lists ahead of time](https://github.com/dashpay/platform/pull/4572) — 1 unresolved (1 CodeRabbit) · 2 days stale
-  - Top thread: "_🩺 Stability & Availability_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 2 days old
+- [#4572 perf(drive-abci): fetch the next core height's masternode and quorum lists ahead of time](https://github.com/dashpay/platform/pull/4572) — 1 unresolved (1 CodeRabbit) · 3 days stale
+  - Top thread: "_🩺 Stability & Availability_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 3 days old
 - [#4136 fix(dashmate): use live Tenderdash app version for protocol status](https://github.com/dashpay/platform/pull/4136) — via @thepastaclaw · ⚠ merge conflict
 - [#4545 perf(sdk): reuse connections via sticky address rotation](https://github.com/dashpay/platform/pull/4545) — ✋ changes requested
 
 <a id="pastapastapasta-unresolved-comments"></a>
 #### Unresolved Comments (7)
 - [#3096 feat(sdk): add client-side validation to state transition construction methods](https://github.com/dashpay/platform/pull/3096) — via @thepastaclaw · 4 unresolved (2 CodeRabbit, 2 human) · 197 days stale
-  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 194 days old
+  - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 195 days old
 - [#3462 fix(dpp)!: version-gate distribution function floating-point evaluation](https://github.com/dashpay/platform/pull/3462) — 3 unresolved (3 human) · 94 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=7d40971bd5ff dedupe=2846c55b07c76472 -->" — 94 days old
 - [#4536 fix(drive-abci): sync mainnet blocks 32326-32329 without crash-restarts](https://github.com/dashpay/platform/pull/4536) — 3 unresolved (1 CodeRabbit, 2 human) · 4 days stale · ✋ changes requested
   - Top thread: "<!-- thepastaclaw-review v1 finding=e3a04c131535 dedupe=d5f891a951fa3e5f -->" — 3 days old
-- [#4392 perf(swift-sdk): linear wallet-changeset rounds via per-round bulk-prefetch cache](https://github.com/dashpay/platform/pull/4392) — 2 unresolved (2 CodeRabbit) · 21 days stale · ⚠ merge conflict
-  - Top thread: "_🎯 Functional Correctness_ \| _🟡 Minor_ \| _⚡ Quick win_" — 21 days old
+- [#4392 perf(swift-sdk): linear wallet-changeset rounds via per-round bulk-prefetch cache](https://github.com/dashpay/platform/pull/4392) — 2 unresolved (2 CodeRabbit) · 22 days stale · ⚠ merge conflict
+  - Top thread: "_🎯 Functional Correctness_ \| _🟡 Minor_ \| _⚡ Quick win_" — 22 days old
 - [#4478 refactor(sdk): separate DPNS and DashPay document assembly from networked flows](https://github.com/dashpay/platform/pull/4478) — 2 unresolved (2 human) · 9 days stale · 🔴 CI failing
   - Top thread: "<!-- thepastaclaw-review v1 finding=e66dda4b61f5 dedupe=d36ab3814b395713 -->" — 9 days old
 - [#4562 ci: build release SDKs and NPM packages on self-hosted runners](https://github.com/dashpay/platform/pull/4562) — 3 unresolved (3 CodeRabbit) · 2 days stale
   - Top thread: "_🎯 Functional Correctness_ \| _🟠 Major_ \| _⚡ Quick win_" — 2 days old
-- [#4572 perf(drive-abci): fetch the next core height's masternode and quorum lists ahead of time](https://github.com/dashpay/platform/pull/4572) — 1 unresolved (1 CodeRabbit) · 2 days stale
-  - Top thread: "_🩺 Stability & Availability_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 2 days old
+- [#4572 perf(drive-abci): fetch the next core height's masternode and quorum lists ahead of time](https://github.com/dashpay/platform/pull/4572) — 1 unresolved (1 CodeRabbit) · 3 days stale
+  - Top thread: "_🩺 Stability & Availability_ \| _🟠 Major_ \| _🏗️ Heavy lift_" — 3 days old
 
 <a id="pastapastapasta-changes-requested"></a>
 #### Changes Requested (1)
@@ -229,7 +229,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#4581 feat(drive): time-range index TTL — O(1) flat-drop drainage and ephemeral-bytes fees](https://github.com/dashpay/platform/pull/4581)
 
 <a id="quantumexplorer-ready-for-review"></a>
-#### Ready for Review (1)
+#### Ready for Review (2)
+- [#4558 feat(platform-wallet): sweep changeset types, FFI seam, and persistence capability bits](https://github.com/dashpay/platform/pull/4558) — by @romchornyi
 - [#4579 ci: run the shielded wallet suite and stop the shield filter sweeping up unrelated tests](https://github.com/dashpay/platform/pull/4579) — by @Claudius-Maginificent
 
 <a id="llbartekll"></a>
@@ -269,59 +270,64 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "<!-- thepastaclaw-review v1 finding=39eeb5416a91 dedupe=a66ec193a2ba712e -->" — 45 days old
 
 <a id="llbartekll-ready-for-review"></a>
-#### Ready for Review (3)
+#### Ready for Review (4)
+- [#4558 feat(platform-wallet): sweep changeset types, FFI seam, and persistence capability bits](https://github.com/dashpay/platform/pull/4558) — by @romchornyi
 - [#4579 ci: run the shielded wallet suite and stop the shield filter sweeping up unrelated tests](https://github.com/dashpay/platform/pull/4579) — by @Claudius-Maginificent
 - [#4581 feat(drive): time-range index TTL — O(1) flat-drop drainage and ephemeral-bytes fees](https://github.com/dashpay/platform/pull/4581) — by @QuantumExplorer
 - [#4584 feat(platform-wallet): parse a state transition's kind and token-purchase intent](https://github.com/dashpay/platform/pull/4584) — by @romchornyi
 
-<a id="romchornyi"></a>
-### @romchornyi
-<a id="romchornyi-open"></a>
-#### Open (10)
-- [#4406 fix(platform-wallet): act on swept transactions at the persistence seam](https://github.com/dashpay/platform/pull/4406) — 5 unresolved (5 human) · 10 days stale · ⚠ merge conflict
-  - Top thread: "<!-- thepastaclaw-review v1 finding=6aec38dc90df dedupe=9a3d59b0dccaaa95 -->" — 10 days old
-- [#4582 feat(platform-wallet): report the balance a pooled build can actually spend](https://github.com/dashpay/platform/pull/4582) — 3 unresolved (3 human) · 1 days stale · ⚠ merge conflict
-  - Top thread: "Same capture here.**" — 1 days old
-- [#4442 fix(platform-wallet): couple a sweep's payment flips to their own persistence round](https://github.com/dashpay/platform/pull/4442) — 1 unresolved (1 human) · 13 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets chore/bump-rust-dashcore-dev-961
-  - Top thread: "<!-- thepastaclaw-review v1 finding=a19ffa81df55 dedupe=4d21cd24aea4ae72 -->" — 13 days old
-- [#4558 feat(platform-wallet): sweep changeset types, FFI seam, and persistence capability bits](https://github.com/dashpay/platform/pull/4558) — 1 unresolved (1 CodeRabbit) · 3 days stale
-  - Top thread: "_📐 Maintainability & Code Quality_ \| _🟡 Minor_ \| _⚡ Quick win_" — 3 days old
-- [#4371 fix(swift-sdk): build the shippable profile by default](https://github.com/dashpay/platform/pull/4371)
-- [#4559 fix(platform-wallet-storage): durably apply swept transactions in the SQLite store](https://github.com/dashpay/platform/pull/4559) — 🐢 targets split/4406-1-seam
-- [#4560 fix(platform-wallet): act on swept transactions at the persistence seam](https://github.com/dashpay/platform/pull/4560) — 🐢 targets split/4406-2-storage
-- [#4584 feat(platform-wallet): parse a state transition's kind and token-purchase intent](https://github.com/dashpay/platform/pull/4584)
-- [#4589 fix(swift-sdk): act on swept transactions in the SwiftData store](https://github.com/dashpay/platform/pull/4589) — 🐢 targets split/4406-3-producer
-- [#4590 fix(kotlin-sdk): act on swept transactions in the Room store](https://github.com/dashpay/platform/pull/4590) — 🐢 targets split/4406-5-swift
+<a id="lklimek"></a>
+### @lklimek + (@Claudius-Maginificent)
+<a id="lklimek-open"></a>
+#### Open (8)
+- [#3549 test(platform-wallet): e2e framework + full test suite — triage pins, Found-*/PA-* guards, fail-closed persist, Stage-2 merge](https://github.com/dashpay/platform/pull/3549) — via @Claudius-Maginificent · 20 unresolved (20 human) · 124 days stale · ⚠ merge conflict · 📝 draft
+  - Top thread: "<!-- thepastaclaw-review v1 finding=a3725e9d50ca -->" — 124 days old
+- [#3992 feat(platform-wallet): manifest integrity checksum (Risk-6/R12.5 follow-up)](https://github.com/dashpay/platform/pull/3992) — via @Claudius-Maginificent · 7 unresolved (7 human) · 62 days stale · ⚠ merge conflict · ✋ changes requested · 📝 draft · 🐢 targets feat/platform-wallet-storage-rehydration
+  - Top thread: "<!-- thepastaclaw-review v1 finding=3969d61c562f dedupe=57a8bf7151c0879e -->" — 62 days old
+- [#3968 feat(platform-wallet-storage): embeddable SQLite persistence backend with seedless rehydration](https://github.com/dashpay/platform/pull/3968) — via @Claudius-Maginificent · 3 unresolved (3 human) · 7 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=11274c4e6317 dedupe=27666bb0c8048f05 -->" — 7 days old
+- [#4586 fix(platform-wallet): typed persister errors with caller-visible retry classification](https://github.com/dashpay/platform/pull/4586) — via @Claudius-Maginificent · 1 unresolved (1 CodeRabbit) · 0 days stale
+  - Top thread: "_📐 Maintainability & Code Quality_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
+- [#4496 refactor(platform-wallet-storage)!: delete removed identities instead of tombstoning](https://github.com/dashpay/platform/pull/4496) — via @Claudius-Maginificent · ⚠ merge conflict · 🐢 targets feat/platform-wallet-storage-rehydration
+- [#4579 ci: run the shielded wallet suite and stop the shield filter sweeping up unrelated tests](https://github.com/dashpay/platform/pull/4579) — via @Claudius-Maginificent
+- [#4585 fix(platform-wallet-ffi): bound bincode decode size on asset-lock proof bytes](https://github.com/dashpay/platform/pull/4585) — via @Claudius-Maginificent · 🔴 CI failing · 📝 draft
+- [#4587 feat(platform-wallet-ffi): persister error codes, contact-account fix, and cleanup](https://github.com/dashpay/platform/pull/4587) — via @Claudius-Maginificent · ⚠ merge conflict · 🔴 CI failing · 📝 draft · 🐢 targets feat/platform-wallet-typed-persister-errors
 
-<a id="romchornyi-needs-action"></a>
+<a id="lklimek-needs-action"></a>
 #### Needs action (2)
-- [#4406 fix(platform-wallet): act on swept transactions at the persistence seam](https://github.com/dashpay/platform/pull/4406) — 5 unresolved (5 human) · 10 days stale · ⚠ merge conflict
-  - Top thread: "<!-- thepastaclaw-review v1 finding=6aec38dc90df dedupe=9a3d59b0dccaaa95 -->" — 10 days old
-- [#4582 feat(platform-wallet): report the balance a pooled build can actually spend](https://github.com/dashpay/platform/pull/4582) — 3 unresolved (3 human) · 1 days stale · ⚠ merge conflict
-  - Top thread: "Same capture here.**" — 1 days old
+- [#3968 feat(platform-wallet-storage): embeddable SQLite persistence backend with seedless rehydration](https://github.com/dashpay/platform/pull/3968) — via @Claudius-Maginificent · 3 unresolved (3 human) · 7 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=11274c4e6317 dedupe=27666bb0c8048f05 -->" — 7 days old
+- [#4586 fix(platform-wallet): typed persister errors with caller-visible retry classification](https://github.com/dashpay/platform/pull/4586) — via @Claudius-Maginificent · 1 unresolved (1 CodeRabbit) · 0 days stale
+  - Top thread: "_📐 Maintainability & Code Quality_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
 
-<a id="romchornyi-unresolved-comments"></a>
-#### Unresolved Comments (3)
-- [#4406 fix(platform-wallet): act on swept transactions at the persistence seam](https://github.com/dashpay/platform/pull/4406) — 5 unresolved (5 human) · 10 days stale · ⚠ merge conflict
-  - Top thread: "<!-- thepastaclaw-review v1 finding=6aec38dc90df dedupe=9a3d59b0dccaaa95 -->" — 10 days old
-- [#4582 feat(platform-wallet): report the balance a pooled build can actually spend](https://github.com/dashpay/platform/pull/4582) — 3 unresolved (3 human) · 1 days stale · ⚠ merge conflict
-  - Top thread: "Same capture here.**" — 1 days old
-- [#4558 feat(platform-wallet): sweep changeset types, FFI seam, and persistence capability bits](https://github.com/dashpay/platform/pull/4558) — 1 unresolved (1 CodeRabbit) · 3 days stale
-  - Top thread: "_📐 Maintainability & Code Quality_ \| _🟡 Minor_ \| _⚡ Quick win_" — 3 days old
+<a id="lklimek-unresolved-comments"></a>
+#### Unresolved Comments (2)
+- [#3968 feat(platform-wallet-storage): embeddable SQLite persistence backend with seedless rehydration](https://github.com/dashpay/platform/pull/3968) — via @Claudius-Maginificent · 3 unresolved (3 human) · 7 days stale · ✋ changes requested · 🔴 CI failing
+  - Top thread: "<!-- thepastaclaw-review v1 finding=11274c4e6317 dedupe=27666bb0c8048f05 -->" — 7 days old
+- [#4586 fix(platform-wallet): typed persister errors with caller-visible retry classification](https://github.com/dashpay/platform/pull/4586) — via @Claudius-Maginificent · 1 unresolved (1 CodeRabbit) · 0 days stale
+  - Top thread: "_📐 Maintainability & Code Quality_ \| _🟡 Minor_ \| _⚡ Quick win_" — 0 days old
 
-<a id="romchornyi-stale"></a>
-#### Stale (5)
-- [#4442 fix(platform-wallet): couple a sweep's payment flips to their own persistence round](https://github.com/dashpay/platform/pull/4442) — 1 unresolved (1 human) · 13 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets chore/bump-rust-dashcore-dev-961
-  - Top thread: "<!-- thepastaclaw-review v1 finding=a19ffa81df55 dedupe=4d21cd24aea4ae72 -->" — 13 days old
-- [#4559 fix(platform-wallet-storage): durably apply swept transactions in the SQLite store](https://github.com/dashpay/platform/pull/4559) — 🐢 targets split/4406-1-seam
-- [#4560 fix(platform-wallet): act on swept transactions at the persistence seam](https://github.com/dashpay/platform/pull/4560) — 🐢 targets split/4406-2-storage
-- [#4589 fix(swift-sdk): act on swept transactions in the SwiftData store](https://github.com/dashpay/platform/pull/4589) — 🐢 targets split/4406-3-producer
-- [#4590 fix(kotlin-sdk): act on swept transactions in the Room store](https://github.com/dashpay/platform/pull/4590) — 🐢 targets split/4406-5-swift
+<a id="lklimek-draft"></a>
+#### Draft (2)
+- [#3549 test(platform-wallet): e2e framework + full test suite — triage pins, Found-*/PA-* guards, fail-closed persist, Stage-2 merge](https://github.com/dashpay/platform/pull/3549) — via @Claudius-Maginificent · 20 unresolved (20 human) · 124 days stale · ⚠ merge conflict · 📝 draft
+  - Top thread: "<!-- thepastaclaw-review v1 finding=a3725e9d50ca -->" — 124 days old
+- [#4585 fix(platform-wallet-ffi): bound bincode decode size on asset-lock proof bytes](https://github.com/dashpay/platform/pull/4585) — via @Claudius-Maginificent · 🔴 CI failing · 📝 draft
 
-<a id="romchornyi-clean"></a>
-#### Clean (2)
-- [#4371 fix(swift-sdk): build the shippable profile by default](https://github.com/dashpay/platform/pull/4371)
-- [#4584 feat(platform-wallet): parse a state transition's kind and token-purchase intent](https://github.com/dashpay/platform/pull/4584)
+<a id="lklimek-stale"></a>
+#### Stale (3)
+- [#3992 feat(platform-wallet): manifest integrity checksum (Risk-6/R12.5 follow-up)](https://github.com/dashpay/platform/pull/3992) — via @Claudius-Maginificent · 7 unresolved (7 human) · 62 days stale · ⚠ merge conflict · ✋ changes requested · 📝 draft · 🐢 targets feat/platform-wallet-storage-rehydration
+  - Top thread: "<!-- thepastaclaw-review v1 finding=3969d61c562f dedupe=57a8bf7151c0879e -->" — 62 days old
+- [#4496 refactor(platform-wallet-storage)!: delete removed identities instead of tombstoning](https://github.com/dashpay/platform/pull/4496) — via @Claudius-Maginificent · ⚠ merge conflict · 🐢 targets feat/platform-wallet-storage-rehydration
+- [#4587 feat(platform-wallet-ffi): persister error codes, contact-account fix, and cleanup](https://github.com/dashpay/platform/pull/4587) — via @Claudius-Maginificent · ⚠ merge conflict · 🔴 CI failing · 📝 draft · 🐢 targets feat/platform-wallet-typed-persister-errors
+
+<a id="lklimek-clean"></a>
+#### Clean (1)
+- [#4579 ci: run the shielded wallet suite and stop the shield filter sweeping up unrelated tests](https://github.com/dashpay/platform/pull/4579) — via @Claudius-Maginificent
+
+<a id="lklimek-ready-for-review"></a>
+#### Ready for Review (2)
+- [#4558 feat(platform-wallet): sweep changeset types, FFI seam, and persistence capability bits](https://github.com/dashpay/platform/pull/4558) — by @romchornyi
+- [#4581 feat(drive): time-range index TTL — O(1) flat-drop drainage and ephemeral-bytes fees](https://github.com/dashpay/platform/pull/4581) — by @QuantumExplorer
 
 <a id="bfoss765"></a>
 ### @bfoss765
@@ -398,64 +404,17 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [#4243 fix(sdk)!: complete encrypted txMetadata parity](https://github.com/dashpay/platform/pull/4243) — ⚠ merge conflict
 
 <a id="shumkov-ready-for-review"></a>
-#### Ready for Review (2)
+#### Ready for Review (3)
+- [#4558 feat(platform-wallet): sweep changeset types, FFI seam, and persistence capability bits](https://github.com/dashpay/platform/pull/4558) — by @romchornyi
 - [#4579 ci: run the shielded wallet suite and stop the shield filter sweeping up unrelated tests](https://github.com/dashpay/platform/pull/4579) — by @Claudius-Maginificent
-- [#4581 feat(drive): time-range index TTL — O(1) flat-drop drainage and ephemeral-bytes fees](https://github.com/dashpay/platform/pull/4581) — by @QuantumExplorer
-
-<a id="lklimek"></a>
-### @lklimek + (@Claudius-Maginificent)
-<a id="lklimek-open"></a>
-#### Open (8)
-- [#3549 test(platform-wallet): e2e framework + full test suite — triage pins, Found-*/PA-* guards, fail-closed persist, Stage-2 merge](https://github.com/dashpay/platform/pull/3549) — via @Claudius-Maginificent · 20 unresolved (20 human) · 124 days stale · ⚠ merge conflict · 📝 draft
-  - Top thread: "<!-- thepastaclaw-review v1 finding=a3725e9d50ca -->" — 124 days old
-- [#3992 feat(platform-wallet): manifest integrity checksum (Risk-6/R12.5 follow-up)](https://github.com/dashpay/platform/pull/3992) — via @Claudius-Maginificent · 7 unresolved (7 human) · 62 days stale · ⚠ merge conflict · ✋ changes requested · 📝 draft · 🐢 targets feat/platform-wallet-storage-rehydration
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3969d61c562f dedupe=57a8bf7151c0879e -->" — 62 days old
-- [#3968 feat(platform-wallet-storage): embeddable SQLite persistence backend with seedless rehydration](https://github.com/dashpay/platform/pull/3968) — via @Claudius-Maginificent · 3 unresolved (3 human) · 7 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=11274c4e6317 dedupe=27666bb0c8048f05 -->" — 7 days old
-- [#4496 refactor(platform-wallet-storage)!: delete removed identities instead of tombstoning](https://github.com/dashpay/platform/pull/4496) — via @Claudius-Maginificent · 🐢 targets feat/platform-wallet-storage-rehydration
-- [#4579 ci: run the shielded wallet suite and stop the shield filter sweeping up unrelated tests](https://github.com/dashpay/platform/pull/4579) — via @Claudius-Maginificent
-- [#4585 fix(platform-wallet-ffi): bound bincode decode size on asset-lock proof bytes](https://github.com/dashpay/platform/pull/4585) — via @Claudius-Maginificent · 🔴 CI failing · 📝 draft
-- [#4586 fix(platform-wallet): typed persister errors with caller-visible retry classification](https://github.com/dashpay/platform/pull/4586) — via @Claudius-Maginificent · 📝 draft
-- [#4587 feat(platform-wallet-ffi): persister error codes, contact-account fix, and cleanup](https://github.com/dashpay/platform/pull/4587) — via @Claudius-Maginificent · ⚠ merge conflict · 🔴 CI failing · 📝 draft · 🐢 targets feat/platform-wallet-typed-persister-errors
-
-<a id="lklimek-needs-action"></a>
-#### Needs action (1)
-- [#3968 feat(platform-wallet-storage): embeddable SQLite persistence backend with seedless rehydration](https://github.com/dashpay/platform/pull/3968) — via @Claudius-Maginificent · 3 unresolved (3 human) · 7 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=11274c4e6317 dedupe=27666bb0c8048f05 -->" — 7 days old
-
-<a id="lklimek-unresolved-comments"></a>
-#### Unresolved Comments (1)
-- [#3968 feat(platform-wallet-storage): embeddable SQLite persistence backend with seedless rehydration](https://github.com/dashpay/platform/pull/3968) — via @Claudius-Maginificent · 3 unresolved (3 human) · 7 days stale · ✋ changes requested
-  - Top thread: "<!-- thepastaclaw-review v1 finding=11274c4e6317 dedupe=27666bb0c8048f05 -->" — 7 days old
-
-<a id="lklimek-draft"></a>
-#### Draft (3)
-- [#3549 test(platform-wallet): e2e framework + full test suite — triage pins, Found-*/PA-* guards, fail-closed persist, Stage-2 merge](https://github.com/dashpay/platform/pull/3549) — via @Claudius-Maginificent · 20 unresolved (20 human) · 124 days stale · ⚠ merge conflict · 📝 draft
-  - Top thread: "<!-- thepastaclaw-review v1 finding=a3725e9d50ca -->" — 124 days old
-- [#4585 fix(platform-wallet-ffi): bound bincode decode size on asset-lock proof bytes](https://github.com/dashpay/platform/pull/4585) — via @Claudius-Maginificent · 🔴 CI failing · 📝 draft
-- [#4586 fix(platform-wallet): typed persister errors with caller-visible retry classification](https://github.com/dashpay/platform/pull/4586) — via @Claudius-Maginificent · 📝 draft
-
-<a id="lklimek-stale"></a>
-#### Stale (3)
-- [#3992 feat(platform-wallet): manifest integrity checksum (Risk-6/R12.5 follow-up)](https://github.com/dashpay/platform/pull/3992) — via @Claudius-Maginificent · 7 unresolved (7 human) · 62 days stale · ⚠ merge conflict · ✋ changes requested · 📝 draft · 🐢 targets feat/platform-wallet-storage-rehydration
-  - Top thread: "<!-- thepastaclaw-review v1 finding=3969d61c562f dedupe=57a8bf7151c0879e -->" — 62 days old
-- [#4496 refactor(platform-wallet-storage)!: delete removed identities instead of tombstoning](https://github.com/dashpay/platform/pull/4496) — via @Claudius-Maginificent · 🐢 targets feat/platform-wallet-storage-rehydration
-- [#4587 feat(platform-wallet-ffi): persister error codes, contact-account fix, and cleanup](https://github.com/dashpay/platform/pull/4587) — via @Claudius-Maginificent · ⚠ merge conflict · 🔴 CI failing · 📝 draft · 🐢 targets feat/platform-wallet-typed-persister-errors
-
-<a id="lklimek-clean"></a>
-#### Clean (1)
-- [#4579 ci: run the shielded wallet suite and stop the shield filter sweeping up unrelated tests](https://github.com/dashpay/platform/pull/4579) — via @Claudius-Maginificent
-
-<a id="lklimek-ready-for-review"></a>
-#### Ready for Review (1)
 - [#4581 feat(drive): time-range index TTL — O(1) flat-drop drainage and ephemeral-bytes fees](https://github.com/dashpay/platform/pull/4581) — by @QuantumExplorer
 
 <a id="hashengineering"></a>
 ### @HashEngineering
 <a id="hashengineering-open"></a>
 #### Open (2)
-- [#4439 fix(kotlin-sdk): reconcile the TXO store against the engine and repair restored address pools](https://github.com/dashpay/platform/pull/4439) — 17 unresolved (17 human) · 13 days stale · 📝 draft · 🐢 targets chore/bump-rust-dashcore-dev-961
-  - Top thread: "<!-- thepastaclaw-review v1 finding=578d5aec5864 dedupe=eb43d4ed51f80ce0 -->" — 13 days old
+- [#4439 fix(kotlin-sdk): reconcile the TXO store against the engine and repair restored address pools](https://github.com/dashpay/platform/pull/4439) — 17 unresolved (17 human) · 14 days stale · 📝 draft · 🐢 targets chore/bump-rust-dashcore-dev-961
+  - Top thread: "<!-- thepastaclaw-review v1 finding=578d5aec5864 dedupe=eb43d4ed51f80ce0 -->" — 14 days old
 - [#4324 feat(kotlin-sdk): expose the drain strategy and the amount it delivers](https://github.com/dashpay/platform/pull/4324) — 1 unresolved (1 human) · 28 days stale · ⚠ merge conflict
   - Top thread: "<!-- thepastaclaw-review v1 finding=7fde5a491db5 dedupe=d4df112f113c0594 -->" — 28 days old
 
@@ -471,8 +430,51 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="hashengineering-stale"></a>
 #### Stale (1)
-- [#4439 fix(kotlin-sdk): reconcile the TXO store against the engine and repair restored address pools](https://github.com/dashpay/platform/pull/4439) — 17 unresolved (17 human) · 13 days stale · 📝 draft · 🐢 targets chore/bump-rust-dashcore-dev-961
-  - Top thread: "<!-- thepastaclaw-review v1 finding=578d5aec5864 dedupe=eb43d4ed51f80ce0 -->" — 13 days old
+- [#4439 fix(kotlin-sdk): reconcile the TXO store against the engine and repair restored address pools](https://github.com/dashpay/platform/pull/4439) — 17 unresolved (17 human) · 14 days stale · 📝 draft · 🐢 targets chore/bump-rust-dashcore-dev-961
+  - Top thread: "<!-- thepastaclaw-review v1 finding=578d5aec5864 dedupe=eb43d4ed51f80ce0 -->" — 14 days old
+
+<a id="romchornyi"></a>
+### @romchornyi
+<a id="romchornyi-open"></a>
+#### Open (10)
+- [#4406 fix(platform-wallet): act on swept transactions at the persistence seam](https://github.com/dashpay/platform/pull/4406) — 5 unresolved (5 human) · 10 days stale · ⚠ merge conflict
+  - Top thread: "<!-- thepastaclaw-review v1 finding=6aec38dc90df dedupe=9a3d59b0dccaaa95 -->" — 10 days old
+- [#4442 fix(platform-wallet): couple a sweep's payment flips to their own persistence round](https://github.com/dashpay/platform/pull/4442) — 1 unresolved (1 human) · 13 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets chore/bump-rust-dashcore-dev-961
+  - Top thread: "<!-- thepastaclaw-review v1 finding=a19ffa81df55 dedupe=4d21cd24aea4ae72 -->" — 13 days old
+- [#4371 fix(swift-sdk): build the shippable profile by default](https://github.com/dashpay/platform/pull/4371)
+- [#4558 feat(platform-wallet): sweep changeset types, FFI seam, and persistence capability bits](https://github.com/dashpay/platform/pull/4558)
+- [#4559 fix(platform-wallet-storage): durably apply swept transactions in the SQLite store](https://github.com/dashpay/platform/pull/4559) — 🐢 targets split/4406-1-seam
+- [#4560 fix(platform-wallet): act on swept transactions at the persistence seam](https://github.com/dashpay/platform/pull/4560) — 🐢 targets split/4406-2-storage
+- [#4582 feat(platform-wallet): report the balance a pooled build can actually spend](https://github.com/dashpay/platform/pull/4582)
+- [#4584 feat(platform-wallet): parse a state transition's kind and token-purchase intent](https://github.com/dashpay/platform/pull/4584)
+- [#4589 fix(swift-sdk): act on swept transactions in the SwiftData store](https://github.com/dashpay/platform/pull/4589) — 🐢 targets split/4406-3-producer
+- [#4590 fix(kotlin-sdk): act on swept transactions in the Room store](https://github.com/dashpay/platform/pull/4590) — 🐢 targets split/4406-5-swift
+
+<a id="romchornyi-needs-action"></a>
+#### Needs action (1)
+- [#4406 fix(platform-wallet): act on swept transactions at the persistence seam](https://github.com/dashpay/platform/pull/4406) — 5 unresolved (5 human) · 10 days stale · ⚠ merge conflict
+  - Top thread: "<!-- thepastaclaw-review v1 finding=6aec38dc90df dedupe=9a3d59b0dccaaa95 -->" — 10 days old
+
+<a id="romchornyi-unresolved-comments"></a>
+#### Unresolved Comments (1)
+- [#4406 fix(platform-wallet): act on swept transactions at the persistence seam](https://github.com/dashpay/platform/pull/4406) — 5 unresolved (5 human) · 10 days stale · ⚠ merge conflict
+  - Top thread: "<!-- thepastaclaw-review v1 finding=6aec38dc90df dedupe=9a3d59b0dccaaa95 -->" — 10 days old
+
+<a id="romchornyi-stale"></a>
+#### Stale (5)
+- [#4442 fix(platform-wallet): couple a sweep's payment flips to their own persistence round](https://github.com/dashpay/platform/pull/4442) — 1 unresolved (1 human) · 13 days stale · ⚠ merge conflict · 📝 draft · 🐢 targets chore/bump-rust-dashcore-dev-961
+  - Top thread: "<!-- thepastaclaw-review v1 finding=a19ffa81df55 dedupe=4d21cd24aea4ae72 -->" — 13 days old
+- [#4559 fix(platform-wallet-storage): durably apply swept transactions in the SQLite store](https://github.com/dashpay/platform/pull/4559) — 🐢 targets split/4406-1-seam
+- [#4560 fix(platform-wallet): act on swept transactions at the persistence seam](https://github.com/dashpay/platform/pull/4560) — 🐢 targets split/4406-2-storage
+- [#4589 fix(swift-sdk): act on swept transactions in the SwiftData store](https://github.com/dashpay/platform/pull/4589) — 🐢 targets split/4406-3-producer
+- [#4590 fix(kotlin-sdk): act on swept transactions in the Room store](https://github.com/dashpay/platform/pull/4590) — 🐢 targets split/4406-5-swift
+
+<a id="romchornyi-clean"></a>
+#### Clean (4)
+- [#4371 fix(swift-sdk): build the shippable profile by default](https://github.com/dashpay/platform/pull/4371)
+- [#4558 feat(platform-wallet): sweep changeset types, FFI seam, and persistence capability bits](https://github.com/dashpay/platform/pull/4558)
+- [#4582 feat(platform-wallet): report the balance a pooled build can actually spend](https://github.com/dashpay/platform/pull/4582)
+- [#4584 feat(platform-wallet): parse a state transition's kind and token-purchase intent](https://github.com/dashpay/platform/pull/4584)
 
 <a id="vivekgsharma"></a>
 ### @vivekgsharma
@@ -511,7 +513,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="zocolini"></a>
 ### @ZocoLini
 <a id="zocolini-ready-for-review"></a>
-#### Ready for Review (2)
+#### Ready for Review (3)
+- [#4558 feat(platform-wallet): sweep changeset types, FFI seam, and persistence capability bits](https://github.com/dashpay/platform/pull/4558) — by @romchornyi
 - [#4579 ci: run the shielded wallet suite and stop the shield filter sweeping up unrelated tests](https://github.com/dashpay/platform/pull/4579) — by @Claudius-Maginificent
 - [#4581 feat(drive): time-range index TTL — O(1) flat-drop drainage and ephemeral-bytes fees](https://github.com/dashpay/platform/pull/4581) — by @QuantumExplorer
 
