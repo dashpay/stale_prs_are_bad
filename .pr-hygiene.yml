@@ -17,7 +17,7 @@ excluded_labels:
   - help-wanted
 
 # Labels that mark a PR as "deferred" — visible in the scoreboard's Deferred
-# column but not counted as dirty and never tagged `needs-author-action`.
+# column but not counted as dirty and never flagged as needing author action.
 deferred_labels:
   - postponed
 

@@ -44,7 +44,11 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Build analyzer (release)
-        run: cargo build --release
+        run: cargo build --release --locked
+
+      - name: List governed repositories
+        id: registry
+        run: echo "names=$(python3 -c "import json; print(','.join(e['repository'].split('/')[1] for e in json.load(open('policies/repositories.json'))['repositories']))")" >> "$GITHUB_OUTPUT"
 
       # The review engine checks collaborator permissions on each governed
       # repository, which this repository's own token cannot read. Without the
@@ -58,18 +62,18 @@ jobs:
           app-id: ${{ vars.PR_REVIEW_APP_ID }}
           private-key: ${{ secrets.PR_REVIEW_APP_PRIVATE_KEY }}
           owner: dashpay
-          repositories: platform,rust-dashcore,tenderdash,grovedb,dash-evo-tool
+          repositories: ${{ steps.registry.outputs.names }}
           permission-contents: read
           permission-pull-requests: read
           permission-issues: read
           permission-metadata: read
 
-      # Read-only: `sync` without `--apply` never writes statuses or labels. A
-      # repository whose export fails simply has no file, which the analyzer
-      # renders as unavailable.
+      # `report` has no write path at all. A repository whose export fails
+      # simply has no file, which the analyzer renders as unavailable.
       - name: Export review-engine state per repository
         if: steps.app.outputs.token != ''
         continue-on-error: true
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
@@ -77,7 +81,7 @@ jobs:
           mkdir -p policy-state
           status=0
           for repo in $(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))"); do
-            if ! python3 -m pr_review.main sync --repo "$repo" --format json > "policy-state/${repo#*/}.json"; then
+            if ! python3 -m pr_review.main report --repo "$repo" --format json > "policy-state/${repo#*/}.json"; then
               echo "::warning::engine state export failed for $repo"
               rm -f "policy-state/${repo#*/}.json"
               status=1

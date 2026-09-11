@@ -9,8 +9,8 @@ pub struct Config {
     /// Labels that cause a PR to be skipped entirely (not counted at all).
     pub excluded_labels: Vec<String>,
     /// Labels that mark a PR as "deferred" — still visible in the scoreboard
-    /// (in its own bucket), but not counted as dirty and never tagged
-    /// `needs-author-action`.
+    /// (in its own bucket), but not counted as dirty and never flagged as
+    /// needing author action.
     pub deferred_labels: Vec<String>,
     /// PRs whose `updatedAt` is older than this fall into the Stale bucket —
     /// unless they would otherwise be Clean or Deferred.

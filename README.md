@@ -152,8 +152,8 @@ Unknown keys are rejected with an error, so typos surface immediately.
 
 ## What gets committed each run
 
-- `docs/index.md` — the report (only re-committed when changed). Also lives at
-  `docs/_config.yml` (Jekyll theme config, committed once).
+- `index.md` — the report, committed to the `data` branch (only when changed).
+  The Jekyll theme config lives in `docs/_config.yml` on `master`.
 - `.pr-hygiene/history/YYYY-MM-DD.json` — full snapshot for week-over-week deltas
 - `.pr-hygiene/authors.json` — per-author "first seen" cache for grace periods
 
