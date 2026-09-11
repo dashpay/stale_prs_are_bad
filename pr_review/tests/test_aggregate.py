@@ -39,6 +39,16 @@ class AggregateTests(unittest.TestCase):
                 policy = a.load_policy({'repository': 'dashpay/a', 'mode': mode, 'policy': 'a.json', 'engine_revision': None}, root)
                 self.assertEqual(policy['repository'], 'dashpay/a')
 
+    def test_policy_path_never_leaves_the_policies_directory(self):
+        from pr_review.registry import policy_path
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'policies').mkdir()
+            self.assertEqual(policy_path(root / 'policies', {'policy': 'a.json'}), (root / 'policies' / 'a.json').resolve())
+            for escape in ['..', '../a.json', '/etc/passwd']:
+                with self.subTest(policy=escape), self.assertRaises(ValueError):
+                    policy_path(root / 'policies', {'policy': escape})
+
     def test_registry_rejects_duplicate_repos_and_path_escape(self):
         entry = {'repository': 'dashpay/a', 'policy': '../outside.json', 'mode': 'preview', 'engine_revision': None}
         with self.assertRaises(ValueError):

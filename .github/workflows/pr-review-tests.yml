@@ -13,29 +13,30 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - run: python3 -m unittest discover -s pr_review/tests -v
-      - name: Validate every registered policy and its rollout packet
+          path: proposed
+      - name: Unit tests
+        working-directory: proposed
+        run: python3 -m unittest discover -s pr_review/tests -v
+      - name: Clone the default branch of every governed repository
+        # Policies are read live by callers, and a policy naming a directory that
+        # does not exist in its repository turns that repository's whole queue
+        # into configuration errors. Check paths against the real trees here.
+        run: |
+          set -euo pipefail
+          for repo in $(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('proposed/policies/repositories.json'))['repositories']))"); do
+            git clone --quiet --depth 1 "https://github.com/$repo" "trees/${repo#*/}"
+          done
+      - name: Validate every registered policy against its tree and generate its packet
+        working-directory: proposed
         run: |
           set -euo pipefail
           for repo in $(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))"); do
-            python3 -m pr_review.main validate --repo "$repo"
-            python3 -m pr_review.rollout --repo "$repo" --engine-revision "$GITHUB_SHA" --output "packets/${repo#*/}"
+            python3 -m pr_review.main validate --repo "$repo" --repository-root "$GITHUB_WORKSPACE/trees/${repo#*/}"
+            python3 -m pr_review.rollout --repo "$repo" --engine-revision "$GITHUB_SHA" --output "$GITHUB_WORKSPACE/packets/${repo#*/}"
           done
-      - name: Lint workflows and generated caller workflows
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash | bash -s -- 1.7.7 /tmp/actionlint-bin
-          /tmp/actionlint-bin/actionlint .github/workflows/*.yml
-          find packets -name '*.yml' -exec /tmp/actionlint-bin/actionlint {} +
-  pinned-engines:
-    # Policies are read live by callers pinned to older engine revisions, so a
-    # policy change must still validate with every engine that is in use.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          path: proposed
-      - name: Validate proposed policies with every pinned engine
+      - name: Validate proposed policies with every engine revision still pinned by a caller
+        # Callers pick up policy changes immediately but engine changes only when
+        # re-pinned, so a policy change must validate with every engine in use.
         run: |
           set -euo pipefail
           revisions=$(python3 -c "import json; print(' '.join(sorted({e['engine_revision'] for e in json.load(open('proposed/policies/repositories.json'))['repositories'] if e['engine_revision']})))")
@@ -47,6 +48,12 @@ jobs:
             git clone --quiet --no-checkout https://github.com/dashpay/stale_prs_are_bad "engine-$sha"
             git -C "engine-$sha" checkout --quiet "$sha"
             for repo in $(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('proposed/policies/repositories.json'))['repositories']))"); do
-              (cd "engine-$sha" && python3 -m pr_review.main validate --repo "$repo" --policies-root "$GITHUB_WORKSPACE/proposed/policies")
+              (cd "engine-$sha" && python3 -m pr_review.main validate --repo "$repo" \
+                 --policies-root "$GITHUB_WORKSPACE/proposed/policies" --repository-root "$GITHUB_WORKSPACE/trees/${repo#*/}")
             done
           done
+      - name: Lint workflows and generated caller workflows
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash | bash -s -- 1.7.7 /tmp/actionlint-bin
+          /tmp/actionlint-bin/actionlint proposed/.github/workflows/*.yml
+          find packets -name '*.yml' -exec /tmp/actionlint-bin/actionlint {} +

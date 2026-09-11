@@ -39,11 +39,11 @@ jobs:
           # Policies are read live from the central default branch, so that branch
           # must be governed by a ruleset before any caller trusts it.
           rules = api('repos/dashpay/stale_prs_are_bad/rules/branches/master')
-          kinds = {rule['type']: rule for rule in rules}
-          review = kinds.get('pull_request', {}).get('parameters', {})
-          if not ({'pull_request', 'non_fast_forward', 'deletion'} <= set(kinds)
-                  and review.get('required_approving_review_count', 0) >= 1
-                  and review.get('require_code_owner_review') is True):
+          kinds = {rule['type'] for rule in rules}
+          reviews = [rule.get('parameters', {}) for rule in rules if rule['type'] == 'pull_request']
+          if not ({'pull_request', 'non_fast_forward', 'deletion'} <= kinds
+                  and any(review.get('required_approving_review_count', 0) >= 1
+                          and review.get('require_code_owner_review') is True for review in reviews)):
               raise SystemExit('Central policy branch is not protected by the required ruleset; refusing to read policies')
 
           repo = os.environ['TARGET_REPOSITORY']
@@ -86,9 +86,9 @@ jobs:
           {
             echo '### Policy configuration'
             python3 -m pr_review.main validate --repo "$TARGET_REPOSITORY" \
-              --policies-root "$PR_REVIEW_POLICIES_ROOT" --repository-root "$PR_REVIEW_REPOSITORY_ROOT"
+              --policies-root "$PR_REVIEW_POLICIES_ROOT" --repository-root "$PR_REVIEW_REPOSITORY_ROOT" 2>&1
             if python3 -m pr_review.main codeowners --check --repo "$TARGET_REPOSITORY" \
-                 --policies-root "$PR_REVIEW_POLICIES_ROOT" --repository-root "$PR_REVIEW_REPOSITORY_ROOT"; then
+                 --policies-root "$PR_REVIEW_POLICIES_ROOT" --repository-root "$PR_REVIEW_REPOSITORY_ROOT" 2>&1; then
               echo 'CODEOWNERS matches the policy.'
             else
               echo 'CODEOWNERS differs from the policy; regenerate it with pr_review.rollout.'

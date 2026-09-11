@@ -20,7 +20,7 @@ Contributor and QA sheet roles are not automatically promoted to owner or review
 
 ## Local enforcement
 
-The local event workflow uses trusted default-branch policy and shared engine code. External repository callers pin both the reusable workflow and engine to the same full commit SHA. Pull request code is not executed by the privileged controller.
+Every governed repository, Platform included, calls the reusable workflow and pins both it and the engine to the same full commit SHA of this repository; the policy is read from this repository's protected default branch. Pull request code is not executed by the privileged controller.
 
 An author has five active, non-draft admission slots per repository. Admission persists across ordinary updates; lifecycle events invalidate obsolete admission records. More PRs may exist, but excess PRs wait before human review. The controller reconciles affected PRs on events and rotates through small batches on the scheduled sweep.
 

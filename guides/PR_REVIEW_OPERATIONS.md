@@ -41,13 +41,15 @@ python3 -m pr_review.rollout --repo dashpay/tenderdash --engine-revision FULL_ME
 
 Repeat for Platform, GroveDB, Dash Evo Tool and rust-dashcore. The destination must not exist. Packets contain native CODEOWNERS, a pinned caller workflow and the review-signal workflow; they contain no policy and no copied evaluator. The referenced commit must be a merge commit on this repository's `master` (squash merges discard PR head SHAs). After a caller merges, record its pin as `engine_revision` in `policies/repositories.json`. Inspect and apply packet files in a clean target checkout; the generator never overwrites a target repository itself.
 
+Before any caller can run, `master` of this repository must be governed by a ruleset that requires pull requests with at least one approval and code-owner review and blocks force-pushes and deletion (include administrators). The reusable workflow checks this through the public rulesets endpoint and refuses to read policies otherwise; classic branch protection is not visible there and does not satisfy the check.
+
 Each repository needs its own review before activation:
 
 - Confirm roster identities and repository permissions. Keep strophy and Silvanassss excluded and broad teams unchanged. Daniel remains unresolved in Platform; rust-dashcore has explicit missing-owner and cropped-scope gaps.
 - Confirm configured target branches, existing CODEOWNERS precedence, native approval rules and both bot producers. Tenderdash currently disables automatic CodeRabbit reviews. rust-dashcore's existing readiness automation needs an explicit migration. Do not silently replace either.
 - Merge under existing protections and run preview from the default branch. Verify complete evidence reads, token permissions and API usage.
 - Create `ready-for-human`, then opt into writes with repository variable `PR_REVIEW_AUTOMATION_ENABLED=true`.
-- Verify real current-head statuses, comments and requests before requiring `Platform PR policy`. Remove conflicting native approval/code-owner rules only when the owner exemption is approved and the replacement is working. Keep CI requirements.
+- Verify real current-head statuses, comments and requests before requiring the `PR review policy` status. Remove conflicting native approval/code-owner rules only when the owner exemption is approved and the replacement is working. Keep CI requirements.
 - To suppress native early invitations, replace the effective CODEOWNERS with a comment-only `.github/CODEOWNERS` during that separate activation. Generated native routing is not delayed routing.
 
 Events reevaluate the affected PR and changes to its author's slot assignments. Selector-less workflow invocations rotate three PRs at a time; the scheduled repair runs every 15 minutes. A stable 68-PR queue takes up to six hours to cover if event signals are missed. Pagination and event bursts can still exhaust quota; errors remain visible. Full local `sync` is an explicit unbounded sweep.
@@ -68,9 +70,12 @@ Delivery is attempted once per destination and is not automatically retried. An 
 
 ```sh
 python3 -m unittest discover -s pr_review/tests -v
-python3 -m pr_review.main validate
-python3 -m pr_review.main codeowners --check
+python3 -m pr_review.main validate --repo dashpay/REPOSITORY                       # schema only
+python3 -m pr_review.main validate --repo dashpay/REPOSITORY --repository-root DIR # also checks every area path exists in that checkout
+python3 -m pr_review.main codeowners --check --repo dashpay/REPOSITORY --repository-root DIR
 ```
+
+CI performs the path and packet checks against a fresh clone of every governed repository's default branch, and re-validates the proposed policies with every engine revision a caller still pins. A repository that calls the shared workflow without being registered here marks its own open heads as configuration errors once its writes are enabled.
 
 Edit seed ownership manifests and regenerate CODEOWNERS deliberately. An empty owner list is permitted only when the named area carries an explicit unresolved configuration blocker. It never grants owner powers to its reviewers.
 

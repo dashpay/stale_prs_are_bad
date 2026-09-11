@@ -45,6 +45,24 @@ class MultiRepositoryTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(main.run(['validate', *options]), 0)
 
+    def test_explicit_policy_file_cannot_be_applied(self):
+        environment = {'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'dashpay/platform',
+                       'PR_REVIEW_AUTOMATION_ENABLED':'true'}
+        with patch.dict(os.environ,environment), patch.object(main,'GitHub') as api, contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                main.run(['sync','--repo','dashpay/platform','--apply','--policy','/tmp/anything.json'])
+            api.assert_not_called()
+
+    def test_unregistered_caller_with_writes_enabled_marks_its_own_heads_as_configuration_errors(self):
+        api = Mock()
+        api.open_prs.return_value = [{'number': 1, 'head': 'a' * 40}]
+        environment = {'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'dashpay/unknown',
+                       'PR_REVIEW_AUTOMATION_ENABLED':'true'}
+        with patch.dict(os.environ,environment), patch.object(main,'GitHub',return_value=api):
+            with self.assertRaises(ValueError):
+                main.run(['sync','--repo','dashpay/unknown','--apply'])
+        self.assertEqual(api.post_status.call_args.args[1], 'error')
+
     def test_cross_repository_writer_token_is_rejected_before_api_calls(self):
         environment = {'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'dashpay/platform',
                        'PR_REVIEW_AUTOMATION_ENABLED':'true'}

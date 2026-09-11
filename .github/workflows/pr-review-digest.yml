@@ -31,6 +31,9 @@ jobs:
         run: |
           echo 'PR_REVIEW_APP_ID is not configured; the digest cannot read any governed repository.' >> "$GITHUB_STEP_SUMMARY"
           exit 1
+      - name: List governed repositories
+        id: registry
+        run: echo "names=$(python3 -c "import json; print(','.join(e['repository'].split('/')[1] for e in json.load(open('policies/repositories.json'))['repositories']))")" >> "$GITHUB_OUTPUT"
       - name: Create selected-repository read token
         id: app
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
@@ -38,7 +41,7 @@ jobs:
           app-id: ${{ vars.PR_REVIEW_APP_ID }}
           private-key: ${{ secrets.PR_REVIEW_APP_PRIVATE_KEY }}
           owner: dashpay
-          repositories: platform,rust-dashcore,tenderdash,grovedb,dash-evo-tool
+          repositories: ${{ steps.registry.outputs.names }}
           permission-contents: read
           permission-pull-requests: read
           permission-issues: read

@@ -14,7 +14,6 @@ from .github import GitHub, GitHubError, parse_controller_state
 from .policy import admit, codeowners, effective_admission, evaluate, fingerprint, validate_policy
 from .registry import POLICIES, entry_for, load_registry, policy_path
 
-CONTEXT = 'Platform PR policy'
 
 
 def utc_now():
@@ -119,7 +118,7 @@ def state_record(pr, result, context):
 def state_body(result):
     reasons = result.get('blockers') or ['All policy requirements are satisfied.']
     return '\n'.join([
-        '### Platform PR review',
+        '### PR review policy',
         f"State: **{result['state']}** · commit `{result['head']}`",
         '', *[f'- {reason}' for reason in reasons],
         '', 'Self-review is an author attestation for this exact commit:',
@@ -245,7 +244,7 @@ def selected_rows(rows, user=None):
 
 
 def render_report(rows, now, user=None):
-    lines = [f'# Platform PR reviews — {now}', '',
+    lines = [f'# PR reviews — {now}', '',
              'Read-only snapshot. Waiting time is for the current actionable review cycle.', '',
              '| PR | Author | Areas | State | Awaiting review | Next action |',
              '| --- | --- | --- | --- | --- | --- |']
