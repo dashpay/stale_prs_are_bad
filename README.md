@@ -83,9 +83,21 @@ not open PRs against it.
 
 ### One-time setup
 
-**Zero manual setup needed.** The workflow auto-enables Pages on the first run
-via `actions/configure-pages` with `enablement: true`. After the first
-successful run, Settings → Pages will show "Your site is live at
+**One-time manual setup: seed the `data` branch.** The workflow checks out
+`data` before anything else, so it must exist:
+
+```bash
+git checkout --orphan data
+git rm -rf --cached .
+printf '# PR Hygiene Report\n' > index.md
+mkdir -p .pr-hygiene/history && echo '{}' > .pr-hygiene/authors.json
+git add index.md .pr-hygiene && git commit -m "chore(pr-hygiene): seed data branch"
+git push origin data
+```
+
+Pages itself needs no setup: the workflow auto-enables it on the first run via
+`actions/configure-pages` with `enablement: true`. After the first successful
+run, Settings → Pages will show "Your site is live at
 `https://<owner>.github.io/<repo>/`".
 
 Caveats:
@@ -93,8 +105,6 @@ Caveats:
 - The repo must be public, **or** your account/org plan allows private Pages.
 - If your org has Pages administratively disabled, the workflow can't override
   that — an admin needs to allow Pages first.
-- The `data` branch must exist. Seed it once as an orphan branch containing
-  `index.md` and `.pr-hygiene/` (an empty `authors.json` is fine).
 
 > [!IMPORTANT]
 > **Labeling PRs in another repo needs a PAT.** The workflow's default

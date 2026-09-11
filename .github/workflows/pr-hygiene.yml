@@ -7,10 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write       # push the regenerated report to the data branch
-  pull-requests: write  # label PRs on the *target* repo (needs PAT — see README)
-  pages: write          # deploy to GitHub Pages
-  id-token: write       # OIDC for actions/deploy-pages
+  contents: read
 
 concurrency:
   # Don't run analyze and publish for the same repo simultaneously.
@@ -22,6 +19,9 @@ jobs:
     name: Generate report
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write       # push the regenerated report to the data branch
+      pull-requests: write  # label PRs on the *target* repo (needs PAT — see README)
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -76,6 +76,10 @@ jobs:
     needs: analyze
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write          # deploy to GitHub Pages
+      id-token: write       # OIDC for actions/deploy-pages
     environment:
       # Lets the run page link directly to the deployed URL.
       name: github-pages
