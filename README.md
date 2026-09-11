@@ -11,10 +11,11 @@ This repository hosts two things:
 2. **The PR-hygiene dashboard** described below.
 
 
-Nightly PR-hygiene dashboard for a target GitHub repository (default:
-[`dashpay/platform`](https://github.com/dashpay/platform)). Surfaces who has the
+Nightly PR-hygiene dashboard for every repository registered in
+[`policies/repositories.json`](policies/repositories.json). Surfaces who has the
 most open PRs with unresolved review feedback — CodeRabbit and human reviewers
-both — so social pressure replaces 1:1 nagging.
+both — so social pressure replaces 1:1 nagging, and shows the shared review
+engine's verdict for each PR next to it.
 
 The deliverable is a GitHub Pages site built from the generated `index.md` on
 the `data` branch, regenerated and re-deployed every 6 hours. URL pattern:
@@ -28,7 +29,7 @@ For this repo, after the first workflow run that's
 
 ## What it does
 
-For every open PR in the target repo:
+For every open PR in every registered repository:
 
 1. Fetches PR metadata, review state, merge state, and every review thread via
    the GitHub GraphQL API.
@@ -38,10 +39,19 @@ For every open PR in the target repo:
    severity (`high` / `medium` / `low`) — CodeRabbit severity comes from the
    `⚠️ / 🛠️ / 🧹 / 🔵` markers in the first comment, human threads default to
    `medium` and escalate to `high` when any reviewer has `CHANGES_REQUESTED`.
+   Review bots whose threads block merge in the shared engine (`thepastaclaw`)
+   are graded like CodeRabbit; other bots are `low`.
 4. Scores each PR:
    `score = high*5 + medium*2 + low*0.5`, then `score *= max(1, ln(oldest+1))`.
-5. Rolls up per author, ranks "top offenders", and (optionally) labels every PR
-   that needs author action with `needs-author-action`.
+5. Routes review duty from the repository's policy in `policies/`: the owners
+   and reviewers of every area the changed files fall into (or the repository
+   fallback for files no area claims), combined with GitHub's explicit review
+   requests. Areas whose ownership the policy still lists as unresolved are
+   flagged on the PR.
+6. Joins the review engine's exported state (`waiting-bots`, `ready-for-human`,
+   …) and its blockers onto each PR. A repository whose export is missing is
+   reported as "engine state unavailable", never as clean.
+7. Rolls up per author and ranks "top offenders".
 
 Fairness guards (all in [`.pr-hygiene.yml`](.pr-hygiene.yml)):
 
@@ -61,10 +71,12 @@ cargo run --release -- --token "$GITHUB_TOKEN"
 
 Useful flags:
 
-- `--repo dashpay/platform` — override `target_repo` from config
+- `--repo dashpay/platform` — analyze only this registered repository
+- `--policies-root ./policies` — directory holding `repositories.json` and the policy files
+- `--policy-state ./policy-state` — directory of review-engine exports (`<name>.json` per repository)
 - `--config ./alt.yml` — alternate config path
 - `--out docs/index.md` — output path
-- `--dry-run` — skip writing files and label mutations; print the report to stdout
+- `--dry-run` — skip writing files; print the report to stdout
 
 `GITHUB_TOKEN` can also be supplied via the `--token` flag, or any other env var
 your shell sets it from.
@@ -75,7 +87,8 @@ your shell sets it from.
 |------------------|-------------------------------------------------|
 | Read public repo | `public_repo` (classic) or read PRs (fine-grained) |
 | Read private repo| `repo` (classic) or read PRs (fine-grained)     |
-| Label mutations  | `repo` (classic) or `pull-requests:write` (fine-grained) — **on the target repo, not on this repo** |
+
+The dashboard only reads. The review engine is the single writer per repository.
 
 ## GitHub Action + Pages
 
@@ -83,8 +96,11 @@ The included [`.github/workflows/pr-hygiene.yml`](.github/workflows/pr-hygiene.y
 runs every 6 hours (00:00 / 06:00 / 12:00 / 18:00 UTC) and on `workflow_dispatch`. It has two jobs:
 
 1. **`analyze`** — checks out `master` (code) and the `data` branch (generated
-   output), builds the analyzer, runs it from inside the `data` checkout, and
-   pushes `index.md` + `.pr-hygiene/` to `data`.
+   output), builds the analyzer, exports the review engine's state for each
+   registered repository with the read-only GitHub App token (skipped when
+   `PR_REVIEW_APP_ID` is unset — the board then says "engine state unavailable"),
+   runs the analyzer from inside the `data` checkout, and pushes `index.md` +
+   `.pr-hygiene/` to `data`.
 2. **`publish`** — copies `data/index.md` into `docs/`, builds the `docs/` folder
    with Jekyll, and deploys to GitHub Pages.
 
@@ -117,26 +133,17 @@ Caveats:
 - If your org has Pages administratively disabled, the workflow can't override
   that — an admin needs to allow Pages first.
 
-> [!IMPORTANT]
-> **Labeling PRs in another repo needs a PAT.** The workflow's default
-> `GITHUB_TOKEN` is scoped to *this* repo only. It can read public PRs from
-> `dashpay/platform` just fine, but **it cannot apply labels there**. To enable
-> `auto_label`, create a PAT (or fine-grained token) with `pull-requests:write`
-> on the target repo, and store it as `secrets.PR_HYGIENE_TOKEN`. The workflow
-> picks it up automatically when set.
-
 ## Configuration reference
 
 See [`.pr-hygiene.yml`](.pr-hygiene.yml) — every key has an inline comment.
-Highlights:
+The keys apply to every registered repository; which repositories exist and
+who owns what in them is defined in `policies/`. Highlights:
 
 | Key                       | Default          | Effect                                           |
 |---------------------------|------------------|--------------------------------------------------|
-| `target_repo`             | `dashpay/platform` | Which repo to analyze                          |
 | `grace_period_days`       | `14`             | Skip authors first seen within this window       |
 | `count_nitpicks`          | `false`          | Whether `low`-severity threads count             |
 | `maintainer_only`         | `false`          | Filter out drive-by review noise                 |
-| `auto_label`              | `true`           | Apply/remove `needs-author-action`               |
 | `weights.{high,medium,low}` | `5/2/0.5`      | Severity weights for scoring                     |
 | `age_multiplier`          | `ln`             | `ln`, `log10`, or `none`                         |
 | `history_retention_days`  | `90`             | Daily snapshots older than this are pruned       |
@@ -145,8 +152,8 @@ Unknown keys are rejected with an error, so typos surface immediately.
 
 ## What gets committed each run
 
-- `docs/index.md` — the report (only re-committed when changed). Also lives at
-  `docs/_config.yml` (Jekyll theme config, committed once).
+- `index.md` — the report, committed to the `data` branch (only when changed).
+  The Jekyll theme config lives in `docs/_config.yml` on `master`.
 - `.pr-hygiene/history/YYYY-MM-DD.json` — full snapshot for week-over-week deltas
 - `.pr-hygiene/authors.json` — per-author "first seen" cache for grace periods
 
@@ -164,9 +171,11 @@ INSTA_UPDATE=always cargo test --test end_to_end
 ```
 
 The fixture-based end-to-end test in [`tests/end_to_end.rs`](tests/end_to_end.rs)
-exercises the full parse → analyze → score → render pipeline against
-[`tests/fixtures/sample_prs.json`](tests/fixtures/sample_prs.json) and snapshots
-the output, so any regression in the renderer or scoring shows up as a diff.
+exercises the full parse → analyze → route → score → render pipeline against
+two fixture repositories ([`tests/fixtures/`](tests/fixtures/)), a temporary
+policy registry and a review-engine export for only one of them, and snapshots
+the output, so any regression in the renderer, routing or scoring shows up as a
+diff.
 
 ## Project layout
 
@@ -175,19 +184,21 @@ src/
   config.rs    — YAML loading + defaults
   fetcher.rs   — GraphQL client, pagination, retry
   analyzer.rs  — thread classification, severity, grace period
-  scorer.rs    — per-PR scoring, per-author rollup, deltas
+  scorer.rs    — per-PR scoring, policy routing, per-author rollup, deltas
+  policy.rs    — policy registry, area routing, review-engine state export
   history.rs   — snapshot persistence + pruning
   renderer.rs  — markdown report
-  labeler.rs   — `needs-author-action` add/remove diff + REST mutations
   model.rs     — shared types
   main.rs      — CLI wiring
   lib.rs       — re-exports for integration tests
 tests/
   end_to_end.rs
   fixtures/sample_prs.json
+  fixtures/sample_prs_rust_dashcore.json
 docs/
   _config.yml  — Jekyll theme + title for the Pages site
   index.md     — generated each run
 .github/workflows/pr-hygiene.yml
+.github/workflows/rust.yml
 .pr-hygiene.yml
 ```

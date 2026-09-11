@@ -133,11 +133,13 @@ mod tests {
                 changes_requested_prs: 0,
                 awaiting_review: 0,
                 prs_needing_author_action: 1,
+                ready_for_human_prs: 0,
                 total_unresolved: 2,
                 total_score: 1.5,
                 oldest_stale_pr_days: 4.0,
             }],
             per_pr: vec![PrSnapshot {
+                repo: "dashpay/platform".into(),
                 number: 1,
                 author: Some("alice".into()),
                 score: 1.5,
