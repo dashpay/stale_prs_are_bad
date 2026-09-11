@@ -5,8 +5,8 @@ Nightly PR-hygiene dashboard for a target GitHub repository (default:
 most open PRs with unresolved review feedback — CodeRabbit and human reviewers
 both — so social pressure replaces 1:1 nagging.
 
-The deliverable is a GitHub Pages site built from [`docs/index.md`](docs/index.md),
-regenerated and re-deployed every 6 hours. URL pattern:
+The deliverable is a GitHub Pages site built from the generated `index.md` on
+the `data` branch, regenerated and re-deployed every 6 hours. URL pattern:
 
 ```
 https://<owner>.github.io/<repo>/
@@ -71,16 +71,33 @@ your shell sets it from.
 The included [`.github/workflows/pr-hygiene.yml`](.github/workflows/pr-hygiene.yml)
 runs every 6 hours (00:00 / 06:00 / 12:00 / 18:00 UTC) and on `workflow_dispatch`. It has two jobs:
 
-1. **`analyze`** — fetches PRs, generates the report, commits `docs/index.md`
-   and `.pr-hygiene/` back to `master` with `[skip ci]`, and applies labels.
-2. **`publish`** — checks out the fresh commit, builds the `docs/` folder with
-   Jekyll, and deploys to GitHub Pages.
+1. **`analyze`** — checks out `master` (code) and the `data` branch (generated
+   output), builds the analyzer, runs it from inside the `data` checkout, and
+   pushes `index.md` + `.pr-hygiene/` to `data`.
+2. **`publish`** — copies `data/index.md` into `docs/`, builds the `docs/` folder
+   with Jekyll, and deploys to GitHub Pages.
+
+`master` holds only code and configuration and never receives bot commits, so it
+can be branch-protected. The `data` branch is written only by the workflow; do
+not open PRs against it.
 
 ### One-time setup
 
-**Zero manual setup needed.** The workflow auto-enables Pages on the first run
-via `actions/configure-pages@v5` with `enablement: true`. After the first
-successful run, Settings → Pages will show "Your site is live at
+**One-time manual setup: seed the `data` branch.** The workflow checks out
+`data` before anything else, so it must exist:
+
+```bash
+git checkout --orphan data
+git rm -rf --cached .
+printf '# PR Hygiene Report\n' > index.md
+mkdir -p .pr-hygiene/history && echo '{}' > .pr-hygiene/authors.json
+git add index.md .pr-hygiene && git commit -m "chore(pr-hygiene): seed data branch"
+git push origin data
+```
+
+Pages itself needs no setup: the workflow auto-enables it on the first run via
+`actions/configure-pages` with `enablement: true`. After the first successful
+run, Settings → Pages will show "Your site is live at
 `https://<owner>.github.io/<repo>/`".
 
 Caveats:
@@ -96,11 +113,6 @@ Caveats:
 > `auto_label`, create a PAT (or fine-grained token) with `pull-requests:write`
 > on the target repo, and store it as `secrets.PR_HYGIENE_TOKEN`. The workflow
 > picks it up automatically when set.
-
-> [!NOTE]
-> If your branch protection rules block the default token from pushing to
-> `master`, you'll need the same `PR_HYGIENE_TOKEN` (with `contents:write`) or a
-> deploy key with push access. The push step uses whichever token is configured.
 
 ## Configuration reference
 
