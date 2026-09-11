@@ -39,6 +39,8 @@ For every open PR in every registered repository:
    severity (`high` / `medium` / `low`) — CodeRabbit severity comes from the
    `⚠️ / 🛠️ / 🧹 / 🔵` markers in the first comment, human threads default to
    `medium` and escalate to `high` when any reviewer has `CHANGES_REQUESTED`.
+   Review bots whose threads block merge in the shared engine (`thepastaclaw`)
+   are graded like CodeRabbit; other bots are `low`.
 4. Scores each PR:
    `score = high*5 + medium*2 + low*0.5`, then `score *= max(1, ln(oldest+1))`.
 5. Routes review duty from the repository's policy in `policies/`: the owners

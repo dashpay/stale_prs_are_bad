@@ -21,6 +21,11 @@ const KNOWN_BOTS: &[&str] = &[
     "thepastaclaw",
 ];
 
+/// Bots that perform code review and whose threads block merge in the shared
+/// review engine. Their threads are graded like CodeRabbit's rather than as
+/// low-severity automation noise.
+const REVIEW_BOTS: &[&str] = &["thepastaclaw"];
+
 /// `default_branch` is the repository's default branch as reported by GitHub;
 /// PRs targeting anything else are stale. `None` (detection failed) disables
 /// that check rather than flagging every PR.
@@ -267,6 +272,9 @@ fn classify_thread(
                 Severity::Medium
             }
         }
+        ThreadSource::Bot if is_review_bot(first_relevant.author.as_deref()) => {
+            coderabbit_severity(&first_relevant.body)
+        }
         ThreadSource::Bot => Severity::Low,
     };
 
@@ -285,6 +293,10 @@ fn classify_thread(
         last_comment_at,
         first_comment_excerpt: excerpt(&first_relevant.body),
     })
+}
+
+fn is_review_bot(login: Option<&str>) -> bool {
+    login.is_some_and(|l| REVIEW_BOTS.iter().any(|b| b.eq_ignore_ascii_case(l)))
 }
 
 fn classify_source(login: Option<&str>) -> ThreadSource {
@@ -557,6 +569,94 @@ mod tests {
         assert_eq!(regular.severity, Severity::Medium);
         let blocking = classify_thread(&t, Some("alice"), true, &cfg).unwrap();
         assert_eq!(blocking.severity, Severity::High);
+    }
+
+    #[test]
+    fn review_bot_thread_is_graded_like_coderabbit() {
+        let cfg = Config::default();
+        let t = thread(
+            "t1",
+            vec![test_helpers_comment(
+                "thepastaclaw",
+                "This lock is taken twice on the error path.",
+                dt("2026-01-01T00:00:00Z"),
+            )],
+        );
+        let a = classify_thread(&t, Some("alice"), false, &cfg).unwrap();
+        assert_eq!(a.source, ThreadSource::Bot);
+        assert_eq!(a.severity, Severity::Medium, "no marker → Medium");
+        let flagged = thread(
+            "t2",
+            vec![test_helpers_comment(
+                "thepastaclaw",
+                "⚠️ Potential issue: double lock",
+                dt("2026-01-01T00:00:00Z"),
+            )],
+        );
+        let a = classify_thread(&flagged, Some("alice"), false, &cfg).unwrap();
+        assert_eq!(a.severity, Severity::High);
+    }
+
+    #[test]
+    fn review_bot_thread_survives_count_nitpicks_false() {
+        let cfg = Config {
+            count_nitpicks: false,
+            ..Config::default()
+        };
+        let now = dt("2026-05-19T00:00:00Z");
+        let mut pr = RawPr {
+            repo: "dashpay/platform".into(),
+            number: 1,
+            title: "x".into(),
+            url: "u".into(),
+            author: Some("alice".into()),
+            created_at: dt("2026-01-01T00:00:00Z"),
+            updated_at: dt("2026-01-10T00:00:00Z"),
+            is_draft: false,
+            mergeable: Mergeable::Mergeable,
+            labels: vec![],
+            last_commit: None,
+            reviews: vec![],
+            threads: vec![thread(
+                "t1",
+                vec![test_helpers_comment(
+                    "thepastaclaw",
+                    "Missing null check here.",
+                    dt("2026-01-02T00:00:00Z"),
+                )],
+            )],
+            requested_reviewers: vec![],
+            base_ref: "master".into(),
+            changed_files: vec![],
+        };
+        let analyzed = analyze(vec![pr.clone()], &cfg, None, now);
+        assert_eq!(analyzed[0].unresolved_threads.len(), 1);
+        assert_eq!(analyzed[0].unresolved_threads[0].source, ThreadSource::Bot);
+
+        // Plain automation bots stay Low and are dropped.
+        pr.threads[0].comments[0].author = Some("dependabot[bot]".into());
+        let analyzed = analyze(vec![pr], &cfg, None, now);
+        assert!(analyzed[0].unresolved_threads.is_empty());
+    }
+
+    #[test]
+    fn plain_bot_thread_is_low() {
+        let cfg = Config::default();
+        let t = thread(
+            "t1",
+            vec![test_helpers_comment(
+                "dependabot[bot]",
+                "⚠️ Bumps foo from 1 to 2",
+                dt("2026-01-01T00:00:00Z"),
+            )],
+        );
+        let a = classify_thread(&t, Some("alice"), false, &cfg).unwrap();
+        assert_eq!(a.source, ThreadSource::Bot);
+        assert_eq!(
+            a.severity,
+            Severity::Low,
+            "markers don't promote plain bots"
+        );
     }
 
     #[test]
