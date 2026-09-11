@@ -12,6 +12,9 @@ const MAX_BLOCKERS_SHOWN: usize = 3;
 pub struct RepoStatus {
     pub repo: String,
     pub engine_state_available: bool,
+    /// Set when the repository's PRs could not be fetched this run; its
+    /// counts are then unknown rather than zero.
+    pub fetch_error: Option<String>,
 }
 
 pub struct RenderContext<'a> {
@@ -193,6 +196,15 @@ fn write_summary(out: &mut String, scored: &[ScoredPr], repos: &[RepoStatus]) {
     let _ = writeln!(out, "- PRs needing author action: **{needs}**");
     let _ = writeln!(out, "- Total unresolved comments: **{unresolved}**");
     for r in repos {
+        if let Some(err) = &r.fetch_error {
+            let _ = writeln!(
+                out,
+                "- {}: **fetch failed** — {} · counts above exclude this repository",
+                r.repo,
+                sanitize_inline(err)
+            );
+            continue;
+        }
         let mine = || scored.iter().filter(|s| s.pr.raw.repo == r.repo);
         let counts = bucket_counts(mine());
         let engine = if r.engine_state_available {
@@ -475,7 +487,8 @@ fn write_author_section(
     let mut to_review: Vec<&ScoredPr> = scored
         .iter()
         .filter(|p| {
-            if p.pr.is_deferred
+            if p.routing_unavailable.is_some()
+                || p.pr.is_deferred
                 || p.pr.is_stale
                 || p.pr.raw.is_draft
                 || p.unresolved_total > 0
@@ -591,6 +604,9 @@ fn write_pr_bullet(
             "⚠ ownership unresolved: {}",
             s.unresolved_areas.join(", ")
         ));
+    }
+    if let Some(reason) = &s.routing_unavailable {
+        detail_bits.push(format!("⚠ routing unavailable: {reason}"));
     }
     if let Some(p) = &s.policy_state {
         detail_bits.push(format!("Policy: {}", sanitize_inline(&p.state)));
@@ -811,6 +827,7 @@ mod tests {
                     requested_reviewers: vec![],
                     base_ref: "master".into(),
                     changed_files: vec![],
+                    changed_files_truncated: false,
                 },
                 unresolved_threads: unresolved,
                 days_since_author_push: 1.0,
@@ -831,6 +848,7 @@ mod tests {
             routed_reviewers: vec![],
             areas: vec![],
             unresolved_areas: vec![],
+            routing_unavailable: None,
             policy_state: None,
         }
     }
@@ -858,6 +876,30 @@ mod tests {
         assert!(out.contains("# PR Hygiene Report"));
         assert!(out.contains("Open PRs: **0**"));
         assert!(out.contains("Methodology"));
+    }
+
+    #[test]
+    fn summary_marks_unfetched_and_unexported_repositories() {
+        let repos = vec![
+            RepoStatus {
+                repo: "dashpay/platform".into(),
+                engine_state_available: false,
+                fetch_error: None,
+            },
+            RepoStatus {
+                repo: "dashpay/grovedb".into(),
+                engine_state_available: true,
+                fetch_error: Some("GraphQL 502 | boom".into()),
+            },
+        ];
+        let ctx = RenderContext {
+            repos: &repos,
+            ..ctx(false)
+        };
+        let out = render(&[], &[], &ctx);
+        assert!(out.contains("- dashpay/platform: **0** open"));
+        assert!(out.contains("engine state unavailable"));
+        assert!(out.contains("- dashpay/grovedb: **fetch failed** — GraphQL 502 \\| boom"));
     }
 
     #[test]

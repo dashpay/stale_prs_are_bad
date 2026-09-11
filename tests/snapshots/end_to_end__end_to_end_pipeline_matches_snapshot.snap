@@ -22,7 +22,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 | [@alice](#alice) | [4](#alice-open) | [1](#alice-clean) | — | [2](#alice-unresolved-comments) | — | [1](#alice-deferred) | — | — | [2](#alice-needs-action) | — | [3](#alice-unresolved-comments) | [1](#alice-ready-for-review) |
 | [@bob](#bob) | [3](#bob-open) | [1](#bob-clean) | — | [1](#bob-unresolved-comments) | — | — | [1](#bob-draft) | — | — | — | [1](#bob-unresolved-comments) | — |
 | [@carol](#carol) | [3](#carol-open) | [1](#carol-clean) | [1](#carol-ci-failing) | — | [1](#carol-changes-requested) | — | — | — | [1](#carol-needs-action) | [1](#carol-ready-for-human) | — | — |
-| [@QuantumExplorer](#quantumexplorer) | — | — | — | — | — | — | — | — | — | — | — | [2](#quantumexplorer-ready-for-review) |
+| [@QuantumExplorer](#quantumexplorer) | — | — | — | — | — | — | — | — | — | — | — | [3](#quantumexplorer-ready-for-review) |
 | [@ZocoLini](#zocolini) | — | — | — | — | — | — | — | — | — | — | — | [1](#zocolini-ready-for-review) |
 | [@xdustinface](#xdustinface) | — | — | — | — | — | — | — | — | — | — | — | [1](#xdustinface-ready-for-review) |
 | [@PastaPastaPasta + (@thepastaclaw)](#pastapastapasta) | [1+(1)](#pastapastapasta-open) | [0+(1)](#pastapastapasta-clean) | — | — | — | — | — | [1+(0)](#pastapastapasta-stale) | — | [0+(1)](#pastapastapasta-ready-for-human) | — | — |
@@ -33,42 +33,42 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @alice
 <a id="alice-open"></a>
 #### Open (4)
-- [dashpay/platform#1234 Add foo support](https://github.com/dashpay/platform/pull/1234) — 2 unresolved (1 CodeRabbit, 1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing · Policy: waiting-author
+- [dashpay/platform#1234 Add foo support](https://github.com/dashpay/platform/pull/1234) — 2 unresolved (1 CodeRabbit, 1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing · ⚠ routing unavailable: no changed-file evidence · Policy: waiting-author
   - Top thread: "This should use error wrapping instead of bare returns" — 23 days old
   - Blocker: CI failing
   - Blocker: Changes requested by bob-reviewer
   - Blocker: 2 unresolved review threads
   - … 1 more blocker(s)
-- [dashpay/platform#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict
+- [dashpay/platform#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict · ⚠ routing unavailable: no changed-file evidence
   - Top thread: "🛠️ Refactor suggestion: extract this loop" — 39 days old
-- [dashpay/platform#5000 Postpone wallet migration](https://github.com/dashpay/platform/pull/5000) — ⏸ deferred
+- [dashpay/platform#5000 Postpone wallet migration](https://github.com/dashpay/platform/pull/5000) — ⏸ deferred · ⚠ routing unavailable: no changed-file evidence
 - [dashpay/rust-dashcore#102 docs: fix README badges](https://github.com/dashpay/rust-dashcore/pull/102) — areas: fallback
 
 <a id="alice-needs-action"></a>
 #### Needs action (2)
-- [dashpay/platform#1234 Add foo support](https://github.com/dashpay/platform/pull/1234) — 2 unresolved (1 CodeRabbit, 1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing · Policy: waiting-author
+- [dashpay/platform#1234 Add foo support](https://github.com/dashpay/platform/pull/1234) — 2 unresolved (1 CodeRabbit, 1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing · ⚠ routing unavailable: no changed-file evidence · Policy: waiting-author
   - Top thread: "This should use error wrapping instead of bare returns" — 23 days old
   - Blocker: CI failing
   - Blocker: Changes requested by bob-reviewer
   - Blocker: 2 unresolved review threads
   - … 1 more blocker(s)
-- [dashpay/platform#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict
+- [dashpay/platform#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict · ⚠ routing unavailable: no changed-file evidence
   - Top thread: "🛠️ Refactor suggestion: extract this loop" — 39 days old
 
 <a id="alice-unresolved-comments"></a>
 #### Unresolved Comments (2)
-- [dashpay/platform#1234 Add foo support](https://github.com/dashpay/platform/pull/1234) — 2 unresolved (1 CodeRabbit, 1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing · Policy: waiting-author
+- [dashpay/platform#1234 Add foo support](https://github.com/dashpay/platform/pull/1234) — 2 unresolved (1 CodeRabbit, 1 human) · 23 days stale · ✋ changes requested · 🔴 CI failing · ⚠ routing unavailable: no changed-file evidence · Policy: waiting-author
   - Top thread: "This should use error wrapping instead of bare returns" — 23 days old
   - Blocker: CI failing
   - Blocker: Changes requested by bob-reviewer
   - Blocker: 2 unresolved review threads
   - … 1 more blocker(s)
-- [dashpay/platform#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict
+- [dashpay/platform#1240 Refactor scheduler](https://github.com/dashpay/platform/pull/1240) — 1 unresolved (1 CodeRabbit) · 39 days stale · ⚠ merge conflict · ⚠ routing unavailable: no changed-file evidence
   - Top thread: "🛠️ Refactor suggestion: extract this loop" — 39 days old
 
 <a id="alice-deferred"></a>
 #### Deferred (1)
-- [dashpay/platform#5000 Postpone wallet migration](https://github.com/dashpay/platform/pull/5000) — ⏸ deferred
+- [dashpay/platform#5000 Postpone wallet migration](https://github.com/dashpay/platform/pull/5000) — ⏸ deferred · ⚠ routing unavailable: no changed-file evidence
 
 <a id="alice-clean"></a>
 #### Clean (1)
@@ -76,26 +76,26 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="alice-ready-for-review"></a>
 #### Ready for Review (1)
-- [dashpay/platform#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — by @carol · Policy: ready-for-human
+- [dashpay/platform#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — by @carol · areas: fallback · Policy: ready-for-human
   - Blocker: Human approval or objection resolution is required
 
 <a id="bob"></a>
 ### @bob
 <a id="bob-open"></a>
 #### Open (3)
-- [dashpay/platform#2001 Bump grpc-tonic to 0.12](https://github.com/dashpay/platform/pull/2001) — 1 unresolved (1 human) · 2 days stale
+- [dashpay/platform#2001 Bump grpc-tonic to 0.12](https://github.com/dashpay/platform/pull/2001) — 1 unresolved (1 human) · 2 days stale · ⚠ routing unavailable: no changed-file evidence
   - Top thread: "Did you run the full integration suite?" — 2 days old
-- [dashpay/platform#6000 Draft: rework cache layer](https://github.com/dashpay/platform/pull/6000) — 📝 draft
+- [dashpay/platform#6000 Draft: rework cache layer](https://github.com/dashpay/platform/pull/6000) — 📝 draft · ⚠ routing unavailable: no changed-file evidence
 - [dashpay/rust-dashcore#101 spv: retry header sync after reorg](https://github.com/dashpay/rust-dashcore/pull/101) — areas: dash-spv · ⚠ ownership unresolved: dash-spv
 
 <a id="bob-unresolved-comments"></a>
 #### Unresolved Comments (1)
-- [dashpay/platform#2001 Bump grpc-tonic to 0.12](https://github.com/dashpay/platform/pull/2001) — 1 unresolved (1 human) · 2 days stale
+- [dashpay/platform#2001 Bump grpc-tonic to 0.12](https://github.com/dashpay/platform/pull/2001) — 1 unresolved (1 human) · 2 days stale · ⚠ routing unavailable: no changed-file evidence
   - Top thread: "Did you run the full integration suite?" — 2 days old
 
 <a id="bob-draft"></a>
 #### Draft (1)
-- [dashpay/platform#6000 Draft: rework cache layer](https://github.com/dashpay/platform/pull/6000) — 📝 draft
+- [dashpay/platform#6000 Draft: rework cache layer](https://github.com/dashpay/platform/pull/6000) — 📝 draft · ⚠ routing unavailable: no changed-file evidence
 
 <a id="bob-clean"></a>
 #### Clean (1)
@@ -105,39 +105,41 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @carol
 <a id="carol-open"></a>
 #### Open (3)
-- [dashpay/platform#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — Policy: ready-for-human
+- [dashpay/platform#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — areas: fallback · Policy: ready-for-human
   - Blocker: Human approval or objection resolution is required
-- [dashpay/platform#7000 fix: handle empty payload gracefully](https://github.com/dashpay/platform/pull/7000) — 🔴 CI failing · Policy: waiting-bots
+- [dashpay/platform#7000 fix: handle empty payload gracefully](https://github.com/dashpay/platform/pull/7000) — 🔴 CI failing · ⚠ routing unavailable: no changed-file evidence · Policy: waiting-bots
   - Blocker: CodeRabbit review pending
-- [dashpay/platform#8000 refactor: extract validation helpers](https://github.com/dashpay/platform/pull/8000) — ✋ changes requested · areas: validation
+- [dashpay/platform#8000 refactor: extract validation helpers](https://github.com/dashpay/platform/pull/8000) — ✋ changes requested · ⚠ routing unavailable: changed files truncated (1 fetched)
 
 <a id="carol-needs-action"></a>
 #### Needs action (1)
-- [dashpay/platform#8000 refactor: extract validation helpers](https://github.com/dashpay/platform/pull/8000) — ✋ changes requested · areas: validation
+- [dashpay/platform#8000 refactor: extract validation helpers](https://github.com/dashpay/platform/pull/8000) — ✋ changes requested · ⚠ routing unavailable: changed files truncated (1 fetched)
 
 <a id="carol-ready-for-human"></a>
 #### Ready for human (1)
-- [dashpay/platform#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — Policy: ready-for-human
+- [dashpay/platform#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — areas: fallback · Policy: ready-for-human
   - Blocker: Human approval or objection resolution is required
 
 <a id="carol-changes-requested"></a>
 #### Changes Requested (1)
-- [dashpay/platform#8000 refactor: extract validation helpers](https://github.com/dashpay/platform/pull/8000) — ✋ changes requested · areas: validation
+- [dashpay/platform#8000 refactor: extract validation helpers](https://github.com/dashpay/platform/pull/8000) — ✋ changes requested · ⚠ routing unavailable: changed files truncated (1 fetched)
 
 <a id="carol-ci-failing"></a>
 #### CI Failing (1)
-- [dashpay/platform#7000 fix: handle empty payload gracefully](https://github.com/dashpay/platform/pull/7000) — 🔴 CI failing · Policy: waiting-bots
+- [dashpay/platform#7000 fix: handle empty payload gracefully](https://github.com/dashpay/platform/pull/7000) — 🔴 CI failing · ⚠ routing unavailable: no changed-file evidence · Policy: waiting-bots
   - Blocker: CodeRabbit review pending
 
 <a id="carol-clean"></a>
 #### Clean (1)
-- [dashpay/platform#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — Policy: ready-for-human
+- [dashpay/platform#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — areas: fallback · Policy: ready-for-human
   - Blocker: Human approval or objection resolution is required
 
 <a id="quantumexplorer"></a>
 ### @QuantumExplorer
 <a id="quantumexplorer-ready-for-review"></a>
-#### Ready for Review (2)
+#### Ready for Review (3)
+- [dashpay/platform#3000 Docs: clarify mempool ordering](https://github.com/dashpay/platform/pull/3000) — by @carol · areas: fallback · Policy: ready-for-human
+  - Blocker: Human approval or objection resolution is required
 - [dashpay/platform#3001 ci: tolerate book preview comment errors](https://github.com/dashpay/platform/pull/3001) — by @thepastaclaw · areas: fallback · Policy: ready-to-merge
 - [dashpay/rust-dashcore#102 docs: fix README badges](https://github.com/dashpay/rust-dashcore/pull/102) — by @alice · areas: fallback
 

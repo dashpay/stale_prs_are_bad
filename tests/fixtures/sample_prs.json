@@ -175,7 +175,7 @@
             "updatedAt": "2026-05-12T00:00:00Z",
             "author": { "login": "carol" },
             "labels": { "nodes": [] },
-            "files": { "nodes": [{ "path": "src/validators.rs" }] },
+            "files": { "totalCount": 60, "nodes": [{ "path": "src/validators.rs" }] },
             "commits": {
               "nodes": [
                 {
@@ -242,6 +242,7 @@
             "author": { "login": "thepastaclaw" },
             "labels": { "nodes": [] },
             "files": {
+              "totalCount": 1,
               "nodes": [
                 { "path": ".github/workflows/book.yml" }
               ]
@@ -310,6 +311,7 @@
             "number": 3000,
             "title": "Docs: clarify mempool ordering",
             "url": "https://github.com/dashpay/platform/pull/3000",
+            "files": { "totalCount": 1, "nodes": [{ "path": "docs/mempool.md" }] },
             "isDraft": false,
             "mergeable": "MERGEABLE",
             "createdAt": "2026-04-15T00:00:00Z",
@@ -447,6 +449,7 @@
             "author": { "login": "PastaPastaPasta" },
             "labels": { "nodes": [] },
             "files": {
+              "totalCount": 2,
               "nodes": [
                 { "path": "packages/wasm-sdk/src/lib.rs" },
                 { "path": "packages/wasm-sdk/Cargo.toml" }

@@ -32,8 +32,34 @@ pub fn attach_engine_state(scored: &mut [ScoredPr], repo: &str, state: &HashMap<
     }
 }
 
-/// Returns (reviewers still owing a review, matched area ids, unresolved area ids).
-fn route_pr(pr: &AnalyzedPr, policy: &Policy) -> (Vec<String>, Vec<String>, Vec<String>) {
+struct RoutedPr {
+    reviewers: Vec<String>,
+    areas: Vec<String>,
+    unresolved_areas: Vec<String>,
+    unavailable: Option<String>,
+}
+
+/// Route a PR's changed files through its repository policy. Mirrors the
+/// engine: without complete file evidence there is no routing at all.
+fn route_pr(pr: &AnalyzedPr, policy: &Policy) -> RoutedPr {
+    let unavailable = if pr.raw.changed_files_truncated {
+        Some(format!(
+            "changed files truncated ({} fetched)",
+            pr.raw.changed_files.len()
+        ))
+    } else if pr.raw.changed_files.is_empty() {
+        Some("no changed-file evidence".to_string())
+    } else {
+        None
+    };
+    if unavailable.is_some() {
+        return RoutedPr {
+            reviewers: vec![],
+            areas: vec![],
+            unresolved_areas: vec![],
+            unavailable,
+        };
+    }
     let routing = policy::route(policy, &pr.raw.changed_files);
     let reviewed_logins: HashSet<String> = pr
         .raw
@@ -48,13 +74,18 @@ fn route_pr(pr: &AnalyzedPr, policy: &Policy) -> (Vec<String>, Vec<String>, Vec<
     if routing.fallback_used {
         areas.push("fallback".into());
     }
-    let unresolved = routing
+    let unresolved_areas = routing
         .areas
         .iter()
         .filter(|a| a.unresolved)
         .map(|a| a.id.clone())
         .collect();
-    (reviewers, areas, unresolved)
+    RoutedPr {
+        reviewers,
+        areas,
+        unresolved_areas,
+        unavailable: None,
+    }
 }
 
 fn score_one(
@@ -88,8 +119,12 @@ fn score_one(
     let mult = age_multiplier(oldest_age, cfg.age_multiplier);
     let score = base * mult;
     let unresolved_total = pr.unresolved_threads.len() as u32;
-    let (routed_reviewers, areas, unresolved_areas) =
-        policy.map(|p| route_pr(&pr, p)).unwrap_or_default();
+    let routed = policy.map(|p| route_pr(&pr, p)).unwrap_or(RoutedPr {
+        reviewers: vec![],
+        areas: vec![],
+        unresolved_areas: vec![],
+        unavailable: None,
+    });
     ScoredPr {
         pr,
         score,
@@ -97,9 +132,10 @@ fn score_one(
         unresolved_by_severity: by_severity,
         unresolved_by_source: by_source,
         unresolved_total,
-        routed_reviewers,
-        areas,
-        unresolved_areas,
+        routed_reviewers: routed.reviewers,
+        areas: routed.areas,
+        unresolved_areas: routed.unresolved_areas,
+        routing_unavailable: routed.unavailable,
         policy_state: None,
     }
 }
@@ -191,8 +227,10 @@ pub fn rollup_authors(
 
         // Reviewer-side counts: only PRs actually ready for review count.
         // CI must be passing (or at least not failing); CHANGES_REQUESTED means
-        // the reviewer formally said no and the author owes a fix first.
-        if s.pr.is_deferred
+        // the reviewer formally said no and the author owes a fix first. A PR
+        // whose files couldn't be routed is nobody's to review yet.
+        if s.routing_unavailable.is_some()
+            || s.pr.is_deferred
             || s.pr.is_stale
             || s.pr.raw.is_draft
             || s.unresolved_total > 0
@@ -459,6 +497,7 @@ mod tests {
                 requested_reviewers: vec![],
                 base_ref: "master".into(),
                 changed_files: vec![],
+                changed_files_truncated: false,
             },
             unresolved_threads: threads,
             days_since_author_push: 0.0,
@@ -752,6 +791,61 @@ mod tests {
         assert!(
             scored[0].routed_reviewers.is_empty(),
             "both already reviewed; nobody owes another review"
+        );
+        let rolled = rollup_authors(&scored, &cfg, None);
+        assert!(rolled.iter().all(|r| r.awaiting_review == 0));
+    }
+
+    #[test]
+    fn no_changed_files_disables_routing_and_the_queue() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        let mut pr = analyzed("alice", vec![], false);
+        // Explicitly requested, but without file evidence the PR is in nobody's queue.
+        pr.raw.requested_reviewers = vec!["bob".into()];
+        let scored = score_prs(vec![pr], &cfg, &wasm_policy(), now);
+        assert_eq!(
+            scored[0].routing_unavailable.as_deref(),
+            Some("no changed-file evidence")
+        );
+        assert!(scored[0].routed_reviewers.is_empty());
+        assert!(scored[0].areas.is_empty());
+        let rolled = rollup_authors(&scored, &cfg, None);
+        assert!(rolled.iter().all(|r| r.awaiting_review == 0), "{rolled:?}");
+
+        // Without a policy for the repository nothing is known either way:
+        // explicit requests still count.
+        let mut pr = analyzed("alice", vec![], false);
+        pr.raw.requested_reviewers = vec!["bob".into()];
+        let scored = score_prs(vec![pr], &cfg, &no_policies(), now);
+        assert!(scored[0].routing_unavailable.is_none());
+        let rolled = rollup_authors(&scored, &cfg, None);
+        assert_eq!(
+            rolled
+                .iter()
+                .find(|r| r.login == "bob")
+                .unwrap()
+                .awaiting_review,
+            1
+        );
+    }
+
+    #[test]
+    fn truncated_file_list_disables_routing() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        let mut pr = analyzed("alice", vec![], false);
+        pr.raw.changed_files = vec!["packages/wasm-sdk/x.ts".into()];
+        pr.raw.changed_files_truncated = true;
+        pr.raw.requested_reviewers = vec!["bob".into()];
+        let scored = score_prs(vec![pr], &cfg, &wasm_policy(), now);
+        assert_eq!(
+            scored[0].routing_unavailable.as_deref(),
+            Some("changed files truncated (1 fetched)")
+        );
+        assert!(
+            scored[0].routed_reviewers.is_empty(),
+            "partial list is not routed"
         );
         let rolled = rollup_authors(&scored, &cfg, None);
         assert!(rolled.iter().all(|r| r.awaiting_review == 0));

@@ -25,6 +25,8 @@ pub struct RawPr {
     pub base_ref: String,
     /// File paths changed by this PR. Capped by the GraphQL query page size.
     pub changed_files: Vec<String>,
+    /// True when GitHub reports more changed files than `changed_files` holds.
+    pub changed_files_truncated: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,6 +167,10 @@ pub struct ScoredPr {
     pub areas: Vec<String>,
     /// Matched areas whose ownership is still marked unresolved in the policy.
     pub unresolved_areas: Vec<String>,
+    /// Why the changed files could not be routed (no file evidence, or a
+    /// truncated file list). Such a PR is in nobody's review queue, mirroring
+    /// the engine's configuration-error verdict.
+    pub routing_unavailable: Option<String>,
     /// Verdict of the shared review engine for this PR, when the engine's
     /// state export for the repository was available and listed the PR.
     pub policy_state: Option<PolicyState>,

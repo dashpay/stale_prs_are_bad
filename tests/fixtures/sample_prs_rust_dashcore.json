@@ -18,6 +18,7 @@
             "author": { "login": "bob" },
             "labels": { "nodes": [] },
             "files": {
+              "totalCount": 2,
               "nodes": [
                 { "path": "dash-spv/src/sync.rs" },
                 { "path": "dash-spv/Cargo.toml" }
@@ -53,6 +54,7 @@
             "author": { "login": "alice" },
             "labels": { "nodes": [] },
             "files": {
+              "totalCount": 1,
               "nodes": [
                 { "path": "README.md" }
               ]

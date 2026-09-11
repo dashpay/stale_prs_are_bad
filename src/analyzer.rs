@@ -628,6 +628,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let analyzed = analyze(vec![pr.clone()], &cfg, None, now);
         assert_eq!(analyzed[0].unresolved_threads.len(), 1);
@@ -679,6 +680,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         assert!(is_excluded(&pr, &cfg));
     }
@@ -703,6 +705,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         assert!(is_excluded(&pr, &cfg));
         pr.labels = vec!["ready".into()];
@@ -740,6 +743,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let analyzed = analyze(vec![pr.clone()], &cfg, None, now);
         assert_eq!(analyzed[0].unresolved_threads.len(), 0);
@@ -784,6 +788,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let analyzed = analyze(vec![pr], &cfg, None, now);
         assert!(!analyzed[0].needs_author_action);
@@ -818,6 +823,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let analyzed = analyze(vec![pr], &cfg, None, now);
         assert!(analyzed[0].needs_author_action);
@@ -852,6 +858,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let analyzed = analyze(vec![pr], &cfg, None, now);
         assert_eq!(analyzed.len(), 1);
@@ -886,6 +893,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "v3.0".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let a = analyze(vec![pr], &cfg, Some("master"), now);
         assert!(a[0].is_stale);
@@ -915,6 +923,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "v3.0".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let a = analyze(vec![pr], &cfg, None, now);
         assert!(
@@ -945,6 +954,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let a = analyze(vec![clean_old], &cfg, None, now);
         assert!(!a[0].is_stale);
@@ -974,6 +984,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let a = analyze(vec![dirty_old], &cfg, None, now);
         assert!(a[0].is_stale);
@@ -1011,6 +1022,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "v3.0".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let a = analyze(vec![pr], &cfg, Some("master"), now);
         assert!(a[0].is_stale);
@@ -1049,6 +1061,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let analyzed = analyze(vec![pr], &cfg, None, now);
         assert!(!analyzed[0].needs_author_action);
@@ -1075,6 +1088,7 @@ mod tests {
             requested_reviewers: vec![],
             base_ref: "master".into(),
             changed_files: vec![],
+            changed_files_truncated: false,
         };
         let analyzed = analyze(vec![pr], &cfg, None, now);
         assert!(analyzed[0].needs_author_action);
@@ -1115,6 +1129,7 @@ mod tests {
                 requested_reviewers: vec![],
                 base_ref: "master".into(),
                 changed_files: vec![],
+                changed_files_truncated: false,
             }],
             &cfg,
             None,
@@ -1138,6 +1153,7 @@ mod tests {
                 requested_reviewers: vec![],
                 base_ref: "master".into(),
                 changed_files: vec![],
+                changed_files_truncated: false,
             }],
             &cfg,
             None,
@@ -1180,6 +1196,7 @@ mod tests {
                 requested_reviewers: vec![],
                 base_ref: "master".into(),
                 changed_files: vec![],
+                changed_files_truncated: false,
             }],
             &cfg,
             None,

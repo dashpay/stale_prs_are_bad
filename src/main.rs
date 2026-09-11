@@ -29,7 +29,7 @@ struct Args {
     policies_root: PathBuf,
 
     /// Directory of review-engine exports, one `<name>.json` per repository
-    /// (`pr_review.main sync --format json`). Missing files render as unavailable.
+    /// (`pr_review.main report --format json`). Missing files render as unavailable.
     #[arg(long)]
     policy_state: Option<PathBuf>,
 
@@ -75,29 +75,24 @@ async fn main() -> Result<()> {
 
     let fetcher = fetcher::Fetcher::new(&args.token)?;
     let mut analyzed = Vec::new();
+    // One repository failing to fetch must not blank the whole board: it is
+    // rendered as unavailable and the run still exits non-zero at the end.
+    let mut fetch_errors: HashMap<String, String> = HashMap::new();
     for repo in &repo_names {
-        let (owner, name) = config::repo_parts(repo)?;
-        let (mut raw_prs, node_ids, default_branch) =
-            fetcher.fetch_all_open_prs(owner, name).await?;
-        fetcher
-            .recheck_mergeable(&mut raw_prs, &node_ids, Duration::from_secs(3))
-            .await?;
-        // Without a known default branch every PR would be flagged as
-        // "targets non-default" → Stale, so detection failure disables that check.
-        match default_branch.as_deref() {
-            Some(b) => tracing::info!(%repo, "default branch: {b}"),
-            None => tracing::warn!(
-                %repo,
-                "could not detect default branch; branch-based stale detection disabled"
-            ),
+        match fetch_repo(&fetcher, repo).await {
+            Ok((raw_prs, default_branch)) => {
+                analyzed.extend(analyzer::analyze(
+                    raw_prs,
+                    &cfg,
+                    default_branch.as_deref(),
+                    now,
+                ));
+            }
+            Err(e) => {
+                tracing::error!(%repo, "fetch failed: {e:#}");
+                fetch_errors.insert(repo.clone(), format!("{e:#}"));
+            }
         }
-        tracing::info!(%repo, "fetched {} open PRs", raw_prs.len());
-        analyzed.extend(analyzer::analyze(
-            raw_prs,
-            &cfg,
-            default_branch.as_deref(),
-            now,
-        ));
     }
 
     let author_cache_path = PathBuf::from(history::AUTHOR_CACHE);
@@ -106,33 +101,20 @@ async fn main() -> Result<()> {
         analyzer::apply_grace_period(analyzed, &mut author_cache, cfg.grace_period_days, today);
     tracing::info!("{} PRs survive filters", filtered.len());
 
+    let engine_states = policy::load_engine_states(args.policy_state.as_deref(), &registry)?;
     let policies: HashMap<String, policy::Policy> = registry.into_iter().collect();
     let mut scored = scorer::score_prs(filtered, &cfg, &policies, now);
-
-    let mut repos = Vec::with_capacity(repo_names.len());
-    for repo in &repo_names {
-        let (_, name) = config::repo_parts(repo)?;
-        let engine_state_available = match &args.policy_state {
-            Some(dir) => match policy::load_engine_state(&dir.join(format!("{name}.json"))) {
-                Ok(state) => {
-                    scorer::attach_engine_state(&mut scored, repo, &state);
-                    true
-                }
-                Err(e) => {
-                    tracing::warn!(%repo, "engine state unavailable: {e:#}");
-                    false
-                }
-            },
-            None => {
-                tracing::warn!(%repo, "no --policy-state directory; engine state unavailable");
-                false
-            }
-        };
-        repos.push(renderer::RepoStatus {
-            repo: repo.clone(),
-            engine_state_available,
-        });
+    for (repo, state) in &engine_states {
+        scorer::attach_engine_state(&mut scored, repo, state);
     }
+    let repos: Vec<renderer::RepoStatus> = repo_names
+        .iter()
+        .map(|repo| renderer::RepoStatus {
+            repo: repo.clone(),
+            engine_state_available: engine_states.contains_key(repo),
+            fetch_error: fetch_errors.get(repo).cloned(),
+        })
+        .collect();
 
     let history_dir = PathBuf::from(history::HISTORY_DIR);
     let previous = history::load_previous(&history_dir, today)?;
@@ -175,7 +157,44 @@ async fn main() -> Result<()> {
         }
     }
 
+    if !fetch_errors.is_empty() {
+        let mut failed: Vec<&String> = fetch_errors.keys().collect();
+        failed.sort();
+        anyhow::bail!(
+            "report written, but {} repositor{} could not be fetched: {}",
+            failed.len(),
+            if failed.len() == 1 { "y" } else { "ies" },
+            failed
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     Ok(())
+}
+
+/// Fetch one repository's open PRs and its default branch.
+async fn fetch_repo(
+    fetcher: &fetcher::Fetcher,
+    repo: &str,
+) -> Result<(Vec<pr_hygiene::model::RawPr>, Option<String>)> {
+    let (owner, name) = config::repo_parts(repo)?;
+    let (mut raw_prs, node_ids, default_branch) = fetcher.fetch_all_open_prs(owner, name).await?;
+    fetcher
+        .recheck_mergeable(&mut raw_prs, &node_ids, Duration::from_secs(3))
+        .await?;
+    // Without a known default branch every PR would be flagged as
+    // "targets non-default" → Stale, so detection failure disables that check.
+    match default_branch.as_deref() {
+        Some(b) => tracing::info!(%repo, "default branch: {b}"),
+        None => tracing::warn!(
+            %repo,
+            "could not detect default branch; branch-based stale detection disabled"
+        ),
+    }
+    tracing::info!(%repo, "fetched {} open PRs", raw_prs.len());
+    Ok((raw_prs, default_branch))
 }
 
 fn write_if_changed(path: &std::path::Path, contents: &str) -> Result<bool> {

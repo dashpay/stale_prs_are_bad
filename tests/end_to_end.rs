@@ -153,7 +153,7 @@ fn end_to_end_pipeline_matches_snapshot() {
     let filtered = analyzer::apply_grace_period(analyzed, &mut cache, 14, today);
     assert_eq!(filtered.len(), 12);
 
-    let policies: HashMap<String, policy::Policy> = registry.into_iter().collect();
+    let policies: HashMap<String, policy::Policy> = registry.iter().cloned().collect();
     let mut scored = scorer::score_prs(filtered, &cfg, &policies, now);
 
     let find = |repo: &str, number: u64| {
@@ -178,8 +178,13 @@ fn end_to_end_pipeline_matches_snapshot() {
     assert_eq!(pr1234.unresolved_total, 2);
     // Both unresolved threads escalate to High because of CHANGES_REQUESTED.
     assert_eq!(pr1234.unresolved_by_severity.high, 2);
-    // No changed files → no policy routing at all.
+    // No changed files → no routing, and nobody's queue (mirrors the engine's
+    // configuration-error for missing file evidence).
     assert!(pr1234.areas.is_empty());
+    assert_eq!(
+        pr1234.routing_unavailable.as_deref(),
+        Some("no changed-file evidence")
+    );
 
     // PR 1240 has merge conflict → needs_author_action.
     let pr1240 = find(PLATFORM, 1240);
@@ -191,10 +196,12 @@ fn end_to_end_pipeline_matches_snapshot() {
     assert!(!pr2001.pr.needs_author_action);
     assert_eq!(pr2001.unresolved_total, 1);
 
-    // PR 3000: clean, no threads.
+    // PR 3000: clean, no threads; a docs file no area claims → fallback.
     let pr3000 = find(PLATFORM, 3000);
     assert!(!pr3000.pr.needs_author_action);
     assert_eq!(pr3000.unresolved_total, 0);
+    assert_eq!(pr3000.areas, vec!["fallback"]);
+    assert!(pr3000.routing_unavailable.is_none());
 
     // PR 3001 touches a workflow file no area claims → repository fallback.
     let pr3001 = find(PLATFORM, 3001);
@@ -211,7 +218,14 @@ fn end_to_end_pipeline_matches_snapshot() {
     assert!(pr8000.pr.changes_requested);
     assert_eq!(pr8000.unresolved_total, 0);
     assert!(!pr8000.pr.ci_failing);
-    assert_eq!(pr8000.areas, vec!["validation"]);
+    // GitHub reports 60 changed files but the query returned one: the partial
+    // list must not be routed as if it were complete.
+    assert!(pr8000.pr.raw.changed_files_truncated);
+    assert!(pr8000.areas.is_empty());
+    assert_eq!(
+        pr8000.routing_unavailable.as_deref(),
+        Some("changed files truncated (1 fetched)")
+    );
 
     // PR 2988 touches wasm-sdk/ → routes to shumkov (but it's stale, see below).
     let pr2988 = find(PLATFORM, 2988);
@@ -232,22 +246,19 @@ fn end_to_end_pipeline_matches_snapshot() {
     assert_eq!(pr102.routed_reviewers, vec!["QuantumExplorer"]);
 
     // Engine state: only platform's export exists.
-    let mut repos = Vec::new();
-    for repo in &repo_names {
-        let name = repo.split_once('/').map(|(_, n)| n).unwrap();
-        let path = scratch.policy_state().join(format!("{name}.json"));
-        let engine_state_available = match policy::load_engine_state(&path) {
-            Ok(state) => {
-                scorer::attach_engine_state(&mut scored, repo, &state);
-                true
-            }
-            Err(_) => false,
-        };
-        repos.push(renderer::RepoStatus {
-            repo: repo.clone(),
-            engine_state_available,
-        });
+    let engine_states =
+        policy::load_engine_states(Some(&scratch.policy_state()), &registry).unwrap();
+    for (repo, state) in &engine_states {
+        scorer::attach_engine_state(&mut scored, repo, state);
     }
+    let repos: Vec<renderer::RepoStatus> = repo_names
+        .iter()
+        .map(|repo| renderer::RepoStatus {
+            repo: repo.clone(),
+            engine_state_available: engine_states.contains_key(repo),
+            fetch_error: None,
+        })
+        .collect();
     assert!(repos[0].engine_state_available);
     assert!(!repos[1].engine_state_available);
     let find = |repo: &str, number: u64| {
@@ -321,20 +332,21 @@ fn end_to_end_pipeline_matches_snapshot() {
         "shumkov should NOT be added — the only routable PR is stale"
     );
 
-    // The queue is routed ∪ requested: QuantumExplorer owes #3001 (platform
-    // fallback) and #102 (dashcore fallback + explicit request) — once each.
+    // The queue is routed ∪ requested: QuantumExplorer owes #3000 and #3001
+    // (platform fallback) and #102 (dashcore fallback + explicit request) —
+    // once each.
     let qe = authors
         .iter()
         .find(|a| a.login == "QuantumExplorer")
         .unwrap();
-    assert_eq!(qe.awaiting_review, 2);
+    assert_eq!(qe.awaiting_review, 3);
     for login in ["ZocoLini", "xdustinface"] {
         let r = authors.iter().find(|a| a.login == login).unwrap();
         assert_eq!(r.awaiting_review, 1, "{login} owes dashcore #101");
     }
     assert!(
         !authors.iter().any(|a| a.login == "dave"),
-        "dave's only area PR (#8000) has changes requested"
+        "dave's area PR (#8000) has a truncated file list and changes requested"
     );
 
     let ctx = renderer::RenderContext {

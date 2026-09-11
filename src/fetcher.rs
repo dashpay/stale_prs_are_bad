@@ -26,7 +26,7 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
       nodes {
         id number title url isDraft mergeable createdAt updatedAt
         baseRefName
-        files(first: 50) { nodes { path } }
+        files(first: 50) { totalCount nodes { path } }
         author { login }
         labels(first: 20) { nodes { name } }
         commits(last: 1) {
@@ -461,6 +461,10 @@ pub fn parse_pr_node(node: &Value, repo: &str) -> Result<(RawPr, String, bool, O
                 .collect()
         })
         .unwrap_or_default();
+    let changed_files_truncated = node
+        .pointer("/files/totalCount")
+        .and_then(|v| v.as_u64())
+        .is_some_and(|total| total > changed_files.len() as u64);
 
     let requested_reviewers: Vec<String> = node
         .pointer("/reviewRequests/nodes")
@@ -520,6 +524,7 @@ pub fn parse_pr_node(node: &Value, repo: &str) -> Result<(RawPr, String, bool, O
             requested_reviewers,
             base_ref,
             changed_files,
+            changed_files_truncated,
         },
         id,
         threads_have_more,
@@ -660,6 +665,28 @@ mod tests {
     }
 
     #[test]
+    fn changed_files_truncation_is_detected_from_total_count() {
+        let mut node = json!({
+            "id": "PR_1", "number": 1, "title": "t", "url": "u",
+            "createdAt": "2026-04-01T00:00:00Z", "updatedAt": "2026-05-01T00:00:00Z",
+            "files": { "totalCount": 3, "nodes": [{"path": "a"}, {"path": "b"}] },
+            "reviewThreads": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+        });
+        let (pr, ..) = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert_eq!(pr.changed_files, vec!["a", "b"]);
+        assert!(pr.changed_files_truncated);
+
+        node["files"]["totalCount"] = json!(2);
+        let (pr, ..) = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert!(!pr.changed_files_truncated);
+
+        // Fixtures written before totalCount existed still parse.
+        node["files"].as_object_mut().unwrap().remove("totalCount");
+        let (pr, ..) = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert!(!pr.changed_files_truncated);
+    }
+
+    #[test]
     fn parse_pr_node_minimal() {
         let node = json!({
             "id": "PR_1",
@@ -687,6 +714,10 @@ mod tests {
         let (pr, id, more, _) = parse_pr_node(&node, "dashpay/platform").unwrap();
         assert_eq!(pr.repo, "dashpay/platform");
         assert_eq!(pr.number, 42);
+        assert!(
+            !pr.changed_files_truncated,
+            "no files block → not truncated"
+        );
         assert_eq!(pr.title, "Add foo");
         assert_eq!(pr.author.as_deref(), Some("alice"));
         assert_eq!(pr.labels, vec!["bug".to_string()]);
