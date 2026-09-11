@@ -89,7 +89,7 @@ def codeowners(policy):
              '# Owners and reviewers are combined here for native review routing.']
     # GitHub honours only the last matching pattern, so a whole-repository area
     # would silently override a preceding fallback `*` line; emit one or the other.
-    if not any('' in area['paths'] for area in policy['areas']):
+    if not any('' in area['paths'] and (area['owners'] or area['reviewers']) for area in policy['areas']):
         lines.append('* ' + ' '.join('@' + x for x in policy['fallback']['owners'] + policy['fallback']['reviewers']))
     for area in policy['areas']:
         if area.get('unresolved'):

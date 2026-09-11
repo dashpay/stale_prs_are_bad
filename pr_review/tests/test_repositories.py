@@ -68,7 +68,7 @@ class RepositoryConfigurationTests(unittest.TestCase):
             with self.subTest(repository=name):
                 policy = self.policies['dashpay/' + name]
                 self.assertEqual(policy['fallback'], {'owners': owners, 'reviewers': reviewers})
-                if not any('' in area['paths'] for area in policy['areas']):
+                if not any('' in area['paths'] and (area['owners'] or area['reviewers']) for area in policy['areas']):
                     self.assertEqual(codeowners(policy).splitlines()[2], '* ' + ' '.join('@' + user for user in owners + reviewers))
 
     def test_slack_roster_preserves_selected_people(self):
