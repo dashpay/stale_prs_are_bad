@@ -50,6 +50,11 @@ jobs:
       - name: Build analyzer (release)
         run: cargo build --release --locked
 
+      # Always present: an empty directory renders every repository as
+      # "engine state unavailable", while a missing one is a configuration error.
+      - name: Prepare engine-state directory
+        run: mkdir -p policy-state
+
       - name: List governed repositories
         id: registry
         run: echo "names=$(python3 -c "import json; print(','.join(e['repository'].split('/')[1] for e in json.load(open('policies/repositories.json'))['repositories']))")" >> "$GITHUB_OUTPUT"
@@ -82,7 +87,6 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           set -uo pipefail
-          mkdir -p policy-state
           status=0
           for repo in $(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))"); do
             if ! python3 -m pr_review.main report --repo "$repo" --format json > "policy-state/${repo#*/}.json"; then
