@@ -334,8 +334,11 @@ pub fn coderabbit_severity(body: &str) -> Severity {
     Severity::Medium
 }
 
+/// First line of visible text: leading HTML comments (review bots stamp
+/// `<!-- … -->` metadata first, sometimes across lines) and blank lines are
+/// skipped, then markdown heading/emphasis/quote markers are stripped.
 fn excerpt(body: &str) -> String {
-    let first_line = body
+    let first_line = strip_leading_html_comments(body)
         .lines()
         .map(str::trim)
         .find(|l| !l.is_empty())
@@ -347,6 +350,18 @@ fn excerpt(body: &str) -> String {
     } else {
         trimmed
     }
+}
+
+fn strip_leading_html_comments(body: &str) -> &str {
+    let mut rest = body.trim_start();
+    while let Some(after_open) = rest.strip_prefix("<!--") {
+        match after_open.find("-->") {
+            Some(end) => rest = after_open[end + 3..].trim_start(),
+            // Unterminated comment: nothing visible follows.
+            None => return "",
+        }
+    }
+    rest
 }
 
 fn has_blocking_changes_requested(pr: &RawPr) -> bool {
@@ -1208,6 +1223,27 @@ mod tests {
         )]);
         let filtered = apply_grace_period(prs, &mut cache, 14, today);
         assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn excerpt_skips_leading_html_comments() {
+        assert_eq!(
+            excerpt(
+                "<!-- thepastaclaw-review v1 finding=86cd4cfc5f6d dedupe=eabaeb4163b84d5f -->\n**🔴 Blocking: double lock**"
+            ),
+            "🔴 Blocking: double lock**",
+            "leading markers are stripped as before; trailing ones stay"
+        );
+        assert_eq!(
+            excerpt("<!-- a\nmulti-line\ncomment -->\n\n<!-- second -->\n\nvisible text\nmore"),
+            "visible text"
+        );
+        // Comments after the first text line are not the excerpt's concern.
+        assert_eq!(
+            excerpt("text <!-- inline --> here"),
+            "text <!-- inline --> here"
+        );
+        assert_eq!(excerpt("<!-- never closed"), "");
     }
 
     #[test]

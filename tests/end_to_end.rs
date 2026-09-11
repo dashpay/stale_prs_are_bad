@@ -29,7 +29,7 @@ fn parse_all(fixture: &serde_json::Value, repo: &str) -> Vec<pr_hygiene::model::
         .and_then(|v| v.as_array())
         .expect("nodes")
         .iter()
-        .map(|node| fetcher::parse_pr_node(node, repo).expect("parse").0)
+        .map(|node| fetcher::parse_pr_node(node, repo).expect("parse").pr)
         .collect()
 }
 

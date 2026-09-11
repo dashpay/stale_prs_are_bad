@@ -14,6 +14,10 @@ const USER_AGENT_STR: &str = concat!("pr-hygiene/", env!("CARGO_PKG_VERSION"));
 const THREADS_PER_PAGE: u32 = 100;
 const COMMENTS_PER_THREAD: u32 = 50;
 const MAX_RETRIES: u32 = 5;
+const FILES_PER_PAGE: u32 = 100;
+/// GitHub stops listing a PR's files at this many; beyond it the list is
+/// genuinely incomplete.
+const MAX_CHANGED_FILES: usize = 3000;
 
 const PR_LIST_QUERY: &str = r#"
 query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: Int!, $comments: Int!) {
@@ -26,7 +30,7 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
       nodes {
         id number title url isDraft mergeable createdAt updatedAt
         baseRefName
-        files(first: 50) { totalCount nodes { path } }
+        files(first: 50) { totalCount pageInfo { endCursor hasNextPage } nodes { path } }
         author { login }
         labels(first: 20) { nodes { name } }
         commits(last: 1) {
@@ -76,6 +80,20 @@ query PrHygieneThreads($id: ID!, $cursor: String, $comments: Int!) {
             nodes { author { login } createdAt body }
           }
         }
+      }
+    }
+  }
+}
+"#;
+
+const PR_FILES_QUERY: &str = r#"
+query PrHygieneFiles($id: ID!, $cursor: String, $files: Int!) {
+  rateLimit { remaining resetAt cost }
+  node(id: $id) {
+    ... on PullRequest {
+      files(first: $files, after: $cursor) {
+        pageInfo { endCursor hasNextPage }
+        nodes { path }
       }
     }
   }
@@ -132,6 +150,7 @@ impl Fetcher {
         let mut out: Vec<RawPr> = Vec::new();
         let mut node_ids: Vec<(String, u64)> = Vec::new();
         let mut paginated_threads: Vec<(String, u64)> = Vec::new();
+        let mut paginated_files: Vec<(String, u64, Option<String>)> = Vec::new();
         let mut cursor: Option<String> = None;
         let mut default_branch: Option<String> = None;
         let repo = format!("{owner}/{name}");
@@ -158,13 +177,15 @@ impl Fetcher {
                 .and_then(|v| v.as_array())
                 .ok_or_else(|| anyhow!("pullRequests.nodes missing"))?;
             for node in nodes {
-                let (raw, node_id, thread_has_more, _thread_cursor) =
-                    parse_pr_node(node, &repo).context("parsing PR node")?;
-                node_ids.push((node_id.clone(), raw.number));
-                if thread_has_more {
-                    paginated_threads.push((node_id, raw.number));
+                let parsed = parse_pr_node(node, &repo).context("parsing PR node")?;
+                node_ids.push((parsed.node_id.clone(), parsed.pr.number));
+                if parsed.threads_have_more {
+                    paginated_threads.push((parsed.node_id.clone(), parsed.pr.number));
                 }
-                out.push(raw);
+                if parsed.files_have_more {
+                    paginated_files.push((parsed.node_id, parsed.pr.number, parsed.files_cursor));
+                }
+                out.push(parsed.pr);
             }
             let page_info = pr_conn
                 .get("pageInfo")
@@ -191,7 +212,41 @@ impl Fetcher {
             }
         }
 
+        // Fill in extra changed-file pages. A page that fails after retries
+        // leaves the list truncated (and therefore unrouted) rather than
+        // failing the whole repository.
+        for (id, number, files_cursor) in paginated_files {
+            tracing::debug!(pr = number, "fetching extra changed-file pages");
+            let Some(pr) = out.iter_mut().find(|p| p.number == number) else {
+                continue;
+            };
+            let (paths, truncated) = collect_files(
+                std::mem::take(&mut pr.changed_files),
+                files_cursor,
+                |cursor| self.fetch_files_page(&id, cursor),
+            )
+            .await;
+            if truncated {
+                tracing::warn!(
+                    pr = number,
+                    "changed-file list truncated at {} paths",
+                    paths.len()
+                );
+            }
+            pr.changed_files = paths;
+            pr.changed_files_truncated = truncated;
+        }
+
         Ok((out, node_ids, default_branch))
+    }
+
+    /// One page of a PR's changed files: the `files` connection JSON.
+    async fn fetch_files_page(&self, pr_id: &str, cursor: Option<String>) -> Result<Value> {
+        let vars = json!({ "id": pr_id, "cursor": cursor, "files": FILES_PER_PAGE });
+        let resp = self.execute(PR_FILES_QUERY, vars).await?;
+        resp.pointer("/data/node/files")
+            .cloned()
+            .ok_or_else(|| anyhow!("node.files missing"))
     }
 
     /// Retry once for PRs whose mergeable came back UNKNOWN. Caller passes (node_id, pr_number)
@@ -386,8 +441,74 @@ fn backoff_secs(attempt: u32) -> u64 {
     1u64 << attempt.min(6)
 }
 
-/// Parse a PR node from GraphQL JSON. Returns (pr, node_id, threads_have_more, threads_end_cursor).
-pub fn parse_pr_node(node: &Value, repo: &str) -> Result<(RawPr, String, bool, Option<String>)> {
+/// Continue paging a PR's changed files from `cursor`, appending to
+/// `initial`, until the connection ends or `MAX_CHANGED_FILES` is reached.
+/// Returns the deduplicated paths and whether the list is incomplete
+/// (bound hit, or a page could not be fetched).
+async fn collect_files<F, Fut>(
+    initial: Vec<String>,
+    mut cursor: Option<String>,
+    mut fetch_page: F,
+) -> (Vec<String>, bool)
+where
+    F: FnMut(Option<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<Value>>,
+{
+    let mut seen: std::collections::HashSet<String> = initial.iter().cloned().collect();
+    let mut paths = initial;
+    loop {
+        if paths.len() >= MAX_CHANGED_FILES {
+            return (paths, true);
+        }
+        let page = match fetch_page(cursor.take()).await {
+            Ok(page) => page,
+            Err(e) => {
+                tracing::warn!("changed-file page failed: {e:#}");
+                return (paths, true);
+            }
+        };
+        for path in page
+            .pointer("/nodes")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|n| n.get("path").and_then(|v| v.as_str()))
+        {
+            if seen.insert(path.to_string()) {
+                paths.push(path.to_string());
+            }
+        }
+        let page_info = page.get("pageInfo");
+        let has_next = page_info
+            .and_then(|p| p.get("hasNextPage"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if !has_next {
+            return (paths, false);
+        }
+        cursor = page_info
+            .and_then(|p| p.get("endCursor"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        if cursor.is_none() {
+            tracing::warn!("changed-file page has more results but no cursor");
+            return (paths, true);
+        }
+    }
+}
+
+/// A PR node parsed from the list query plus what is still left to page.
+pub struct ParsedPr {
+    pub pr: RawPr,
+    pub node_id: String,
+    pub threads_have_more: bool,
+    pub files_have_more: bool,
+    /// Cursor to continue the changed-file list from, when `files_have_more`.
+    pub files_cursor: Option<String>,
+}
+
+/// Parse a PR node from GraphQL JSON.
+pub fn parse_pr_node(node: &Value, repo: &str) -> Result<ParsedPr> {
     let number = node
         .get("number")
         .and_then(|v| v.as_u64())
@@ -461,10 +582,21 @@ pub fn parse_pr_node(node: &Value, repo: &str) -> Result<(RawPr, String, bool, O
                 .collect()
         })
         .unwrap_or_default();
-    let changed_files_truncated = node
-        .pointer("/files/totalCount")
-        .and_then(|v| v.as_u64())
-        .is_some_and(|total| total > changed_files.len() as u64);
+    let files_have_more = node
+        .pointer("/files/pageInfo/hasNextPage")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let files_cursor = node
+        .pointer("/files/pageInfo/endCursor")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    // More files than returned, and no page to continue from: the list is
+    // final and incomplete. (With a next page the caller pages on.)
+    let changed_files_truncated = !files_have_more
+        && node
+            .pointer("/files/totalCount")
+            .and_then(|v| v.as_u64())
+            .is_some_and(|total| total > changed_files.len() as u64);
 
     let requested_reviewers: Vec<String> = node
         .pointer("/reviewRequests/nodes")
@@ -501,13 +633,9 @@ pub fn parse_pr_node(node: &Value, repo: &str) -> Result<(RawPr, String, bool, O
         .and_then(|p| p.get("hasNextPage"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let threads_end_cursor = page_info
-        .and_then(|p| p.get("endCursor"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
 
-    Ok((
-        RawPr {
+    Ok(ParsedPr {
+        pr: RawPr {
             repo: repo.to_string(),
             number,
             title,
@@ -526,10 +654,11 @@ pub fn parse_pr_node(node: &Value, repo: &str) -> Result<(RawPr, String, bool, O
             changed_files,
             changed_files_truncated,
         },
-        id,
+        node_id: id,
         threads_have_more,
-        threads_end_cursor,
-    ))
+        files_have_more,
+        files_cursor,
+    })
 }
 
 fn parse_thread(node: &Value) -> Result<RawThread> {
@@ -672,18 +801,93 @@ mod tests {
             "files": { "totalCount": 3, "nodes": [{"path": "a"}, {"path": "b"}] },
             "reviewThreads": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
         });
-        let (pr, ..) = parse_pr_node(&node, "dashpay/platform").unwrap();
-        assert_eq!(pr.changed_files, vec!["a", "b"]);
-        assert!(pr.changed_files_truncated);
+        let parsed = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert_eq!(parsed.pr.changed_files, vec!["a", "b"]);
+        assert!(parsed.pr.changed_files_truncated);
+        assert!(!parsed.files_have_more);
 
         node["files"]["totalCount"] = json!(2);
-        let (pr, ..) = parse_pr_node(&node, "dashpay/platform").unwrap();
-        assert!(!pr.changed_files_truncated);
+        let parsed = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert!(!parsed.pr.changed_files_truncated);
+
+        // A next page means the caller will page on: not truncated (yet).
+        node["files"]["totalCount"] = json!(120);
+        node["files"]["pageInfo"] = json!({ "hasNextPage": true, "endCursor": "c1" });
+        let parsed = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert!(!parsed.pr.changed_files_truncated);
+        assert!(parsed.files_have_more);
+        assert_eq!(parsed.files_cursor.as_deref(), Some("c1"));
 
         // Fixtures written before totalCount existed still parse.
         node["files"].as_object_mut().unwrap().remove("totalCount");
-        let (pr, ..) = parse_pr_node(&node, "dashpay/platform").unwrap();
-        assert!(!pr.changed_files_truncated);
+        node["files"].as_object_mut().unwrap().remove("pageInfo");
+        let parsed = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert!(!parsed.pr.changed_files_truncated);
+    }
+
+    fn page(paths: &[&str], next: Option<&str>) -> Value {
+        json!({
+            "pageInfo": { "hasNextPage": next.is_some(), "endCursor": next },
+            "nodes": paths.iter().map(|p| json!({ "path": p })).collect::<Vec<_>>(),
+        })
+    }
+
+    #[tokio::test]
+    async fn collect_files_follows_every_page_and_dedupes() {
+        // First page (50 of totalCount 120) already parsed; two follow-up pages.
+        let initial: Vec<String> = (0..50).map(|i| format!("f{i}")).collect();
+        let mut requested: Vec<Option<String>> = Vec::new();
+        let (paths, truncated) = collect_files(initial, Some("c50".into()), |cursor| {
+            requested.push(cursor.clone());
+            let resp = match cursor.as_deref() {
+                Some("c50") => {
+                    let mut p: Vec<String> = (50..100).map(|i| format!("f{i}")).collect();
+                    p.push("f49".into()); // overlap with the first page
+                    let refs: Vec<&str> = p.iter().map(String::as_str).collect();
+                    page(&refs, Some("c100"))
+                }
+                Some("c100") => {
+                    let p: Vec<String> = (100..120).map(|i| format!("f{i}")).collect();
+                    let refs: Vec<&str> = p.iter().map(String::as_str).collect();
+                    page(&refs, None)
+                }
+                other => panic!("unexpected cursor {other:?}"),
+            };
+            async move { Ok(resp) }
+        })
+        .await;
+        assert!(!truncated);
+        assert_eq!(paths.len(), 120, "every path once");
+        assert_eq!(paths[0], "f0");
+        assert_eq!(paths[119], "f119");
+        assert_eq!(
+            requested,
+            vec![Some("c50".to_string()), Some("c100".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn collect_files_stops_at_the_bound_and_on_page_failure() {
+        // An endless connection is cut at MAX_CHANGED_FILES and flagged.
+        let mut n = 0usize;
+        let (paths, truncated) = collect_files(vec![], Some("c".into()), |_| {
+            let p: Vec<String> = (n..n + 1000).map(|i| format!("f{i}")).collect();
+            n += 1000;
+            let refs: Vec<&str> = p.iter().map(String::as_str).collect();
+            let resp = page(&refs, Some("more"));
+            async move { Ok(resp) }
+        })
+        .await;
+        assert!(truncated);
+        assert_eq!(paths.len(), MAX_CHANGED_FILES);
+
+        // A page that fails keeps what was fetched and flags the list.
+        let (paths, truncated) = collect_files(vec!["a".into()], Some("c".into()), |_| async {
+            Err(anyhow!("boom"))
+        })
+        .await;
+        assert!(truncated);
+        assert_eq!(paths, vec!["a"]);
     }
 
     #[test]
@@ -711,7 +915,12 @@ mod tests {
                 "nodes": []
             }
         });
-        let (pr, id, more, _) = parse_pr_node(&node, "dashpay/platform").unwrap();
+        let ParsedPr {
+            pr,
+            node_id: id,
+            threads_have_more: more,
+            ..
+        } = parse_pr_node(&node, "dashpay/platform").unwrap();
         assert_eq!(pr.repo, "dashpay/platform");
         assert_eq!(pr.number, 42);
         assert!(

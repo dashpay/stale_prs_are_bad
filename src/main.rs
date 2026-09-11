@@ -54,6 +54,8 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| EnvFilter::new("pr_hygiene=info,info")),
         )
         .with_target(false)
+        // Keep stdout for the report so `--dry-run > file` captures only it.
+        .with_writer(std::io::stderr)
         .init();
 
     let args = Args::parse();
