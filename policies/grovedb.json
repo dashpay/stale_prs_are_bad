@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "repository": "dashpay/grovedb",
+  "max_active_prs": 5,
+  "target_branches": [
+    "develop"
+  ],
+  "fallback": {
+    "owners": [
+      "QuantumExplorer"
+    ],
+    "reviewers": []
+  },
+  "areas": [
+    {
+      "id": "grovedb",
+      "paths": [
+        ""
+      ],
+      "owners": [
+        "QuantumExplorer"
+      ],
+      "reviewers": []
+    }
+  ]
+}

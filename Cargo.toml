@@ -2,7 +2,7 @@
 name = "pr-hygiene"
 version = "0.1.0"
 edition = "2021"
-description = "Nightly PR-hygiene dashboard for dashpay/platform"
+description = "Nightly PR-hygiene dashboard for the repositories in policies/repositories.json"
 license = "MIT"
 publish = false
 
@@ -14,7 +14,6 @@ path = "src/main.rs"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
-glob = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
