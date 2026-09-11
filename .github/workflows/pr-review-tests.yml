@@ -54,6 +54,6 @@ jobs:
           done
       - name: Lint workflows and generated caller workflows
         run: |
-          curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash | bash -s -- 1.7.7 /tmp/actionlint-bin
+          curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/03d0035246f3e81f36aed592ffb4bebf33a03106/scripts/download-actionlint.bash | bash -s 1.7.7 /tmp/actionlint-bin # v1.7.7
           /tmp/actionlint-bin/actionlint proposed/.github/workflows/*.yml
           find packets -name '*.yml' -exec /tmp/actionlint-bin/actionlint {} +
