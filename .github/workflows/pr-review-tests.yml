@@ -1,0 +1,52 @@
+name: PR review policy tests
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s pr_review/tests -v
+      - name: Validate every registered policy and its rollout packet
+        run: |
+          set -euo pipefail
+          for repo in $(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))"); do
+            python3 -m pr_review.main validate --repo "$repo"
+            python3 -m pr_review.rollout --repo "$repo" --engine-revision "$GITHUB_SHA" --output "packets/${repo#*/}"
+          done
+      - name: Lint workflows and generated caller workflows
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash | bash -s -- 1.7.7 /tmp/actionlint-bin
+          /tmp/actionlint-bin/actionlint .github/workflows/*.yml
+          find packets -name '*.yml' -exec /tmp/actionlint-bin/actionlint {} +
+  pinned-engines:
+    # Policies are read live by callers pinned to older engine revisions, so a
+    # policy change must still validate with every engine that is in use.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          path: proposed
+      - name: Validate proposed policies with every pinned engine
+        run: |
+          set -euo pipefail
+          revisions=$(python3 -c "import json; print(' '.join(sorted({e['engine_revision'] for e in json.load(open('proposed/policies/repositories.json'))['repositories'] if e['engine_revision']})))")
+          if [ -z "$revisions" ]; then
+            echo 'No caller pins recorded yet.'
+            exit 0
+          fi
+          for sha in $revisions; do
+            git clone --quiet --no-checkout https://github.com/dashpay/stale_prs_are_bad "engine-$sha"
+            git -C "engine-$sha" checkout --quiet "$sha"
+            for repo in $(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('proposed/policies/repositories.json'))['repositories']))"); do
+              (cd "engine-$sha" && python3 -m pr_review.main validate --repo "$repo" --policies-root "$GITHUB_WORKSPACE/proposed/policies")
+            done
+          done
