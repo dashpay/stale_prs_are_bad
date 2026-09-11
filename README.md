@@ -1,5 +1,16 @@
 # pr-hygiene
 
+This repository hosts two things:
+
+1. **The shared PR review policy** — `policies/` (who owns and reviews what in
+   Platform, rust-dashcore, Tenderdash, GroveDB and Dash Evo Tool), the Python
+   evaluator `pr_review/` that those repositories call through
+   `.github/workflows/pr-review-reusable.yml`, and the daily Slack digest. See
+   [guides/PR_REVIEW_ARCHITECTURE.md](guides/PR_REVIEW_ARCHITECTURE.md) and
+   [guides/PR_REVIEW_OPERATIONS.md](guides/PR_REVIEW_OPERATIONS.md).
+2. **The PR-hygiene dashboard** described below.
+
+
 Nightly PR-hygiene dashboard for a target GitHub repository (default:
 [`dashpay/platform`](https://github.com/dashpay/platform)). Surfaces who has the
 most open PRs with unresolved review feedback — CodeRabbit and human reviewers

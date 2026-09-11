@@ -1,3 +1,4 @@
 /target
 /docs/index.md
 /.pr-hygiene/
+__pycache__/
