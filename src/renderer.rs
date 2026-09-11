@@ -1,14 +1,30 @@
 use chrono::{DateTime, Utc};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write;
 
 use crate::model::{AnalyzedThread, AuthorRollup, ScoredPr, Severity};
+
+/// How many engine blockers a PR bullet lists before eliding the rest.
+const MAX_BLOCKERS_SHOWN: usize = 3;
+
+/// One governed repository and whether the review engine's state export for
+/// it could be read this run.
+pub struct RepoStatus {
+    pub repo: String,
+    pub engine_state_available: bool,
+    /// Set when the repository's PRs could not be fetched this run; its
+    /// counts are then unknown rather than zero.
+    pub fetch_error: Option<String>,
+}
 
 pub struct RenderContext<'a> {
     pub now: DateTime<Utc>,
     pub commit_sha: Option<&'a str>,
     pub config_path: &'a str,
     pub has_history: bool,
+    /// Registered repositories in registry order; drives the per-repository
+    /// summary lines.
+    pub repos: &'a [RepoStatus],
 }
 
 pub fn render(scored: &[ScoredPr], authors: &[AuthorRollup], ctx: &RenderContext<'_>) -> String {
@@ -18,7 +34,7 @@ pub fn render(scored: &[ScoredPr], authors: &[AuthorRollup], ctx: &RenderContext
     let _ = writeln!(out, "---");
     let _ = writeln!(out, "---");
     write_header(&mut out, ctx);
-    write_summary(&mut out, scored);
+    write_summary(&mut out, scored, ctx.repos);
     write_scoreboard(&mut out, authors, ctx.has_history);
     write_author_drilldowns(&mut out, scored, authors, ctx.now);
     write_methodology(&mut out, ctx);
@@ -92,55 +108,118 @@ fn write_header(out: &mut String, ctx: &RenderContext<'_>) {
     let _ = writeln!(out);
 }
 
-fn write_summary(out: &mut String, scored: &[ScoredPr]) {
-    let open_prs = scored.len();
-    let deferred: usize = scored.iter().filter(|s| s.pr.is_deferred).count();
-    let stale: usize = scored
+#[derive(Default)]
+struct BucketCounts {
+    open: usize,
+    clean: usize,
+    ci_failing: usize,
+    changes_requested: usize,
+    unresolved_comments: usize,
+    deferred: usize,
+    draft: usize,
+    stale: usize,
+}
+
+/// Count PRs per bucket with the same precedence the scoreboard uses:
+/// deferred > stale > draft > unresolved-comments > changes-requested > ci-failing > clean.
+fn bucket_counts<'a>(scored: impl Iterator<Item = &'a ScoredPr>) -> BucketCounts {
+    let mut c = BucketCounts::default();
+    for s in scored {
+        c.open += 1;
+        if s.pr.is_deferred {
+            c.deferred += 1;
+        } else if s.pr.is_stale {
+            c.stale += 1;
+        } else if s.pr.raw.is_draft {
+            c.draft += 1;
+        } else if s.unresolved_total > 0 {
+            c.unresolved_comments += 1;
+        } else if s.pr.changes_requested {
+            c.changes_requested += 1;
+        } else if s.pr.ci_failing {
+            c.ci_failing += 1;
+        } else {
+            c.clean += 1;
+        }
+    }
+    c
+}
+
+fn format_buckets(c: &BucketCounts) -> String {
+    format!(
+        "{} clean · {} CI failing · {} changes requested · {} unresolved comments · {} deferred · {} draft · {} stale",
+        c.clean,
+        c.ci_failing,
+        c.changes_requested,
+        c.unresolved_comments,
+        c.deferred,
+        c.draft,
+        c.stale
+    )
+}
+
+/// "2 ready-for-human · 1 waiting-bots · 3 no verdict", states alphabetical.
+fn format_engine_counts<'a>(scored: impl Iterator<Item = &'a ScoredPr>) -> String {
+    let mut by_state: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut no_verdict = 0;
+    for s in scored {
+        match &s.policy_state {
+            Some(p) => *by_state.entry(p.state.as_str()).or_default() += 1,
+            None => no_verdict += 1,
+        }
+    }
+    let mut parts: Vec<String> = by_state
         .iter()
-        .filter(|s| !s.pr.is_deferred && s.pr.is_stale)
-        .count();
-    let draft: usize = scored
-        .iter()
-        .filter(|s| !s.pr.is_deferred && !s.pr.is_stale && s.pr.raw.is_draft)
-        .count();
-    let unresolved_comments: usize = scored
-        .iter()
-        .filter(|s| {
-            !s.pr.is_deferred && !s.pr.is_stale && !s.pr.raw.is_draft && s.unresolved_total > 0
-        })
-        .count();
-    let changes_requested: usize = scored
-        .iter()
-        .filter(|s| {
-            !s.pr.is_deferred
-                && !s.pr.is_stale
-                && !s.pr.raw.is_draft
-                && s.unresolved_total == 0
-                && s.pr.changes_requested
-        })
-        .count();
-    let ci_failing: usize = scored
-        .iter()
-        .filter(|s| {
-            !s.pr.is_deferred
-                && !s.pr.is_stale
-                && !s.pr.raw.is_draft
-                && s.unresolved_total == 0
-                && !s.pr.changes_requested
-                && s.pr.ci_failing
-        })
-        .count();
-    let clean: usize =
-        open_prs - unresolved_comments - changes_requested - ci_failing - deferred - draft - stale;
+        .map(|(state, n)| format!("{n} {state}"))
+        .collect();
+    if no_verdict > 0 {
+        parts.push(format!("{no_verdict} no verdict"));
+    }
+    if parts.is_empty() {
+        "no PRs".to_string()
+    } else {
+        parts.join(" · ")
+    }
+}
+
+fn write_summary(out: &mut String, scored: &[ScoredPr], repos: &[RepoStatus]) {
+    let total = bucket_counts(scored.iter());
     let needs: usize = scored.iter().filter(|s| s.pr.needs_author_action).count();
     let unresolved: u32 = scored.iter().map(|s| s.unresolved_total).sum();
     let _ = writeln!(out, "## Summary");
     let _ = writeln!(
         out,
-        "- Open PRs: **{open_prs}** ({clean} clean · {ci_failing} CI failing · {changes_requested} changes requested · {unresolved_comments} unresolved comments · {deferred} deferred · {draft} draft · {stale} stale)"
+        "- Open PRs: **{}** ({})",
+        total.open,
+        format_buckets(&total)
     );
     let _ = writeln!(out, "- PRs needing author action: **{needs}**");
     let _ = writeln!(out, "- Total unresolved comments: **{unresolved}**");
+    for r in repos {
+        if let Some(err) = &r.fetch_error {
+            let _ = writeln!(
+                out,
+                "- {}: **fetch failed** — {} · counts above exclude this repository",
+                r.repo,
+                sanitize_inline(err)
+            );
+            continue;
+        }
+        let mine = || scored.iter().filter(|s| s.pr.raw.repo == r.repo);
+        let counts = bucket_counts(mine());
+        let engine = if r.engine_state_available {
+            format!("engine: {}", format_engine_counts(mine()))
+        } else {
+            "engine state unavailable".to_string()
+        };
+        let _ = writeln!(
+            out,
+            "- {}: **{}** open ({}) · {engine}",
+            r.repo,
+            counts.open,
+            format_buckets(&counts)
+        );
+    }
     let _ = writeln!(out);
 }
 
@@ -155,158 +234,92 @@ fn write_scoreboard(out: &mut String, authors: &[AuthorRollup], has_history: boo
          Click any number to jump to the specific PRs it covers._"
     );
     let _ = writeln!(out);
+    let mut header = "| Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Ready for human | Total Unresolved Comments | Ready for Review |".to_string();
+    let mut rule = "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|".to_string();
     if has_history {
-        let _ = writeln!(
-            out,
-            "| Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review | Δ |"
-        );
-        let _ = writeln!(
-            out,
-            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
-        );
-    } else {
-        let _ = writeln!(
-            out,
-            "| Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Total Unresolved Comments | Ready for Review |"
-        );
-        let _ = writeln!(
-            out,
-            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
-        );
+        header.push_str(" Δ |");
+        rule.push_str("---:|");
     }
+    let _ = writeln!(out, "{header}");
+    let _ = writeln!(out, "{rule}");
     for a in authors {
-        let author_link = author_cell(a);
         let login = &a.login;
         let aliases = &a.aliases;
-        // Total Unresolved Comments lives on the Unresolved Comments bucket PRs,
-        // so that's the natural drill target.
-        let total_unresolved_target = cell_link(
-            a.total_unresolved,
-            aliases,
-            |x| x.total_unresolved,
-            login,
-            "unresolved-comments",
-        );
+        let mut cells = vec![
+            author_cell(a),
+            cell_link(
+                a.total_open_prs,
+                aliases,
+                |x| x.total_open_prs,
+                login,
+                "open",
+            ),
+            cell_link(a.clean_prs, aliases, |x| x.clean_prs, login, "clean"),
+            cell_link(
+                a.ci_failing_prs,
+                aliases,
+                |x| x.ci_failing_prs,
+                login,
+                "ci-failing",
+            ),
+            cell_link(
+                a.dirty_prs,
+                aliases,
+                |x| x.dirty_prs,
+                login,
+                "unresolved-comments",
+            ),
+            cell_link(
+                a.changes_requested_prs,
+                aliases,
+                |x| x.changes_requested_prs,
+                login,
+                "changes-requested",
+            ),
+            cell_link(
+                a.deferred_prs,
+                aliases,
+                |x| x.deferred_prs,
+                login,
+                "deferred",
+            ),
+            cell_link(a.draft_prs, aliases, |x| x.draft_prs, login, "draft"),
+            cell_link(a.stale_prs, aliases, |x| x.stale_prs, login, "stale"),
+            cell_link(
+                a.prs_needing_author_action,
+                aliases,
+                |x| x.prs_needing_author_action,
+                login,
+                "needs-action",
+            ),
+            cell_link(
+                a.ready_for_human_prs,
+                aliases,
+                |x| x.ready_for_human_prs,
+                login,
+                "ready-for-human",
+            ),
+            // Total Unresolved Comments lives on the Unresolved Comments bucket PRs,
+            // so that's the natural drill target.
+            cell_link(
+                a.total_unresolved,
+                aliases,
+                |x| x.total_unresolved,
+                login,
+                "unresolved-comments",
+            ),
+            cell_link(
+                a.awaiting_review,
+                aliases,
+                |x| x.awaiting_review,
+                login,
+                "ready-for-review",
+            ),
+        ];
         if has_history {
-            let _ = writeln!(
-                out,
-                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-                author_link,
-                cell_link(
-                    a.total_open_prs,
-                    aliases,
-                    |x| x.total_open_prs,
-                    login,
-                    "open"
-                ),
-                cell_link(a.clean_prs, aliases, |x| x.clean_prs, login, "clean"),
-                cell_link(
-                    a.ci_failing_prs,
-                    aliases,
-                    |x| x.ci_failing_prs,
-                    login,
-                    "ci-failing"
-                ),
-                cell_link(
-                    a.dirty_prs,
-                    aliases,
-                    |x| x.dirty_prs,
-                    login,
-                    "unresolved-comments"
-                ),
-                cell_link(
-                    a.changes_requested_prs,
-                    aliases,
-                    |x| x.changes_requested_prs,
-                    login,
-                    "changes-requested"
-                ),
-                cell_link(
-                    a.deferred_prs,
-                    aliases,
-                    |x| x.deferred_prs,
-                    login,
-                    "deferred"
-                ),
-                cell_link(a.draft_prs, aliases, |x| x.draft_prs, login, "draft"),
-                cell_link(a.stale_prs, aliases, |x| x.stale_prs, login, "stale"),
-                cell_link(
-                    a.prs_needing_author_action,
-                    aliases,
-                    |x| x.prs_needing_author_action,
-                    login,
-                    "needs-action"
-                ),
-                total_unresolved_target,
-                cell_link(
-                    a.awaiting_review,
-                    aliases,
-                    |x| x.awaiting_review,
-                    login,
-                    "ready-for-review"
-                ),
-                format_delta(a.delta_vs_last_week),
-            );
-        } else {
-            let _ = writeln!(
-                out,
-                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-                author_link,
-                cell_link(
-                    a.total_open_prs,
-                    aliases,
-                    |x| x.total_open_prs,
-                    login,
-                    "open"
-                ),
-                cell_link(a.clean_prs, aliases, |x| x.clean_prs, login, "clean"),
-                cell_link(
-                    a.ci_failing_prs,
-                    aliases,
-                    |x| x.ci_failing_prs,
-                    login,
-                    "ci-failing"
-                ),
-                cell_link(
-                    a.dirty_prs,
-                    aliases,
-                    |x| x.dirty_prs,
-                    login,
-                    "unresolved-comments"
-                ),
-                cell_link(
-                    a.changes_requested_prs,
-                    aliases,
-                    |x| x.changes_requested_prs,
-                    login,
-                    "changes-requested"
-                ),
-                cell_link(
-                    a.deferred_prs,
-                    aliases,
-                    |x| x.deferred_prs,
-                    login,
-                    "deferred"
-                ),
-                cell_link(a.draft_prs, aliases, |x| x.draft_prs, login, "draft"),
-                cell_link(a.stale_prs, aliases, |x| x.stale_prs, login, "stale"),
-                cell_link(
-                    a.prs_needing_author_action,
-                    aliases,
-                    |x| x.prs_needing_author_action,
-                    login,
-                    "needs-action"
-                ),
-                total_unresolved_target,
-                cell_link(
-                    a.awaiting_review,
-                    aliases,
-                    |x| x.awaiting_review,
-                    login,
-                    "ready-for-review"
-                ),
-            );
+            cells.push(format_delta(a.delta_vs_last_week));
         }
+        let _ = writeln!(out, "| {} |", cells.join(" | "));
     }
     let _ = writeln!(out);
 }
@@ -391,6 +404,7 @@ fn write_author_section(
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then(b.unresolved_total.cmp(&a.unresolved_total))
+                .then(a.pr.raw.repo.cmp(&b.pr.raw.repo))
                 .then(a.pr.raw.number.cmp(&b.pr.raw.number))
         });
         v
@@ -401,6 +415,15 @@ fn write_author_section(
         "Needs action",
         "needs-action",
         collect(&|p| p.pr.needs_author_action),
+    ));
+    by_bucket.push((
+        "Ready for human",
+        "ready-for-human",
+        collect(&|p| {
+            p.policy_state
+                .as_ref()
+                .is_some_and(crate::model::PolicyState::is_ready_for_human)
+        }),
     ));
     by_bucket.push((
         "Unresolved Comments",
@@ -457,14 +480,15 @@ fn write_author_section(
     ));
 
     // Ready-for-Review is authored by someone else; pull from scored at large.
-    // Mirrors the rollup logic: when path routing matches, the routed reviewers
-    // are THE queue (explicit reviewers are ignored); otherwise explicit
-    // requested-reviewers apply. CHANGES_REQUESTED and red CI disqualify the PR.
+    // Mirrors the rollup logic: the queue is the union of policy-routed
+    // reviewers and explicit GitHub review requests. CHANGES_REQUESTED and red
+    // CI disqualify the PR.
     let reviewer_logins: HashSet<String> = owned_logins.clone();
     let mut to_review: Vec<&ScoredPr> = scored
         .iter()
         .filter(|p| {
-            if p.pr.is_deferred
+            if p.routing_unavailable.is_some()
+                || p.pr.is_deferred
                 || p.pr.is_stale
                 || p.pr.raw.is_draft
                 || p.unresolved_total > 0
@@ -483,19 +507,18 @@ fn write_author_section(
             {
                 return false;
             }
-            if p.routing_matched {
-                p.routed_reviewers
-                    .iter()
-                    .any(|r| reviewer_logins.contains(&r.to_ascii_lowercase()))
-            } else {
-                p.pr.raw
-                    .requested_reviewers
-                    .iter()
-                    .any(|r| reviewer_logins.contains(&r.to_ascii_lowercase()))
-            }
+            p.routed_reviewers
+                .iter()
+                .chain(&p.pr.raw.requested_reviewers)
+                .any(|r| reviewer_logins.contains(&r.to_ascii_lowercase()))
         })
         .collect();
-    to_review.sort_by_key(|p| p.pr.raw.number);
+    to_review.sort_by(|a, b| {
+        a.pr.raw
+            .repo
+            .cmp(&b.pr.raw.repo)
+            .then(a.pr.raw.number.cmp(&b.pr.raw.number))
+    });
     by_bucket.push(("Ready for Review", "ready-for-review", to_review));
 
     for (label, anchor, prs) in by_bucket {
@@ -526,7 +549,7 @@ fn write_pr_bullet(
 ) {
     let title = sanitize_inline(&s.pr.raw.title);
     let url = &s.pr.raw.url;
-    let n = s.pr.raw.number;
+    let id = format!("{}#{}", s.pr.raw.repo, s.pr.raw.number);
     let mut detail_bits: Vec<String> = vec![];
     if show_author {
         if let Some(a) = &s.pr.raw.author {
@@ -573,12 +596,27 @@ fn write_pr_bullet(
             detail_bits.push(format!("🐢 {}", s.pr.stale_reasons.join(", ")));
         }
     }
+    if !s.areas.is_empty() {
+        detail_bits.push(format!("areas: {}", s.areas.join(", ")));
+    }
+    if !s.unresolved_areas.is_empty() {
+        detail_bits.push(format!(
+            "⚠ ownership unresolved: {}",
+            s.unresolved_areas.join(", ")
+        ));
+    }
+    if let Some(reason) = &s.routing_unavailable {
+        detail_bits.push(format!("⚠ routing unavailable: {reason}"));
+    }
+    if let Some(p) = &s.policy_state {
+        detail_bits.push(format!("Policy: {}", sanitize_inline(&p.state)));
+    }
     let suffix = if detail_bits.is_empty() {
         String::new()
     } else {
         format!(" — {}", detail_bits.join(" · "))
     };
-    let _ = writeln!(out, "- [#{n} {title}]({url}){suffix}");
+    let _ = writeln!(out, "- [{id} {title}]({url}){suffix}");
 
     if s.unresolved_total > 0 {
         if let Some(top) = pick_top_thread(&s.pr.unresolved_threads) {
@@ -589,6 +627,15 @@ fn write_pr_bullet(
                 sanitize_inline(&top.first_comment_excerpt),
                 days
             );
+        }
+    }
+    if let Some(p) = &s.policy_state {
+        for blocker in p.blockers.iter().take(MAX_BLOCKERS_SHOWN) {
+            let _ = writeln!(out, "  - Blocker: {}", sanitize_inline(blocker));
+        }
+        let hidden = p.blockers.len().saturating_sub(MAX_BLOCKERS_SHOWN);
+        if hidden > 0 {
+            let _ = writeln!(out, "  - … {hidden} more blocker(s)");
         }
     }
 }
@@ -645,11 +692,16 @@ fn write_methodology(out: &mut String, ctx: &RenderContext<'_>) {
          **Clean** = open, not draft, not deferred, not stale, no unresolved comments, no changes-requested, CI green. \
          **Needs action** further requires changes-requested, merge conflict, or that the \
          reviewer commented more recently than the author last pushed. \
+         **Ready for human** counts a person's own PRs that the shared review engine marks \
+         `ready-for-human` or `ready-to-merge`; each PR bullet shows the engine's state as \
+         `Policy:` with its blockers. \
          **Ready for Review** counts clean PRs (authored by someone else) where this person \
-         owes a review. When a `review_routing` rule matches a PR's changed files, the routed \
-         reviewer IS the queue (explicit GitHub reviewers are ignored); a routed reviewer who \
-         has already submitted any review is excluded — their job is done. \
-         Configurable via [`{}`]({})\u{2014}edit defaults there.",
+         owes a review: the union of the shared policy's routing (owners and reviewers of every \
+         area the changed files fall into, or the repository fallback for files no area claims) \
+         and GitHub's explicit review requests. The author is never routed to their own PR, and \
+         anyone who has already submitted any review is excluded — their job is done. \
+         `⚠ ownership unresolved` marks areas whose roster the policy still lists as open. \
+         Configurable via [`{}`]({})\u{2014}edit defaults there; ownership lives in `policies/`.",
         ctx.config_path, ctx.config_path
     );
     if !ctx.has_history {
@@ -686,6 +738,7 @@ mod tests {
             commit_sha: Some("abc1234567"),
             config_path: ".pr-hygiene.yml",
             has_history,
+            repos: &[],
         }
     }
 
@@ -714,6 +767,7 @@ mod tests {
             ci_failing_prs: 0,
             changes_requested_prs: 0,
             prs_needing_author_action: needs,
+            ready_for_human_prs: 0,
             total_unresolved: unresolved,
             unresolved_coderabbit: cr,
             unresolved_human: human,
@@ -757,6 +811,7 @@ mod tests {
         ScoredPr {
             pr: AnalyzedPr {
                 raw: RawPr {
+                    repo: "dashpay/platform".into(),
                     number,
                     title: title.into(),
                     url: format!("https://example.com/pr/{number}"),
@@ -772,6 +827,7 @@ mod tests {
                     requested_reviewers: vec![],
                     base_ref: "master".into(),
                     changed_files: vec![],
+                    changed_files_truncated: false,
                 },
                 unresolved_threads: unresolved,
                 days_since_author_push: 1.0,
@@ -790,7 +846,10 @@ mod tests {
             unresolved_by_source: bsrc,
             unresolved_total: total,
             routed_reviewers: vec![],
-            routing_matched: false,
+            areas: vec![],
+            unresolved_areas: vec![],
+            routing_unavailable: None,
+            policy_state: None,
         }
     }
 
@@ -817,6 +876,30 @@ mod tests {
         assert!(out.contains("# PR Hygiene Report"));
         assert!(out.contains("Open PRs: **0**"));
         assert!(out.contains("Methodology"));
+    }
+
+    #[test]
+    fn summary_marks_unfetched_and_unexported_repositories() {
+        let repos = vec![
+            RepoStatus {
+                repo: "dashpay/platform".into(),
+                engine_state_available: false,
+                fetch_error: None,
+            },
+            RepoStatus {
+                repo: "dashpay/grovedb".into(),
+                engine_state_available: true,
+                fetch_error: Some("GraphQL 502 | boom".into()),
+            },
+        ];
+        let ctx = RenderContext {
+            repos: &repos,
+            ..ctx(false)
+        };
+        let out = render(&[], &[], &ctx);
+        assert!(out.contains("- dashpay/platform: **0** open"));
+        assert!(out.contains("engine state unavailable"));
+        assert!(out.contains("- dashpay/grovedb: **fetch failed** — GraphQL 502 \\| boom"));
     }
 
     #[test]
@@ -878,7 +961,9 @@ mod tests {
             true,
         )];
         let out = render(&scored, &rollup_data, &ctx(true));
-        assert!(out.contains("[#1234 Add foo support](https://example.com/pr/1234)"));
+        assert!(
+            out.contains("[dashpay/platform#1234 Add foo support](https://example.com/pr/1234)")
+        );
         assert!(out.contains("3 unresolved (2 CodeRabbit, 1 human)"));
         assert!(out.contains("CI failing"));
         assert!(out.contains("Top thread: \"This should use error wrapping\""));

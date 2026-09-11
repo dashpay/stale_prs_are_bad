@@ -1,0 +1,71 @@
+name: Daily PR review digest
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      send_slack:
+        description: Send the combined channel summary and personal digests
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+concurrency:
+  group: pr-review-digest
+  cancel-in-progress: false
+jobs:
+  report:
+    if: github.repository == 'dashpay/stale_prs_are_bad'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      # Collaborator permission reads need push access on each governed repository,
+      # which this repository's own token never has. The App is mandatory.
+      - name: Require the read-only reporting App
+        if: vars.PR_REVIEW_APP_ID == ''
+        run: |
+          echo 'PR_REVIEW_APP_ID is not configured; the digest cannot read any governed repository.' >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+      - name: List governed repositories
+        id: registry
+        run: echo "names=$(python3 -c "import json; print(','.join(e['repository'].split('/')[1] for e in json.load(open('policies/repositories.json'))['repositories']))")" >> "$GITHUB_OUTPUT"
+      - name: Create selected-repository read token
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.PR_REVIEW_APP_ID }}
+          private-key: ${{ secrets.PR_REVIEW_APP_PRIVATE_KEY }}
+          owner: dashpay
+          repositories: ${{ steps.registry.outputs.names }}
+          permission-contents: read
+          permission-pull-requests: read
+          permission-issues: read
+          permission-metadata: read
+      - name: Collect one snapshot and optionally deliver all digests
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR_REVIEW_SLACK_ENABLED: ${{ vars.PR_REVIEW_SLACK_ENABLED }}
+          PR_REVIEW_SLACK_BOT_TOKEN: ${{ secrets.PR_REVIEW_SLACK_BOT_TOKEN }}
+          DELIVERY_REQUESTED: ${{ github.event_name == 'schedule' || inputs.send_slack }}
+        run: |
+          args=()
+          if [[ "$PR_REVIEW_SLACK_ENABLED" == true && "$DELIVERY_REQUESTED" == true ]]; then
+            args+=(--send-slack)
+          fi
+          report_status=0
+          python3 -m pr_review.aggregate report --output pr-review-report.md "${args[@]}" || report_status=$?
+          if [[ -f pr-review-report.md ]]; then
+            cat pr-review-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$report_status"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: pr-review-report
+          path: pr-review-report.md
+          retention-days: 14

@@ -26,7 +26,7 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
       nodes {
         id number title url isDraft mergeable createdAt updatedAt
         baseRefName
-        files(first: 50) { nodes { path } }
+        files(first: 50) { totalCount nodes { path } }
         author { login }
         labels(first: 20) { nodes { name } }
         commits(last: 1) {
@@ -121,7 +121,7 @@ impl Fetcher {
         self
     }
 
-    /// Fetch every open PR in the target repo, fully populated.
+    /// Fetch every open PR in `owner/name`, fully populated.
     /// Returns the PRs, (node_id, number) pairs for follow-up queries, and the
     /// repository's default branch name (used to drive stale-branch detection).
     pub async fn fetch_all_open_prs(
@@ -134,6 +134,7 @@ impl Fetcher {
         let mut paginated_threads: Vec<(String, u64)> = Vec::new();
         let mut cursor: Option<String> = None;
         let mut default_branch: Option<String> = None;
+        let repo = format!("{owner}/{name}");
         loop {
             let vars = json!({
                 "owner": owner,
@@ -158,7 +159,7 @@ impl Fetcher {
                 .ok_or_else(|| anyhow!("pullRequests.nodes missing"))?;
             for node in nodes {
                 let (raw, node_id, thread_has_more, _thread_cursor) =
-                    parse_pr_node(node).context("parsing PR node")?;
+                    parse_pr_node(node, &repo).context("parsing PR node")?;
                 node_ids.push((node_id.clone(), raw.number));
                 if thread_has_more {
                     paginated_threads.push((node_id, raw.number));
@@ -386,7 +387,7 @@ fn backoff_secs(attempt: u32) -> u64 {
 }
 
 /// Parse a PR node from GraphQL JSON. Returns (pr, node_id, threads_have_more, threads_end_cursor).
-pub fn parse_pr_node(node: &Value) -> Result<(RawPr, String, bool, Option<String>)> {
+pub fn parse_pr_node(node: &Value, repo: &str) -> Result<(RawPr, String, bool, Option<String>)> {
     let number = node
         .get("number")
         .and_then(|v| v.as_u64())
@@ -460,6 +461,10 @@ pub fn parse_pr_node(node: &Value) -> Result<(RawPr, String, bool, Option<String
                 .collect()
         })
         .unwrap_or_default();
+    let changed_files_truncated = node
+        .pointer("/files/totalCount")
+        .and_then(|v| v.as_u64())
+        .is_some_and(|total| total > changed_files.len() as u64);
 
     let requested_reviewers: Vec<String> = node
         .pointer("/reviewRequests/nodes")
@@ -503,6 +508,7 @@ pub fn parse_pr_node(node: &Value) -> Result<(RawPr, String, bool, Option<String
 
     Ok((
         RawPr {
+            repo: repo.to_string(),
             number,
             title,
             url,
@@ -518,6 +524,7 @@ pub fn parse_pr_node(node: &Value) -> Result<(RawPr, String, bool, Option<String
             requested_reviewers,
             base_ref,
             changed_files,
+            changed_files_truncated,
         },
         id,
         threads_have_more,
@@ -658,6 +665,28 @@ mod tests {
     }
 
     #[test]
+    fn changed_files_truncation_is_detected_from_total_count() {
+        let mut node = json!({
+            "id": "PR_1", "number": 1, "title": "t", "url": "u",
+            "createdAt": "2026-04-01T00:00:00Z", "updatedAt": "2026-05-01T00:00:00Z",
+            "files": { "totalCount": 3, "nodes": [{"path": "a"}, {"path": "b"}] },
+            "reviewThreads": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+        });
+        let (pr, ..) = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert_eq!(pr.changed_files, vec!["a", "b"]);
+        assert!(pr.changed_files_truncated);
+
+        node["files"]["totalCount"] = json!(2);
+        let (pr, ..) = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert!(!pr.changed_files_truncated);
+
+        // Fixtures written before totalCount existed still parse.
+        node["files"].as_object_mut().unwrap().remove("totalCount");
+        let (pr, ..) = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert!(!pr.changed_files_truncated);
+    }
+
+    #[test]
     fn parse_pr_node_minimal() {
         let node = json!({
             "id": "PR_1",
@@ -682,8 +711,13 @@ mod tests {
                 "nodes": []
             }
         });
-        let (pr, id, more, _) = parse_pr_node(&node).unwrap();
+        let (pr, id, more, _) = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert_eq!(pr.repo, "dashpay/platform");
         assert_eq!(pr.number, 42);
+        assert!(
+            !pr.changed_files_truncated,
+            "no files block → not truncated"
+        );
         assert_eq!(pr.title, "Add foo");
         assert_eq!(pr.author.as_deref(), Some("alice"));
         assert_eq!(pr.labels, vec!["bug".to_string()]);

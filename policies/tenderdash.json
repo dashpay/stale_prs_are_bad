@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "repository": "dashpay/tenderdash",
+  "max_active_prs": 5,
+  "target_branches": [
+    "v1.8-dev"
+  ],
+  "fallback": {
+    "owners": [
+      "lklimek"
+    ],
+    "reviewers": [
+      "shumkov"
+    ]
+  },
+  "areas": [
+    {
+      "id": "tenderdash",
+      "paths": [
+        ""
+      ],
+      "owners": [
+        "lklimek"
+      ],
+      "reviewers": [
+        "shumkov"
+      ]
+    }
+  ]
+}
