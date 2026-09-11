@@ -1,0 +1,85 @@
+{
+  "data": {
+    "repository": {
+      "defaultBranchRef": { "name": "dev" },
+      "pullRequests": {
+        "pageInfo": { "endCursor": null, "hasNextPage": false },
+        "nodes": [
+          {
+            "id": "PR_dc_101",
+            "number": 101,
+            "title": "spv: retry header sync after reorg",
+            "url": "https://github.com/dashpay/rust-dashcore/pull/101",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "createdAt": "2026-04-20T00:00:00Z",
+            "updatedAt": "2026-05-10T00:00:00Z",
+            "baseRefName": "dev",
+            "author": { "login": "bob" },
+            "labels": { "nodes": [] },
+            "files": {
+              "nodes": [
+                { "path": "dash-spv/src/sync.rs" },
+                { "path": "dash-spv/Cargo.toml" }
+              ]
+            },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-10T00:00:00Z",
+                    "statusCheckRollup": { "state": "SUCCESS" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewRequests": { "nodes": [] },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": []
+            }
+          },
+          {
+            "id": "PR_dc_102",
+            "number": 102,
+            "title": "docs: fix README badges",
+            "url": "https://github.com/dashpay/rust-dashcore/pull/102",
+            "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "createdAt": "2026-04-22T00:00:00Z",
+            "updatedAt": "2026-05-12T00:00:00Z",
+            "baseRefName": "dev",
+            "author": { "login": "alice" },
+            "labels": { "nodes": [] },
+            "files": {
+              "nodes": [
+                { "path": "README.md" }
+              ]
+            },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "committedDate": "2026-05-12T00:00:00Z",
+                    "statusCheckRollup": { "state": "SUCCESS" }
+                  }
+                }
+              ]
+            },
+            "reviews": { "nodes": [] },
+            "reviewRequests": {
+              "nodes": [
+                { "requestedReviewer": { "__typename": "User", "login": "QuantumExplorer" } }
+              ]
+            },
+            "reviewThreads": {
+              "pageInfo": { "endCursor": null, "hasNextPage": false },
+              "nodes": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}

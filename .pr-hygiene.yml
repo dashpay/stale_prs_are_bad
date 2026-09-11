@@ -1,7 +1,7 @@
 # Configuration for the PR-hygiene analyzer.
 # All keys are optional. Anything omitted falls back to the documented default.
-
-target_repo: dashpay/platform
+# Which repositories are analyzed, and who owns what in them, comes from
+# policies/repositories.json and the policy files it lists — not from here.
 
 # PRs by these authors are skipped entirely.
 excluded_authors:
@@ -21,38 +21,9 @@ excluded_labels:
 deferred_labels:
   - postponed
 
-# The default branch of the target repo. PRs targeting anything else
-# (release branches, feature branches) land in the Stale bucket.
-# Omitted = auto-detect from GitHub on each run. Set explicitly only if
-# you want to lock the comparison to a specific branch.
-# default_target_branch: v3.1-dev
-
 # PRs whose updatedAt is older than this fall into the Stale bucket
 # UNLESS they would otherwise be Clean or Deferred. Default: ~4 months.
 stale_threshold_days: 120
-
-# Path-based reviewer routing (CODEOWNERS-lite). For each rule, if any
-# changed file matches one of the glob patterns, the `primary` reviewer
-# is implicitly added to that PR's "To review" tally. If `primary` is
-# the PR author, `fallback` is used (or the rule doesn't fire if no
-# fallback is set). The same person isn't double-counted when they're
-# also formally requested in GitHub.
-review_routing:
-  - paths:
-      - "**/sdk/**"
-      - "**/wasm/**"
-      - "**/wasm-sdk/**"
-    primary: shumkov          # Ivan — edit if the login is different
-    fallback: QuantumExplorer
-  - paths:
-      - "**/swift-sdk/**"
-      - "**/ios/**"
-    primary: llbartekll       # bartozs — edit if the login is different
-    fallback: ZocoLini
-  - paths:
-      - "**/dashmate/**"
-    primary: shumkov
-    fallback: QuantumExplorer
 
 # AI-assistant accounts that should be attributed to a human in the scoreboard.
 # The principal's row shows as "@principal + (@alias)" with cells like "13+(5)".
@@ -73,12 +44,6 @@ count_nitpicks: false
 # Useful to filter drive-by review noise.
 maintainer_only: false
 maintainers: []
-
-# Apply the `needs-author-action` label to qualifying PRs. Requires a PAT with
-# `pull-requests: write` on the target repo (see README — the default GITHUB_TOKEN
-# can't write to a *different* repo, only to its own).
-auto_label: true
-needs_author_action_label: needs-author-action
 
 # Scoring weights.
 # score = high * weights.high + medium * weights.medium + low * weights.low

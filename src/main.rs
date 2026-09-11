@@ -1,8 +1,9 @@
-use pr_hygiene::{analyzer, config, fetcher, history, labeler, renderer, scorer};
+use pr_hygiene::{analyzer, config, fetcher, history, policy, renderer, scorer};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::Parser;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use tracing_subscriber::EnvFilter;
@@ -10,7 +11,8 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser, Debug)]
 #[command(name = "pr-hygiene", version, about = "Nightly PR-hygiene dashboard")]
 struct Args {
-    /// Override the target repo (else from .pr-hygiene.yml). Form "owner/name".
+    /// Only analyze this registered repository (form "owner/name"). Default: every
+    /// repository in the policy registry.
     #[arg(long)]
     repo: Option<String>,
 
@@ -22,7 +24,16 @@ struct Args {
     #[arg(long, default_value = ".pr-hygiene.yml")]
     config: PathBuf,
 
-    /// Skip writing files and skip label mutations; print what would happen.
+    /// Directory holding `repositories.json` and the per-repository policy files.
+    #[arg(long, default_value = "policies")]
+    policies_root: PathBuf,
+
+    /// Directory of review-engine exports, one `<name>.json` per repository
+    /// (`pr_review.main sync --format json`). Missing files render as unavailable.
+    #[arg(long)]
+    policy_state: Option<PathBuf>,
+
+    /// Skip writing files; print the report instead.
     #[arg(long)]
     dry_run: bool,
 
@@ -46,46 +57,48 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    let mut cfg = config::Config::load_or_default(&args.config)?;
-    if let Some(repo) = &args.repo {
-        cfg.target_repo = repo.clone();
+    let cfg = config::Config::load_or_default(&args.config)?;
+    let mut registry = policy::load_registry(&args.policies_root)?;
+    if let Some(only) = &args.repo {
+        registry.retain(|(repo, _)| repo == only);
+        if registry.is_empty() {
+            anyhow::bail!(
+                "{only} is not registered in {}",
+                args.policies_root.join(policy::REGISTRY_FILE).display()
+            );
+        }
     }
-    let (owner, name) = {
-        let (o, n) = cfg.repo_parts()?;
-        (o.to_string(), n.to_string())
-    };
     let now = Utc::now();
     let today = now.date_naive();
-    tracing::info!(repo = %cfg.target_repo, %today, dry_run = args.dry_run, "starting");
+    let repo_names: Vec<String> = registry.iter().map(|(r, _)| r.clone()).collect();
+    tracing::info!(repos = ?repo_names, %today, dry_run = args.dry_run, "starting");
 
     let fetcher = fetcher::Fetcher::new(&args.token)?;
-    let (mut raw_prs, node_ids, fetched_default_branch) =
-        fetcher.fetch_all_open_prs(&owner, &name).await?;
-    fetcher
-        .recheck_mergeable(&mut raw_prs, &node_ids, Duration::from_secs(3))
-        .await?;
-
-    // Auto-detect the default branch when the user hasn't pinned one in config.
-    // Without this, every PR would be flagged as "targets non-default" → Stale.
-    if cfg.default_target_branch.is_none() {
-        match fetched_default_branch.as_deref() {
-            Some(b) => {
-                tracing::info!("auto-detected default branch: {b}");
-                cfg.default_target_branch = Some(b.to_string());
-            }
+    let mut analyzed = Vec::new();
+    for repo in &repo_names {
+        let (owner, name) = config::repo_parts(repo)?;
+        let (mut raw_prs, node_ids, default_branch) =
+            fetcher.fetch_all_open_prs(owner, name).await?;
+        fetcher
+            .recheck_mergeable(&mut raw_prs, &node_ids, Duration::from_secs(3))
+            .await?;
+        // Without a known default branch every PR would be flagged as
+        // "targets non-default" → Stale, so detection failure disables that check.
+        match default_branch.as_deref() {
+            Some(b) => tracing::info!(%repo, "default branch: {b}"),
             None => tracing::warn!(
-                "could not auto-detect default branch; branch-based stale detection disabled"
+                %repo,
+                "could not detect default branch; branch-based stale detection disabled"
             ),
         }
-    } else {
-        tracing::info!(
-            "using configured default branch: {}",
-            cfg.default_target_branch.as_deref().unwrap_or("?")
-        );
+        tracing::info!(%repo, "fetched {} open PRs", raw_prs.len());
+        analyzed.extend(analyzer::analyze(
+            raw_prs,
+            &cfg,
+            default_branch.as_deref(),
+            now,
+        ));
     }
-    tracing::info!("fetched {} open PRs", raw_prs.len());
-
-    let analyzed = analyzer::analyze(raw_prs, &cfg, now);
 
     let author_cache_path = PathBuf::from(history::AUTHOR_CACHE);
     let mut author_cache = history::load_author_cache(&author_cache_path)?;
@@ -93,7 +106,33 @@ async fn main() -> Result<()> {
         analyzer::apply_grace_period(analyzed, &mut author_cache, cfg.grace_period_days, today);
     tracing::info!("{} PRs survive filters", filtered.len());
 
-    let scored = scorer::score_prs(filtered, &cfg, now);
+    let policies: HashMap<String, policy::Policy> = registry.into_iter().collect();
+    let mut scored = scorer::score_prs(filtered, &cfg, &policies, now);
+
+    let mut repos = Vec::with_capacity(repo_names.len());
+    for repo in &repo_names {
+        let (_, name) = config::repo_parts(repo)?;
+        let engine_state_available = match &args.policy_state {
+            Some(dir) => match policy::load_engine_state(&dir.join(format!("{name}.json"))) {
+                Ok(state) => {
+                    scorer::attach_engine_state(&mut scored, repo, &state);
+                    true
+                }
+                Err(e) => {
+                    tracing::warn!(%repo, "engine state unavailable: {e:#}");
+                    false
+                }
+            },
+            None => {
+                tracing::warn!(%repo, "no --policy-state directory; engine state unavailable");
+                false
+            }
+        };
+        repos.push(renderer::RepoStatus {
+            repo: repo.clone(),
+            engine_state_available,
+        });
+    }
 
     let history_dir = PathBuf::from(history::HISTORY_DIR);
     let previous = history::load_previous(&history_dir, today)?;
@@ -114,6 +153,7 @@ async fn main() -> Result<()> {
         commit_sha: args.commit_sha.as_deref(),
         config_path: &config_url,
         has_history,
+        repos: &repos,
     };
     let markdown = renderer::render(&scored, &authors, &render_ctx);
 
@@ -132,36 +172,6 @@ async fn main() -> Result<()> {
         let pruned = history::prune(&history_dir, today, cfg.history_retention_days)?;
         if pruned > 0 {
             tracing::info!("pruned {pruned} old snapshot(s)");
-        }
-    }
-
-    if cfg.auto_label {
-        let diff =
-            labeler::compute_diff(scored.iter().map(|s| &s.pr), &cfg.needs_author_action_label);
-        if args.dry_run {
-            tracing::info!(
-                "--dry-run: label diff: add {:?}, remove {:?}",
-                diff.to_add,
-                diff.to_remove
-            );
-        } else if diff.to_add.is_empty() && diff.to_remove.is_empty() {
-            tracing::info!("label diff is empty; nothing to do");
-        } else {
-            let labeler = labeler::Labeler::new(&args.token)?;
-            match labeler
-                .apply(&owner, &name, &diff, &cfg.needs_author_action_label)
-                .await
-            {
-                Ok(()) => tracing::info!(
-                    "applied label diff: +{} / -{}",
-                    diff.to_add.len(),
-                    diff.to_remove.len()
-                ),
-                Err(e) => tracing::warn!(
-                    "label mutations failed (often the default GITHUB_TOKEN can't write \
-                     to the target repo; see README): {e:#}"
-                ),
-            }
         }
     }
 

@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct RawPr {
+    /// Repository the PR belongs to, in `owner/name` form.
+    pub repo: String,
     pub number: u64,
     pub title: String,
     pub url: String,
@@ -153,15 +155,41 @@ pub struct ScoredPr {
     pub unresolved_by_severity: BySeverity,
     pub unresolved_by_source: BySource,
     pub unresolved_total: u32,
-    /// Logins that are responsible for reviewing this PR via path-based routing
-    /// rules, excluding anyone who has already submitted a review (their job is
-    /// done). The list is dedupe-against-author.
+    /// Owners and reviewers of every policy area the PR touches (plus the
+    /// repository fallback when some file matched no area), minus the author
+    /// and anyone who has already submitted a review. Combined with GitHub's
+    /// explicit review requests to form the review queue.
     pub routed_reviewers: Vec<String>,
-    /// True when at least one `review_routing` rule matched this PR. When true,
-    /// the routed_reviewers list is the AUTHORITATIVE queue: explicit
-    /// `requested_reviewers` from GitHub are ignored. (Empty routed_reviewers +
-    /// routing_matched == true means "the owner already reviewed; PR is handled".)
-    pub routing_matched: bool,
+    /// Ids of the policy areas the changed files fall into; `fallback` when
+    /// at least one file matched no area.
+    pub areas: Vec<String>,
+    /// Matched areas whose ownership is still marked unresolved in the policy.
+    pub unresolved_areas: Vec<String>,
+    /// Verdict of the shared review engine for this PR, when the engine's
+    /// state export for the repository was available and listed the PR.
+    pub policy_state: Option<PolicyState>,
+}
+
+/// One PR's verdict as exported by the shared review engine. `state` is
+/// rendered verbatim; the dashboard only interprets the ready-for-human and
+/// ready-to-merge values.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyState {
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub blockers: Vec<String>,
+    #[serde(default)]
+    pub reviewers: Vec<String>,
+}
+
+impl PolicyState {
+    /// True when the engine says the PR only waits on a human reviewer or merge.
+    pub fn is_ready_for_human(&self) -> bool {
+        matches!(self.state.as_str(), "ready-for-human" | "ready-to-merge")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +216,9 @@ pub struct AuthorRollup {
     /// formal review state is still blocking until someone re-approves or dismisses.
     pub changes_requested_prs: u32,
     pub prs_needing_author_action: u32,
+    /// Open PRs they authored that the review engine marks `ready-for-human`
+    /// or `ready-to-merge`.
+    pub ready_for_human_prs: u32,
     pub total_unresolved: u32,
     pub unresolved_coderabbit: u32,
     pub unresolved_human: u32,
@@ -240,6 +271,9 @@ impl AuthorRollup {
     }
     pub fn combined_prs_needing_author_action(&self) -> u32 {
         self.prs_needing_author_action + self.sum_aliases(|a| a.prs_needing_author_action)
+    }
+    pub fn combined_ready_for_human_prs(&self) -> u32 {
+        self.ready_for_human_prs + self.sum_aliases(|a| a.ready_for_human_prs)
     }
     pub fn combined_total_unresolved(&self) -> u32 {
         self.total_unresolved + self.sum_aliases(|a| a.total_unresolved)
@@ -294,6 +328,8 @@ pub struct AuthorSnapshot {
     #[serde(default)]
     pub awaiting_review: u32,
     pub prs_needing_author_action: u32,
+    #[serde(default)]
+    pub ready_for_human_prs: u32,
     pub total_unresolved: u32,
     pub total_score: f64,
     pub oldest_stale_pr_days: f64,
@@ -301,6 +337,9 @@ pub struct AuthorSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrSnapshot {
+    /// `owner/name`; empty in snapshots written before the dashboard went multi-repo.
+    #[serde(default)]
+    pub repo: String,
     pub number: u64,
     pub author: Option<String>,
     pub score: f64,

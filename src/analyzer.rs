@@ -18,12 +18,21 @@ const KNOWN_BOTS: &[&str] = &[
     "mergify[bot]",
     "stale",
     "stale[bot]",
+    "thepastaclaw",
 ];
 
-pub fn analyze(prs: Vec<RawPr>, cfg: &Config, now: DateTime<Utc>) -> Vec<AnalyzedPr> {
+/// `default_branch` is the repository's default branch as reported by GitHub;
+/// PRs targeting anything else are stale. `None` (detection failed) disables
+/// that check rather than flagging every PR.
+pub fn analyze(
+    prs: Vec<RawPr>,
+    cfg: &Config,
+    default_branch: Option<&str>,
+    now: DateTime<Utc>,
+) -> Vec<AnalyzedPr> {
     prs.into_iter()
         .filter(|pr| !is_excluded(pr, cfg))
-        .map(|pr| analyze_pr(pr, cfg, now))
+        .map(|pr| analyze_pr(pr, cfg, default_branch, now))
         .collect()
 }
 
@@ -83,7 +92,12 @@ fn is_excluded(pr: &RawPr, cfg: &Config) -> bool {
         .any(|excl| label_set.iter().any(|l| l == &excl.to_lowercase()))
 }
 
-fn analyze_pr(pr: RawPr, cfg: &Config, now: DateTime<Utc>) -> AnalyzedPr {
+fn analyze_pr(
+    pr: RawPr,
+    cfg: &Config,
+    default_branch: Option<&str>,
+    now: DateTime<Utc>,
+) -> AnalyzedPr {
     let pr_author = pr.author.clone();
     let is_deferred = has_deferred_label(&pr, cfg);
 
@@ -142,7 +156,8 @@ fn analyze_pr(pr: RawPr, cfg: &Config, now: DateTime<Utc>) -> AnalyzedPr {
     let unresolved_total = unresolved_threads.len();
     // Compute staleness first so we can suppress needs-action signals on stale
     // PRs. Stale PRs are not on anyone's plate until they're revived.
-    let (is_stale, stale_reasons) = compute_staleness(&pr, cfg, now, unresolved_total, pr.is_draft);
+    let (is_stale, stale_reasons) =
+        compute_staleness(&pr, cfg, default_branch, now, unresolved_total, pr.is_draft);
 
     // Drafts and stale PRs can't "need author action" — the author is either
     // still iterating (draft) or has set the work aside (stale).
@@ -174,14 +189,14 @@ fn analyze_pr(pr: RawPr, cfg: &Config, now: DateTime<Utc>) -> AnalyzedPr {
 fn compute_staleness(
     pr: &RawPr,
     cfg: &Config,
+    default_branch: Option<&str>,
     now: DateTime<Utc>,
     unresolved_total: usize,
     is_draft: bool,
 ) -> (bool, Vec<String>) {
     let mut reasons: Vec<String> = vec![];
     // Only fire the branch check when we actually know what the default is.
-    // If `default_target_branch` is None (auto-detect failed), don't false-positive.
-    if let Some(default) = cfg.default_target_branch.as_deref() {
+    if let Some(default) = default_branch {
         if !pr.base_ref.is_empty() && !pr.base_ref.eq_ignore_ascii_case(default) {
             reasons.push(format!("targets {}", pr.base_ref));
         }
@@ -494,6 +509,7 @@ mod tests {
         );
         assert_eq!(classify_source(Some("dependabot[bot]")), ThreadSource::Bot);
         assert_eq!(classify_source(Some("renovate[bot]")), ThreadSource::Bot);
+        assert_eq!(classify_source(Some("thepastaclaw")), ThreadSource::Bot);
         assert_eq!(classify_source(Some("alice")), ThreadSource::Human);
         assert_eq!(classify_source(None), ThreadSource::Human);
     }
@@ -547,6 +563,7 @@ mod tests {
     fn excluded_authors_drop_pr() {
         let cfg = Config::default();
         let pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "bump".into(),
             url: "u".into(),
@@ -570,6 +587,7 @@ mod tests {
     fn excluded_labels_drop_pr() {
         let cfg = Config::default();
         let mut pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "wip work".into(),
             url: "u".into(),
@@ -599,6 +617,7 @@ mod tests {
         };
         let now = dt("2026-05-19T00:00:00Z");
         let pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "x".into(),
             url: "u".into(),
@@ -622,10 +641,10 @@ mod tests {
             base_ref: "master".into(),
             changed_files: vec![],
         };
-        let analyzed = analyze(vec![pr.clone()], &cfg, now);
+        let analyzed = analyze(vec![pr.clone()], &cfg, None, now);
         assert_eq!(analyzed[0].unresolved_threads.len(), 0);
         cfg.count_nitpicks = true;
-        let analyzed = analyze(vec![pr], &cfg, now);
+        let analyzed = analyze(vec![pr], &cfg, None, now);
         assert_eq!(analyzed[0].unresolved_threads.len(), 1);
     }
 
@@ -642,6 +661,7 @@ mod tests {
         let now = dt("2026-05-19T00:00:00Z");
         // Author pushed yesterday; reviewer commented 10 days ago: ball is in reviewer's court.
         let pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "x".into(),
             url: "u".into(),
@@ -665,7 +685,7 @@ mod tests {
             base_ref: "master".into(),
             changed_files: vec![],
         };
-        let analyzed = analyze(vec![pr], &cfg, now);
+        let analyzed = analyze(vec![pr], &cfg, None, now);
         assert!(!analyzed[0].needs_author_action);
     }
 
@@ -675,6 +695,7 @@ mod tests {
         let now = dt("2026-05-19T00:00:00Z");
         // Author pushed 20 days ago; reviewer commented 2 days ago.
         let pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "x".into(),
             url: "u".into(),
@@ -698,7 +719,7 @@ mod tests {
             base_ref: "master".into(),
             changed_files: vec![],
         };
-        let analyzed = analyze(vec![pr], &cfg, now);
+        let analyzed = analyze(vec![pr], &cfg, None, now);
         assert!(analyzed[0].needs_author_action);
     }
 
@@ -708,6 +729,7 @@ mod tests {
         let now = dt("2026-05-19T00:00:00Z");
         // Real unresolved thread + changes-requested review, but PR is `postponed`.
         let pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "wallet migration".into(),
             url: "u".into(),
@@ -731,7 +753,7 @@ mod tests {
             base_ref: "master".into(),
             changed_files: vec![],
         };
-        let analyzed = analyze(vec![pr], &cfg, now);
+        let analyzed = analyze(vec![pr], &cfg, None, now);
         assert_eq!(analyzed.len(), 1);
         let pr = &analyzed[0];
         assert!(pr.is_deferred);
@@ -745,12 +767,10 @@ mod tests {
 
     #[test]
     fn stale_triggers_on_non_default_branch() {
-        let cfg = Config {
-            default_target_branch: Some("master".into()),
-            ..Config::default()
-        };
+        let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
         let pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "feature".into(),
             url: "u".into(),
@@ -767,19 +787,19 @@ mod tests {
             base_ref: "v3.0".into(),
             changed_files: vec![],
         };
-        let a = analyze(vec![pr], &cfg, now);
+        let a = analyze(vec![pr], &cfg, Some("master"), now);
         assert!(a[0].is_stale);
         assert!(a[0].stale_reasons.iter().any(|r| r.contains("v3.0")));
     }
 
     #[test]
     fn auto_detect_disabled_means_no_branch_stale() {
-        // When default_target_branch is None (auto-detect failed), the branch
+        // When the default branch is unknown (auto-detect failed), the branch
         // check is skipped — never false-positive stale.
         let cfg = Config::default();
-        assert!(cfg.default_target_branch.is_none());
         let now = dt("2026-05-19T00:00:00Z");
         let pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "x".into(),
             url: "u".into(),
@@ -796,7 +816,7 @@ mod tests {
             base_ref: "v3.0".into(),
             changed_files: vec![],
         };
-        let a = analyze(vec![pr], &cfg, now);
+        let a = analyze(vec![pr], &cfg, None, now);
         assert!(
             !a[0].is_stale,
             "should not flag stale when default branch is unknown"
@@ -809,6 +829,7 @@ mod tests {
         let now = dt("2026-05-19T00:00:00Z");
         // Old (200d untouched), clean, on default branch → should NOT become stale.
         let clean_old = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "x".into(),
             url: "u".into(),
@@ -825,11 +846,12 @@ mod tests {
             base_ref: "master".into(),
             changed_files: vec![],
         };
-        let a = analyze(vec![clean_old], &cfg, now);
+        let a = analyze(vec![clean_old], &cfg, None, now);
         assert!(!a[0].is_stale);
 
         // Same age, but with an unresolved thread → becomes stale.
         let dirty_old = RawPr {
+            repo: "dashpay/platform".into(),
             number: 2,
             title: "x".into(),
             url: "u".into(),
@@ -853,7 +875,7 @@ mod tests {
             base_ref: "master".into(),
             changed_files: vec![],
         };
-        let a = analyze(vec![dirty_old], &cfg, now);
+        let a = analyze(vec![dirty_old], &cfg, None, now);
         assert!(a[0].is_stale);
         assert!(a[0].stale_reasons.iter().any(|r| r.contains("untouched")));
     }
@@ -863,12 +885,10 @@ mod tests {
         // A PR that targets a non-default branch is stale; even if a reviewer
         // requested changes and the merge is conflicting, the author isn't
         // expected to act on it until someone revives it.
-        let cfg = Config {
-            default_target_branch: Some("master".into()),
-            ..Config::default()
-        };
+        let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
         let pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "feature on v3.0".into(),
             url: "u".into(),
@@ -892,7 +912,7 @@ mod tests {
             base_ref: "v3.0".into(),
             changed_files: vec![],
         };
-        let a = analyze(vec![pr], &cfg, now);
+        let a = analyze(vec![pr], &cfg, Some("master"), now);
         assert!(a[0].is_stale);
         assert!(
             !a[0].needs_author_action,
@@ -906,6 +926,7 @@ mod tests {
         let now = dt("2026-05-19T00:00:00Z");
         // Conflicting + stale unresolved thread + draft → no action required.
         let pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "wip foo".into(),
             url: "u".into(),
@@ -929,7 +950,7 @@ mod tests {
             base_ref: "master".into(),
             changed_files: vec![],
         };
-        let analyzed = analyze(vec![pr], &cfg, now);
+        let analyzed = analyze(vec![pr], &cfg, None, now);
         assert!(!analyzed[0].needs_author_action);
     }
 
@@ -938,6 +959,7 @@ mod tests {
         let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
         let pr = RawPr {
+            repo: "dashpay/platform".into(),
             number: 1,
             title: "x".into(),
             url: "u".into(),
@@ -954,7 +976,7 @@ mod tests {
             base_ref: "master".into(),
             changed_files: vec![],
         };
-        let analyzed = analyze(vec![pr], &cfg, now);
+        let analyzed = analyze(vec![pr], &cfg, None, now);
         assert!(analyzed[0].needs_author_action);
         assert!(analyzed[0].has_merge_conflict);
     }
@@ -977,6 +999,7 @@ mod tests {
         // Bob opened his 30 days ago — past grace.
         let alice = analyze(
             vec![RawPr {
+                repo: "dashpay/platform".into(),
                 number: 1,
                 title: "x".into(),
                 url: "u".into(),
@@ -994,10 +1017,12 @@ mod tests {
                 changed_files: vec![],
             }],
             &cfg,
+            None,
             now,
         );
         let bob = analyze(
             vec![RawPr {
+                repo: "dashpay/platform".into(),
                 number: 2,
                 title: "x".into(),
                 url: "u".into(),
@@ -1015,6 +1040,7 @@ mod tests {
                 changed_files: vec![],
             }],
             &cfg,
+            None,
             now,
         );
         let mut combined = alice;
@@ -1038,6 +1064,7 @@ mod tests {
         // Carol just opened a new PR today, but the cache says we've known her since Jan.
         let prs = analyze(
             vec![RawPr {
+                repo: "dashpay/platform".into(),
                 number: 3,
                 title: "x".into(),
                 url: "u".into(),
@@ -1055,6 +1082,7 @@ mod tests {
                 changed_files: vec![],
             }],
             &cfg,
+            None,
             now,
         );
         let mut cache = HashMap::from([(

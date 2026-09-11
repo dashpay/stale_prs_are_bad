@@ -46,16 +46,51 @@ jobs:
       - name: Build analyzer (release)
         run: cargo build --release
 
+      # The review engine checks collaborator permissions on each governed
+      # repository, which this repository's own token cannot read. Without the
+      # App the export step is skipped and the board reports every repository
+      # as "engine state unavailable".
+      - name: Create selected-repository read token
+        id: app
+        if: vars.PR_REVIEW_APP_ID != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.PR_REVIEW_APP_ID }}
+          private-key: ${{ secrets.PR_REVIEW_APP_PRIVATE_KEY }}
+          owner: dashpay
+          repositories: platform,rust-dashcore,tenderdash,grovedb,dash-evo-tool
+          permission-contents: read
+          permission-pull-requests: read
+          permission-issues: read
+          permission-metadata: read
+
+      # Read-only: `sync` without `--apply` never writes statuses or labels. A
+      # repository whose export fails simply has no file, which the analyzer
+      # renders as unavailable.
+      - name: Export review-engine state per repository
+        if: steps.app.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -uo pipefail
+          mkdir -p policy-state
+          status=0
+          for repo in $(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))"); do
+            if ! python3 -m pr_review.main sync --repo "$repo" --format json > "policy-state/${repo#*/}.json"; then
+              echo "::warning::engine state export failed for $repo"
+              rm -f "policy-state/${repo#*/}.json"
+              status=1
+            fi
+          done
+          exit "$status"
+
       - name: Run analyzer
         working-directory: data
         env:
-          # PR_HYGIENE_TOKEN, if set, must be a PAT or fine-grained token with
-          # `contents: read` and `pull-requests: write` on the *target* repo.
-          # Falls back to GITHUB_TOKEN, which can read public PRs on other repos
-          # but cannot label them (see README).
-          GITHUB_TOKEN: ${{ secrets.PR_HYGIENE_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_SHA: ${{ github.sha }}
-        run: ../target/release/pr-hygiene --config ../.pr-hygiene.yml --out index.md
+        run: ../target/release/pr-hygiene --config ../.pr-hygiene.yml --policies-root ../policies --policy-state ../policy-state --out index.md
 
       - name: Commit changes
         working-directory: data

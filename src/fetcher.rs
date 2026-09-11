@@ -121,7 +121,7 @@ impl Fetcher {
         self
     }
 
-    /// Fetch every open PR in the target repo, fully populated.
+    /// Fetch every open PR in `owner/name`, fully populated.
     /// Returns the PRs, (node_id, number) pairs for follow-up queries, and the
     /// repository's default branch name (used to drive stale-branch detection).
     pub async fn fetch_all_open_prs(
@@ -134,6 +134,7 @@ impl Fetcher {
         let mut paginated_threads: Vec<(String, u64)> = Vec::new();
         let mut cursor: Option<String> = None;
         let mut default_branch: Option<String> = None;
+        let repo = format!("{owner}/{name}");
         loop {
             let vars = json!({
                 "owner": owner,
@@ -158,7 +159,7 @@ impl Fetcher {
                 .ok_or_else(|| anyhow!("pullRequests.nodes missing"))?;
             for node in nodes {
                 let (raw, node_id, thread_has_more, _thread_cursor) =
-                    parse_pr_node(node).context("parsing PR node")?;
+                    parse_pr_node(node, &repo).context("parsing PR node")?;
                 node_ids.push((node_id.clone(), raw.number));
                 if thread_has_more {
                     paginated_threads.push((node_id, raw.number));
@@ -386,7 +387,7 @@ fn backoff_secs(attempt: u32) -> u64 {
 }
 
 /// Parse a PR node from GraphQL JSON. Returns (pr, node_id, threads_have_more, threads_end_cursor).
-pub fn parse_pr_node(node: &Value) -> Result<(RawPr, String, bool, Option<String>)> {
+pub fn parse_pr_node(node: &Value, repo: &str) -> Result<(RawPr, String, bool, Option<String>)> {
     let number = node
         .get("number")
         .and_then(|v| v.as_u64())
@@ -503,6 +504,7 @@ pub fn parse_pr_node(node: &Value) -> Result<(RawPr, String, bool, Option<String
 
     Ok((
         RawPr {
+            repo: repo.to_string(),
             number,
             title,
             url,
@@ -682,7 +684,8 @@ mod tests {
                 "nodes": []
             }
         });
-        let (pr, id, more, _) = parse_pr_node(&node).unwrap();
+        let (pr, id, more, _) = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert_eq!(pr.repo, "dashpay/platform");
         assert_eq!(pr.number, 42);
         assert_eq!(pr.title, "Add foo");
         assert_eq!(pr.author.as_deref(), Some("alice"));

@@ -1,42 +1,40 @@
 use chrono::{DateTime, Utc};
-use glob::Pattern;
 use std::collections::{HashMap, HashSet};
 
-use crate::config::{AgeMultiplier, Config, RoutingRule};
+use crate::config::{AgeMultiplier, Config};
 use crate::model::{
-    AnalyzedPr, AuthorRollup, AuthorSnapshot, BySeverity, BySource, PrSnapshot, ScoredPr, Severity,
-    Snapshot, Summary, ThreadSource,
+    AnalyzedPr, AuthorRollup, AuthorSnapshot, BySeverity, BySource, PolicyState, PrSnapshot,
+    ScoredPr, Severity, Snapshot, Summary, ThreadSource,
 };
+use crate::policy::{self, Policy};
 
-pub fn score_prs(prs: Vec<AnalyzedPr>, cfg: &Config, now: DateTime<Utc>) -> Vec<ScoredPr> {
-    let compiled_rules = compile_rules(&cfg.review_routing);
+/// `policies` is keyed by `owner/name`. A PR whose repository has no policy
+/// gets no routed reviewers and no areas.
+pub fn score_prs(
+    prs: Vec<AnalyzedPr>,
+    cfg: &Config,
+    policies: &HashMap<String, Policy>,
+    now: DateTime<Utc>,
+) -> Vec<ScoredPr> {
     prs.into_iter()
-        .map(|p| score_one(p, cfg, &compiled_rules, now))
-        .collect()
-}
-
-fn compile_rules(rules: &[RoutingRule]) -> Vec<(Vec<Pattern>, &RoutingRule)> {
-    rules
-        .iter()
-        .map(|r| {
-            let pats: Vec<Pattern> = r
-                .paths
-                .iter()
-                .filter_map(|p| Pattern::new(p).ok())
-                .collect();
-            (pats, r)
+        .map(|p| {
+            let policy = policies.get(&p.raw.repo);
+            score_one(p, cfg, policy, now)
         })
         .collect()
 }
 
-/// Returns (routed_reviewers_still_owing_review, any_rule_matched).
-/// When a rule matches but the resolved reviewer has already submitted a review
-/// on this PR (any state), they're omitted from the list — they've done their
-/// job. The `matched` flag stays true so callers know routing is in play.
-fn route_reviewers(pr: &AnalyzedPr, rules: &[(Vec<Pattern>, &RoutingRule)]) -> (Vec<String>, bool) {
-    let mut out: Vec<String> = Vec::new();
-    let mut any_matched = false;
-    let author_lc = pr.raw.author.as_deref().map(str::to_ascii_lowercase);
+/// Attach the review engine's verdicts for one repository. PRs the export
+/// doesn't list keep `policy_state: None`.
+pub fn attach_engine_state(scored: &mut [ScoredPr], repo: &str, state: &HashMap<u64, PolicyState>) {
+    for s in scored.iter_mut().filter(|s| s.pr.raw.repo == repo) {
+        s.policy_state = state.get(&s.pr.raw.number).cloned();
+    }
+}
+
+/// Returns (reviewers still owing a review, matched area ids, unresolved area ids).
+fn route_pr(pr: &AnalyzedPr, policy: &Policy) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let routing = policy::route(policy, &pr.raw.changed_files);
     let reviewed_logins: HashSet<String> = pr
         .raw
         .reviews
@@ -44,39 +42,25 @@ fn route_reviewers(pr: &AnalyzedPr, rules: &[(Vec<Pattern>, &RoutingRule)]) -> (
         .filter_map(|r| r.author.as_deref())
         .map(|s| s.to_ascii_lowercase())
         .collect();
-    for (patterns, rule) in rules {
-        let matches = pr.raw.changed_files.iter().any(|f| {
-            let path = std::path::Path::new(f);
-            patterns
-                .iter()
-                .any(|p| p.matches(f) || p.matches_path(path))
-        });
-        if !matches {
-            continue;
-        }
-        any_matched = true;
-        let Some(login) = resolve_routed_reviewer(rule, pr.raw.author.as_deref()) else {
-            continue;
-        };
-        let lc = login.to_ascii_lowercase();
-        if Some(&lc) == author_lc.as_ref() {
-            continue;
-        }
-        if reviewed_logins.contains(&lc) {
-            // Routed primary already reviewed — they don't owe another review.
-            continue;
-        }
-        if !out.iter().any(|r| r.eq_ignore_ascii_case(login)) {
-            out.push(login.to_string());
-        }
+    let reviewers =
+        policy::candidate_reviewers(policy, &routing, pr.raw.author.as_deref(), &reviewed_logins);
+    let mut areas: Vec<String> = routing.areas.iter().map(|a| a.id.clone()).collect();
+    if routing.fallback_used {
+        areas.push("fallback".into());
     }
-    (out, any_matched)
+    let unresolved = routing
+        .areas
+        .iter()
+        .filter(|a| a.unresolved)
+        .map(|a| a.id.clone())
+        .collect();
+    (reviewers, areas, unresolved)
 }
 
 fn score_one(
     pr: AnalyzedPr,
     cfg: &Config,
-    rules: &[(Vec<Pattern>, &RoutingRule)],
+    policy: Option<&Policy>,
     now: DateTime<Utc>,
 ) -> ScoredPr {
     let mut by_severity = BySeverity::default();
@@ -104,7 +88,8 @@ fn score_one(
     let mult = age_multiplier(oldest_age, cfg.age_multiplier);
     let score = base * mult;
     let unresolved_total = pr.unresolved_threads.len() as u32;
-    let (routed_reviewers, routing_matched) = route_reviewers(&pr, rules);
+    let (routed_reviewers, areas, unresolved_areas) =
+        policy.map(|p| route_pr(&pr, p)).unwrap_or_default();
     ScoredPr {
         pr,
         score,
@@ -113,18 +98,9 @@ fn score_one(
         unresolved_by_source: by_source,
         unresolved_total,
         routed_reviewers,
-        routing_matched,
-    }
-}
-
-/// Resolve a routing rule against the PR author. Returns the primary unless
-/// the author IS the primary, in which case it returns the fallback (or None).
-fn resolve_routed_reviewer<'a>(rule: &'a RoutingRule, author: Option<&str>) -> Option<&'a str> {
-    let is_self = author.is_some_and(|a| a.eq_ignore_ascii_case(&rule.primary));
-    if is_self {
-        rule.fallback.as_deref()
-    } else {
-        Some(rule.primary.as_str())
+        areas,
+        unresolved_areas,
+        policy_state: None,
     }
 }
 
@@ -156,6 +132,7 @@ pub fn rollup_authors(
                 ci_failing_prs: 0,
                 changes_requested_prs: 0,
                 prs_needing_author_action: 0,
+                ready_for_human_prs: 0,
                 total_unresolved: 0,
                 unresolved_coderabbit: 0,
                 unresolved_human: 0,
@@ -195,6 +172,12 @@ pub fn rollup_authors(
             }
             if s.pr.needs_author_action {
                 entry.prs_needing_author_action += 1;
+            }
+            if s.policy_state
+                .as_ref()
+                .is_some_and(PolicyState::is_ready_for_human)
+            {
+                entry.ready_for_human_prs += 1;
             }
             entry.total_unresolved += s.unresolved_total;
             entry.unresolved_coderabbit += s.unresolved_by_source.coderabbit;
@@ -238,18 +221,14 @@ pub fn rollup_authors(
             ensure(map, login);
             map.get_mut(login).expect("just inserted").awaiting_review += 1;
         };
-        // When a routing rule matched, the routed reviewers ARE the queue —
-        // explicit GitHub reviewers are ignored. (If routing matched but the
-        // routed primary already reviewed, routed_reviewers is empty → queue is
-        // empty → PR is "handled by the owner".)
-        if s.routing_matched {
-            for r in &s.routed_reviewers {
-                bump(&mut by_login, r);
-            }
-        } else {
-            for r in &s.pr.raw.requested_reviewers {
-                bump(&mut by_login, r);
-            }
+        // The queue is the union of policy routing and GitHub's explicit
+        // review requests; `bump` dedupes across the two.
+        for r in s
+            .routed_reviewers
+            .iter()
+            .chain(&s.pr.raw.requested_reviewers)
+        {
+            bump(&mut by_login, r);
         }
     }
 
@@ -336,6 +315,7 @@ fn apply_alias_merging(
                 ci_failing_prs: 0,
                 changes_requested_prs: 0,
                 prs_needing_author_action: 0,
+                ready_for_human_prs: 0,
                 total_unresolved: 0,
                 unresolved_coderabbit: 0,
                 unresolved_human: 0,
@@ -391,6 +371,7 @@ pub fn build_snapshot(
             changes_requested_prs: a.combined_changes_requested_prs(),
             awaiting_review: a.combined_awaiting_review(),
             prs_needing_author_action: a.combined_prs_needing_author_action(),
+            ready_for_human_prs: a.combined_ready_for_human_prs(),
             total_unresolved: a.combined_total_unresolved(),
             total_score: a.combined_total_score(),
             oldest_stale_pr_days: a.oldest_stale_pr_days,
@@ -399,6 +380,7 @@ pub fn build_snapshot(
     let per_pr = scored
         .iter()
         .map(|s| PrSnapshot {
+            repo: s.pr.raw.repo.clone(),
             number: s.pr.raw.number,
             author: s.pr.raw.author.clone(),
             score: s.score,
@@ -424,15 +406,44 @@ pub fn build_snapshot(
 mod tests {
     use super::*;
     use crate::model::{AnalyzedThread, Mergeable, RawPr};
+    use crate::policy::{Area, Roster};
     use chrono::TimeZone;
+
+    const REPO: &str = "dashpay/platform";
 
     fn dt(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
+    fn no_policies() -> HashMap<String, Policy> {
+        HashMap::new()
+    }
+
+    /// One area (`packages/wasm-sdk/` → shumkov owns, QuantumExplorer reviews)
+    /// and a fallback owned by fallback-owner.
+    fn wasm_policy() -> HashMap<String, Policy> {
+        HashMap::from([(
+            REPO.to_string(),
+            Policy {
+                fallback: Roster {
+                    owners: vec!["fallback-owner".into()],
+                    reviewers: vec![],
+                },
+                areas: vec![Area {
+                    id: "wasm-sdk".into(),
+                    paths: vec!["packages/wasm-sdk/".into()],
+                    owners: vec!["shumkov".into()],
+                    reviewers: vec!["QuantumExplorer".into()],
+                    unresolved: vec![],
+                }],
+            },
+        )])
+    }
+
     fn pr(author: &str, threads: Vec<AnalyzedThread>, needs_action: bool) -> AnalyzedPr {
         AnalyzedPr {
             raw: RawPr {
+                repo: REPO.into(),
                 number: 1,
                 title: "t".into(),
                 url: "u".into(),
@@ -479,7 +490,7 @@ mod tests {
     fn score_with_no_threads_is_zero() {
         let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
-        let s = score_prs(vec![pr("alice", vec![], false)], &cfg, now)
+        let s = score_prs(vec![pr("alice", vec![], false)], &cfg, &no_policies(), now)
             .pop()
             .unwrap();
         assert_eq!(s.score, 0.0);
@@ -499,7 +510,7 @@ mod tests {
             thread(Severity::Low, ThreadSource::Coderabbit, 5),
             thread(Severity::Low, ThreadSource::Coderabbit, 5),
         ];
-        let s = score_prs(vec![pr("alice", threads, true)], &cfg, now)
+        let s = score_prs(vec![pr("alice", threads, true)], &cfg, &no_policies(), now)
             .pop()
             .unwrap();
         let base = 2.0 * 5.0 + 1.0 * 2.0 + 3.0 * 0.5;
@@ -544,6 +555,7 @@ mod tests {
                 ),
             ],
             &cfg,
+            &no_policies(),
             now,
         );
         let rolled = rollup_authors(&prs, &cfg, None);
@@ -579,7 +591,12 @@ mod tests {
         draft.raw.requested_reviewers = vec!["reviewer-bob".into()];
         draft.raw.is_draft = true;
 
-        let scored = score_prs(vec![clean, dirty, deferred, draft], &cfg, now);
+        let scored = score_prs(
+            vec![clean, dirty, deferred, draft],
+            &cfg,
+            &no_policies(),
+            now,
+        );
         let rolled = rollup_authors(&scored, &cfg, None);
         let bob = rolled
             .iter()
@@ -602,7 +619,7 @@ mod tests {
         );
         p.raw.is_draft = true;
         p.needs_author_action = false; // mirrors analyzer's draft-suppression
-        let scored = score_prs(vec![p], &cfg, now);
+        let scored = score_prs(vec![p], &cfg, &no_policies(), now);
         let rolled = rollup_authors(&scored, &cfg, None);
         let alice = &rolled[0];
         assert_eq!(alice.total_open_prs, 1);
@@ -613,98 +630,166 @@ mod tests {
     }
 
     #[test]
-    fn path_routing_adds_implicit_reviewer_to_clean_pr() {
-        let cfg = Config {
-            review_routing: vec![RoutingRule {
-                paths: vec!["**/wasm-sdk/**".into()],
-                primary: "shumkov".into(),
-                fallback: Some("QuantumExplorer".into()),
-            }],
-            ..Config::default()
-        };
+    fn policy_routing_adds_area_roster_to_clean_pr() {
+        let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
 
-        // Clean PR by pasta touching wasm-sdk → routes to shumkov.
+        // Clean PR by pasta touching wasm-sdk → shumkov (owner) and
+        // QuantumExplorer (reviewer) both owe a review.
         let mut clean = analyzed("pasta", vec![], false);
         clean.raw.changed_files = vec!["packages/wasm-sdk/index.ts".into()];
-        let scored = score_prs(vec![clean], &cfg, now);
-        assert_eq!(scored[0].routed_reviewers, vec!["shumkov"]);
+        let scored = score_prs(vec![clean], &cfg, &wasm_policy(), now);
+        assert_eq!(
+            scored[0].routed_reviewers,
+            vec!["shumkov", "QuantumExplorer"]
+        );
+        assert_eq!(scored[0].areas, vec!["wasm-sdk"]);
+        assert!(scored[0].unresolved_areas.is_empty());
         let rolled = rollup_authors(&scored, &cfg, None);
         let shumkov = rolled.iter().find(|r| r.login == "shumkov").unwrap();
         assert_eq!(shumkov.awaiting_review, 1);
+        let qe = rolled
+            .iter()
+            .find(|r| r.login == "QuantumExplorer")
+            .unwrap();
+        assert_eq!(qe.awaiting_review, 1);
 
-        // Self-authored by shumkov → fallback (QuantumExplorer) gets it.
+        // Self-authored by shumkov → only QuantumExplorer is left.
         let mut self_authored = analyzed("shumkov", vec![], false);
         self_authored.raw.changed_files = vec!["packages/wasm-sdk/foo.ts".into()];
-        let scored = score_prs(vec![self_authored], &cfg, now);
+        let scored = score_prs(vec![self_authored], &cfg, &wasm_policy(), now);
         assert_eq!(scored[0].routed_reviewers, vec!["QuantumExplorer"]);
     }
 
     #[test]
-    fn routing_match_makes_routed_reviewer_authoritative() {
-        // When a routing rule matches, the routed reviewer IS the queue. Any
-        // explicit GitHub-requested reviewers are ignored — we trust the routing.
-        let cfg = Config {
-            review_routing: vec![RoutingRule {
-                paths: vec!["**/wasm-sdk/**".into()],
-                primary: "shumkov".into(),
-                fallback: None,
-            }],
-            ..Config::default()
-        };
+    fn unmatched_files_route_to_fallback() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        let mut pr = analyzed("alice", vec![], false);
+        pr.raw.changed_files = vec!["README.md".into()];
+        let scored = score_prs(vec![pr], &cfg, &wasm_policy(), now);
+        assert_eq!(scored[0].routed_reviewers, vec!["fallback-owner"]);
+        assert_eq!(scored[0].areas, vec!["fallback"]);
+    }
+
+    #[test]
+    fn repo_without_policy_gets_no_routing() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        let mut pr = analyzed("alice", vec![], false);
+        pr.raw.repo = "dashpay/other".into();
+        pr.raw.changed_files = vec!["packages/wasm-sdk/x.ts".into()];
+        let scored = score_prs(vec![pr], &cfg, &wasm_policy(), now);
+        assert!(scored[0].routed_reviewers.is_empty());
+        assert!(scored[0].areas.is_empty());
+    }
+
+    #[test]
+    fn unresolved_area_is_surfaced() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        let mut policies = wasm_policy();
+        policies.get_mut(REPO).unwrap().areas[0].unresolved =
+            vec!["Daniel: GitHub username required".into()];
+        let mut pr = analyzed("alice", vec![], false);
+        pr.raw.changed_files = vec!["packages/wasm-sdk/x.ts".into()];
+        let scored = score_prs(vec![pr], &cfg, &policies, now);
+        assert_eq!(scored[0].unresolved_areas, vec!["wasm-sdk"]);
+        // The roster still routes; the gap is flagged, not silently dropped.
+        assert_eq!(
+            scored[0].routed_reviewers,
+            vec!["shumkov", "QuantumExplorer"]
+        );
+    }
+
+    #[test]
+    fn queue_is_union_of_routed_and_requested_reviewers() {
+        let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
 
         let mut pr = analyzed("pasta", vec![], false);
         pr.raw.changed_files = vec!["packages/wasm-sdk/x.ts".into()];
-        // 'random-person' is explicitly requested but routing trumps that.
-        pr.raw.requested_reviewers = vec!["random-person".into()];
-        let scored = score_prs(vec![pr], &cfg, now);
-        assert!(scored[0].routing_matched);
-        assert_eq!(scored[0].routed_reviewers, vec!["shumkov"]);
+        // 'random-person' is explicitly requested; shumkov is both routed and requested.
+        pr.raw.requested_reviewers = vec!["random-person".into(), "Shumkov".into()];
+        let scored = score_prs(vec![pr], &cfg, &wasm_policy(), now);
         let rolled = rollup_authors(&scored, &cfg, None);
-        let shumkov = rolled.iter().find(|r| r.login == "shumkov").unwrap();
-        assert_eq!(shumkov.awaiting_review, 1);
-        // The explicitly-requested reviewer is NOT in the queue.
-        assert!(!rolled.iter().any(|r| r.login == "random-person"));
+        let queue: Vec<(&str, u32)> = rolled
+            .iter()
+            .filter(|r| r.awaiting_review > 0)
+            .map(|r| (r.login.as_str(), r.awaiting_review))
+            .collect();
+        assert!(
+            queue.contains(&("shumkov", 1)),
+            "not double-counted: {queue:?}"
+        );
+        assert!(queue.contains(&("QuantumExplorer", 1)), "{queue:?}");
+        assert!(queue.contains(&("random-person", 1)), "{queue:?}");
+        assert_eq!(queue.len(), 3);
     }
 
     #[test]
     fn routed_reviewer_who_already_reviewed_is_dropped() {
-        let cfg = Config {
-            review_routing: vec![RoutingRule {
-                paths: vec!["**/dashmate/**".into()],
-                primary: "shumkov".into(),
-                fallback: None,
-            }],
-            ..Config::default()
-        };
+        let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
 
         let mut pr = analyzed("alice", vec![], false);
-        pr.raw.changed_files = vec!["packages/dashmate/lib/x.js".into()];
-        // shumkov already submitted a review of any kind.
-        pr.raw.reviews = vec![crate::model::Review {
-            state: crate::model::ReviewState::Approved,
-            author: Some("shumkov".into()),
-            submitted_at: Some(dt("2026-05-18T00:00:00Z")),
-        }];
-        let scored = score_prs(vec![pr], &cfg, now);
-        assert!(scored[0].routing_matched);
+        pr.raw.changed_files = vec!["packages/wasm-sdk/lib/x.js".into()];
+        // Both responsible people already submitted a review of some kind.
+        pr.raw.reviews = vec![
+            crate::model::Review {
+                state: crate::model::ReviewState::Approved,
+                author: Some("shumkov".into()),
+                submitted_at: Some(dt("2026-05-18T00:00:00Z")),
+            },
+            crate::model::Review {
+                state: crate::model::ReviewState::Commented,
+                author: Some("quantumexplorer".into()),
+                submitted_at: Some(dt("2026-05-18T00:00:00Z")),
+            },
+        ];
+        let scored = score_prs(vec![pr], &cfg, &wasm_policy(), now);
+        assert_eq!(scored[0].areas, vec!["wasm-sdk"]);
         assert!(
             scored[0].routed_reviewers.is_empty(),
-            "shumkov already reviewed; should not owe another review"
+            "both already reviewed; nobody owes another review"
         );
         let rolled = rollup_authors(&scored, &cfg, None);
-        // No one is in the queue — the routed primary handled it.
         assert!(rolled.iter().all(|r| r.awaiting_review == 0));
     }
 
     #[test]
+    fn engine_state_attaches_by_repo_and_number() {
+        let cfg = Config::default();
+        let now = dt("2026-05-19T00:00:00Z");
+        let ready = analyzed("alice", vec![], false);
+        let mut other_repo = analyzed("alice", vec![], false);
+        other_repo.raw.repo = "dashpay/other".into();
+        let mut scored = score_prs(vec![ready, other_repo], &cfg, &no_policies(), now);
+        let state = HashMap::from([(
+            1,
+            PolicyState {
+                state: "ready-to-merge".into(),
+                status: "success".into(),
+                blockers: vec![],
+                reviewers: vec![],
+            },
+        )]);
+        attach_engine_state(&mut scored, REPO, &state);
+        assert_eq!(
+            scored[0].policy_state.as_ref().map(|p| p.state.as_str()),
+            Some("ready-to-merge")
+        );
+        assert!(scored[1].policy_state.is_none(), "other repo untouched");
+        let rolled = rollup_authors(&scored, &cfg, None);
+        assert_eq!(rolled[0].ready_for_human_prs, 1);
+        let snap = build_snapshot(now.date_naive(), &scored, &rolled);
+        assert_eq!(snap.per_author[0].ready_for_human_prs, 1);
+        assert_eq!(snap.per_pr[1].repo, "dashpay/other");
+    }
+
+    #[test]
     fn aliases_merge_into_principal_row() {
-        let mut cfg = Config {
-            default_target_branch: Some("master".into()),
-            ..Config::default()
-        };
+        let mut cfg = Config::default();
         cfg.author_aliases.clear();
         cfg.author_aliases
             .insert("claude-bot".into(), "alice".into());
@@ -716,7 +801,7 @@ mod tests {
             vec![thread(Severity::Medium, ThreadSource::Human, 2)],
             false,
         );
-        let scored = score_prs(vec![alice_pr, bot_pr], &cfg, now);
+        let scored = score_prs(vec![alice_pr, bot_pr], &cfg, &no_policies(), now);
         let rolled = rollup_authors(&scored, &cfg, None);
 
         // The bot's row is absorbed into alice's. Only alice appears in the output.
@@ -738,10 +823,7 @@ mod tests {
     fn alias_authoring_principal_reviewing_is_self_review() {
         // alice has a claude-bot alias. claude-bot authors a clean PR with alice
         // as the requested reviewer. alice shouldn't end up in her own to-review.
-        let mut cfg = Config {
-            default_target_branch: Some("master".into()),
-            ..Config::default()
-        };
+        let mut cfg = Config::default();
         cfg.author_aliases.clear();
         cfg.author_aliases
             .insert("claude-bot".into(), "alice".into());
@@ -749,7 +831,7 @@ mod tests {
 
         let mut pr = analyzed("claude-bot", vec![], false);
         pr.raw.requested_reviewers = vec!["alice".into()];
-        let scored = score_prs(vec![pr], &cfg, now);
+        let scored = score_prs(vec![pr], &cfg, &no_policies(), now);
         let rolled = rollup_authors(&scored, &cfg, None);
 
         // Only one merged row, with awaiting_review = 0 (self-review).
@@ -765,7 +847,7 @@ mod tests {
         let mut p = analyzed("alice", vec![], false);
         p.raw.is_draft = true;
         p.is_deferred = true;
-        let scored = score_prs(vec![p], &cfg, now);
+        let scored = score_prs(vec![p], &cfg, &no_policies(), now);
         let rolled = rollup_authors(&scored, &cfg, None);
         let alice = &rolled[0];
         assert_eq!(alice.deferred_prs, 1);
@@ -778,7 +860,7 @@ mod tests {
         let now = dt("2026-05-19T00:00:00Z");
         let mut p = analyzed("alice", vec![], false);
         p.is_deferred = true;
-        let scored = score_prs(vec![p], &cfg, now);
+        let scored = score_prs(vec![p], &cfg, &no_policies(), now);
         let rolled = rollup_authors(&scored, &cfg, None);
         let alice = &rolled[0];
         assert_eq!(alice.total_open_prs, 1);
@@ -798,6 +880,7 @@ mod tests {
                 true,
             )],
             &cfg,
+            &no_policies(),
             now,
         );
         let previous = Snapshot {
@@ -819,6 +902,7 @@ mod tests {
                 changes_requested_prs: 0,
                 awaiting_review: 0,
                 prs_needing_author_action: 5,
+                ready_for_human_prs: 0,
                 total_unresolved: 10,
                 total_score: 0.0,
                 oldest_stale_pr_days: 0.0,
