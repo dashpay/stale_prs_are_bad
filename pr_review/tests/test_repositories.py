@@ -37,7 +37,9 @@ class RepositoryConfigurationTests(unittest.TestCase):
                 self.assertEqual(len(policy['areas']), 1)
                 area = policy['areas'][0]
                 self.assertEqual((area['paths'], area['owners'], area['reviewers']), ([''], owners, reviewers))
-                self.assertEqual(codeowners(policy).splitlines()[-1], '* ' + ' '.join('@' + user for user in owners + reviewers))
+                # GitHub keeps only the last matching rule, so a second `*` line would silently win.
+                wildcard = [line for line in codeowners(policy).splitlines() if line.startswith('* ')]
+                self.assertEqual(wildcard, ['* ' + ' '.join('@' + user for user in owners + reviewers)])
 
     def test_rust_dashcore_only_maps_visible_crates_and_keeps_missing_owners_blocked(self):
         policy = self.policies['dashpay/rust-dashcore']
@@ -66,7 +68,8 @@ class RepositoryConfigurationTests(unittest.TestCase):
             with self.subTest(repository=name):
                 policy = self.policies['dashpay/' + name]
                 self.assertEqual(policy['fallback'], {'owners': owners, 'reviewers': reviewers})
-                self.assertEqual(codeowners(policy).splitlines()[2], '* ' + ' '.join('@' + user for user in owners + reviewers))
+                if not any('' in area['paths'] for area in policy['areas']):
+                    self.assertEqual(codeowners(policy).splitlines()[2], '* ' + ' '.join('@' + user for user in owners + reviewers))
 
     def test_slack_roster_preserves_selected_people(self):
         handles = set()

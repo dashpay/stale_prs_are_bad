@@ -86,8 +86,11 @@ def codeowners(policy):
     validate_policy(policy)
     name = policy['repository'].split('/')[1]
     lines = [f'# Generated from dashpay/stale_prs_are_bad policies/{name}.json; do not edit by hand.',
-             '# Owners and reviewers are combined here for native review routing.',
-             '* ' + ' '.join('@' + x for x in policy['fallback']['owners'] + policy['fallback']['reviewers'])]
+             '# Owners and reviewers are combined here for native review routing.']
+    # GitHub honours only the last matching pattern, so a whole-repository area
+    # would silently override a preceding fallback `*` line; emit one or the other.
+    if not any('' in area['paths'] for area in policy['areas']):
+        lines.append('* ' + ' '.join('@' + x for x in policy['fallback']['owners'] + policy['fallback']['reviewers']))
     for area in policy['areas']:
         if area.get('unresolved'):
             lines.append('# Unresolved ownership or reviewer identities; see responsibility documentation.')
