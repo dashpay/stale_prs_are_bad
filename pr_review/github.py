@@ -193,6 +193,7 @@ class GitHub:
         cursor = None
         seen = set()
         results = []
+        emptied = 0
         total = None
         while True:
             response = self.request("POST", "graphql", {"query": query, "variables": {
@@ -209,8 +210,12 @@ class GitHub:
                     raise GitHubError("Missing review thread nodes")
                 for node in connection["nodes"]:
                     comments = node["comments"]["nodes"]
-                    if not isinstance(comments, list) or len(comments) != 1 or type(node["isResolved"]) is not bool:
+                    if not isinstance(comments, list) or len(comments) > 1 or type(node["isResolved"]) is not bool:
                         raise GitHubError("Incomplete review thread")
+                    if not comments:
+                        # Every comment in the thread was deleted; nothing remains to resolve.
+                        emptied += 1
+                        continue
                     results.append({"id": _text(node["id"], "thread identity"), "is_resolved": node["isResolved"],
                                     "author": _login(comments[0]["author"]),
                                     "created_at": _text(comments[0]["createdAt"], "thread creation time")})
@@ -227,7 +232,7 @@ class GitHub:
                     raise GitHubError("Review-thread pagination exceeds collection bound")
             except (KeyError, TypeError) as error:
                 raise GitHubError("Incomplete review-thread evidence") from error
-        if len(results) != total:
+        if len(results) + emptied != total:
             raise GitHubError("Incomplete review-thread list")
         return _unique(results, "id", "review thread")
 

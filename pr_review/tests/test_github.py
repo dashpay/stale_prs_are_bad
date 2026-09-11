@@ -119,6 +119,16 @@ class GitHubTests(unittest.TestCase):
         with patch.object(self.api, "request", return_value=self.graph([], True, "same")), self.assertRaises(GitHubError):
             self.api.threads(1)
 
+    def test_thread_whose_comments_were_all_deleted_is_skipped(self):
+        live = {"id": "T1", "isResolved": False, "comments": {"nodes": [
+            {"author": {"login": "reviewer"}, "createdAt": "2026-09-01T00:00:00Z"}]}}
+        emptied = {"id": "T2", "isResolved": False, "comments": {"nodes": []}}
+        with patch.object(self.api, "request", return_value=self.graph([emptied, live], total=2)):
+            self.assertEqual([t["id"] for t in self.api.threads(1)], ["T1"])
+        overfull = dict(live, comments={"nodes": [live["comments"]["nodes"][0]] * 2})
+        with patch.object(self.api, "request", return_value=self.graph([overfull], total=1)), self.assertRaises(GitHubError):
+            self.api.threads(1)
+
     def test_should_refuse_truncated_thread_connection(self):
         with patch.object(self.api, "request", return_value=self.graph(total=1)), self.assertRaises(GitHubError):
             self.api.threads(1)

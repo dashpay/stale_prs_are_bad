@@ -4,6 +4,7 @@ from collections import Counter
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 
 from .main import age
@@ -93,6 +94,19 @@ def build_delivery_plan(snapshot, config):
     return {'generated_at': now, 'complete': snapshot['complete'], 'messages': messages, 'errors': errors}
 
 
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, 'Redirects are not followed for authenticated delivery', headers, fp)
+
+
+_NO_REDIRECTS = urllib.request.build_opener(_RejectRedirects)
+
+
+def urlopen(request, timeout):
+    """Authenticated POST that never follows a redirect with the bearer token."""
+    return _NO_REDIRECTS.open(request, timeout=timeout)
+
+
 def deliver(plan):
     """Send once per destination; stop on any unacknowledged result."""
     if plan['errors']:
@@ -114,7 +128,7 @@ def deliver(plan):
             data=json.dumps(dict(message['payload'], channel=message['destination'])).encode(),
             headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8'}, method='POST')
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with urlopen(request, timeout=20) as response:
                 body = json.loads(response.read())
                 if response.status == 200 and body.get('ok') is True and isinstance(body.get('ts'), str):
                     result.update(state='delivered', timestamp=body['ts'])

@@ -25,6 +25,7 @@ jobs:
         id: target
         env:
           ENGINE_REVISION: ${{ inputs.engine_revision }}
+          WORKFLOW_REVISION: ${{ github.job_workflow_sha }}
           GH_TOKEN: ${{ github.token }}
           TARGET_REPOSITORY: ${{ github.repository }}
         run: |
@@ -32,6 +33,10 @@ jobs:
           import json, os, re, subprocess
           if not re.fullmatch(r'[0-9a-f]{40}', os.environ['ENGINE_REVISION']):
               raise ValueError('A pinned engine commit is required')
+          # The engine must be the same commit as this workflow file, so a caller
+          # cannot pair a reviewed workflow with a different engine.
+          if os.environ['ENGINE_REVISION'] != os.environ['WORKFLOW_REVISION']:
+              raise SystemExit('engine_revision must equal the reusable workflow commit')
 
           def api(path):
               return json.loads(subprocess.run(['gh', 'api', path], check=True, capture_output=True, text=True).stdout)

@@ -463,6 +463,7 @@ mod tests {
         HashMap::from([(
             REPO.to_string(),
             Policy {
+                repository: "dashpay/example".into(),
                 fallback: Roster {
                     owners: vec!["fallback-owner".into()],
                     reviewers: vec![],

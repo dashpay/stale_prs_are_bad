@@ -28,6 +28,7 @@ pub struct RegistryEntry {
 /// dashboard routes on are modelled; everything else is ignored.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Policy {
+    pub repository: String,
     #[serde(default)]
     pub fallback: Roster,
     #[serde(default)]
@@ -79,6 +80,16 @@ pub fn load_registry(policies_root: &Path) -> Result<Vec<(String, Policy)>> {
                     entry.repository
                 );
             }
+            if entry.policy.contains('/')
+                || entry.policy.contains('\\')
+                || entry.policy.starts_with('.')
+            {
+                bail!(
+                    "registry {} names policy {:?} outside the policies directory",
+                    registry_path.display(),
+                    entry.policy
+                );
+            }
             let path = policies_root.join(&entry.policy);
             let text = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading policy {}", path.display()))?;
@@ -86,6 +97,14 @@ pub fn load_registry(policies_root: &Path) -> Result<Vec<(String, Policy)>> {
                 .with_context(|| format!("parsing policy {}", path.display()))?;
             validate_policy(&policy)
                 .with_context(|| format!("invalid policy {}", path.display()))?;
+            if !policy.repository.eq_ignore_ascii_case(&entry.repository) {
+                bail!(
+                    "policy {} is for {} but the registry lists it for {}",
+                    path.display(),
+                    policy.repository,
+                    entry.repository
+                );
+            }
             Ok((entry.repository, policy))
         })
         .collect()
@@ -341,6 +360,7 @@ mod tests {
 
     fn policy() -> Policy {
         Policy {
+            repository: "dashpay/example".into(),
             fallback: Roster {
                 owners: vec!["fallback-owner".into()],
                 reviewers: vec!["fallback-reviewer".into()],
@@ -650,7 +670,24 @@ mod tests {
 
         std::fs::write(dir.join("x.json"), good.replace("core/", "core")).unwrap();
         let err = format!("{:#}", load_registry(&dir).unwrap_err());
-        std::fs::remove_dir_all(&dir).unwrap();
         assert!(err.contains("invalid policy"), "{err}");
+
+        std::fs::write(
+            dir.join("x.json"),
+            good.replace("dashpay/x", "dashpay/other"),
+        )
+        .unwrap();
+        let err = format!("{:#}", load_registry(&dir).unwrap_err());
+        assert!(err.contains("registry lists it for"), "{err}");
+
+        std::fs::write(dir.join("x.json"), good).unwrap();
+        std::fs::write(
+            dir.join("repositories.json"),
+            r#"{"version": 1, "repositories": [{"repository": "dashpay/x", "policy": "../x.json"}]}"#,
+        )
+        .unwrap();
+        let err = format!("{:#}", load_registry(&dir).unwrap_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(err.contains("outside the policies directory"), "{err}");
     }
 }

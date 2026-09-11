@@ -149,11 +149,16 @@ async fn main() -> Result<()> {
     } else {
         let changed = write_if_changed(&args.out, &markdown)?;
         tracing::info!("report {}", if changed { "updated" } else { "unchanged" });
-        history::write_snapshot(&history_dir, &snapshot)?;
-        history::save_author_cache(&author_cache_path, &author_cache)?;
-        let pruned = history::prune(&history_dir, today, cfg.history_retention_days)?;
-        if pruned > 0 {
-            tracing::info!("pruned {pruned} old snapshot(s)");
+        if fetch_errors.is_empty() {
+            history::write_snapshot(&history_dir, &snapshot)?;
+            history::save_author_cache(&author_cache_path, &author_cache)?;
+            let pruned = history::prune(&history_dir, today, cfg.history_retention_days)?;
+            if pruned > 0 {
+                tracing::info!("pruned {pruned} old snapshot(s)");
+            }
+        } else {
+            // A partial snapshot would make next week's delta read as an improvement.
+            tracing::warn!("history not updated: at least one repository could not be fetched");
         }
     }
 

@@ -34,7 +34,7 @@ class NotificationsTests(unittest.TestCase):
         plan = n.build_delivery_plan(snapshot(), config)
         self.assertTrue(any('Alice' in e for e in plan['errors']))
         with patch.dict('os.environ', {'PR_REVIEW_SLACK_ENABLED': 'true', 'PR_REVIEW_SLACK_BOT_TOKEN': 'secret'}):
-            with patch.object(n.urllib.request, 'urlopen') as request:
+            with patch.object(n, 'urlopen') as request:
                 with self.assertRaises(ValueError):
                     n.deliver(plan)
                 request.assert_not_called()
@@ -59,7 +59,7 @@ class NotificationsTests(unittest.TestCase):
     def test_ambiguous_delivery_stops_without_retry_or_secret(self):
         plan = n.build_delivery_plan(snapshot(), self.config())
         with patch.dict('os.environ', {'PR_REVIEW_SLACK_ENABLED': 'true', 'PR_REVIEW_SLACK_BOT_TOKEN': 'secret'}):
-            with patch.object(n.urllib.request, 'urlopen', side_effect=TimeoutError('secret')) as request:
+            with patch.object(n, 'urlopen', side_effect=TimeoutError('secret')) as request:
                 result = n.deliver(plan)
         self.assertEqual(request.call_count, 1)
         self.assertEqual(result[0]['state'], 'uncertain')
@@ -76,11 +76,21 @@ class NotificationsTests(unittest.TestCase):
         second.__enter__.return_value.read.return_value = b'{"ok":false,"error":"invalid_auth"}'
         plan = n.build_delivery_plan(snapshot(), self.config())
         with patch.dict('os.environ', {'PR_REVIEW_SLACK_ENABLED': 'true', 'PR_REVIEW_SLACK_BOT_TOKEN': 'secret'}):
-            with patch.object(n.urllib.request, 'urlopen', side_effect=[first, second]) as request:
+            with patch.object(n, 'urlopen', side_effect=[first, second]) as request:
                 result = n.deliver(plan)
         self.assertEqual(request.call_count, 2)
         self.assertEqual([r['state'] for r in result], ['delivered', 'error'])
         self.assertEqual(result[0]['timestamp'], '123.456')
+
+    def test_authenticated_delivery_never_follows_redirects(self):
+        import http.client
+        import io
+        opener = n._NO_REDIRECTS
+        handler = next(h for h in opener.handlers if isinstance(h, n._RejectRedirects))
+        request = n.urllib.request.Request('https://slack.com/api/chat.postMessage', headers={'Authorization': 'Bearer secret'})
+        with self.assertRaises(n.urllib.error.HTTPError) as raised:
+            handler.redirect_request(request, io.BytesIO(b''), 302, 'Found', http.client.HTTPMessage(), 'http://evil.example/steal')
+        self.assertNotIn('secret', str(raised.exception))
 
     def test_empty_personal_digest_is_skipped(self):
         data = snapshot()
@@ -90,7 +100,7 @@ class NotificationsTests(unittest.TestCase):
 
     def test_delivery_disabled_by_default(self):
         with patch.dict('os.environ', {}, clear=True):
-            with patch.object(n.urllib.request, 'urlopen') as request:
+            with patch.object(n, 'urlopen') as request:
                 with self.assertRaises(ValueError):
                     n.deliver(n.build_delivery_plan(snapshot(), self.config()))
                 request.assert_not_called()
