@@ -29,7 +29,7 @@ The computed `ready-for-human` label is an output, not independent proof of read
 
 ## Shared implementation and repository-local rollout
 
-The evaluator is shared through `.github/workflows/pr-review-reusable.yml`. Repository callers pin a full commit SHA of this repository; the callee checks out that engine revision, a sparse checkout of `policies/` from this repository's protected `master`, and the caller's default branch (for path and CODEOWNERS checks only). Before reading any policy it verifies that `master` is governed by a ruleset requiring pull requests with one approval, code-owner review, no force-push and no deletion; otherwise it refuses to run. The caller's GITHUB_TOKEN can mutate only its own repository. Target repository code is not executed with the write token.
+The evaluator is shared through `.github/workflows/pr-review-reusable.yml`. Repository callers pin a full commit SHA of this repository; the callee checks out that engine revision, a sparse checkout of `policies/` from this repository's protected `master`, and the caller's default branch (for path and CODEOWNERS checks only). Before reading any policy it verifies that the pinned engine commit is reachable from `master` (a merged, reviewed engine) and that `master` is governed by a ruleset requiring pull requests with one approval, code-owner review, no force-push and no deletion; otherwise it refuses to run. The caller's GITHUB_TOKEN can mutate only its own repository. Target repository code is not executed with the write token.
 
 Policy schema changes must be engine-first and backward-compatible: callers pick up policy changes immediately but engine changes only when re-pinned. `version` stays at 1.
 
