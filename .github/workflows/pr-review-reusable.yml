@@ -55,7 +55,7 @@ jobs:
           if content.get('encoding') != 'base64':
               raise SystemExit('Unsupported caller workflow encoding')
           jobs = yaml.safe_load(base64.b64decode(content['content']).decode()) or {}
-          pins = set()
+          pins = []
           for job in (jobs.get('jobs') or {}).values():
               uses = job.get('uses') if isinstance(job, dict) else None
               if not isinstance(uses, str):
@@ -65,10 +65,10 @@ jobs:
                   continue
               if not re.fullmatch(r'[0-9a-f]{40}', pin):
                   raise SystemExit('The caller must pin this workflow to a full commit SHA')
-              pins.add(pin)
+              pins.append(pin)
           if len(pins) != 1:
-              raise SystemExit(f'Expected exactly one pinned engine reference in {branch}:{CALLER}, found {len(pins)}')
-          engine = pins.pop()
+              raise SystemExit(f'Expected exactly one job calling this workflow in {branch}:{CALLER}, found {len(pins)}')
+          engine = pins[0]
 
           workflow_revision = os.environ.get('WORKFLOW_REVISION', '')
           if workflow_revision and workflow_revision != engine:
