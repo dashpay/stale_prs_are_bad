@@ -21,35 +21,57 @@ jobs:
       (github.event_name != 'push' || github.ref_name == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve the engine pin, policy branch protection and target default branch
+      - name: Resolve the engine pin, policy branch protection and target branch
         id: target
         env:
           DECLARED_REVISION: ${{ inputs.engine_revision }}
           WORKFLOW_REVISION: ${{ github.job_workflow_sha }}
+          # pull_request_target runs the caller workflow from the pull request's
+          # base branch, which is not always the default branch; every other event
+          # runs it from the default branch. Neither is writable by a pull request.
+          WORKFLOW_BRANCH: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref || '' }}
           GH_TOKEN: ${{ github.token }}
           TARGET_REPOSITORY: ${{ github.repository }}
         run: |
           python3 - <<'PY'
-          import base64, json, os, re, subprocess
+          import base64, json, os, re, subprocess, yaml
 
           CENTRAL = 'dashpay/stale_prs_are_bad'
           CALLER = '.github/workflows/pr-review-policy.yml'
+          REUSABLE = f'{CENTRAL}/.github/workflows/pr-review-reusable.yml'.casefold()
+          REF = re.compile(r'[A-Za-z0-9._/-]+')
 
           def api(path):
-              return json.loads(subprocess.run(['gh', 'api', path], check=True, capture_output=True, text=True).stdout)
+              result = subprocess.run(['gh', 'api', path], capture_output=True, text=True)
+              if result.returncode:
+                  raise SystemExit(f'gh api {path} failed: {result.stderr.strip()[:300]}')
+              return json.loads(result.stdout)
 
           repo = os.environ['TARGET_REPOSITORY']
-          branch = api(f'repos/{repo}')['default_branch']
-          if '\n' in branch or '\r' in branch:
-              raise ValueError('Invalid branch name')
+          default_branch = api(f'repos/{repo}')['default_branch']
+          branch = os.environ.get('WORKFLOW_BRANCH') or default_branch
+          for name in (branch, default_branch):
+              if not REF.fullmatch(name):
+                  raise SystemExit('Unsupported branch name')
 
-          # The caller's own workflow reference on its default branch is the single
-          # source of truth for which engine runs with that repository's token.
+          # The caller's own workflow reference, on the branch GitHub ran it from,
+          # is the single source of truth for which engine runs with that
+          # repository's token. A pull request cannot write either branch.
           content = api(f'repos/{repo}/contents/{CALLER}?ref={branch}')
           if content.get('encoding') != 'base64':
               raise SystemExit('Unsupported caller workflow encoding')
-          caller = base64.b64decode(content['content']).decode()
-          pins = set(re.findall(rf'{re.escape(CENTRAL)}/\.github/workflows/pr-review-reusable\.yml@([0-9a-f]{{40}})\b', caller))
+          jobs = yaml.safe_load(base64.b64decode(content['content']).decode()) or {}
+          pins = set()
+          for job in (jobs.get('jobs') or {}).values():
+              uses = job.get('uses') if isinstance(job, dict) else None
+              if not isinstance(uses, str):
+                  continue
+              reference, _, pin = uses.partition('@')
+              if reference.casefold() != REUSABLE:
+                  continue
+              if not re.fullmatch(r'[0-9a-f]{40}', pin):
+                  raise SystemExit('The caller must pin this workflow to a full commit SHA')
+              pins.add(pin)
           if len(pins) != 1:
               raise SystemExit(f'Expected exactly one pinned engine reference in {branch}:{CALLER}, found {len(pins)}')
           engine = pins.pop()
@@ -77,7 +99,7 @@ jobs:
               raise SystemExit('Central policy branch is not protected by the required ruleset; refusing to read policies')
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f'branch={branch}\nengine={engine}\n')
+              output.write(f'branch={default_branch}\nengine={engine}\n')
           PY
       - name: Checkout pinned engine
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
