@@ -34,7 +34,7 @@ class MultiRepositoryTests(unittest.TestCase):
             (root / 'target/packages/drive').mkdir(parents=True)
             (root / 'policies').mkdir()
             (root / 'policies/repositories.json').write_text(json.dumps({'version': 1, 'repositories': [
-                {'repository': policy['repository'], 'policy': 'p.json', 'mode': 'preview', 'engine_revision': None}]}))
+                {'repository': policy['repository'], 'policy': 'p.json', 'mode': 'preview'}]}))
             (root / 'policies/p.json').write_text(json.dumps(policy))
             options = ['--repo', policy['repository'], '--policies-root', str(root / 'policies')]
             with patch.object(main,'collect',return_value=([pr],[pr],[pr])), contextlib.redirect_stdout(io.StringIO()) as output:

@@ -15,7 +15,7 @@ python3 -m pr_review.aggregate report --format deliveries
 
 `/review-prs` uses this reporter. It combines repository-qualified PRs, actionable reviews, waiting times and author blockers. Counts include open, non-draft PRs on configured target branches. Five slots are enforced per repository; combined totals above five are workload warnings. Missing repository evidence is explicitly unavailable and totals are partial. The command exits nonzero for incomplete collection while preserving its report.
 
-`policies/repositories.json` selects the five repositories and names each policy file. `mode` labels results as preview until that repository's caller is merged and verified; switch it to `active` then. `engine_revision` records the engine commit each caller currently pins, so CI validates every policy change against every engine still in use. Missing evidence for a repository is always reported as unavailable, never as an empty queue.
+`policies/repositories.json` selects the five repositories and names each policy file. `mode` labels results as preview until that repository's caller is merged and verified; switch it to `active` then. CI discovers the engine commit each caller pins by reading its `pr-review-policy.yml` from the caller's default branch, and validates every policy change against every engine still in use. The `engine_revision` key in the registry is ignored and can be removed once no caller pins an engine older than this rule. Missing evidence for a repository is always reported as unavailable, never as an empty queue.
 
 ## Owner, reviewer and author flow
 
@@ -39,7 +39,7 @@ Prepare reviewable rollout files after committing the shared implementation:
 python3 -m pr_review.rollout --repo dashpay/tenderdash --engine-revision FULL_MERGE_COMMIT_SHA --output /tmp/tenderdash-review-policy
 ```
 
-Repeat for Platform, GroveDB, Dash Evo Tool and rust-dashcore. The destination must not exist. Packets contain native CODEOWNERS, a pinned caller workflow and the review-signal workflow; they contain no policy and no copied evaluator. The referenced commit must be a merge commit on this repository's `master` (squash merges discard PR head SHAs). After a caller merges, record its pin as `engine_revision` in `policies/repositories.json`. Inspect and apply packet files in a clean target checkout; the generator never overwrites a target repository itself.
+Repeat for Platform, GroveDB, Dash Evo Tool and rust-dashcore. The destination must not exist. Packets contain native CODEOWNERS, a pinned caller workflow and the review-signal workflow; they contain no policy and no copied evaluator. The referenced commit must be a merge commit on this repository's `master` (squash merges discard PR head SHAs). Pins are discovered by CI; nothing needs recording here. Inspect and apply packet files in a clean target checkout; the generator never overwrites a target repository itself.
 
 Before any caller can run, `master` of this repository must be governed by a ruleset that requires pull requests with at least one approval and code-owner review and blocks force-pushes and deletion (include administrators). The reusable workflow checks this through the public rulesets endpoint and refuses to read policies otherwise; classic branch protection is not visible there and does not satisfy the check.
 

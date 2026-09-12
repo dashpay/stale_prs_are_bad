@@ -22,7 +22,6 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertEqual(len(self.registry['repositories']), 5)
         for entry in self.registry['repositories']:
             self.assertEqual(entry['mode'], 'preview')
-            self.assertIsNone(entry['engine_revision'])
             self.assertEqual(self.policies[entry['repository']]['repository'], entry['repository'])
             validate_policy(self.policies[entry['repository']])
 

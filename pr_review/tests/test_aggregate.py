@@ -18,7 +18,7 @@ class AggregateTests(unittest.TestCase):
             for name in ['a', 'b', 'c']:
                 repo = 'dashpay/' + name
                 (root / (name + '.json')).write_text(json.dumps(self.policy(repo)))
-                entries.append({'repository': repo, 'policy': name + '.json', 'mode': 'preview', 'engine_revision': None})
+                entries.append({'repository': repo, 'policy': name + '.json', 'mode': 'preview'})
             context = [{'number': x, 'author': 'Alice', 'draft': False, 'state': 'open', 'base': 'dev'} for x in range(3)]
             with patch.object(a.main, 'collect', side_effect=[(context, [], []), (context, [], []), a.GitHubError('unavailable')]):
                 with patch.object(a.main, 'evaluate_snapshots', create=True,
@@ -36,7 +36,7 @@ class AggregateTests(unittest.TestCase):
             root = Path(directory)
             (root / 'a.json').write_text(json.dumps(self.policy('dashpay/a')))
             for mode in ['preview', 'active']:
-                policy = a.load_policy({'repository': 'dashpay/a', 'mode': mode, 'policy': 'a.json', 'engine_revision': None}, root)
+                policy = a.load_policy({'repository': 'dashpay/a', 'mode': mode, 'policy': 'a.json'}, root)
                 self.assertEqual(policy['repository'], 'dashpay/a')
 
     def test_policy_path_never_leaves_the_policies_directory(self):
@@ -50,7 +50,7 @@ class AggregateTests(unittest.TestCase):
                     policy_path(root / 'policies', {'policy': escape})
 
     def test_registry_rejects_duplicate_repos_and_path_escape(self):
-        entry = {'repository': 'dashpay/a', 'policy': '../outside.json', 'mode': 'preview', 'engine_revision': None}
+        entry = {'repository': 'dashpay/a', 'policy': '../outside.json', 'mode': 'preview'}
         with self.assertRaises(ValueError):
             a.validate_registry({'version': 1, 'repositories': [entry]})
         entry['policy'] = 'a.json'
@@ -68,12 +68,12 @@ class AggregateTests(unittest.TestCase):
             root = Path(directory)
             (root / 'a.json').write_text(json.dumps(self.policy('dashpay/other')))
             with self.assertRaises(ValueError):
-                a.load_policy({'repository': 'dashpay/a', 'mode': 'active', 'policy': 'a.json', 'engine_revision': None}, root)
+                a.load_policy({'repository': 'dashpay/a', 'mode': 'active', 'policy': 'a.json'}, root)
 
     def test_registry_rejects_noninteger_version_unknown_fields_and_bad_entries(self):
-        valid = {'repository': 'dashpay/a', 'policy': 'a.json', 'mode': 'preview', 'engine_revision': None}
+        valid = {'repository': 'dashpay/a', 'policy': 'a.json', 'mode': 'preview'}
+        a.validate_registry({'version': 1, 'repositories': [dict(valid, engine_revision=None)]})
         invalid = [
-            {'version': 1, 'repositories': [dict(valid, engine_revision='main')]},
             {'version': 1, 'repositories': [dict(valid, policy='nested/a.json')]},
             {'version': 1.0, 'repositories': [valid]},
             {'version': True, 'repositories': [valid]},
