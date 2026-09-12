@@ -10,14 +10,12 @@ from .main import run
 def selections(kind, event):
     if kind in {'schedule', 'push', 'workflow_dispatch'}:
         return [['--batch-size', '3']]
-    if kind == 'pull_request_target':
+    if kind in {'pull_request_target', 'pull_request_review'}:
         numbers = [event['pull_request']['number']]
     elif kind == 'issue_comment':
         if 'pull_request' not in event['issue']:
             return []
         numbers = [event['issue']['number']]
-    elif kind == 'workflow_run':
-        numbers = [pr['number'] for pr in event['workflow_run']['pull_requests']]
     else:
         raise ValueError('Unsupported review event')
     if any(type(number) is not int or number <= 0 for number in numbers):

@@ -17,7 +17,9 @@ class RolloutTests(unittest.TestCase):
             self.assertNotIn('pr-review-policy.json', workflow)
             self.assertFalse((root / '.github/pr-review-policy.json').exists())
             self.assertIn('* @lklimek @shumkov',(root / '.github/CODEOWNERS').read_text())
-            self.assertTrue((root / '.github/workflows/pr-review-signal.yml').exists())
+            self.assertIn('pull_request_review:', workflow)
+            self.assertNotIn('workflow_run:', workflow)
+            self.assertFalse((root / '.github/workflows/pr-review-signal.yml').exists())
             self.assertFalse((root / 'pr_review').exists())
 
     def test_generated_bundle_passes_effective_codeowners_check(self):
