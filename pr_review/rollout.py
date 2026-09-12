@@ -29,8 +29,6 @@ permissions:
 jobs:
   policy:
     uses: {CENTRAL_REPOSITORY}/.github/workflows/pr-review-reusable.yml@{engine_revision}
-    with:
-      engine_revision: {engine_revision}
 '''
 
 
@@ -56,7 +54,7 @@ def write_bundle(repository, engine_revision, destination, policies_root=POLICIE
     unresolved = [a['id']+': '+', '.join(a['unresolved']) for a in policy['areas'] if a.get('unresolved')]
     note = f'''# {repository} review policy packet
 
-Shared engine revision: `{engine_revision}`. This commit must be published in {CENTRAL_REPOSITORY} before these workflows can run. The policy itself is read live from that repository's default branch; nothing policy-related is copied here.
+Shared engine revision: `{engine_revision}`. This commit must be merged to {CENTRAL_REPOSITORY}'s default branch before these workflows can run; a caller pinned to an older engine keeps running that engine's workflow definition until it is re-pinned. The policy itself is read live from that repository's default branch; nothing policy-related is copied here.
 
 Delete `.github/workflows/pr-review-signal.yml` if the repository still has it: review events now reach the policy workflow directly.
 
