@@ -29,8 +29,6 @@ permissions:
 jobs:
   policy:
     uses: {CENTRAL_REPOSITORY}/.github/workflows/pr-review-reusable.yml@{engine_revision}
-    with:
-      engine_revision: {engine_revision}
 '''
 
 

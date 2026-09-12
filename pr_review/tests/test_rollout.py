@@ -13,7 +13,7 @@ class RolloutTests(unittest.TestCase):
             write_bundle('dashpay/tenderdash','a'*40,root)
             workflow = (root / '.github/workflows/pr-review-policy.yml').read_text()
             self.assertIn('dashpay/stale_prs_are_bad/.github/workflows/pr-review-reusable.yml@'+'a'*40,workflow)
-            self.assertIn('engine_revision: '+'a'*40,workflow)
+            self.assertNotIn('engine_revision', workflow)
             self.assertNotIn('pr-review-policy.json', workflow)
             self.assertFalse((root / '.github/pr-review-policy.json').exists())
             self.assertIn('* @lklimek @shumkov',(root / '.github/CODEOWNERS').read_text())

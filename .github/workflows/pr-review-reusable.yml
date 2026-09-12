@@ -3,8 +3,8 @@ on:
   workflow_call:
     inputs:
       engine_revision:
-        description: Full commit SHA matching the reusable workflow reference
-        required: true
+        description: Deprecated; the engine commit is read from the caller's own workflow reference. Must match it when set.
+        required: false
         type: string
 permissions:
   contents: read
@@ -21,35 +21,54 @@ jobs:
       (github.event_name != 'push' || github.ref_name == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
-      - name: Validate engine revision, policy branch protection and target default branch
+      - name: Resolve the engine pin, policy branch protection and target default branch
         id: target
         env:
-          ENGINE_REVISION: ${{ inputs.engine_revision }}
+          DECLARED_REVISION: ${{ inputs.engine_revision }}
           WORKFLOW_REVISION: ${{ github.job_workflow_sha }}
           GH_TOKEN: ${{ github.token }}
           TARGET_REPOSITORY: ${{ github.repository }}
         run: |
           python3 - <<'PY'
-          import json, os, re, subprocess
-          if not re.fullmatch(r'[0-9a-f]{40}', os.environ['ENGINE_REVISION']):
-              raise ValueError('A pinned engine commit is required')
-          # Only a reviewed, merged engine may run with a caller's write token:
-          # the pin must be reachable from the central default branch. When the
-          # runtime exposes this workflow's own commit, it must match the pin too.
-          workflow_revision = os.environ.get('WORKFLOW_REVISION', '')
-          if workflow_revision and workflow_revision != os.environ['ENGINE_REVISION']:
-              raise SystemExit('engine_revision must equal the reusable workflow commit')
+          import base64, json, os, re, subprocess
+
+          CENTRAL = 'dashpay/stale_prs_are_bad'
+          CALLER = '.github/workflows/pr-review-policy.yml'
 
           def api(path):
               return json.loads(subprocess.run(['gh', 'api', path], check=True, capture_output=True, text=True).stdout)
 
-          comparison = api(f"repos/dashpay/stale_prs_are_bad/compare/master...{os.environ['ENGINE_REVISION']}")
+          repo = os.environ['TARGET_REPOSITORY']
+          branch = api(f'repos/{repo}')['default_branch']
+          if '\n' in branch or '\r' in branch:
+              raise ValueError('Invalid branch name')
+
+          # The caller's own workflow reference on its default branch is the single
+          # source of truth for which engine runs with that repository's token.
+          content = api(f'repos/{repo}/contents/{CALLER}?ref={branch}')
+          if content.get('encoding') != 'base64':
+              raise SystemExit('Unsupported caller workflow encoding')
+          caller = base64.b64decode(content['content']).decode()
+          pins = set(re.findall(rf'{re.escape(CENTRAL)}/\.github/workflows/pr-review-reusable\.yml@([0-9a-f]{{40}})\b', caller))
+          if len(pins) != 1:
+              raise SystemExit(f'Expected exactly one pinned engine reference in {branch}:{CALLER}, found {len(pins)}')
+          engine = pins.pop()
+
+          declared = os.environ.get('DECLARED_REVISION', '')
+          if declared and declared != engine:
+              raise SystemExit('engine_revision input does not match the caller workflow reference')
+          workflow_revision = os.environ.get('WORKFLOW_REVISION', '')
+          if workflow_revision and workflow_revision != engine:
+              raise SystemExit('The running workflow commit does not match the caller workflow reference')
+
+          # Only a reviewed, merged engine may run with a caller's write token.
+          comparison = api(f'repos/{CENTRAL}/compare/master...{engine}')
           if comparison.get('status') not in {'identical', 'behind'}:
-              raise SystemExit('engine_revision is not a commit merged to the central default branch; refusing to run it')
+              raise SystemExit('The pinned engine is not a commit merged to the central default branch; refusing to run it')
 
           # Policies are read live from the central default branch, so that branch
           # must be governed by a ruleset before any caller trusts it.
-          rules = api('repos/dashpay/stale_prs_are_bad/rules/branches/master')
+          rules = api(f'repos/{CENTRAL}/rules/branches/master')
           kinds = {rule['type'] for rule in rules}
           reviews = [rule.get('parameters', {}) for rule in rules if rule['type'] == 'pull_request']
           if not ({'pull_request', 'non_fast_forward', 'deletion'} <= kinds
@@ -57,18 +76,14 @@ jobs:
                           and review.get('require_code_owner_review') is True for review in reviews)):
               raise SystemExit('Central policy branch is not protected by the required ruleset; refusing to read policies')
 
-          repo = os.environ['TARGET_REPOSITORY']
-          branch = api(f'repos/{repo}')['default_branch']
-          if '\n' in branch or '\r' in branch:
-              raise ValueError('Invalid branch name')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f'branch={branch}\n')
+              output.write(f'branch={branch}\nengine={engine}\n')
           PY
       - name: Checkout pinned engine
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: dashpay/stale_prs_are_bad
-          ref: ${{ inputs.engine_revision }}
+          ref: ${{ steps.target.outputs.engine }}
           path: review-engine
           persist-credentials: false
       - name: Checkout live policies
