@@ -1,11 +1,6 @@
 name: Shared PR policy
 on:
   workflow_call:
-    inputs:
-      engine_revision:
-        description: Deprecated; the engine commit is read from the caller's own workflow reference. Must match it when set.
-        required: false
-        type: string
 permissions:
   contents: read
   pull-requests: write
@@ -24,7 +19,6 @@ jobs:
       - name: Resolve the engine pin, policy branch protection and target branch
         id: target
         env:
-          DECLARED_REVISION: ${{ inputs.engine_revision }}
           WORKFLOW_REVISION: ${{ github.job_workflow_sha }}
           # pull_request_target runs the caller workflow from the pull request's
           # base branch, which is not always the default branch; every other event
@@ -76,9 +70,6 @@ jobs:
               raise SystemExit(f'Expected exactly one pinned engine reference in {branch}:{CALLER}, found {len(pins)}')
           engine = pins.pop()
 
-          declared = os.environ.get('DECLARED_REVISION', '')
-          if declared and declared != engine:
-              raise SystemExit('engine_revision input does not match the caller workflow reference')
           workflow_revision = os.environ.get('WORKFLOW_REVISION', '')
           if workflow_revision and workflow_revision != engine:
               raise SystemExit('The running workflow commit does not match the caller workflow reference')
