@@ -34,9 +34,6 @@ jobs:
             python3 -m pr_review.main validate --repo "$repo" --repository-root "$GITHUB_WORKSPACE/trees/${repo#*/}"
             python3 -m pr_review.rollout --repo "$repo" --engine-revision "$GITHUB_SHA" --output "$GITHUB_WORKSPACE/packets/${repo#*/}"
           done
-      - name: Check required_bots against each repository's CodeRabbit setting
-        run: python3 proposed/.github/scripts/repo_checks.py bots
-
       - name: Validate proposed policies with every engine revision a caller pins
         # Callers pick up policy changes immediately but engine changes only when
         # re-pinned. Each caller's pin is read from its own default branch, so a

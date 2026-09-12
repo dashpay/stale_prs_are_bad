@@ -5,9 +5,6 @@
   "target_branches": [
     "v1.8-dev"
   ],
-  "required_bots": [
-    "thepastaclaw"
-  ],
   "fallback": {
     "owners": [
       "lklimek"
