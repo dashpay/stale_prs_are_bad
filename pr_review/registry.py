@@ -16,16 +16,14 @@ def validate_registry(registry):
         raise ValueError('Invalid review repository registry')
     seen = set()
     for entry in registry['repositories']:
-        if not isinstance(entry, dict) or set(entry) != {'repository', 'policy', 'mode', 'engine_revision'}:
+        if not isinstance(entry, dict) or set(entry) != {'repository', 'policy', 'mode'}:
             raise ValueError('Invalid repository registry entry schema')
         repo = entry.get('repository', '')
         path = entry.get('policy', '')
-        revision = entry.get('engine_revision')
         if (not isinstance(repo, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo)
                 or repo.lower() in seen or entry.get('mode') not in {'preview', 'active'}
                 or not isinstance(path, str) or not path or PurePosixPath(path).is_absolute()
-                or len(PurePosixPath(path).parts) != 1 or '\\' in path
-                or (revision is not None and (not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision)))):
+                or len(PurePosixPath(path).parts) != 1 or '\\' in path):
             raise ValueError('Invalid or duplicate repository registry entry')
         seen.add(repo.lower())
 

@@ -4,32 +4,27 @@
     {
       "repository": "dashpay/platform",
       "policy": "platform.json",
-      "mode": "preview",
-      "engine_revision": null
+      "mode": "preview"
     },
     {
       "repository": "dashpay/rust-dashcore",
       "policy": "rust-dashcore.json",
-      "mode": "preview",
-      "engine_revision": null
+      "mode": "preview"
     },
     {
       "repository": "dashpay/tenderdash",
       "policy": "tenderdash.json",
-      "mode": "preview",
-      "engine_revision": null
+      "mode": "preview"
     },
     {
       "repository": "dashpay/grovedb",
       "policy": "grovedb.json",
-      "mode": "preview",
-      "engine_revision": null
+      "mode": "preview"
     },
     {
       "repository": "dashpay/dash-evo-tool",
       "policy": "dash-evo-tool.json",
-      "mode": "preview",
-      "engine_revision": null
+      "mode": "preview"
     }
   ]
 }

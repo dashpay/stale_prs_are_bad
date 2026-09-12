@@ -34,20 +34,37 @@ jobs:
             python3 -m pr_review.main validate --repo "$repo" --repository-root "$GITHUB_WORKSPACE/trees/${repo#*/}"
             python3 -m pr_review.rollout --repo "$repo" --engine-revision "$GITHUB_SHA" --output "$GITHUB_WORKSPACE/packets/${repo#*/}"
           done
-      - name: Validate proposed policies with every engine revision still pinned by a caller
+      - name: Validate proposed policies with every engine revision a caller pins
         # Callers pick up policy changes immediately but engine changes only when
-        # re-pinned, so a policy change must validate with every engine in use.
+        # re-pinned. Each caller's pin is read from its own default branch, so a
+        # policy change cannot break a caller that nobody remembered to record.
         run: |
           set -euo pipefail
-          revisions=$(python3 -c "import json; print(' '.join(sorted({e['engine_revision'] for e in json.load(open('proposed/policies/repositories.json'))['repositories'] if e['engine_revision']})))")
-          if [ -z "$revisions" ]; then
-            echo 'No caller pins recorded yet.'
-            exit 0
-          fi
-          for sha in $revisions; do
+          git clone --quiet --bare https://github.com/dashpay/stale_prs_are_bad central.git
+          repos=$(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('proposed/policies/repositories.json'))['repositories']))")
+          declare -A pins=()
+          for repo in $repos; do
+            caller="trees/${repo#*/}/.github/workflows/pr-review-policy.yml"
+            if [ ! -f "$caller" ]; then
+              echo "$repo: no caller workflow yet"
+              continue
+            fi
+            sha=$(sed -n 's/^ *engine_revision: *\([0-9a-f]\{40\}\) *$/\1/p' "$caller" | head -1)
+            if [ -z "$sha" ]; then
+              echo "::error::$repo: caller workflow has no full-SHA engine_revision"
+              exit 1
+            fi
+            if ! git -C central.git merge-base --is-ancestor "$sha" master 2>/dev/null; then
+              echo "::warning::$repo pins $sha, which is not reachable from master; re-pin it to a merge commit"
+              continue
+            fi
+            pins["$sha"]="${pins[$sha]:-}$repo "
+          done
+          for sha in "${!pins[@]}"; do
+            echo "engine $sha is pinned by: ${pins[$sha]}"
             git clone --quiet --no-checkout https://github.com/dashpay/stale_prs_are_bad "engine-$sha"
             git -C "engine-$sha" checkout --quiet "$sha"
-            for repo in $(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('proposed/policies/repositories.json'))['repositories']))"); do
+            for repo in $repos; do
               (cd "engine-$sha" && python3 -m pr_review.main validate --repo "$repo" \
                  --policies-root "$GITHUB_WORKSPACE/proposed/policies" --repository-root "$GITHUB_WORKSPACE/trees/${repo#*/}")
             done

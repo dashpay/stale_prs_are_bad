@@ -64,8 +64,6 @@ Review these files against the target repository's current default branch. The p
 
 Writes are disabled unless the target repository sets PR_REVIEW_AUTOMATION_ENABLED=true. Create the ready-for-human label and verify both bot producers before enabling. Confirm permissions and target branches separately. Do not relax existing native approval requirements until the replacement status has been exercised.
 
-After merging, record this revision as the repository's `engine_revision` in policies/repositories.json so policy schema changes are validated against every engine still in use.
-
 Configuration blockers: {('; '.join(unresolved)) or 'none recorded; live preflight still required'}.
 '''
     (destination / 'REVIEW_POLICY_ROLLOUT.md').write_text(note)

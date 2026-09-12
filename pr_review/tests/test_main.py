@@ -16,7 +16,7 @@ def broken_policies_root():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / 'repositories.json').write_text(json.dumps({'version': 1, 'repositories': [
-            {'repository': 'dashpay/platform', 'policy': 'platform.json', 'mode': 'preview', 'engine_revision': None}]}))
+            {'repository': 'dashpay/platform', 'policy': 'platform.json', 'mode': 'preview'}]}))
         (root / 'platform.json').write_text('{broken json')
         yield str(root)
 
