@@ -33,13 +33,19 @@ jobs:
           import json, os, re, subprocess
           if not re.fullmatch(r'[0-9a-f]{40}', os.environ['ENGINE_REVISION']):
               raise ValueError('A pinned engine commit is required')
-          # The engine must be the same commit as this workflow file, so a caller
-          # cannot pair a reviewed workflow with a different engine.
-          if os.environ['ENGINE_REVISION'] != os.environ['WORKFLOW_REVISION']:
+          # Only a reviewed, merged engine may run with a caller's write token:
+          # the pin must be reachable from the central default branch. When the
+          # runtime exposes this workflow's own commit, it must match the pin too.
+          workflow_revision = os.environ.get('WORKFLOW_REVISION', '')
+          if workflow_revision and workflow_revision != os.environ['ENGINE_REVISION']:
               raise SystemExit('engine_revision must equal the reusable workflow commit')
 
           def api(path):
               return json.loads(subprocess.run(['gh', 'api', path], check=True, capture_output=True, text=True).stdout)
+
+          comparison = api(f"repos/dashpay/stale_prs_are_bad/compare/master...{os.environ['ENGINE_REVISION']}")
+          if comparison.get('status') not in {'identical', 'behind'}:
+              raise SystemExit('engine_revision is not a commit merged to the central default branch; refusing to run it')
 
           # Policies are read live from the central default branch, so that branch
           # must be governed by a ruleset before any caller trusts it.
