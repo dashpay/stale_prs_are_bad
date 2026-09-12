@@ -16,9 +16,8 @@ on:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, closed, edited]
   issue_comment:
     types: [created, edited, deleted]
-  workflow_run:
-    workflows: [PR review signal]
-    types: [completed]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
   workflow_dispatch:
   schedule:
     - cron: '*/15 * * * *'
@@ -49,7 +48,6 @@ def write_bundle(repository, engine_revision, destination, policies_root=POLICIE
     files = {
         '.github/CODEOWNERS': codeowners(policy),
         '.github/workflows/pr-review-policy.yml': caller_workflow(engine_revision),
-        '.github/workflows/pr-review-signal.yml': (ROOT / 'templates/pr-review-signal.yml').read_text(),
     }
     for relative, content in files.items():
         path = destination / relative
@@ -59,6 +57,8 @@ def write_bundle(repository, engine_revision, destination, policies_root=POLICIE
     note = f'''# {repository} review policy packet
 
 Shared engine revision: `{engine_revision}`. This commit must be published in {CENTRAL_REPOSITORY} before these workflows can run. The policy itself is read live from that repository's default branch; nothing policy-related is copied here.
+
+Delete `.github/workflows/pr-review-signal.yml` if the repository still has it: review events now reach the policy workflow directly.
 
 Review these files against the target repository's current default branch. The packet is not a patch application and must not overwrite unrelated local work. Keep the target repository's existing protections and readiness automation until its reviewed activation plan replaces them. `.github/CODEOWNERS` takes precedence over any root CODEOWNERS; inspect the resulting roster explicitly.
 

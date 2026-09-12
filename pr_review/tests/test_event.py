@@ -20,8 +20,10 @@ class EventTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             selections('pull_request_target',{'pull_request':{'number':'$(secret)'}})
 
-    def test_empty_fork_signal_does_not_trigger_full_sweep(self):
-        self.assertEqual(selections('workflow_run',{'workflow_run':{'pull_requests':[]}}),[])
+    def test_review_events_reconcile_their_own_pull_request(self):
+        self.assertEqual(selections('pull_request_review',{'pull_request':{'number':12}}),[['--pr','12']])
+        with self.assertRaises(ValueError):
+            selections('workflow_run',{'workflow_run':{'pull_requests':[{'number':12}]}})
 
     def test_workflow_passes_calling_repository_and_both_roots_to_the_engine(self):
         with tempfile.TemporaryDirectory() as directory:

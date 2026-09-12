@@ -39,7 +39,7 @@ Prepare reviewable rollout files after committing the shared implementation:
 python3 -m pr_review.rollout --repo dashpay/tenderdash --engine-revision FULL_MERGE_COMMIT_SHA --output /tmp/tenderdash-review-policy
 ```
 
-Repeat for Platform, GroveDB, Dash Evo Tool and rust-dashcore. The destination must not exist. Packets contain native CODEOWNERS, a pinned caller workflow and the review-signal workflow; they contain no policy and no copied evaluator. The referenced commit must be a merge commit on this repository's `master` (squash merges discard PR head SHAs). Pins are discovered by CI; nothing needs recording here. Inspect and apply packet files in a clean target checkout; the generator never overwrites a target repository itself.
+Repeat for Platform, GroveDB, Dash Evo Tool and rust-dashcore. The destination must not exist. Packets contain native CODEOWNERS and a pinned caller workflow; they contain no policy and no copied evaluator. The referenced commit must be a merge commit on this repository's `master` (squash merges discard PR head SHAs). Pins are discovered by CI; nothing needs recording here. Inspect and apply packet files in a clean target checkout; the generator never overwrites a target repository itself.
 
 Before any caller can run, `master` of this repository must be governed by a ruleset that requires pull requests with at least one approval and code-owner review and blocks force-pushes and deletion (include administrators). The reusable workflow checks this through the public rulesets endpoint and refuses to read policies otherwise; classic branch protection is not visible there and does not satisfy the check.
 
