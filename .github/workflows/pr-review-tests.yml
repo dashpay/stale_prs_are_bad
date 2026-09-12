@@ -35,7 +35,7 @@ jobs:
             python3 -m pr_review.rollout --repo "$repo" --engine-revision "$GITHUB_SHA" --output "$GITHUB_WORKSPACE/packets/${repo#*/}"
           done
       - name: Check required_bots against each repository's CodeRabbit setting
-        run: python3 proposed/.github/scripts/check_required_bots.py
+        run: python3 proposed/.github/scripts/repo_checks.py bots
 
       - name: Validate proposed policies with every engine revision a caller pins
         # Callers pick up policy changes immediately but engine changes only when
@@ -46,23 +46,13 @@ jobs:
           git clone --quiet --bare https://github.com/dashpay/stale_prs_are_bad central.git
           repos=$(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('proposed/policies/repositories.json'))['repositories']))")
           declare -A pins=()
-          for repo in $repos; do
-            caller="trees/${repo#*/}/.github/workflows/pr-review-policy.yml"
-            if [ ! -f "$caller" ]; then
-              echo "$repo: no caller workflow yet"
-              continue
-            fi
-            sha=$(sed -n 's/^ *engine_revision: *\([0-9a-f]\{40\}\) *$/\1/p' "$caller" | head -1)
-            if [ -z "$sha" ]; then
-              echo "::error::$repo: caller workflow has no full-SHA engine_revision"
-              exit 1
-            fi
+          while read -r repo sha; do
             if ! git -C central.git merge-base --is-ancestor "$sha" master 2>/dev/null; then
               echo "::warning::$repo pins $sha, which is not reachable from master; re-pin it to a merge commit"
               continue
             fi
             pins["$sha"]="${pins[$sha]:-}$repo "
-          done
+          done < <(python3 proposed/.github/scripts/repo_checks.py pins)
           for sha in "${!pins[@]}"; do
             echo "engine $sha is pinned by: ${pins[$sha]}"
             git clone --quiet --no-checkout https://github.com/dashpay/stale_prs_are_bad "engine-$sha"
