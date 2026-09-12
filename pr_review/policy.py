@@ -10,6 +10,9 @@ from pathlib import Path
 
 STATE_MARKER = 'platform-pr-review-state-v1'
 BOTS = {'thepastaclaw', 'coderabbitai', 'coderabbitai[bot]'}
+# Which bots a repository actually runs is a property of that repository, not of
+# the review rules: requiring a producer that never reports would never resolve.
+REVIEW_BOTS = ('thepastaclaw', 'coderabbitai')
 WRITE = {'write', 'maintain', 'admin'}
 
 
@@ -39,7 +42,11 @@ def _handles(values, nonempty=False):
 
 def validate_policy(policy, root: Path | None = None):
     keys = {'version', 'repository', 'fallback', 'max_active_prs', 'target_branches', 'areas'}
-    _fields(policy, keys, keys)
+    _fields(policy, keys | {'required_bots'}, keys)
+    bots = policy.get('required_bots', list(REVIEW_BOTS))
+    if (not isinstance(bots, list) or len(set(bots)) != len(bots)
+            or any(bot not in REVIEW_BOTS for bot in bots)):
+        raise ValueError('required_bots must be a subset of ' + ', '.join(REVIEW_BOTS))
     if type(policy['version']) is not int or policy['version'] != 1:
         raise ValueError('Unsupported policy version')
     if not isinstance(policy['repository'], str) or not re.fullmatch(r'[\w.-]+/[\w.-]+', policy['repository']):
@@ -203,6 +210,7 @@ def evaluate(policy, pr, admitted_at, nowISO):
                 return stop('configuration-error', 'Unresolved identities in ' + area['id'], status='error')
         if any(permissions.get(x) not in WRITE for x in people):
             return stop('configuration-error', 'An assigned owner/reviewer lacks verified write access', status='error')
+        required = set(policy.get('required_bots', REVIEW_BOTS))
         latest = _latest_reviews(pr['reviews'])
         bot_blocks = [r for u,r in latest.items() if u in BOTS and r['state'].upper() == 'CHANGES_REQUESTED']
         bot_threads = [t for t in pr['threads'] if not t['is_resolved'] and t['author'].lower() in BOTS]
@@ -219,14 +227,19 @@ def evaluate(policy, pr, admitted_at, nowISO):
         for comment in pr['comments']:
             if comment['user'].lower() in {'coderabbitai','coderabbitai[bot]'} and _rabbit_receipt(comment['body'], pr['head']):
                 rabbit.append(comment['updated_at'])
-        if not pasta or not rabbit or bot_blocks or bot_threads:
+        # An unrequired bot still blocks while it is objecting; it just is not awaited.
+        pasta_missing = 'thepastaclaw' in required and not pasta
+        rabbit_missing = 'coderabbitai' in required and not rabbit
+        if pasta_missing or rabbit_missing or bot_blocks or bot_threads:
             reasons = []
-            if not pasta: reasons.append('thepastaclaw final review missing for current head')
-            if not rabbit: reasons.append('CodeRabbit completion missing for current head')
+            if pasta_missing: reasons.append('thepastaclaw final review missing for current head')
+            if rabbit_missing: reasons.append('CodeRabbit completion missing for current head')
             if bot_blocks: reasons.append('Bot changes request remains outstanding')
             if bot_threads: reasons.append('Bot review threads remain unresolved')
             return stop('waiting-bots', *reasons)
-        completed = max(pasta + rabbit, key=_time)
+        # Self-review must follow whichever producers this repository runs. With
+        # none, the author's own attestation is the only gate.
+        completed = max(pasta + rabbit, key=_time) if pasta + rabbit else pr['created_at']
         result['bot_completed_at'] = completed
         attestations = [c['created_at'] for c in pr['comments'] if c['user'].lower() == pr['author'].lower()
                         and c['body'] == '/self-reviewed ' + pr['head']

@@ -41,6 +41,29 @@ class PolicyTests(unittest.TestCase):
         pr['files'] = [{'filename':'packages/drive/a.rs', 'previous_filename':'root.rs'}]
         self.assertEqual(evaluate(p,pr,NOW,NOW)['reviewers'], ['fallback'])
 
+    def test_repository_without_coderabbit_waits_only_for_the_bots_it_runs(self):
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-bots')
+        p['required_bots'] = ['thepastaclaw']
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+
+    def test_unrequired_bot_still_blocks_while_it_objects(self):
+        p, pr = fixture()
+        p['required_bots'] = ['thepastaclaw']
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
+        pr['threads'] = [dict(id='t1', is_resolved=False, author='coderabbitai[bot]', created_at=NOW)]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertIn('Bot review threads remain unresolved', result['blockers'])
+
+    def test_required_bots_must_name_known_producers(self):
+        p, _ = fixture()
+        for value in [['thepastaclaw', 'thepastaclaw'], ['dependabot'], 'thepastaclaw', [None]]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_policy(dict(p, required_bots=value))
+        validate_policy(dict(p, required_bots=[]))
+
     def test_bot_failure_blocks_even_owner(self):
         p, pr = fixture()
         for update in [{'state':'CHANGES_REQUESTED'}, {'commit_id':'c'*40}, {'body':'preliminary'}]:

@@ -46,7 +46,7 @@ Before any caller can run, `master` of this repository must be governed by a rul
 Each repository needs its own review before activation:
 
 - Confirm roster identities and repository permissions. Keep strophy and Silvanassss excluded and broad teams unchanged. Daniel remains unresolved in Platform; rust-dashcore has explicit missing-owner and cropped-scope gaps.
-- Confirm configured target branches, existing CODEOWNERS precedence, native approval rules and both bot producers. Tenderdash currently disables automatic CodeRabbit reviews. rust-dashcore's existing readiness automation needs an explicit migration. Do not silently replace either.
+- Confirm configured target branches, existing CODEOWNERS precedence, native approval rules and both bot producers. rust-dashcore's existing readiness automation needs an explicit migration; do not silently replace it. Tenderdash disables automatic CodeRabbit reviews, so its policy lists only thepastaclaw in `required_bots` — declare the producers a repository actually runs rather than turning a bot on for it.
 - Merge under existing protections and run preview from the default branch. Verify complete evidence reads, token permissions and API usage.
 - Create `ready-for-human`, then opt into writes with repository variable `PR_REVIEW_AUTOMATION_ENABLED=true`.
 - Verify real current-head statuses, comments and requests before requiring the `PR review policy` status. Remove conflicting native approval/code-owner rules only when the owner exemption is approved and the replacement is working. Keep CI requirements.
