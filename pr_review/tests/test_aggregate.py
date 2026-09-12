@@ -72,6 +72,7 @@ class AggregateTests(unittest.TestCase):
 
     def test_registry_rejects_noninteger_version_unknown_fields_and_bad_entries(self):
         valid = {'repository': 'dashpay/a', 'policy': 'a.json', 'mode': 'preview'}
+        a.validate_registry({'version': 1, 'repositories': [dict(valid, engine_revision=None)]})
         invalid = [
             {'version': 1, 'repositories': [dict(valid, policy='nested/a.json')]},
             {'version': 1.0, 'repositories': [valid]},

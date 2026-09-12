@@ -16,7 +16,9 @@ def validate_registry(registry):
         raise ValueError('Invalid review repository registry')
     seen = set()
     for entry in registry['repositories']:
-        if not isinstance(entry, dict) or set(entry) != {'repository', 'policy', 'mode'}:
+        # `engine_revision` is accepted and ignored: engines pinned before it was
+        # retired require the key, so it stays in the file until they are re-pinned.
+        if not isinstance(entry, dict) or not {'repository', 'policy', 'mode'} <= set(entry) <= {'repository', 'policy', 'mode', 'engine_revision'}:
             raise ValueError('Invalid repository registry entry schema')
         repo = entry.get('repository', '')
         path = entry.get('policy', '')

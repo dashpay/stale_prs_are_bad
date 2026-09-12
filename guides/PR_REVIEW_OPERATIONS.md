@@ -15,7 +15,7 @@ python3 -m pr_review.aggregate report --format deliveries
 
 `/review-prs` uses this reporter. It combines repository-qualified PRs, actionable reviews, waiting times and author blockers. Counts include open, non-draft PRs on configured target branches. Five slots are enforced per repository; combined totals above five are workload warnings. Missing repository evidence is explicitly unavailable and totals are partial. The command exits nonzero for incomplete collection while preserving its report.
 
-`policies/repositories.json` selects the five repositories and names each policy file. `mode` labels results as preview until that repository's caller is merged and verified; switch it to `active` then. CI discovers the engine commit each caller pins by reading its `pr-review-policy.yml` from the caller's default branch, and validates every policy change against every engine still in use. Missing evidence for a repository is always reported as unavailable, never as an empty queue.
+`policies/repositories.json` selects the five repositories and names each policy file. `mode` labels results as preview until that repository's caller is merged and verified; switch it to `active` then. CI discovers the engine commit each caller pins by reading its `pr-review-policy.yml` from the caller's default branch, and validates every policy change against every engine still in use. The `engine_revision` key in the registry is ignored and can be removed once no caller pins an engine older than this rule. Missing evidence for a repository is always reported as unavailable, never as an empty queue.
 
 ## Owner, reviewer and author flow
 
