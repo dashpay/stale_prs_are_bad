@@ -1,4 +1,4 @@
-name: Daily PR review digest
+name: PR Hygiene digest
 on:
   schedule:
     - cron: '0 2 * * *'

@@ -318,7 +318,7 @@ class GitHub:
     def post_status(self, head, state, description, target_url=None):
         if state not in {"pending", "success", "failure", "error"}:
             raise GitHubError("Invalid commit status state")
-        payload = {"state": state, "context": "PR review policy", "description": description[:140]}
+        payload = {"state": state, "context": "PR Hygiene", "description": description[:140]}
         if target_url is not None:
             payload["target_url"] = target_url
         statuses = self.pages(f"{self.root}/commits/{quote(head, safe='')}/statuses")

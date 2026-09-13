@@ -1,4 +1,4 @@
-name: Shared PR policy
+name: PR Hygiene policy
 on:
   workflow_call:
 permissions:

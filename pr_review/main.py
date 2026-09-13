@@ -1,4 +1,4 @@
-"""Read and reconcile a repository's PR review policy using trusted repository data."""
+"""Read and reconcile a repository's PR Hygiene policy using trusted repository data."""
 
 import argparse
 import hashlib
@@ -118,7 +118,7 @@ def state_record(pr, result, context):
 def state_body(result):
     reasons = result.get('blockers') or ['All policy requirements are satisfied.']
     return '\n'.join([
-        '### PR review policy',
+        '### PR Hygiene',
         f"State: **{result['state']}** · commit `{result['head']}`",
         '', *[f'- {reason}' for reason in reasons],
         '', 'Self-review is an author attestation for this exact commit:',
@@ -244,7 +244,7 @@ def selected_rows(rows, user=None):
 
 
 def render_report(rows, now, user=None):
-    lines = [f'# PR reviews — {now}', '',
+    lines = [f'# PR Hygiene — {now}', '',
              'Read-only snapshot. Waiting time is for the current actionable review cycle.', '',
              '| PR | Author | Areas | State | Awaiting review | Next action |',
              '| --- | --- | --- | --- | --- | --- |']
@@ -384,5 +384,5 @@ if __name__ == '__main__':
     try:
         sys.exit(run())
     except (GitHubError, ValueError, KeyError, OSError) as exc:
-        print(f'PR review policy error: {exc}', file=sys.stderr)
+        print(f'PR Hygiene error: {exc}', file=sys.stderr)
         sys.exit(1)

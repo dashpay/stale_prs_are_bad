@@ -1,17 +1,24 @@
-# pr-hygiene
+# PR Hygiene
 
-This repository hosts two things:
+**PR Hygiene** is the review suite for Dash Platform and its sibling
+repositories: Platform, rust-dashcore, Tenderdash, GroveDB and Dash Evo Tool.
+It has two halves, both living here.
 
-1. **The shared PR review policy** — `policies/` (who owns and reviews what in
-   Platform, rust-dashcore, Tenderdash, GroveDB and Dash Evo Tool), the Python
-   evaluator `pr_review/` that those repositories call through
-   `.github/workflows/pr-review-reusable.yml`, and the daily Slack digest. See
-   [guides/PR_REVIEW_ARCHITECTURE.md](guides/PR_REVIEW_ARCHITECTURE.md) and
-   [guides/PR_REVIEW_OPERATIONS.md](guides/PR_REVIEW_OPERATIONS.md).
-2. **The PR-hygiene dashboard** described below.
+1. **The policy and its engine** — `policies/` says who owns and reviews what,
+   and the Python evaluator `pr_review/` decides when a pull request is ready
+   for human review. Each repository calls it through
+   `.github/workflows/pr-review-reusable.yml`, which publishes the `PR Hygiene`
+   commit status, requests the right reviewers and sends the daily Slack
+   digest. See [guides/PR_REVIEW_ARCHITECTURE.md](guides/PR_REVIEW_ARCHITECTURE.md)
+   and [guides/PR_REVIEW_OPERATIONS.md](guides/PR_REVIEW_OPERATIONS.md).
+2. **The dashboard** described below, which reads the same policy.
 
+The repository is named `stale_prs_are_bad` for historical reasons; the suite
+is PR Hygiene.
 
-Nightly PR-hygiene dashboard for every repository registered in
+## Dashboard
+
+Nightly dashboard for every repository registered in
 [`policies/repositories.json`](policies/repositories.json). Surfaces who has the
 most open PRs with unresolved review feedback — CodeRabbit and human reviewers
 both — so social pressure replaces 1:1 nagging, and shows the shared review
