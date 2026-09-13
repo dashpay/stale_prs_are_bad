@@ -4,6 +4,8 @@ Every governed repository's policy lives in this repository under `policies/<nam
 
 ## Ownership and repository boundaries
 
+Human review follows the bots a repository actually runs. A policy's optional `required_bots` names them (default: both thepastaclaw and CodeRabbit); a producer a repository does not run is not awaited, while any bot that is objecting still blocks. CI refuses a policy that requires CodeRabbit in a repository whose own configuration disables automatic reviews.
+
 An owner satisfies the human requirement for their own area, including on their own PR. A reviewer can satisfy another author's requirement. Changes spanning areas must satisfy every affected area. Each repository's fallback names that repository's own owner and applies to unmapped paths only: QuantumExplorer and shumkov in Platform, QuantumExplorer in rust-dashcore and GroveDB, lklimek in Tenderdash (with shumkov reviewing) and Dash Evo Tool. An area with unresolved ownership blocks readiness; it does not silently inherit fallback ownership. Review eligibility is checked against current repository permissions. Automation never grants access or expands a team's privileges.
 
 The repository registry covers:
