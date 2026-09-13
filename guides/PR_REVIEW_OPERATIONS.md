@@ -1,4 +1,4 @@
-# PR review operations
+# PR Hygiene operations
 
 All five repository configurations start in preview. The implementation does not grant permissions or change protection settings. The ownership rules and repository boundaries are described in [PR_REVIEW_ARCHITECTURE.md](PR_REVIEW_ARCHITECTURE.md).
 
@@ -49,7 +49,7 @@ Each repository needs its own review before activation:
 - Confirm configured target branches, existing CODEOWNERS precedence, native approval rules and both bot producers. rust-dashcore's existing readiness automation needs an explicit migration; do not silently replace it. Tenderdash disables automatic CodeRabbit reviews, so its policy must list only thepastaclaw in `required_bots` before it is activated — declare the producers a repository actually runs rather than turning a bot on for it. Adding that field to a policy requires every caller to pin an engine that understands it first.
 - Merge under existing protections and run preview from the default branch. Verify complete evidence reads, token permissions and API usage.
 - Create `ready-for-human`, then opt into writes with repository variable `PR_REVIEW_AUTOMATION_ENABLED=true`.
-- Verify real current-head statuses, comments and requests before requiring the `PR review policy` status. Remove conflicting native approval/code-owner rules only when the owner exemption is approved and the replacement is working. Keep CI requirements.
+- Verify real current-head statuses, comments and requests before requiring the `PR Hygiene` status. Remove conflicting native approval/code-owner rules only when the owner exemption is approved and the replacement is working. Keep CI requirements.
 - To suppress native early invitations, replace the effective CODEOWNERS with a comment-only `.github/CODEOWNERS` during that separate activation. Generated native routing is not delayed routing.
 
 Events reevaluate the affected PR and changes to its author's slot assignments. Selector-less workflow invocations rotate three PRs at a time; the scheduled repair runs every 15 minutes. A stable 68-PR queue takes up to six hours to cover if event signals are missed. Pagination and event bursts can still exhaust quota; errors remain visible. Full local `sync` is an explicit unbounded sweep.

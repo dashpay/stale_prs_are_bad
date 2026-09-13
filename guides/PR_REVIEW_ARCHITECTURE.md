@@ -1,4 +1,4 @@
-# PR review architecture
+# PR Hygiene architecture
 
 Every governed repository's policy lives in this repository under `policies/<name>.json`, registered in `policies/repositories.json`. The shared Python evaluator (`pr_review/`) implements the policy and is pinned by commit in each caller; the policy itself is read live from this repository's protected default branch, so an ownership change is one reviewed PR here. Each repository's CODEOWNERS is generated from the same manifest. CODEOWNERS requests native reviews but does not express the complete owner/reviewer distinction. The custom status supplies that distinction alongside existing GitHub protections.
 

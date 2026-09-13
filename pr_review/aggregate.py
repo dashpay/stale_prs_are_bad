@@ -59,7 +59,7 @@ def collect_snapshot(registry, policies_root=POLICIES, api_factory=GitHub):
 
 
 def render_report(snapshot, user=None):
-    lines = [f"# PR reviews — {snapshot['generated_at']}", '',
+    lines = [f"# PR Hygiene — {snapshot['generated_at']}", '',
              'Read-only snapshot. Five active slots per repository; combined totals are workload warnings.', '']
     for repo in snapshot['repositories']:
         lines.append(f"- {repo['repository']} ({repo['mode']}): " + ('available' if repo['complete'] else repo['error']))

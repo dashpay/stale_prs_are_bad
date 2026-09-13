@@ -180,7 +180,7 @@ class GitHubTests(unittest.TestCase):
                                      "body": '<!-- platform-pr-review-state-v1 {"version":99} -->'}])
 
     def test_should_avoid_republishing_identical_status(self):
-        status = {"context": "PR review policy", "state": "success", "description": "ready-to-merge",
+        status = {"context": "PR Hygiene", "state": "success", "description": "ready-to-merge",
                   "target_url": None, "creator": {"login": "github-actions[bot]"}}
         with patch.object(self.api, "pages", return_value=[status]), patch.object(self.api, "request") as request:
             self.api.post_status("a" * 40, "success", "ready-to-merge")

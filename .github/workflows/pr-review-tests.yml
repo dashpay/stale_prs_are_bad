@@ -1,4 +1,4 @@
-name: PR review policy tests
+name: PR Hygiene tests
 on:
   pull_request:
   push:
