@@ -19,7 +19,7 @@ python3 -m pr_review.aggregate report --format deliveries
 
 ## Owner, reviewer and author flow
 
-1. Keep unfinished work in draft. The oldest eligible PRs fill up to five author slots, preserving existing admissions. The sixth waits; automation does not prevent PR creation.
+1. Keep unfinished work in draft. A draft records its state in the commit status only: no comment is opened on one, matching the review bots, and an existing comment is kept current if the pull request was ready earlier. The oldest eligible PRs fill up to five author slots, preserving existing admissions. The sixth waits; automation does not prevent PR creation.
 2. Finish final review by thepastaclaw and CodeRabbit on the current head, address outstanding bot changes requests and resolve bot threads.
 3. Inspect the final diff and verification yourself. Post exactly `/self-reviewed FULL_HEAD_SHA` as an unedited issue comment after both bot outcomes. New commits or later bot completion require a new attestation.
 4. Humans are invited for areas that still need approval. Owners satisfy their own area's human requirement; reviewers cannot do so on their own PRs. Existing CI and native protections continue to apply.

@@ -197,9 +197,12 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     api.post_status(pr['head'], 'pending', 'Evaluating current review policy')
     if not identity_matches():
         return
-    api.upsert_state(pr['number'], desired, state_body(result), pr.get('controller_comment_id'))
-    if not identity_matches():
-        return desired
+    # Reviewers do not read drafts, so do not open a comment on one. An existing
+    # comment is still kept current, and the status records the state either way.
+    if result['state'] != 'draft' or pr.get('controller_comment_id') is not None:
+        api.upsert_state(pr['number'], desired, state_body(result), pr.get('controller_comment_id'))
+        if not identity_matches():
+            return desired
     api.set_ready_label(pr['number'], ready, pr.get('labels', []))
     if missing:
         room = max(0, 15 - len(requested))

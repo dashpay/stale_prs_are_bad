@@ -139,6 +139,25 @@ class PublicationTests(unittest.TestCase):
             seen.update(p['number'] for p in batch)
         self.assertEqual(seen,set(range(1,69)))
 
+    def test_draft_records_its_state_without_opening_a_comment(self):
+        pr = dict(self.pr, draft=True, controller_comment_id=None)
+        result = dict(self.result, state='draft', status='pending')
+        self.api.snapshot.return_value = copy.deepcopy(pr)
+        self.api.pull.return_value = copy.deepcopy(pr)
+        self.api.open_prs.return_value = [copy.deepcopy(pr)]
+        main.publish(self.api, self.policy, pr, result, [pr], apply=True, candidates=[pr])
+        self.api.upsert_state.assert_not_called()
+        self.assertEqual(self.api.post_status.call_args.args[1:], ('pending', 'draft'))
+
+    def test_draft_keeps_an_existing_comment_current(self):
+        pr = dict(self.pr, draft=True, controller_comment_id=99)
+        result = dict(self.result, state='draft', status='pending')
+        self.api.snapshot.return_value = copy.deepcopy(pr)
+        self.api.pull.return_value = copy.deepcopy(pr)
+        self.api.open_prs.return_value = [copy.deepcopy(pr)]
+        main.publish(self.api, self.policy, pr, result, [pr], apply=True, candidates=[pr])
+        self.assertEqual(self.api.upsert_state.call_args.args[3], 99)
+
     def test_periodic_collection_bounds_snapshots_and_author_history(self):
         prs = [dict(self.pr,number=n,author=f'user{n}') for n in range(1,69)]
         self.api.open_prs.return_value = prs
