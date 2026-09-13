@@ -12,6 +12,8 @@ class RolloutTests(unittest.TestCase):
             root = Path(folder) / 'packet'
             write_bundle('dashpay/tenderdash','a'*40,root)
             workflow = (root / '.github/workflows/pr-review-policy.yml').read_text()
+            # The filename is historical; the display name follows the suite.
+            self.assertTrue(workflow.startswith('name: PR Hygiene policy\n'), workflow[:40])
             self.assertIn('dashpay/stale_prs_are_bad/.github/workflows/pr-review-reusable.yml@'+'a'*40,workflow)
             self.assertNotIn('engine_revision', workflow)
             self.assertNotIn('pr-review-policy.json', workflow)

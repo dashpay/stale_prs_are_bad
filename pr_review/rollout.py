@@ -10,7 +10,7 @@ from .registry import CENTRAL_REPOSITORY, POLICIES, ROOT, entry_for, load_regist
 
 
 def caller_workflow(engine_revision):
-    return f'''name: PR review policy
+    return f'''name: PR Hygiene policy
 on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, closed, edited]
