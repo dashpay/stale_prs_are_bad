@@ -64,6 +64,17 @@ class PolicyTests(unittest.TestCase):
                 validate_policy(dict(p, required_bots=value))
         validate_policy(dict(p, required_bots=[]))
 
+    def test_progress_is_green_and_only_a_configuration_problem_is_not(self):
+        p, pr = fixture()
+        pr['reviews'] = []
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+        pr['draft'] = True
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+        pr['draft'] = False
+        p['areas'][0]['unresolved'] = ['Owner: unknown']
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual((result['state'], result['status']), ('configuration-error', 'error'))
+
     def test_bot_failure_blocks_even_owner(self):
         p, pr = fixture()
         for update in [{'state':'CHANGES_REQUESTED'}, {'commit_id':'c'*40}, {'body':'preliminary'}]:
@@ -94,9 +105,9 @@ class PolicyTests(unittest.TestCase):
         pr['reviews'].append(review)
         self.assertEqual(evaluate(p,pr,NOW,NOW)['status'], 'success')
         review['state'] = 'DISMISSED'
-        self.assertEqual(evaluate(p,pr,NOW,NOW)['status'], 'pending')
+        self.assertEqual(evaluate(p,pr,NOW,NOW)['status'], 'success')
         review.update(state='APPROVED',commit_id='c'*40)
-        self.assertEqual(evaluate(p,pr,NOW,NOW)['status'], 'pending')
+        self.assertEqual(evaluate(p,pr,NOW,NOW)['status'], 'success')
 
     def test_sixth_waits_without_blocking_admitted_five(self):
         p, pr = fixture()

@@ -173,7 +173,10 @@ def evaluate(policy, pr, admitted_at, nowISO):
     result.update(state='configuration-error', status='error', blockers=[], reviewers=[], areas=[],
                   ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None)
 
-    def stop(state, *reasons, status='pending'):
+    # A pull request that is progressing normally reports success with its state
+    # in the description: a permanently amber check reads as something broken.
+    # Only a configuration problem someone must fix is not green.
+    def stop(state, *reasons, status='success'):
         result.update(state=state, status=status, blockers=list(reasons))
         return result
 
