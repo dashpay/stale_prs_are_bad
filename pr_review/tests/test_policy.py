@@ -75,6 +75,36 @@ class PolicyTests(unittest.TestCase):
         result = evaluate(p, pr, NOW, NOW)
         self.assertEqual((result['state'], result['status']), ('configuration-error', 'error'))
 
+    def test_bare_self_review_covers_everything_pushed_so_far(self):
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        pr['comments'][0]['body'] = '/self-reviewed'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+
+    def test_bare_self_review_written_before_the_push_does_not_count(self):
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T12:00:00Z'
+        pr['comments'][0]['body'] = '/self-reviewed'
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-self-review')
+
+    def test_bare_self_review_needs_a_head_the_controller_has_seen(self):
+        p, pr = fixture()
+        pr['head_seen_at'] = None
+        pr['comments'][0]['body'] = '/self-reviewed'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
+    def test_self_review_still_names_a_commit_and_rejects_other_text(self):
+        p, pr = fixture()
+        for body, expected in [('/self-reviewed ' + pr['head'], 'success'),
+                               ('/self-reviewed ' + 'f' * 40, 'waiting-self-review'),
+                               ('please /self-reviewed', 'waiting-self-review'),
+                               ('/self-reviewed now', 'waiting-self-review')]:
+            with self.subTest(body=body):
+                pr['comments'][0]['body'] = body
+                result = evaluate(p, pr, NOW, NOW)
+                self.assertEqual(result.get('status') if expected == 'success' else result['state'], expected)
+
     def test_bot_failure_blocks_even_owner(self):
         p, pr = fixture()
         for update in [{'state':'CHANGES_REQUESTED'}, {'commit_id':'c'*40}, {'body':'preliminary'}]:
