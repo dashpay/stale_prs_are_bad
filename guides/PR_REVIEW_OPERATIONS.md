@@ -21,7 +21,7 @@ python3 -m pr_review.aggregate report --format deliveries
 
 1. Keep unfinished work in draft. A draft records its state in the commit status only: no comment is opened on one, matching the review bots, and an existing comment is kept current if the pull request was ready earlier. The oldest eligible PRs fill up to five author slots, preserving existing admissions. The sixth waits; automation does not prevent PR creation.
 2. Finish final review by thepastaclaw and CodeRabbit on the current head, address outstanding bot changes requests and resolve bot threads.
-3. Inspect the final diff and verification yourself. Post `/self-reviewed` as an unedited comment after the bot outcomes: it attests to everything pushed so far. `/self-reviewed FULL_HEAD_SHA` names one commit explicitly and still works. New commits or later bot completion require a new attestation, and an edited comment never counts.
+3. Inspect the final diff and verification yourself. Post `/self-reviewed` as an unedited comment after the bot outcomes and after this controller has reported on the current head: it attests to everything pushed so far, and its timestamp is checked against that report. `/self-reviewed FULL_HEAD_SHA` names one commit explicitly and needs no such wait. New commits or later bot completion require a new attestation, and an edited comment never counts.
 4. Humans are invited for areas that still need approval. Owners satisfy their own area's human requirement; reviewers cannot do so on their own PRs. Existing CI and native protections continue to apply.
 5. Human objections still block merging. Renew self-review after addressing an objection so its reviewer is invited back; the objection/thread must also be cleared before merge.
 

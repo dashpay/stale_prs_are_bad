@@ -260,7 +260,7 @@ def evaluate(policy, pr, admitted_at, nowISO):
                 floor = max(completed, seen, key=_time)
             else:
                 continue
-            if _time(comment['created_at']) >= _time(floor):
+            if _time(comment['created_at']) > _time(floor):
                 attestations.append(comment['created_at'])
         if not attestations:
             return stop('waiting-self-review', 'Author must post /self-reviewed ' + pr['head'] + ' after bot completion')

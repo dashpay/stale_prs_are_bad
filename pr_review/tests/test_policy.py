@@ -88,6 +88,20 @@ class PolicyTests(unittest.TestCase):
         result = evaluate(p, pr, NOW, NOW)
         self.assertEqual(result['state'], 'waiting-self-review')
 
+    def test_bare_self_review_before_the_bots_finish_does_not_count(self):
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        pr['comments'][0].update(body='/self-reviewed', created_at='2026-09-11T09:30:00Z',
+                                 updated_at='2026-09-11T09:30:00Z')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
+    def test_an_attestation_sharing_a_second_with_its_floor_does_not_count(self):
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        floor = max(r['submitted_at'] for r in pr['reviews'])
+        pr['comments'][0].update(body='/self-reviewed', created_at=floor, updated_at=floor)
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
     def test_bare_self_review_needs_a_head_the_controller_has_seen(self):
         p, pr = fixture()
         pr['head_seen_at'] = None
