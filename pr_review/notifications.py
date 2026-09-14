@@ -39,9 +39,12 @@ def build_delivery_plan(snapshot, config):
             or type(config.get('version')) is not int or config['version'] != 1
             or not isinstance(config.get('users'), dict)):
         return {'messages': [], 'errors': ['Invalid Slack configuration']}
+    # Enrolment is explicit: null is a deliberate "not yet", any other bad value is
+    # a mistake. A roster member absent from the mapping is always a mistake, so a
+    # new owner or reviewer cannot be skipped silently.
     channel = config.get('channel_id')
-    if not isinstance(channel, str) or not re.fullmatch(r'[CG][A-Z0-9]+', channel):
-        errors.append('Shared Slack channel ID is missing or invalid')
+    if channel is not None and not (isinstance(channel, str) and re.fullmatch(r'[CG][A-Z0-9]+', channel)):
+        errors.append('Shared Slack channel ID is invalid')
         channel = None
     mappings = {}
     for login, identity in config['users'].items():
@@ -49,12 +52,17 @@ def build_delivery_plan(snapshot, config):
             errors.append('Duplicate or invalid GitHub login in Slack mapping')
             continue
         mappings[login.lower()] = identity
-    grouped = {}
+    grouped, unenrolled = {}, []
     for login in snapshot['roster']:
+        if login.lower() not in mappings:
+            errors.append(f'{login} is in the roster but absent from the Slack mapping')
         identity = mappings.get(login.lower())
-        if not isinstance(identity, str) or not re.fullmatch(r'[UW][A-Z0-9]+', identity):
-            errors.append(f'Slack user ID missing or invalid for {login}')
-            identity = 'unmapped:' + login.lower()
+        if identity is None:
+            unenrolled.append(login)
+            identity = 'unenrolled:' + login.lower()
+        elif not (isinstance(identity, str) and re.fullmatch(r'[UW][A-Z0-9]+', identity)):
+            errors.append(f'Slack user ID invalid for {login}')
+            identity = 'unenrolled:' + login.lower()
         grouped.setdefault(identity, set()).add(login.lower())
     now = snapshot['generated_at']
     rows = snapshot['pull_requests']
@@ -74,9 +82,11 @@ def build_delivery_plan(snapshot, config):
                if r['state'] not in {'draft', 'ready-for-human', 'ready-to-merge'}]
     if blocked:
         blocked.insert(0, 'Author action needed — these PRs are not ready for human review')
+    if unenrolled:
+        mode_note += '. Not receiving direct messages yet: ' + ', '.join(sorted(unenrolled))
     messages.append({'kind': 'channel', 'destination': channel,
-                         'payload': payload(f'PR review summary — {now}',
-                                            [mode_note, *unavailable, summary, *workload, *queue, *blocked])})
+                     'payload': payload(f'PR Hygiene summary — {now}',
+                                        [mode_note, *unavailable, summary, *workload, *queue, *blocked])})
     for identity, logins in sorted(grouped.items()):
         reviews = [r for r in rows if r['state'] == 'ready-for-human'
                    and logins.intersection(u.lower() for u in r.get('reviewers', []))]
@@ -89,8 +99,9 @@ def build_delivery_plan(snapshot, config):
             sections += ['Reviews awaiting you (computed policy)', *[pr_text(r, now) for r in reviews]]
         if own:
             sections += ['Your PR blockers', *[pr_text(r, now, True) for r in own]]
-        messages.append({'kind': 'personal', 'destination': None if identity.startswith('unmapped:') else identity, 'github_logins': sorted(logins),
-                         'payload': payload(f'Your PR digest — {now}', sections)})
+        messages.append({'kind': 'personal', 'destination': None if identity.startswith('unenrolled:') else identity,
+                         'github_logins': sorted(logins),
+                         'payload': payload(f'Your PR Hygiene digest — {now}', sections)})
     return {'generated_at': now, 'complete': snapshot['complete'], 'messages': messages, 'errors': errors}
 
 
@@ -114,7 +125,7 @@ def deliver(plan):
     token = os.environ.get('PR_REVIEW_SLACK_BOT_TOKEN', '')
     if os.environ.get('PR_REVIEW_SLACK_ENABLED') != 'true' or not token:
         raise ValueError('Slack delivery is disabled or the bot token is missing')
-    destinations = [m['destination'] for m in plan['messages']]
+    destinations = [m['destination'] for m in plan['messages'] if m['destination'] is not None]
     if len(destinations) != len(set(destinations)) or any(not re.fullmatch(r'[CGUW][A-Z0-9]+', d) for d in destinations):
         raise ValueError('Invalid or duplicate Slack destination')
     results = []
@@ -122,6 +133,10 @@ def deliver(plan):
     for message in plan['messages']:
         result = {'destination': message['destination'], 'state': 'not-attempted'}
         results.append(result)
+        # A destination nobody has enrolled yet is deliberate, not a failure.
+        if message['destination'] is None:
+            result['state'] = 'not-enrolled'
+            continue
         if stopped:
             continue
         request = urllib.request.Request('https://slack.com/api/chat.postMessage',

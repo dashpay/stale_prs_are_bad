@@ -28,9 +28,9 @@ class NotificationsTests(unittest.TestCase):
         self.assertIn('Your PR blockers', text)
         self.assertTrue(all(b['text']['type'] == 'plain_text' for b in plan['messages'][1]['payload']['blocks']))
 
-    def test_missing_mapping_is_visible_and_blocks_all_delivery(self):
+    def test_a_roster_member_absent_from_the_mapping_blocks_all_delivery(self):
         config = self.config()
-        config['users']['Alice'] = None
+        del config['users']['Alice']
         plan = n.build_delivery_plan(snapshot(), config)
         self.assertTrue(any('Alice' in e for e in plan['errors']))
         with patch.dict('os.environ', {'PR_REVIEW_SLACK_ENABLED': 'true', 'PR_REVIEW_SLACK_BOT_TOKEN': 'secret'}):
@@ -39,10 +39,25 @@ class NotificationsTests(unittest.TestCase):
                     n.deliver(plan)
                 request.assert_not_called()
 
+    def test_enrolling_one_person_sends_only_to_them(self):
+        config = {'version': 1, 'channel_id': None,
+                  'users': {'Alice': 'U123', 'ALICE2': 'U123', 'Bob': None}}
+        plan = n.build_delivery_plan(snapshot(), config)
+        self.assertEqual(plan['errors'], [])
+        self.assertIn('Not receiving direct messages yet: Bob', str(plan['messages'][0]))
+        with patch.dict('os.environ', {'PR_REVIEW_SLACK_ENABLED': 'true', 'PR_REVIEW_SLACK_BOT_TOKEN': 'secret'}):
+            with patch.object(n, 'urlopen') as request:
+                request.return_value.__enter__.return_value.status = 200
+                request.return_value.__enter__.return_value.read.return_value = b'{"ok": true, "ts": "1.0"}'
+                results = n.deliver(plan)
+        # The channel is not configured, so only Alice's digest is sent.
+        self.assertEqual([r['state'] for r in results], ['not-enrolled', 'delivered'])
+        self.assertEqual(request.call_count, 1)
+
     def test_unconfigured_destinations_still_allow_reviewing_exact_message_text(self):
         config = {'version':1,'channel_id':None,'users':{'Alice':None,'ALICE2':None,'Bob':None}}
         plan = n.build_delivery_plan(snapshot(),config)
-        self.assertTrue(plan['errors'])
+        self.assertEqual(plan['errors'], [])
         self.assertTrue(any(m['kind']=='channel' for m in plan['messages']))
         personal = [m for m in plan['messages'] if m['kind']=='personal']
         self.assertTrue(any('alice' in m['github_logins'] for m in personal))
