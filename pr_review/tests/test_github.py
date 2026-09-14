@@ -133,6 +133,20 @@ class GitHubTests(unittest.TestCase):
         with patch.object(self.api, "request", return_value=self.graph(total=1)), self.assertRaises(GitHubError):
             self.api.threads(1)
 
+    def test_head_seen_at_is_the_earliest_status_this_controller_wrote(self):
+        ours = {"context": "PR Hygiene", "creator": {"login": "github-actions[bot]"}}
+        pages = [dict(ours, created_at="2026-09-14T09:35:13Z"),
+                 dict(ours, created_at="2026-09-13T08:43:23Z"),
+                 {"context": "CodeRabbit", "creator": {"login": "coderabbitai[bot]"}, "created_at": "2026-01-01T00:00:00Z"},
+                 {"context": "PR Hygiene", "creator": {"login": "impostor"}, "created_at": "2020-01-01T00:00:00Z"}]
+        with patch.object(self.api, "pages", return_value=pages):
+            self.assertEqual(self.api.head_seen_at("a" * 40), "2026-09-13T08:43:23Z")
+        with patch.object(self.api, "pages", return_value=[]):
+            self.assertIsNone(self.api.head_seen_at("a" * 40))
+        with patch.object(self.api, "pages", return_value=[dict(ours, created_at="whenever")]):
+            with self.assertRaises(GitHubError):
+                self.api.head_seen_at("a" * 40)
+
     def test_should_recover_latest_inactive_transition_from_timeline(self):
         events = [
             {"event": "closed", "created_at": "2026-09-02T00:00:00Z"},

@@ -272,6 +272,7 @@ class GitHub:
             result["comments"] = self.comments(number)
             result["threads"] = self.threads(number)
             result["lifecycle_at"] = self.activity(number)
+            result["head_seen_at"] = self.head_seen_at(result["head"])
             result["requested_reviewers"] = [_login(user) for user in raw["requested_reviewers"]]
             result["labels"] = [_text(label["name"], "label name") for label in raw["labels"]]
             state, comment_id = parse_controller_state(result["comments"])
@@ -314,6 +315,22 @@ class GitHub:
             return result
         except (KeyError, TypeError) as error:
             raise GitHubError("Incomplete PR snapshot") from error
+
+    def head_seen_at(self, head):
+        """When this controller first published a status for this head.
+
+        Statuses cannot be edited or deleted, so this is a timestamp no author
+        can move, unlike a commit date or the body of a comment.
+        """
+        statuses = self.pages(f"{self.root}/commits/{quote(head, safe='')}/statuses")
+        ours = [item for item in statuses if item.get("context") == "PR Hygiene"
+                and (item.get("creator") or {}).get("login", "").lower() == "github-actions[bot]"]
+        if not ours:
+            return None
+        stamps = [_text(item["created_at"], "status creation time") for item in ours]
+        if any(not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stamp) for stamp in stamps):
+            raise GitHubError("Unexpected status timestamp format")
+        return min(stamps)
 
     def post_status(self, head, state, description, target_url=None):
         if state not in {"pending", "success", "failure", "error"}:

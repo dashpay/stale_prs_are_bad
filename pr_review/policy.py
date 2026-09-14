@@ -244,9 +244,24 @@ def evaluate(policy, pr, admitted_at, nowISO):
         # none, the author's own attestation is the only gate.
         completed = max(pasta + rabbit, key=_time) if pasta + rabbit else pr['created_at']
         result['bot_completed_at'] = completed
-        attestations = [c['created_at'] for c in pr['comments'] if c['user'].lower() == pr['author'].lower()
-                        and c['body'] == '/self-reviewed ' + pr['head']
-                        and c['created_at'] == c['updated_at'] and _time(c['created_at']) >= _time(completed)]
+        # `/self-reviewed <sha>` names the commit it covers. Bare `/self-reviewed`
+        # means "everything pushed so far", which is only safe once this head has
+        # a status: that timestamp cannot be moved, so an attestation written
+        # before the last push can never be reused for it.
+        seen = pr.get('head_seen_at')
+        attestations = []
+        for comment in pr['comments']:
+            if comment['user'].lower() != pr['author'].lower() or comment['created_at'] != comment['updated_at']:
+                continue
+            body = comment['body'].strip()
+            if body == '/self-reviewed ' + pr['head']:
+                floor = completed
+            elif body == '/self-reviewed' and seen:
+                floor = max(completed, seen, key=_time)
+            else:
+                continue
+            if _time(comment['created_at']) > _time(floor):
+                attestations.append(comment['created_at'])
         if not attestations:
             return stop('waiting-self-review', 'Author must post /self-reviewed ' + pr['head'] + ' after bot completion')
         self_time = max(attestations,key=_time)

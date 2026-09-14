@@ -121,8 +121,10 @@ def state_body(result):
         '### PR Hygiene',
         f"State: **{result['state']}** · commit `{result['head']}`",
         '', *[f'- {reason}' for reason in reasons],
-        '', 'Self-review is an author attestation for this exact commit:',
-        f"`/self-reviewed {result['head']}`",
+        '', 'Self-review is an author attestation that you have read the diff:',
+        '`/self-reviewed`  — covers everything pushed so far; post it again after a new push.',
+        f"Post it after this report appears for commit `{result['head']}`, or name the commit "
+        f"explicitly with `/self-reviewed {result['head']}`.",
         '', 'This report does not bypass CI or repository protection rules.',
     ])
 
