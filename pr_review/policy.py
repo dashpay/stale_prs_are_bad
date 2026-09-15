@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 STATE_MARKER = 'platform-pr-review-state-v1'
+NUDGE_MARKER = '<!-- pr-hygiene-nudge v1'
 BOTS = {'thepastaclaw', 'coderabbitai', 'coderabbitai[bot]'}
 # Which bots a repository actually runs is a property of that repository, not of
 # the review rules: requiring a producer that never reports would never resolve.
@@ -42,7 +43,12 @@ def _handles(values, nonempty=False):
 
 def validate_policy(policy, root: Path | None = None):
     keys = {'version', 'repository', 'fallback', 'max_active_prs', 'target_branches', 'areas'}
-    _fields(policy, keys | {'required_bots'}, keys)
+    _fields(policy, keys | {'required_bots', 'bot_timeouts'}, keys)
+    timeouts = policy.get('bot_timeouts')
+    if timeouts is not None:
+        _fields(timeouts, {'nudge_after_hours', 'waive_after_hours'}, {'nudge_after_hours', 'waive_after_hours'})
+        if any(type(timeouts[key]) is not int or not 1 <= timeouts[key] <= 168 for key in timeouts):
+            raise ValueError('bot_timeouts must be whole hours between 1 and 168')
     bots = policy.get('required_bots', list(REVIEW_BOTS))
     if (not isinstance(bots, list) or len(set(bots)) != len(bots)
             or any(bot not in REVIEW_BOTS for bot in bots)):
@@ -136,9 +142,12 @@ def fingerprint(pr):
     relevant = copy.deepcopy(pr)
     for name in ('controller_state', 'controller_comment_id', 'labels', 'requested_reviewers'):
         relevant.pop(name, None)
+    # This controller's own comments are effects, not evidence: counting them
+    # would make writing one look like the world changed underneath the write.
     relevant['comments'] = [x for x in relevant.get('comments', []) if not (
         x.get('user', '').lower() == 'github-actions[bot]' and
-        x.get('body', '').startswith(f'<!-- {STATE_MARKER}'))]
+        (x.get('body', '').startswith(f'<!-- {STATE_MARKER}')
+         or x.get('body', '').startswith(NUDGE_MARKER)))]
     for name in ('comments', 'reviews', 'threads', 'files'):
         if name in relevant:
             relevant[name] = sorted(relevant[name], key=lambda x: json.dumps(x, sort_keys=True))
@@ -168,16 +177,80 @@ def _rabbit_receipt(body, head):
     return False
 
 
-def evaluate(policy, pr, admitted_at, nowISO):
+RATE_LIMITED = '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'
+
+
+def _hours(stamp, nowISO):
+    return (_time(nowISO) - _time(stamp)).total_seconds() / 3600
+
+
+def nudged_at(comments, bot, head):
+    """When this controller last asked a bot to look at exactly this head."""
+    marker = f'{NUDGE_MARKER} bot={bot} sha={head} -->'
+    stamps = [c['created_at'] for c in comments
+              if c['user'].lower() == 'github-actions[bot]' and marker in c['body']]
+    return max(stamps, key=_time) if stamps else None
+
+
+def rate_limited_at(comments, head_seen_at):
+    """When CodeRabbit last said it was rate limited, after this head appeared."""
+    if not head_seen_at:
+        return None
+    stamps = [c['created_at'] for c in comments
+              if c['user'].lower() in {'coderabbitai', 'coderabbitai[bot]'} and RATE_LIMITED in c['body']
+              and _time(c['created_at']) >= _time(head_seen_at)]
+    return max(stamps, key=_time) if stamps else None
+
+
+def bot_schedule(policy, pr, bot, nowISO, telemetry_state=None):
+    """Whether to nudge a missing bot now, and whether to stop requiring it.
+
+    Positive evidence that a review is in flight delays both; the absence of
+    evidence delays neither, so a stale or hostile status page can cost one
+    extra nudge but can never hold a pull request back.
+    """
+    timeouts = policy.get('bot_timeouts')
+    seen = pr.get('head_seen_at')
+    if not timeouts or not seen:
+        return {'nudge': False, 'waived_at': None}
+    waited = _hours(seen, nowISO)
+    nudge_after, waive_after = timeouts['nudge_after_hours'], timeouts['waive_after_hours']
+    already = nudged_at(pr['comments'], bot, pr['head'])
+
+    limited = rate_limited_at(pr['comments'], seen) if bot == 'coderabbitai' else None
+    if limited is not None:
+        # CodeRabbit announced its own limit and documents this exact retry.
+        due = _hours(limited, nowISO) >= 1
+    elif telemetry_state == 'failed':
+        due = True            # no receipt is ever coming for this head
+    elif telemetry_state in {'running', 'queued'}:
+        due = False           # in flight: nudging would only add load
+    else:
+        due = waited >= nudge_after
+
+    # A review demonstrably still running may finish late; nothing else waits.
+    # A review demonstrably in flight may finish late, but only by so much:
+    # past the cap the pull request stops waiting whatever the page says.
+    grace = waive_after if telemetry_state == 'running' else 0
+    waived = waited >= waive_after + grace
+    return {'nudge': due and already is None and not waived, 'waived_at': nowISO if waived else None}
+
+
+def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
     result = {k: pr.get(k) for k in ('number', 'head', 'author', 'title', 'url')}
     result.update(state='configuration-error', status='error', blockers=[], reviewers=[], areas=[],
-                  ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None)
+                  ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None,
+                  nudge=[], waived=[])
 
     # A pull request that is progressing normally reports success with its state
     # in the description: a permanently amber check reads as something broken.
     # Only a configuration problem someone must fix is not green.
+    # A waiver is reported wherever the pull request ends up, not only where it
+    # was granted: whoever reads the status has to know a bot was given up on.
+    notes = []
+
     def stop(state, *reasons, status='success'):
-        result.update(state=state, status=status, blockers=list(reasons))
+        result.update(state=state, status=status, blockers=list(reasons) + notes)
         return result
 
     try:
@@ -230,19 +303,35 @@ def evaluate(policy, pr, admitted_at, nowISO):
         for comment in pr['comments']:
             if comment['user'].lower() in {'coderabbitai','coderabbitai[bot]'} and _rabbit_receipt(comment['body'], pr['head']):
                 rabbit.append(comment['updated_at'])
-        # An unrequired bot still blocks while it is objecting; it just is not awaited.
-        pasta_missing = 'thepastaclaw' in required and not pasta
-        rabbit_missing = 'coderabbitai' in required and not rabbit
-        if pasta_missing or rabbit_missing or bot_blocks or bot_threads:
-            reasons = []
-            if pasta_missing: reasons.append('thepastaclaw final review missing for current head')
-            if rabbit_missing: reasons.append('CodeRabbit completion missing for current head')
+        # A bot that requested changes on an earlier head has not reported on
+        # this one: that is the shape a nudge and a waiver exist for. An
+        # objection raised against the current head is a report, and blocks.
+        bot_blocks = [r for r in bot_blocks if r.get('commit_id') == pr['head']]
+        receipts = {'thepastaclaw': pasta, 'coderabbitai': rabbit}
+        missing = [bot for bot in sorted(required) if not receipts[bot]]
+        waived, reasons = {}, []
+        for bot in missing:
+            plan = bot_schedule(policy, pr, bot, nowISO, (telemetry_states or {}).get(bot))
+            if plan['nudge']:
+                result['nudge'].append(bot)
+            # Never promote with no bot evidence at all: something must have run.
+            if plan['waived_at'] and any(receipts[other] for other in required):
+                waived[bot] = plan['waived_at']
+            else:
+                reasons.append(f'{bot} has not reported for the current head')
+        result['waived'] = sorted(waived)
+        notes.extend(f'Proceeded without {bot}: no review within the configured window'
+                     for bot in sorted(waived))
+        if reasons or bot_blocks or bot_threads:
             if bot_blocks: reasons.append('Bot changes request remains outstanding')
             if bot_threads: reasons.append('Bot review threads remain unresolved')
             return stop('waiting-bots', *reasons)
         # Self-review must follow whichever producers this repository runs. With
         # none, the author's own attestation is the only gate.
-        completed = max(pasta + rabbit, key=_time) if pasta + rabbit else pr['created_at']
+        # A waiver is itself an event the author's self-review must follow, so a
+        # attestation written before the bots were given up on cannot count.
+        instants = pasta + rabbit + list(waived.values())
+        completed = max(instants, key=_time) if instants else pr['created_at']
         result['bot_completed_at'] = completed
         # `/self-reviewed <sha>` names the commit it covers. Bare `/self-reviewed`
         # means "everything pushed so far", which is only safe once this head has

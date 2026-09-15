@@ -361,6 +361,16 @@ class GitHub:
             raise GitHubError("State comment write returned no identity")
         return result["id"]
 
+    def comment(self, number, body):
+        return self.request("POST", f"{self.root}/issues/{number}/comments", {"body": body})
+
+    def set_label(self, number, label, enabled, current_labels):
+        if enabled and label not in current_labels:
+            return self.request("POST", f"{self.root}/issues/{number}/labels", {"labels": [label]})
+        if not enabled and label in current_labels:
+            return self.request("DELETE", f"{self.root}/issues/{number}/labels/{label}")
+        return None
+
     def set_ready_label(self, number, enabled, current_labels):
         label = "ready-for-human"
         if enabled and label not in current_labels:
