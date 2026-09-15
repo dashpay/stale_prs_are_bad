@@ -37,6 +37,9 @@ class PublicationTests(unittest.TestCase):
         self.api.pull.return_value = copy.deepcopy(self.pr)
         self.api.comments.return_value = []
         self.api.activity.return_value = None
+        # One query answers the admission evidence for every candidate.
+        self.api.histories.side_effect = lambda numbers: {
+            number: {'comments': [], 'lifecycle_at': None} for number in numbers}
         self.policy, _ = fixture()
         self.pr['created_at'] = NOW
 
@@ -121,7 +124,7 @@ class PublicationTests(unittest.TestCase):
         _, candidates, _ = main.collect(self.api,self.policy,number=1,reconcile_author=True)
         self.assertEqual([p['number'] for p in candidates],[2])
         self.api.snapshot.assert_called_once_with(2,self.policy)
-        self.api.comments.assert_called_once_with(2)
+        self.api.histories.assert_called_once_with([2])
 
     def test_pr_report_does_not_fetch_sibling_full_evidence(self):
         sibling = dict(self.pr,number=2)
@@ -165,7 +168,9 @@ class PublicationTests(unittest.TestCase):
             _, candidates, _ = main.collect(self.api,self.policy,batch_size=3)
         self.assertEqual(len(candidates),3)
         self.assertEqual(self.api.snapshot.call_count,3)
-        self.assertEqual(self.api.comments.call_count,3)
+        # Three candidates, still one query, not one request each.
+        self.assertEqual(self.api.histories.call_count,1)
+        self.assertEqual(sorted(self.api.histories.call_args.args[0]),[1,2,3])
 
     def test_invalid_configuration_revokes_previous_success_in_authorized_apply(self):
         environment = {'GITHUB_ACTIONS':'true', 'GITHUB_REPOSITORY':'dashpay/platform',
