@@ -31,8 +31,13 @@ permissions:
   statuses: write
 jobs:
   policy:
-    # Never react to this controller's own comments.
-    if: github.event_name != 'issue_comment' || github.event.comment.user.login != 'github-actions[bot]'
+    # Only comments this controller actually reads can change an outcome: a bot
+    # receipt or an author's attestation. Its own comments, coverage bots and
+    # human discussion cannot, and were most of the runs it caused.
+    if: >-
+      github.event_name != 'issue_comment' ||
+      contains(fromJSON('["coderabbitai", "coderabbitai[bot]", "thepastaclaw"]'), github.event.comment.user.login) ||
+      contains(github.event.comment.body, '/self-reviewed')
     uses: {CENTRAL_REPOSITORY}/.github/workflows/pr-review-reusable.yml@{engine_revision}
 '''
 
