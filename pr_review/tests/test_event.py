@@ -12,7 +12,7 @@ from pr_review.event import selections
 class EventTests(unittest.TestCase):
     def test_schedule_push_and_dispatch_are_bounded(self):
         for kind in ['schedule','push','workflow_dispatch']:
-            self.assertEqual(selections(kind,{}),[['--batch-size','3']])
+            self.assertEqual(selections(kind,{}),[['--batch-size','6']])
 
     def test_event_number_only_selects_freshly_refetched_pr(self):
         self.assertEqual(selections('issue_comment',{'issue':{'number':44,'pull_request':{}}}),[['--pr','44']])

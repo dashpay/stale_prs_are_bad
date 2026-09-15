@@ -86,6 +86,11 @@ class GitHub:
             raise GitHubError("Invalid repository identity")
         self.repo = repo
         self.root = f"repos/{repo}"
+        # Neither a person's access nor a commit's own status history changes
+        # under one reconciliation. Asking again for every pull request was a
+        # large part of this tool's traffic against the organisation's limit.
+        self._permissions = {}
+        self._statuses = {}
 
     def _run(self, arguments, payload=None):
         try:
@@ -297,7 +302,7 @@ class GitHub:
             users.update(review["user"] for review in reviews)
             users.update(thread["author"] for thread in result["threads"])
             permissions = {}
-            cache = {}
+            cache = self._permissions
             for user in sorted(users):
                 if user.lower() in BOT_LOGINS or user.lower().endswith("[bot]"):
                     continue
@@ -316,14 +321,23 @@ class GitHub:
         except (KeyError, TypeError) as error:
             raise GitHubError("Incomplete PR snapshot") from error
 
+    def forget_cached_access(self):
+        """Re-read permissions and statuses, for the checks made before writing."""
+        self._permissions.clear()
+        self._statuses.clear()
+
+    def _head_statuses(self, head):
+        if head not in self._statuses:
+            self._statuses[head] = self.pages(f"{self.root}/commits/{quote(head, safe='')}/statuses")
+        return self._statuses[head]
+
     def head_seen_at(self, head):
         """When this controller first published a status for this head.
 
         Statuses cannot be edited or deleted, so this is a timestamp no author
         can move, unlike a commit date or the body of a comment.
         """
-        statuses = self.pages(f"{self.root}/commits/{quote(head, safe='')}/statuses")
-        ours = [item for item in statuses if item.get("context") == "PR Hygiene"
+        ours = [item for item in self._head_statuses(head) if item.get("context") == "PR Hygiene"
                 and (item.get("creator") or {}).get("login", "").lower() == "github-actions[bot]"]
         if not ours:
             return None
@@ -338,12 +352,15 @@ class GitHub:
         payload = {"state": state, "context": "PR Hygiene", "description": description[:140]}
         if target_url is not None:
             payload["target_url"] = target_url
-        statuses = self.pages(f"{self.root}/commits/{quote(head, safe='')}/statuses")
+        statuses = self._head_statuses(head)
         latest = next((item for item in statuses if item.get("context") == payload["context"]), None)
         if latest and (latest.get("creator") or {}).get("login", "").lower() == "github-actions[bot]":
             if all(latest.get(key) == payload.get(key) for key in ("state", "description", "target_url")):
                 return latest
-        return self.request("POST", f"{self.root}/statuses/{quote(head, safe='')}", payload)
+        written = self.request("POST", f"{self.root}/statuses/{quote(head, safe='')}", payload)
+        self._statuses[head] = [dict(payload, creator={"login": "github-actions[bot]"},
+                                     created_at=written.get("created_at"))] + statuses
+        return written
 
     def upsert_state(self, number, state, body, comment_id=None):
         _validate_state(state)

@@ -206,6 +206,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         # Admission history reads can be slow. Read this PR's review evidence
         # after those reads so a dismissed approval is not reused from before them.
         valid_admission = admission_valid(expected)
+        api.forget_cached_access()
         final = api.snapshot(pr['number'], policy)
         if not valid_admission or fingerprint(final) != fingerprint(pr):
             api.post_status(pr['head'], 'pending', 'Review evidence changed; reconciliation required')
