@@ -412,12 +412,16 @@ class GitHub:
         if not self._permissions:
             for entry in self.pages(f"{self.root}/collaborators?affiliation=all"):
                 login = _login(entry)
-                role = _text(entry.get("role_name"), "collaborator role").lower()
-                if role not in {"admin", "maintain", "write", "triage", "read"}:
-                    # A custom organisation role means nothing to this policy, and
-                    # treating it as access would be a guess in the unsafe direction.
-                    role = "none"
-                self._permissions[login.lower()] = role
+                granted = entry.get("permissions")
+                if not isinstance(granted, dict):
+                    raise GitHubError("Collaborator listing is missing its permissions")
+                # Read the capabilities, not the role's name: a custom organisation
+                # role carries a name this policy has never heard of but still says
+                # plainly whether its holder can push.
+                for level in ("admin", "maintain", "push", "triage", "pull"):
+                    if granted.get(level) is True:
+                        self._permissions[login.lower()] = {"push": "write", "pull": "read"}.get(level, level)
+                        break
         return self._permissions
 
     def forget_cached_access(self):

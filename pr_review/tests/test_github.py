@@ -79,10 +79,14 @@ class GitHubTests(unittest.TestCase):
             if "/comments" in path:
                 return comments or []
             if "/collaborators" in path:
-                return [{"login": "drive-owner", "role_name": "write"},
-                        {"login": "swift-owner", "role_name": "read"},
-                        {"login": "owner", "role_name": "admin"},
-                        {"login": "custom-role", "role_name": "security-lead"}]
+                def rights(**granted):
+                    return {level: granted.get(level, False)
+                            for level in ("admin", "maintain", "push", "triage", "pull")}
+                return [{"login": "drive-owner", "role_name": "write", "permissions": rights(push=True, pull=True)},
+                        {"login": "swift-owner", "role_name": "read", "permissions": rights(pull=True)},
+                        {"login": "owner", "role_name": "admin", "permissions": rights(admin=True, push=True, pull=True)},
+                        {"login": "custom-role", "role_name": "security-lead",
+                         "permissions": rights(push=True, pull=True, triage=True)}]
             return []
         return patch.object(self.api, "request", side_effect=request), patch.object(self.api, "pages", side_effect=pages)
 
@@ -236,8 +240,9 @@ class GitHubTests(unittest.TestCase):
             self.assertEqual(paged.call_count, 1)
         self.assertEqual(access["drive-owner"], "write")
         self.assertEqual(access["swift-owner"], "read")
-        # A custom organisation role means nothing to this policy: assume nothing.
-        self.assertEqual(access["custom-role"], "none")
+        # A custom organisation role has a name this policy never heard of, but
+        # its capabilities still say whether the holder can push.
+        self.assertEqual(access["custom-role"], "write")
         # Anyone absent from the list has no access at all.
         self.assertNotIn("stranger", access)
 
