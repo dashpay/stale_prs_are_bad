@@ -32,15 +32,20 @@ def context_fingerprint(prs):
 
 
 def load_histories(api, selected):
-    def history(pr):
-        comments = api.comments(pr['number'])
-        state, comment_id = parse_controller_state(comments)
+    """Admission evidence for every candidate, in one query rather than two each."""
+    histories = api.histories([pr['number'] for pr in selected])
+    loaded = []
+    for pr in selected:
+        history = histories.get(pr['number'])
+        if history is None:
+            # Closed or deleted since the listing: it holds no slot either way.
+            continue
+        state, comment_id = parse_controller_state(history['comments'])
         if state is not None and state['number'] != pr['number']:
             raise GitHubError('Controller admission history belongs to another PR')
-        return dict(pr, comments=comments, controller_state=state,
-                    controller_comment_id=comment_id, lifecycle_at=api.activity(pr['number']))
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        return list(pool.map(history, selected))
+        loaded.append(dict(pr, comments=history['comments'], controller_state=state,
+                           controller_comment_id=comment_id, lifecycle_at=history['lifecycle_at']))
+    return loaded
 
 
 def admission_conflicts(policy, candidates):

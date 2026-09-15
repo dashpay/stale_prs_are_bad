@@ -152,6 +152,52 @@ class GitHubTests(unittest.TestCase):
             with self.assertRaises(GitHubError):
                 self.api.head_seen_at("a" * 40)
 
+    def history_response(self, **overrides):
+        comment = {"databaseId": 7, "body": "hello", "createdAt": "2026-09-11T10:00:00Z",
+                   "updatedAt": "2026-09-11T10:00:00Z",
+                   "author": {"login": "github-actions", "__typename": "Bot"}}
+        node = {"number": 1, "comments": {"totalCount": 1, "nodes": [comment]},
+                "timelineItems": {"nodes": [{"createdAt": "2026-09-04T00:00:00Z"}]}}
+        node.update(overrides)
+        return {"data": {"repository": {"pr1": node}}}
+
+    def test_batched_history_restores_the_bot_suffix_graphql_omits(self):
+        # REST says github-actions[bot]; GraphQL says github-actions. The
+        # controller finds its own record by that login, so a bare one would
+        # make its own state invisible and duplicate the report.
+        with patch.object(self.api, "request", return_value=self.history_response()):
+            history = self.api.histories([1])
+        self.assertEqual(history[1]["comments"][0]["user"], "github-actions[bot]")
+        self.assertEqual(history[1]["comments"][0]["id"], 7)
+        self.assertEqual(history[1]["lifecycle_at"], "2026-09-04T00:00:00Z")
+
+    def test_batched_history_treats_a_vanished_pull_request_as_gone_not_broken(self):
+        response = {"data": {"repository": {"pr1": None, "pr2": self.history_response()["data"]["repository"]["pr1"]}},
+                    "errors": [{"type": "NOT_FOUND", "path": ["repository", "pr1"]}]}
+        with patch.object(self.api, "request", return_value=response):
+            history = self.api.histories([1, 2])
+        self.assertEqual(sorted(history), [2])
+
+    def test_batched_history_still_fails_on_a_real_error(self):
+        response = {"data": {"repository": {}}, "errors": [{"type": "RATE_LIMITED"}]}
+        with patch.object(self.api, "request", return_value=response), self.assertRaises(GitHubError):
+            self.api.histories([1])
+
+    def test_batched_history_reads_a_long_conversation_the_slow_way(self):
+        # The controller's own record can be older than the window we ask for.
+        truncated = self.history_response(comments={"totalCount": 250, "nodes": []})
+        with patch.object(self.api, "request", return_value=truncated):
+            with patch.object(self.api, "comments", return_value=[{"id": 1, "user": "u", "body": "b",
+                                                                   "created_at": "x", "updated_at": "x"}]) as rest:
+                history = self.api.histories([1])
+        rest.assert_called_once_with(1)
+        self.assertEqual(history[1]["comments"][0]["id"], 1)
+
+    def test_batched_history_of_nothing_asks_nothing(self):
+        with patch.object(self.api, "request") as request:
+            self.assertEqual(self.api.histories([]), {})
+            request.assert_not_called()
+
     def test_should_recover_latest_inactive_transition_from_timeline(self):
         events = [
             {"event": "closed", "created_at": "2026-09-02T00:00:00Z"},

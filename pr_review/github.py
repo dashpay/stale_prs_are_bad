@@ -65,6 +65,20 @@ def _text(value, label):
     return value
 
 
+def _graphql_login(author):
+    """REST reports an app as `name[bot]`; GraphQL reports the bare name.
+
+    The controller finds its own record by that login, so a bare one would make
+    its state invisible and it would open a second report on every pull request.
+    """
+    if not isinstance(author, dict):
+        raise GitHubError("Missing comment author")
+    login = _text(author.get("login"), "comment author")
+    if author.get("__typename") == "Bot" and not login.endswith("[bot]"):
+        return login + "[bot]"
+    return login
+
+
 def _login(user):
     if not isinstance(user, dict):
         raise GitHubError("Missing account identity")
@@ -179,6 +193,77 @@ class GitHub:
                     raise GitHubError("Invalid inactive lifecycle timestamp") from error
                 transitions.append((timestamp, value))
         return max(transitions)[1] if transitions else None
+
+    def histories(self, numbers):
+        """Comments and the latest inactive transition for many pull requests at once.
+
+        Rebuilding an author's slots asked for both per pull request, which was
+        most of this tool's traffic. One query answers it for every candidate.
+        """
+        if not numbers:
+            return {}
+        owner, repo = self.repo.split("/")
+        aliases = {f"pr{number}": number for number in sorted(set(numbers))}
+        selections = "\n".join(f"{alias}: pullRequest(number:{number}) {{ ...history }}"
+                                for alias, number in aliases.items())
+        query = ("query($owner:String!, $repo:String!) { repository(owner:$owner, name:$repo) {"
+                 + selections + """ } }
+        fragment history on PullRequest {
+          number
+          comments(last:100) {
+            totalCount
+            nodes { databaseId body createdAt updatedAt author { login __typename } }
+          }
+          timelineItems(last:1, itemTypes:[CLOSED_EVENT, CONVERT_TO_DRAFT_EVENT]) {
+            nodes {
+              ... on ClosedEvent { createdAt }
+              ... on ConvertToDraftEvent { createdAt }
+            }
+          }
+        }""")
+        response = self.request("POST", "graphql", {"query": query, "variables": {"owner": owner, "repo": repo}})
+        if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
+            raise GitHubError("GraphQL history query failed")
+        # A pull request closed since the listing answers null for its own alias
+        # while the rest answer normally; anything else is a real failure.
+        for error in response.get("errors") or []:
+            if (error or {}).get("type") != "NOT_FOUND":
+                raise GitHubError("GraphQL history query failed")
+        repository = response["data"].get("repository")
+        if not isinstance(repository, dict):
+            raise GitHubError("GraphQL history query returned no repository")
+        histories = {}
+        for alias, number in aliases.items():
+            node = repository.get(alias)
+            if node is None:
+                continue
+            try:
+                connection = node["comments"]
+                total = connection["totalCount"]
+                nodes = connection["nodes"]
+                if type(total) is not int or not isinstance(nodes, list):
+                    raise GitHubError("Incomplete comment connection")
+                if total > len(nodes):
+                    # Older than the window we asked for: read it the slow way
+                    # rather than miss this controller's own record.
+                    comments = self.comments(number)
+                else:
+                    comments = [{"id": comment["databaseId"], "user": _graphql_login(comment["author"]),
+                                 "body": comment["body"],
+                                 "created_at": _text(comment["createdAt"], "comment creation time"),
+                                 "updated_at": _text(comment["updatedAt"], "comment update time")}
+                                for comment in nodes]
+                    if any(not isinstance(item["body"], str) or type(item["id"]) is not int for item in comments):
+                        raise GitHubError("Invalid comment identity or body")
+                    comments = _unique(comments, "id", "comment")
+                events = node["timelineItems"]["nodes"]
+                if not isinstance(events, list):
+                    raise GitHubError("Incomplete pull request timeline")
+                lifecycle = _text(events[0]["createdAt"], "inactive lifecycle timestamp") if events else None
+            except (KeyError, TypeError) as error:
+                raise GitHubError("Incomplete pull request history") from error
+            histories[number] = {"comments": comments, "lifecycle_at": lifecycle}
+        return histories
 
     def threads(self, number):
         query = """query($owner:String!, $repo:String!, $number:Int!, $cursor:String) {
