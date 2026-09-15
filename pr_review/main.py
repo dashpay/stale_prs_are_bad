@@ -10,9 +10,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
+from . import telemetry
 from .github import GitHub, GitHubError, parse_controller_state
-from .policy import admit, codeowners, effective_admission, evaluate, fingerprint, validate_policy
+from .policy import (NUDGE_MARKER, admit, codeowners, effective_admission, evaluate, fingerprint,
+                     validate_policy)
 from .registry import POLICIES, entry_for, load_registry, policy_path
+
+WAIVED_LABEL = 'bot-review-missed'
+NUDGES_PER_RUN = 1
 
 
 
@@ -129,6 +134,33 @@ def state_body(result):
     ])
 
 
+def nudge(api, pr, result, allowance):
+    """Ask a bot to look at this head, at most once per head and a few per run.
+
+    Asking is best effort: a comment that cannot be posted is reported and
+    retried on the next run. It must never fail a reconciliation, because the
+    waiver that eventually unblocks the pull request does not depend on it.
+    """
+    posted = 0
+    for bot in result.get('nudge', []):
+        if posted >= allowance:
+            break
+        current = api.pull(pr['number'])
+        if current['state'] != 'open' or current['head'] != pr['head']:
+            break
+        marker = f"{NUDGE_MARKER} bot={bot} sha={pr['head']} -->"
+        body = (f"{marker}\n@{bot} review\n\n"
+                f"No review for `{pr['head'][:8]}` yet, so PR Hygiene is asking once. "
+                f"If nothing arrives, the requirement is dropped for this commit and the pull "
+                f"request is labelled `{WAIVED_LABEL}`.")
+        try:
+            api.comment(pr['number'], body)
+            posted += 1
+        except GitHubError:
+            print(f"PR #{pr['number']}: could not ask {bot} to review; will retry", file=sys.stderr)
+    return posted
+
+
 def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     """Publish only after revalidating the PR and its policy evidence."""
     if not apply:
@@ -187,7 +219,9 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     ready = result['state'] == 'ready-for-human'
     requested = set(pr.get('requested_reviewers', []))
     missing = [u for u in result.get('reviewers', []) if u not in requested] if ready else []
-    label_correct = ('ready-for-human' in pr.get('labels', [])) == ready
+    labels = pr.get('labels', [])
+    label_correct = (('ready-for-human' in labels) == ready
+                     and (WAIVED_LABEL in labels) == bool(result.get('waived')))
     if pr.get('controller_state') == desired and label_correct and not missing:
         # Read current evidence on every run, but avoid churning comments and labels.
         if actionable:
@@ -206,6 +240,14 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if not identity_matches():
             return desired
     api.set_ready_label(pr['number'], ready, pr.get('labels', []))
+    try:
+        api.set_label(pr['number'], WAIVED_LABEL, bool(result.get('waived')), pr.get('labels', []))
+    except GitHubError:
+        # The repository may not have the label yet. Say so and carry on: the
+        # waiver is already in the status and the comment, and one missing label
+        # must not abort the remaining pull requests.
+        print(f"PR #{pr['number']}: could not set {WAIVED_LABEL}; create the label to see waivers in listings",
+              file=sys.stderr)
     if missing:
         room = max(0, 15 - len(requested))
         if len(missing) > room:
@@ -265,14 +307,28 @@ def render_report(rows, now, user=None):
     return '\n'.join(lines) + '\n'
 
 
-def evaluate_snapshots(policy, context, candidates, snapshots, now):
+def telemetry_states(policy, snapshots, now, payload):
+    """Per PR, what the review system last said about the head it is awaiting."""
+    if not payload:
+        return {}
+    states = {}
+    for pr in snapshots:
+        state = telemetry.head_state(payload, policy['repository'], pr['number'],
+                                     pr['head'], pr.get('head_seen_at'), now)
+        if state:
+            states[pr['number']] = {telemetry.BOT: state}
+    return states
+
+
+def evaluate_snapshots(policy, context, candidates, snapshots, now, payload=None):
     """Use the same policy decisions for local enforcement and combined reports."""
+    states = telemetry_states(policy, snapshots, now, payload)
     admissions = admit(policy, candidates, now)
     conflicts = admission_conflicts(policy, candidates)
     rows = []
     head_counts = Counter(pr['head'] for pr in context)
     for pr in snapshots:
-        result = evaluate(policy, pr, admissions.get(pr['number']), now)
+        result = evaluate(policy, pr, admissions.get(pr['number']), now, states.get(pr['number']))
         if pr['author'].lower() in conflicts:
             result.update(state='configuration-error', status='error', reviewers=[], ready_since=None)
             result['admitted_at'] = effective_admission(pr)
@@ -361,13 +417,18 @@ def run(argv=None):
     context, candidates, snapshots = collect(api, policy, args.pr, apply=args.apply,
                                            reconcile_author=args.command == 'sync', batch_size=args.batch_size)
     now = utc_now()
-    rows = evaluate_snapshots(policy, context, candidates, snapshots, now)
+    # Read the review system's public page once per run, never inside evaluation:
+    # that runs twice per publication and must give the same answer both times.
+    payload = telemetry.fetch() if policy.get('bot_timeouts') else None
+    rows = evaluate_snapshots(policy, context, candidates, snapshots, now, payload)
+    nudged = 0
     for pr, result in zip(snapshots, rows):
         if args.command == 'sync':
             try:
                 if args.apply:
                     # Verify setup explicitly; never create labels as a side effect.
                     api.request('GET', f'repos/{args.repo}/labels/ready-for-human')
+                    nudged += nudge(api, pr, result, NUDGES_PER_RUN - nudged)
                 written = publish(api, policy, pr, result, context, args.apply, candidates=candidates)
                 if written:
                     for candidate in candidates:
