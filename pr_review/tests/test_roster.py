@@ -20,7 +20,8 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(set(paths['packages/rs-platform-wallet/']['reviewers']),
                          {'ZocoLini', 'HashEngineering', 'romchornyi'})
         self.assertEqual(paths['packages/rs-dapi/']['owners'], ['lklimek'])
-        self.assertTrue(paths['packages/dashmate/']['unresolved'])
+        self.assertEqual(paths['packages/dashmate/']['owners'], ['shumkov', 'ktechmidas'])
+        self.assertNotIn('unresolved', paths['packages/dashmate/'])
         generated = codeowners(policy)
         self.assertNotIn('@dashpay/', generated)
         self.assertNotIn('@strophy', generated.lower())

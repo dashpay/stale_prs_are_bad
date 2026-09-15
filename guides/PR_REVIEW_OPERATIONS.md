@@ -45,7 +45,7 @@ Before any caller can run, `master` of this repository must be governed by a rul
 
 Each repository needs its own review before activation:
 
-- Confirm roster identities and repository permissions. Keep strophy and Silvanassss excluded and broad teams unchanged. Daniel remains unresolved in Platform; rust-dashcore has explicit missing-owner and cropped-scope gaps.
+- Confirm roster identities and repository permissions. Keep strophy and Silvanassss excluded and broad teams unchanged. rust-dashcore has explicit missing-owner and cropped-scope gaps.
 - Confirm configured target branches, existing CODEOWNERS precedence, native approval rules and both bot producers. rust-dashcore's existing readiness automation needs an explicit migration; do not silently replace it. Tenderdash disables automatic CodeRabbit reviews, so its policy lists only thepastaclaw in `required_bots` — declare the producers a repository actually runs rather than turning a bot on for it. CI compares each declaration against that repository's own CodeRabbit configuration. Adding the field to a policy requires every caller to pin an engine that understands it first.
 - Merge under existing protections and run preview from the default branch. Verify complete evidence reads, token permissions and API usage.
 - Create `ready-for-human`, and `bot-review-missed` when the repository sets `bot_timeouts`; this controller never creates a label as a side effect, and a missing one is reported rather than fatal. Then opt into writes with repository variable `PR_REVIEW_AUTOMATION_ENABLED=true`.
