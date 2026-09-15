@@ -15,10 +15,11 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, closed, edited]
   issue_comment:
-    # Only new comments. The bots edit their own comments repeatedly as a review
-    # progresses, and this controller edits its own report, so listening for
-    # edits meant every write triggered more runs than the work it described.
-    types: [created]
+    # CodeRabbit publishes its completion by editing the comment it posted when
+    # the review began: on Platform every observed receipt arrived that way and
+    # none was accompanied by a review. Edits therefore have to be heard, but
+    # only from the accounts whose comments this controller reads.
+    types: [created, edited]
   pull_request_review:
     types: [submitted, edited, dismissed]
   workflow_dispatch:
@@ -31,8 +32,13 @@ permissions:
   statuses: write
 jobs:
   policy:
-    # Never react to this controller's own comments.
-    if: github.event_name != 'issue_comment' || github.event.comment.user.login != 'github-actions[bot]'
+    # Only comments this controller actually reads can change an outcome: a bot
+    # receipt or an author's attestation. Its own comments, coverage bots and
+    # human discussion cannot, and were most of the runs it caused.
+    if: >-
+      github.event_name != 'issue_comment' ||
+      contains(fromJSON('["coderabbitai", "coderabbitai[bot]", "thepastaclaw"]'), github.event.comment.user.login) ||
+      contains(github.event.comment.body, '/self-reviewed')
     uses: {CENTRAL_REPOSITORY}/.github/workflows/pr-review-reusable.yml@{engine_revision}
 '''
 
