@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 STATE_MARKER = 'platform-pr-review-state-v1'
@@ -229,11 +229,14 @@ def bot_schedule(policy, pr, bot, nowISO, telemetry_state=None):
         due = waited >= nudge_after
 
     # A review demonstrably still running may finish late; nothing else waits.
-    # A review demonstrably in flight may finish late, but only by so much:
-    # past the cap the pull request stops waiting whatever the page says.
-    grace = waive_after if telemetry_state == 'running' else 0
-    waived = waited >= waive_after + grace
-    return {'nudge': due and already is None and not waived, 'waived_at': nowISO if waived else None}
+    # The moment a waiver takes effect is a property of the head, not of the run
+    # that noticed it: an instant that moved with the clock would be later than
+    # every comment, and the author's self-review could never satisfy it.
+    # Nothing here consults the status page, so no third party can hold a pull
+    # request back by claiming a review is still running.
+    due_at = (_time(seen) + timedelta(hours=waive_after)).isoformat().replace('+00:00', 'Z')
+    waived = waited >= waive_after
+    return {'nudge': due and already is None and not waived, 'waived_at': due_at if waived else None}
 
 
 def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
@@ -310,12 +313,17 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         receipts = {'thepastaclaw': pasta, 'coderabbitai': rabbit}
         missing = [bot for bot in sorted(required) if not receipts[bot]]
         waived, reasons = {}, []
+        outstanding = bool(bot_blocks or bot_threads)
         for bot in missing:
             plan = bot_schedule(policy, pr, bot, nowISO, (telemetry_states or {}).get(bot))
-            if plan['nudge']:
+            # Asking for a review while the pull request owes the bots an answer
+            # anyway would spend someone else's capacity on nothing.
+            if plan['nudge'] and not outstanding:
                 result['nudge'].append(bot)
-            # Never promote with no bot evidence at all: something must have run.
-            if plan['waived_at'] and any(receipts[other] for other in required):
+            # A repository that sets timeouts has accepted that a silent bot is
+            # eventually proceeded without, including when it is the only one.
+            # The label and the stated blocker are what keep that honest.
+            if plan['waived_at']:
                 waived[bot] = plan['waived_at']
             else:
                 reasons.append(f'{bot} has not reported for the current head')

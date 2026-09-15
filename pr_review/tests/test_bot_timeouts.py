@@ -72,9 +72,18 @@ class BotTimeoutTests(unittest.TestCase):
         self.assertIsNone(self.plan(15)['waived_at'])
         self.assertIsNotNone(self.plan(17)['waived_at'])
 
-    def test_a_review_still_running_delays_the_waiver_but_not_forever(self):
-        self.assertIsNone(self.plan(17, 'running')['waived_at'])
-        self.assertIsNotNone(self.plan(40, 'running')['waived_at'])
+    def test_the_status_page_cannot_postpone_a_waiver(self):
+        for state in (None, 'running', 'queued', 'failed'):
+            with self.subTest(state=state):
+                self.assertIsNone(self.plan(15, state)['waived_at'])
+                self.assertIsNotNone(self.plan(17, state)['waived_at'])
+
+    def test_the_waiver_instant_does_not_move_with_the_clock(self):
+        policy, pr = waiting(20)
+        first = bot_schedule(policy, pr, 'thepastaclaw', NOW)['waived_at']
+        later = bot_schedule(policy, pr, 'thepastaclaw', ago(-5))['waived_at']
+        self.assertEqual(first, later)
+        self.assertLess(first, NOW)
 
     def test_a_repository_without_timeouts_never_nudges_or_waives(self):
         policy, pr = waiting(100)
@@ -93,14 +102,17 @@ class WaiverTests(unittest.TestCase):
         self.assertEqual(result['waived'], ['thepastaclaw'])
         self.assertIn('Proceeded without thepastaclaw: no review within the configured window',
                       result['blockers'])
-        self.assertNotEqual(result['state'], 'waiting-bots')
+        # The named state, not merely "not waiting-bots": a waiver that left the
+        # pull request stuck somewhere else would still be a waiver that failed.
+        self.assertEqual((result['state'], result['status']), ('ready-to-merge', 'success'))
 
-    def test_nothing_is_waived_while_no_bot_has_reported_at_all(self):
+    def test_a_sole_required_bot_can_be_waived_or_the_feature_is_pointless(self):
         policy, pr = waiting(20)
+        policy['required_bots'] = ['thepastaclaw']
         pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
         result = evaluate(policy, pr, NOW, NOW)
-        self.assertEqual(result['waived'], [])
-        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['waived'], ['thepastaclaw'])
+        self.assertEqual(result['status'], 'success')
 
     def test_a_self_review_written_before_the_waiver_does_not_count(self):
         policy, pr = waiting(20)
@@ -121,6 +133,14 @@ class WaiverTests(unittest.TestCase):
                               'commit_id': 'e' * 40, 'submitted_at': '2026-09-10T00:00:00Z', 'body': ''})
         self.assertNotIn('Bot changes request remains outstanding', evaluate(policy, pr, NOW, NOW)['blockers'])
 
+    def test_a_bot_is_not_asked_while_the_pull_request_owes_it_an_answer(self):
+        policy, pr = waiting(7)
+        pr['threads'] = [{'id': 't1', 'is_resolved': False, 'author': 'coderabbitai[bot]',
+                          'created_at': ago(8)}]
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['nudge'], [])
+        pr['threads'] = []
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['nudge'], ['thepastaclaw'])
+
     def test_asking_a_bot_to_review_is_not_mistaken_for_changed_evidence(self):
         _, pr = waiting(7)
         before = fingerprint(pr)
@@ -128,9 +148,6 @@ class WaiverTests(unittest.TestCase):
                                'body': f"<!-- pr-hygiene-nudge v1 bot=thepastaclaw sha={pr['head']} -->\n@thepastaclaw review"})
         self.assertEqual(fingerprint(pr), before)
 
-
-if __name__ == '__main__':
-    unittest.main()
 
 
 class TelemetryReaderTests(unittest.TestCase):
@@ -179,3 +196,6 @@ class TelemetryReaderTests(unittest.TestCase):
              'detail': 'aaaaaaaa trigger=new_push priority=0'}]
         self.assertEqual(self.state(payload, seen=ago(9)), 'queued')
         self.assertIsNone(self.state(payload, head='b' * 40, seen=ago(9)))
+
+if __name__ == '__main__':
+    unittest.main()

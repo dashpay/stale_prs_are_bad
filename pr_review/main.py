@@ -145,6 +145,9 @@ def nudge(api, pr, result, allowance):
     for bot in result.get('nudge', []):
         if posted >= allowance:
             break
+        current = api.pull(pr['number'])
+        if current['state'] != 'open' or current['head'] != pr['head']:
+            break
         marker = f"{NUDGE_MARKER} bot={bot} sha={pr['head']} -->"
         body = (f"{marker}\n@{bot} review\n\n"
                 f"No review for `{pr['head'][:8]}` yet, so PR Hygiene is asking once. "
@@ -216,7 +219,9 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     ready = result['state'] == 'ready-for-human'
     requested = set(pr.get('requested_reviewers', []))
     missing = [u for u in result.get('reviewers', []) if u not in requested] if ready else []
-    label_correct = ('ready-for-human' in pr.get('labels', [])) == ready
+    labels = pr.get('labels', [])
+    label_correct = (('ready-for-human' in labels) == ready
+                     and (WAIVED_LABEL in labels) == bool(result.get('waived')))
     if pr.get('controller_state') == desired and label_correct and not missing:
         # Read current evidence on every run, but avoid churning comments and labels.
         if actionable:
@@ -235,7 +240,14 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if not identity_matches():
             return desired
     api.set_ready_label(pr['number'], ready, pr.get('labels', []))
-    api.set_label(pr['number'], WAIVED_LABEL, bool(result.get('waived')), pr.get('labels', []))
+    try:
+        api.set_label(pr['number'], WAIVED_LABEL, bool(result.get('waived')), pr.get('labels', []))
+    except GitHubError:
+        # The repository may not have the label yet. Say so and carry on: the
+        # waiver is already in the status and the comment, and one missing label
+        # must not abort the remaining pull requests.
+        print(f"PR #{pr['number']}: could not set {WAIVED_LABEL}; create the label to see waivers in listings",
+              file=sys.stderr)
     if missing:
         room = max(0, 15 - len(requested))
         if len(missing) > room:
@@ -416,9 +428,7 @@ def run(argv=None):
                 if args.apply:
                     # Verify setup explicitly; never create labels as a side effect.
                     api.request('GET', f'repos/{args.repo}/labels/ready-for-human')
-                    if result.get('waived'):
-                        api.request('GET', f'repos/{args.repo}/labels/{WAIVED_LABEL}')
-                    nudged += nudge(api, pr, result, NUDGES_PER_RUN - nudged) if args.apply else 0
+                    nudged += nudge(api, pr, result, NUDGES_PER_RUN - nudged)
                 written = publish(api, policy, pr, result, context, args.apply, candidates=candidates)
                 if written:
                     for candidate in candidates:
