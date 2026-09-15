@@ -139,10 +139,15 @@ class GitHubTests(unittest.TestCase):
                  dict(ours, created_at="2026-09-13T08:43:23Z"),
                  {"context": "CodeRabbit", "creator": {"login": "coderabbitai[bot]"}, "created_at": "2026-01-01T00:00:00Z"},
                  {"context": "PR Hygiene", "creator": {"login": "impostor"}, "created_at": "2020-01-01T00:00:00Z"}]
-        with patch.object(self.api, "pages", return_value=pages):
+        with patch.object(self.api, "pages", return_value=pages) as paged:
             self.assertEqual(self.api.head_seen_at("a" * 40), "2026-09-13T08:43:23Z")
+            self.assertEqual(self.api.head_seen_at("a" * 40), "2026-09-13T08:43:23Z")
+            # A commit's own status history is read once per reconciliation.
+            self.assertEqual(paged.call_count, 1)
+        self.api.forget_cached_access()
         with patch.object(self.api, "pages", return_value=[]):
             self.assertIsNone(self.api.head_seen_at("a" * 40))
+        self.api.forget_cached_access()
         with patch.object(self.api, "pages", return_value=[dict(ours, created_at="whenever")]):
             with self.assertRaises(GitHubError):
                 self.api.head_seen_at("a" * 40)
@@ -171,14 +176,21 @@ class GitHubTests(unittest.TestCase):
         self.assertEqual(result["permissions"], {"drive-owner": "write"})
         self.assertEqual(sum(call.args[1].endswith("/permission") for call in requests.call_args_list), 1)
 
-    def test_should_preserve_rename_source_and_refresh_permissions_each_snapshot(self):
+    def test_should_preserve_rename_source_and_reuse_access_until_told_otherwise(self):
         request, pages = self.snapshot_fixture(files=[{"filename": "new/a.rs", "previous_filename": "old/a.rs", "status": "renamed"}])
         with request as requests, pages:
             first = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
             self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+            asked = sum(call.args[1].endswith("/owner/permission") for call in requests.call_args_list)
+            # Access is read once per reconciliation rather than once per pull
+            # request: repeating it was a large share of this tool's traffic.
+            self.assertEqual(asked, 1)
+            # The check made immediately before writing must not trust that.
+            self.api.forget_cached_access()
+            self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+            self.assertEqual(sum(call.args[1].endswith("/owner/permission") for call in requests.call_args_list), 2)
         self.assertEqual(first["files"][0]["previous_filename"], "old/a.rs")
         self.assertTrue(first["complete"])
-        self.assertEqual(sum(call.args[1].endswith("/owner/permission") for call in requests.call_args_list), 2)
 
     def test_should_only_mutate_requested_label_delta(self):
         with patch.object(self.api, "request") as request:

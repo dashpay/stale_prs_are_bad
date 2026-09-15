@@ -15,12 +15,15 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, closed, edited]
   issue_comment:
-    types: [created, edited, deleted]
+    # Only new comments. The bots edit their own comments repeatedly as a review
+    # progresses, and this controller edits its own report, so listening for
+    # edits meant every write triggered more runs than the work it described.
+    types: [created]
   pull_request_review:
     types: [submitted, edited, dismissed]
   workflow_dispatch:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '17 * * * *'
 permissions:
   contents: read
   pull-requests: write
@@ -28,6 +31,8 @@ permissions:
   statuses: write
 jobs:
   policy:
+    # Never react to this controller's own comments.
+    if: github.event_name != 'issue_comment' || github.event.comment.user.login != 'github-actions[bot]'
     uses: {CENTRAL_REPOSITORY}/.github/workflows/pr-review-reusable.yml@{engine_revision}
 '''
 
