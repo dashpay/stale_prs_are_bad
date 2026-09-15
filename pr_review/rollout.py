@@ -15,10 +15,11 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, closed, edited]
   issue_comment:
-    # Only new comments. The bots edit their own comments repeatedly as a review
-    # progresses, and this controller edits its own report, so listening for
-    # edits meant every write triggered more runs than the work it described.
-    types: [created]
+    # CodeRabbit publishes its completion by editing the comment it posted when
+    # the review began: on Platform every observed receipt arrived that way and
+    # none was accompanied by a review. Edits therefore have to be heard, but
+    # only from the accounts whose comments this controller reads.
+    types: [created, edited]
   pull_request_review:
     types: [submitted, edited, dismissed]
   workflow_dispatch:
