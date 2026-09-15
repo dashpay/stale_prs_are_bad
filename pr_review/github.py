@@ -386,25 +386,39 @@ class GitHub:
                 users.update(group.get("reviewers", []))
             users.update(review["user"] for review in reviews)
             users.update(thread["author"] for thread in result["threads"])
+            access = self.access()
             permissions = {}
-            cache = self._permissions
             for user in sorted(users):
                 if user.lower() in BOT_LOGINS or user.lower().endswith("[bot]"):
                     continue
-                key = user.lower()
-                if key not in cache:
-                    permission = self.request("GET", f"{self.root}/collaborators/{quote(user, safe='')}/permission")
-                    value = permission["permission"]
-                    if value not in {"admin", "maintain", "write", "triage", "read", "none"}:
-                        raise GitHubError("Unknown repository permission")
-                    cache[key] = value
-                permissions[user] = cache[key]
+                # Absent from the collaborator list means no write access. The
+                # per-person endpoint would answer "read" for a stranger on a
+                # public repository; every decision here asks only whether
+                # someone can write, so the two agree where it counts.
+                permissions[user] = access.get(user.lower(), "none")
             result["permissions"] = permissions
             result["repo"] = self.repo
             result["complete"] = True
             return result
         except (KeyError, TypeError) as error:
             raise GitHubError("Incomplete PR snapshot") from error
+
+    def access(self):
+        """Every collaborator's level, read once per reconciliation.
+
+        One list answers what a request per person used to, and asking per
+        person per pull request was thousands of requests a day.
+        """
+        if not self._permissions:
+            for entry in self.pages(f"{self.root}/collaborators?affiliation=all"):
+                login = _login(entry)
+                role = _text(entry.get("role_name"), "collaborator role").lower()
+                if role not in {"admin", "maintain", "write", "triage", "read"}:
+                    # A custom organisation role means nothing to this policy, and
+                    # treating it as access would be a guess in the unsafe direction.
+                    role = "none"
+                self._permissions[login.lower()] = role
+        return self._permissions
 
     def forget_cached_access(self):
         """Re-read permissions and statuses, for the checks made before writing."""
@@ -443,6 +457,8 @@ class GitHub:
             if all(latest.get(key) == payload.get(key) for key in ("state", "description", "target_url")):
                 return latest
         written = self.request("POST", f"{self.root}/statuses/{quote(head, safe='')}", payload)
+        if not isinstance(written, dict):
+            raise GitHubError("Commit status was not acknowledged")
         self._statuses[head] = [dict(payload, creator={"login": "github-actions[bot]"},
                                      created_at=written.get("created_at"))] + statuses
         return written
