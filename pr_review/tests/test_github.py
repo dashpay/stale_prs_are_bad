@@ -78,6 +78,15 @@ class GitHubTests(unittest.TestCase):
                 return files if files is not None else [{"filename": "packages/rs-drive/a.rs", "status": "modified"}]
             if "/comments" in path:
                 return comments or []
+            if "/collaborators" in path:
+                def rights(**granted):
+                    return {level: granted.get(level, False)
+                            for level in ("admin", "maintain", "push", "triage", "pull")}
+                return [{"login": "drive-owner", "role_name": "write", "permissions": rights(push=True, pull=True)},
+                        {"login": "swift-owner", "role_name": "read", "permissions": rights(pull=True)},
+                        {"login": "owner", "role_name": "admin", "permissions": rights(admin=True, push=True, pull=True)},
+                        {"login": "custom-role", "role_name": "security-lead",
+                         "permissions": rights(push=True, pull=True, triage=True)}]
             return []
         return patch.object(self.api, "request", side_effect=request), patch.object(self.api, "pages", side_effect=pages)
 
@@ -220,21 +229,35 @@ class GitHubTests(unittest.TestCase):
         with request as requests, pages:
             result = self.api.snapshot(1, policy)
         self.assertEqual(result["permissions"], {"drive-owner": "write"})
-        self.assertEqual(sum(call.args[1].endswith("/permission") for call in requests.call_args_list), 1)
+        # One list answers for everyone, instead of a request per person.
+        self.assertEqual(sum(call.args[1].endswith("/permission") for call in requests.call_args_list), 0)
+
+    def test_access_reads_one_list_and_distrusts_what_it_does_not_recognise(self):
+        _, pages = self.snapshot_fixture()
+        with pages as paged:
+            access = self.api.access()
+            self.api.access()
+            self.assertEqual(paged.call_count, 1)
+        self.assertEqual(access["drive-owner"], "write")
+        self.assertEqual(access["swift-owner"], "read")
+        # A custom organisation role has a name this policy never heard of, but
+        # its capabilities still say whether the holder can push.
+        self.assertEqual(access["custom-role"], "write")
+        # Anyone absent from the list has no access at all.
+        self.assertNotIn("stranger", access)
 
     def test_should_preserve_rename_source_and_reuse_access_until_told_otherwise(self):
         request, pages = self.snapshot_fixture(files=[{"filename": "new/a.rs", "previous_filename": "old/a.rs", "status": "renamed"}])
-        with request as requests, pages:
+        with request, pages as paged:
             first = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
             self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
-            asked = sum(call.args[1].endswith("/owner/permission") for call in requests.call_args_list)
             # Access is read once per reconciliation rather than once per pull
             # request: repeating it was a large share of this tool's traffic.
-            self.assertEqual(asked, 1)
+            self.assertEqual(sum("/collaborators" in call.args[0] for call in paged.call_args_list), 1)
             # The check made immediately before writing must not trust that.
             self.api.forget_cached_access()
             self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
-            self.assertEqual(sum(call.args[1].endswith("/owner/permission") for call in requests.call_args_list), 2)
+            self.assertEqual(sum("/collaborators" in call.args[0] for call in paged.call_args_list), 2)
         self.assertEqual(first["files"][0]["previous_filename"], "old/a.rs")
         self.assertTrue(first["complete"])
 
@@ -254,11 +277,22 @@ class GitHubTests(unittest.TestCase):
     def test_should_avoid_republishing_identical_status(self):
         status = {"context": "PR Hygiene", "state": "success", "description": "ready-to-merge",
                   "target_url": None, "creator": {"login": "github-actions[bot]"}}
-        with patch.object(self.api, "pages", return_value=[status]), patch.object(self.api, "request") as request:
+        written = {"context": "PR Hygiene", "state": "pending", "created_at": "2026-09-15T00:00:00Z"}
+        with patch.object(self.api, "pages", return_value=[status]) as paged, \
+                patch.object(self.api, "request", return_value=written) as request:
             self.api.post_status("a" * 40, "success", "ready-to-merge")
             request.assert_not_called()
             self.api.post_status("a" * 40, "pending", "new evidence")
             self.assertEqual(request.call_args.args[0], "POST")
+            # A status just written is remembered, so the next write on the same
+            # head does not re-read the commit's whole history.
+            self.assertEqual(paged.call_count, 1)
+
+    def test_should_refuse_a_status_write_that_was_not_acknowledged(self):
+        with patch.object(self.api, "pages", return_value=[]), \
+                patch.object(self.api, "request", return_value=None):
+            with self.assertRaises(GitHubError):
+                self.api.post_status("a" * 40, "success", "ready-to-merge")
 
 
 if __name__ == "__main__":
