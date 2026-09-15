@@ -188,12 +188,10 @@
         "packages/dashmate/"
       ],
       "owners": [
-        "shumkov"
+        "shumkov",
+        "ktechmidas"
       ],
       "reviewers": [],
-      "unresolved": [
-        "Daniel: GitHub username required"
-      ],
       "metadata": {
         "contributors": [
           "Sam"
