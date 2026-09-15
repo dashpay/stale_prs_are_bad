@@ -8,6 +8,10 @@
   "required_bots": [
     "thepastaclaw"
   ],
+  "bot_timeouts": {
+    "nudge_after_hours": 6,
+    "waive_after_hours": 16
+  },
   "fallback": {
     "owners": [
       "lklimek"
