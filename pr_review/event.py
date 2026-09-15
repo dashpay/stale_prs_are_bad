@@ -9,7 +9,9 @@ from .main import run
 
 def selections(kind, event):
     if kind in {'schedule', 'push', 'workflow_dispatch'}:
-        return [['--batch-size', '3']]
+        # The sweep repairs what events missed. It runs hourly now, so it covers
+        # more per run to keep a large repository's rotation inside a day.
+        return [['--batch-size', '6']]
     if kind in {'pull_request_target', 'pull_request_review'}:
         numbers = [event['pull_request']['number']]
     elif kind == 'issue_comment':
