@@ -107,9 +107,37 @@ class GitHubTests(unittest.TestCase):
             result = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
         self.assertEqual(result["controller_state"], state)
         self.assertEqual(result["controller_comment_id"], 2)
-        request, pages = self.snapshot_fixture(comments=[comment(2, "github-actions[bot]"), comment(3, "github-actions[bot]")])
-        with request, pages, self.assertRaises(GitHubError):
-            self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        # Two runs reconciling one pull request at once can each open a state
+        # comment. Refusing to read them left every pull request by that author
+        # on an error status until somebody deleted one by hand, and no run
+        # could clear it. The oldest is authoritative and every later run agrees.
+        request, pages = self.snapshot_fixture(comments=[comment(3, "github-actions[bot]"), comment(2, "github-actions[bot]")])
+        with request, pages:
+            result = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertEqual(result["controller_comment_id"], 2)
+
+    def test_the_oldest_state_comment_wins_however_the_page_is_ordered(self):
+        def state(number):
+            return {"version": 1, "number": 1, "head": "a" * 40, "admitted_at": None,
+                    "ready_since": None, "state": "waiting-slot",
+                    "evidence": str(number) * 64, "context": "c" * 64}
+
+        def comment(number, created_at):
+            body = '<!-- platform-pr-review-state-v1 ' + json.dumps(state(number)) + ' -->'
+            # parse_controller_state reads normalised comments, where the author
+            # is already a login rather than the API's nested user object.
+            return {"id": number, "user": "github-actions[bot]", "body": body,
+                    "created_at": created_at, "updated_at": created_at}
+
+        earlier = comment(9, "2026-09-01T00:00:00Z")
+        later = comment(4, "2026-09-02T00:00:00Z")
+        for page in ([earlier, later], [later, earlier]):
+            self.assertEqual(parse_controller_state(page)[1], 9, 'earliest comment, not lowest id')
+        # GitHub timestamps are whole seconds, so simultaneous writes can tie.
+        # Without a second key two runs could each keep a different comment.
+        tied = [comment(7, "2026-09-01T00:00:00Z"), comment(5, "2026-09-01T00:00:00Z")]
+        self.assertEqual(parse_controller_state(tied)[1], 5)
+        self.assertEqual(parse_controller_state(list(reversed(tied)))[1], 5)
 
     def test_should_fail_on_malformed_trusted_state(self):
         comments = [{"id": 2, "user": {"login": "github-actions[bot]"},
