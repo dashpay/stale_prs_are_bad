@@ -11,6 +11,13 @@ concurrency:
   # cancelled whichever run was already queued for a different pull request.
   # Sweeps use the run id so they never cancel each other either.
   group: pr-review-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  # A group holds one pending run by default and cancels it when the next event
+  # arrives, so three events on one pull request inside a run's duration turned
+  # it red: a cancelled run renders as a failed check. Queueing them instead
+  # keeps every event's work and cancels nothing. Runs for one pull request stay
+  # serialised, which is what lets each of them read current state and publish
+  # the current answer.
+  queue: max
   cancel-in-progress: false
 jobs:
   reconcile:
