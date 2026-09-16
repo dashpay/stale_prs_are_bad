@@ -163,9 +163,18 @@ def _latest_reviews(reviews):
     return latest
 
 
+# The two strings a CodeRabbit comment can carry that change an outcome. The
+# caller workflow tests event bodies for these before starting a run, so they
+# are shared rather than written twice: a marker that changed here and not
+# there would stop receipts waking the controller, and nothing would fail.
+RECEIPT_MARKER = 'final_review_risk_coverage'
+RATE_LIMITED = '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'
+RATE_LIMITED_MARKER = 'rate limited by coderabbit.ai'
+
+
 def _rabbit_receipt(body, head):
     # The producer embeds a JSON object directly after its named HTML marker.
-    for marker in re.finditer(r'(?m)^<!-- final_review_risk_coverage:\s*', body):
+    for marker in re.finditer(r'(?m)^<!-- ' + re.escape(RECEIPT_MARKER) + r':\s*', body):
         try:
             value, end = json.JSONDecoder().raw_decode(body[marker.end():])
         except (ValueError, TypeError):
@@ -176,8 +185,6 @@ def _rabbit_receipt(body, head):
             return True
     return False
 
-
-RATE_LIMITED = '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'
 
 
 def _hours(stamp, nowISO):

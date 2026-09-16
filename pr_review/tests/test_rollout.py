@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
@@ -8,35 +10,52 @@ from pr_review import policy
 
 
 class CommentTriggerTests(unittest.TestCase):
-    """The workflow decides which comments are worth a run from the event body.
+    """The workflow decides from the event body whether a comment is worth a run.
 
-    It can only do that by testing for the same markers the engine parses, and
-    the two live in different files. If the engine's marker changes and the
-    workflow's does not, receipts stop starting runs and nothing fails: the
-    pull request simply waits for the next sweep, for ever.
+    It can only do that by testing for the markers the engine parses. Asserting
+    the two agree could not tell live code from a stale comment mentioning the
+    same string, so they share one definition and these tests check the round
+    trip: a comment the engine reads must be one the workflow would wake for.
     """
 
     def setUp(self):
         self.workflow = caller_workflow('a' * 40)
+        start = self.workflow.index('if: >-')
+        rule = self.workflow[start:self.workflow.index('uses:', start)]
+        self.tested = re.findall(r"contains\(github\.event\.comment\.body, '([^']*)'\)", rule)
+        self.rule = rule
 
-    def test_the_workflow_tests_for_the_markers_the_engine_parses(self):
-        import inspect
-        source = inspect.getsource(policy)
-        self.assertIn('final_review_risk_coverage', source, 'engine stopped parsing the receipt marker')
-        self.assertIn('final_review_risk_coverage', self.workflow, 'workflow stopped listening for it')
-        self.assertIn('rate limited by coderabbit.ai', policy.RATE_LIMITED)
-        self.assertIn('rate limited by coderabbit.ai', self.workflow)
+    def admits(self, body):
+        # contains() on a string is a case-insensitive substring match.
+        return any(literal.lower() in body.lower() for literal in self.tested)
 
-    def test_it_still_hears_an_attestation_from_anyone(self):
+    def test_a_body_the_engine_accepts_as_a_receipt_would_start_a_run(self):
+        head = 'b' * 40
+        body = ('Some walkthrough.\n<!-- ' + policy.RECEIPT_MARKER + ': '
+                + json.dumps({'kind': 'reviewed', 'coveredCommitId': head}) + ' -->\n')
+        self.assertTrue(policy._rabbit_receipt(body, head), 'fixture no longer reads as a receipt')
+        self.assertTrue(self.admits(body), 'the engine reads this and the workflow would sleep through it')
+
+    def test_a_body_the_engine_reads_as_rate_limited_would_start_a_run(self):
+        body = 'blah\n' + policy.RATE_LIMITED + '\n'
+        self.assertIsNotNone(policy.rate_limited_at(
+            [{'user': 'coderabbitai', 'body': body, 'created_at': '2026-09-02T00:00:00Z',
+              'updated_at': '2026-09-02T00:00:00Z'}], '2026-09-01T00:00:00Z'))
+        self.assertTrue(self.admits(body))
+
+    def test_an_attestation_would_start_a_run_whoever_wrote_it(self):
         # The engine honours one only from the author, but over-hearing costs a
         # run and under-hearing costs an author a wait they cannot diagnose.
-        self.assertIn("contains(github.event.comment.body, '/self-reviewed')", self.workflow)
+        self.assertTrue(self.admits('/self-reviewed'))
+        self.assertTrue(self.admits('/self-reviewed ' + 'c' * 40))
+
+    def test_a_walkthrough_carrying_neither_marker_would_not(self):
+        self.assertFalse(self.admits('**Walkthrough**\n\nThis change adds a test.'))
 
     def test_it_no_longer_wakes_for_a_bot_whose_receipt_is_a_review(self):
         # thepastaclaw reports by review, which arrives on its own event, and
         # nothing reads its comments.
-        comment_rule = self.workflow[self.workflow.index('if: >-'):self.workflow.index('uses:')]
-        self.assertNotIn('thepastaclaw', comment_rule)
+        self.assertNotIn('thepastaclaw', self.rule)
         self.assertIn('pull_request_review', self.workflow, 'its receipts must still arrive')
 
 
