@@ -73,6 +73,8 @@ def periodic_batch(prs, size, epoch_seconds=None, cadence=SWEEP_SECONDS):
     """Rotate a bounded slice without a persisted scheduler cursor."""
     if type(size) is not int or size < 1:
         raise ValueError('Batch size must be positive')
+    if type(cadence) is not int or cadence < 1:
+        raise ValueError('Sweep cadence must be positive')
     ordered = sorted(prs, key=lambda p: p['number'])
     if not ordered:
         return []

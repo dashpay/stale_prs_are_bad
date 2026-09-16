@@ -156,6 +156,22 @@ class PublicationTests(unittest.TestCase):
                             main.periodic_batch(prs, 6, sweep * main.SWEEP_SECONDS))
             self.assertEqual(seen, set(range(1, count + 1)), f'{count} open PRs')
 
+    def test_the_cursor_advances_once_per_sweep_at_whatever_cadence_is_given(self):
+        # The cadence has to be honoured rather than merely accepted. A cursor
+        # that keeps its own idea of how often the sweep runs is the defect this
+        # guards against, and tests that derive their timestamps from the
+        # default alone cannot see it.
+        prs = [dict(self.pr, number=n) for n in range(1, 13)]
+        self.assertEqual([p['number'] for p in main.periodic_batch(prs, 3, 900, cadence=900)],
+                         [4, 5, 6])
+        self.assertEqual([p['number'] for p in main.periodic_batch(prs, 3, 1800, cadence=900)],
+                         [7, 8, 9])
+        self.assertEqual(main.periodic_batch(prs, 3, 900), main.periodic_batch(prs, 3, 1800),
+                         'sweeps inside one bucket of the real cadence select the same batch')
+        for rejected in [0, -900, 1.5, '900', None]:
+            with self.assertRaises(ValueError):
+                main.periodic_batch(prs, 3, 900, cadence=rejected)
+
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)
         result = dict(self.result, state='draft', status='pending')
