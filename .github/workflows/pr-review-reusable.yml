@@ -121,10 +121,15 @@ jobs:
       # its twenty seconds on a monorepo — and it answers one question: do the
       # policy's area directories still exist. That can only change when a pull
       # request merges, the policies are already checked against a fresh clone
-      # of every repository when one is proposed, and the sweep asks again every
-      # hour. Paying it on every event bought an hour of notice at most.
+      # of every repository when one is proposed, and the sweeps ask again.
+      #
+      # One consequence worth knowing: while a policy really is broken, the
+      # sweep marks every open head an error and a later event on one pull
+      # request, which no longer revalidates, publishes its ordinary status
+      # again. So a single pull request can read green while the repository's
+      # policy is broken, until the next sweep reaches it.
       - name: Checkout target default branch
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: contains(fromJSON('["schedule", "workflow_dispatch", "push"]'), github.event_name)
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: ${{ github.repository }}
@@ -132,7 +137,7 @@ jobs:
           path: review-target
           persist-credentials: false
       - name: Check policy paths and CODEOWNERS against the target tree
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: contains(fromJSON('["schedule", "workflow_dispatch", "push"]'), github.event_name)
         working-directory: review-engine
         continue-on-error: true
         env:
@@ -157,5 +162,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_REVIEW_AUTOMATION_ENABLED: ${{ vars.PR_REVIEW_AUTOMATION_ENABLED }}
           PR_REVIEW_POLICIES_ROOT: ${{ github.workspace }}/review-policies/policies
-          PR_REVIEW_REPOSITORY_ROOT: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && format('{0}/review-target', github.workspace) || '' }}
+          PR_REVIEW_REPOSITORY_ROOT: ${{ contains(fromJSON('["schedule", "workflow_dispatch", "push"]'), github.event_name) && format('{0}/review-target', github.workspace) || '' }}
         run: python3 -m pr_review.event >> "$GITHUB_STEP_SUMMARY"
