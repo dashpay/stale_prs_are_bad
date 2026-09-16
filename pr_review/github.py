@@ -37,7 +37,7 @@ def _validate_state(state):
 
 
 def parse_controller_state(comments):
-    """Ignore copied receipts; refuse ambiguous or corrupt controller history."""
+    """Ignore copied receipts; the oldest record wins; refuse corrupt history."""
     found = []
     for comment in comments:
         if comment["user"].lower() != "github-actions[bot]":
@@ -53,10 +53,18 @@ def parse_controller_state(comments):
         except (ValueError, TypeError) as error:
             raise GitHubError("Malformed controller state JSON") from error
         _validate_state(state)
-        found.append((state, comment["id"]))
-    if len(found) > 1:
-        raise GitHubError("Multiple trusted controller state comments")
-    return found[0] if found else (None, None)
+        found.append((_text(comment["created_at"], "comment creation time"),
+                      comment["id"], state))
+    if not found:
+        return (None, None)
+    # Two runs reconciling one pull request at the same time can each open a
+    # state comment, and refusing to read them held every pull request by that
+    # author on an error status that no later run could clear. The oldest record
+    # is authoritative: it carries the earliest admission, which is what orders
+    # the author's slots, and every run reaches the same answer. GitHub reports
+    # whole seconds, so the id breaks a tie between simultaneous writes.
+    created_at, comment_id, state = min(found, key=lambda record: record[:2])
+    return state, comment_id
 
 
 def _text(value, label):
