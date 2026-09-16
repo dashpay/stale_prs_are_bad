@@ -66,6 +66,12 @@ Test through workflow dispatch with `send_slack=true`. Enabled scheduled runs se
 
 Delivery is attempted once per destination and is not automatically retried. An error or uncertain acknowledgement stops later destinations and records which were delivered, uncertain or not attempted. Inspect Slack and those receipts before rerunning: a manual rerun is a new invocation and can duplicate earlier successful deliveries. The generated report is retained even when delivery fails.
 
+## Why a run is never cancelled on a pull request
+
+A superseded run can only be cancelled, and a cancelled run renders as a failed check wherever it is shown. Events that carry a pull request — `pull_request_target` and `pull_request_review` — attach their check to that pull request's head, so they are never grouped and never cancel each other; a burst of them on one pull request now runs in parallel. Comment and scheduled runs attach to the default branch, where the check is not read, so they keep their per-pull-request group and one of them repeating another's work is avoided rather than displayed.
+
+Runs for one pull request can therefore overlap, which was already true: a sweep keys its group on the run id, and an event run reconciles its author's whole queue, so it writes to pull requests that are not the event's subject and are grouped separately. Writes are built for that. The oldest controller state comment wins, a refused reviewer request or waiver label is reported and skipped rather than aborting the run, and a run whose evidence changed under it publishes `pending` instead of a terminal state.
+
 ## Verification and recovery
 
 ```sh

@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from pr_review import main
+from pr_review.github import GitHubError
 from pr_review.tests.test_policy import fixture, NOW
 
 
@@ -171,6 +172,17 @@ class PublicationTests(unittest.TestCase):
         for rejected in [0, -900, 1.5, '900', None]:
             with self.assertRaises(ValueError):
                 main.periodic_batch(prs, 3, 900, cadence=rejected)
+
+    def test_a_refused_reviewer_request_does_not_abort_the_pull_request(self):
+        # The room left is read from a snapshot that another run reconciling the
+        # same author can invalidate, so this POST can be refused. Setting the
+        # waiver label already survives its own failure; this one aborted the
+        # run and left an error status on a pull request that was otherwise fine.
+        result = dict(self.result, state='ready-for-human', reviewers=['bob'])
+        self.api.request_reviewers.side_effect = GitHubError('reviewer request refused')
+        main.publish(self.api, self.policy, self.pr, result, [self.pr], apply=True)
+        self.api.request_reviewers.assert_called_once()
+        self.assertNotIn('error', [call.args[1] for call in self.api.post_status.call_args_list])
 
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)

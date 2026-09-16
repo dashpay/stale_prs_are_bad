@@ -271,7 +271,16 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if room:
             if not identity_matches():
                 return desired
-            api.request_reviewers(pr['number'], missing[:room])
+            try:
+                api.request_reviewers(pr['number'], missing[:room])
+            except GitHubError:
+                # The room left over is read from a snapshot that another run
+                # reconciling this author can invalidate, and GitHub refuses a
+                # request past its own cap. The reviewers are already named in
+                # the comment and the status, and one refusal must not abort the
+                # remaining pull requests.
+                print(f"PR #{pr['number']}: could not request {', '.join(missing[:room])}; "
+                      f"the state comment still names them", file=sys.stderr)
 
     if not actionable:
         if identity_matches():
