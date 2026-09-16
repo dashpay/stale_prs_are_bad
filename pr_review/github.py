@@ -334,7 +334,15 @@ class GitHub:
             raise GitHubError("Incomplete review-thread list")
         return _unique(results, "id", "review thread")
 
-    def snapshot(self, number, policy):
+    def snapshot(self, number, policy, history=None):
+        """Full evidence for one pull request.
+
+        `history` is the comments and latest inactive transition already read
+        for this pull request by `histories()`. Rebuilding an author's slots
+        reads both for every candidate in one query, and reading them again per
+        pull request cost a second comment request and a walk of the whole issue
+        timeline, which pages.
+        """
         try:
             raw = self.request("GET", f"{self.root}/pulls/{number}")
             result = self._pr(raw)
@@ -367,9 +375,10 @@ class GitHub:
             if any(type(item["id"]) is not int or not isinstance(item["body"], str) for item in reviews):
                 raise GitHubError("Invalid review identity or body")
             result["reviews"] = _unique(reviews, "id", "review")
-            result["comments"] = self.comments(number)
+            reuse = history is not None
+            result["comments"] = history["comments"] if reuse else self.comments(number)
             result["threads"] = self.threads(number)
-            result["lifecycle_at"] = self.activity(number)
+            result["lifecycle_at"] = history["lifecycle_at"] if reuse else self.activity(number)
             result["head_seen_at"] = self.head_seen_at(result["head"])
             result["requested_reviewers"] = [_login(user) for user in raw["requested_reviewers"]]
             result["labels"] = [_text(label["name"], "label name") for label in raw["labels"]]

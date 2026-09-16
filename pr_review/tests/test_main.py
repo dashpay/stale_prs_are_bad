@@ -27,7 +27,8 @@ class PublicationTests(unittest.TestCase):
         self.pr = {'number': 1, 'author': 'alice', 'head': 'a' * 40,
                    'base': 'v4.2-dev', 'base_sha': 'b' * 40, 'state': 'open',
                    'draft': False, 'labels': [], 'requested_reviewers': [],
-                   'controller_comment_id': None, 'reviews': [], 'comments': [],'created_at':NOW}
+                   'controller_comment_id': None, 'reviews': [], 'comments': [],'created_at':NOW,
+                   'lifecycle_at': None}
         self.result = {'number': 1, 'head': 'a' * 40, 'author': 'alice',
                        'state': 'ready-to-merge', 'status': 'success',
                        'blockers': [], 'reviewers': [], 'areas': ['core'],
@@ -128,7 +129,8 @@ class PublicationTests(unittest.TestCase):
         self.api.pull.return_value = dict(self.pr,state='closed')
         _, candidates, _ = main.collect(self.api,self.policy,number=1,reconcile_author=True)
         self.assertEqual([p['number'] for p in candidates],[2])
-        self.api.snapshot.assert_called_once_with(2,self.policy)
+        self.api.snapshot.assert_called_once_with(
+            2, self.policy, history={'comments': [], 'lifecycle_at': None})
         self.api.histories.assert_called_once_with([2])
 
     def test_pr_report_does_not_fetch_sibling_full_evidence(self):
@@ -136,7 +138,8 @@ class PublicationTests(unittest.TestCase):
         self.api.open_prs.return_value = [self.pr,sibling]
         _, candidates, _ = main.collect(self.api,self.policy,number=1)
         self.assertEqual(len(candidates),2)
-        self.api.snapshot.assert_called_once_with(1,self.policy)
+        self.api.snapshot.assert_called_once_with(
+            1, self.policy, history={'comments': [], 'lifecycle_at': None})
 
     def test_rotating_periodic_batch_covers_stable_queue(self):
         prs = [dict(self.pr,number=n) for n in range(1,69)]

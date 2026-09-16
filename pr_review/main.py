@@ -112,7 +112,11 @@ def collect(api, policy, number=None, apply=False, reconcile_author=False, batch
         if number is not None and not requested and not reconcile_author:
             raise GitHubError(f'PR #{number} is not open on a configured target branch')
         with ThreadPoolExecutor(max_workers=4) as pool:
-            snapshots = list(pool.map(lambda p: api.snapshot(p['number'], policy), requested))
+            # load_histories already read these comments and this transition for
+            # every candidate in one query; the snapshot reuses that read.
+            snapshots = list(pool.map(lambda p: api.snapshot(
+                p['number'], policy,
+                history={'comments': p['comments'], 'lifecycle_at': p['lifecycle_at']}), requested))
         return prs, candidates, snapshots
     except GitHubError:
         if apply:

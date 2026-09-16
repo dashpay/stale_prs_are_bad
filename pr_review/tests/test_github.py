@@ -90,6 +90,53 @@ class GitHubTests(unittest.TestCase):
             return []
         return patch.object(self.api, "request", side_effect=request), patch.object(self.api, "pages", side_effect=pages)
 
+    def test_evidence_already_read_for_admission_is_not_read_again(self):
+        # collect() reads every candidate's comments and lifecycle in one
+        # batched query, and the snapshot then read both a second time over
+        # REST: the comments again and the whole issue timeline, which pages.
+        comment = {"id": 7, "user": {"login": "author"}, "body": "hello",
+                   "created_at": "2026-09-01T00:00:00Z", "updated_at": "2026-09-01T00:00:00Z"}
+        request, pages = self.snapshot_fixture(comments=[comment])
+        with request, pages:
+            fresh = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        history = {"comments": fresh["comments"], "lifecycle_at": fresh["lifecycle_at"]}
+
+        # Distinct values, so the assertions below cannot pass by both sides
+        # reading the same fixture and agreeing vacuously.
+        other = dict(fresh["comments"][0], id=8, body="from the batched read")
+        history = {"comments": [other], "lifecycle_at": "2026-09-02T00:00:00Z"}
+        request, pages = self.snapshot_fixture(comments=[comment])
+        with request, pages:
+            reused = self.api.snapshot(1, {"fallback": ["owner"], "areas": []}, history=history)
+            read = [call.args[0] for call in self.api.pages.call_args_list]
+        self.assertEqual([item["id"] for item in reused["comments"]], [8])
+        self.assertEqual(reused["lifecycle_at"], "2026-09-02T00:00:00Z")
+        self.assertFalse([path for path in read if "/comments" in path or "/timeline" in path],
+                         'neither the comments nor the timeline may be read a second time')
+
+    def test_the_batched_reader_and_the_per_pull_request_reader_agree(self):
+        """Both readers feed the same fingerprint, so their shapes must match.
+
+        The batched query names a bot `coderabbitai` where REST names it
+        `coderabbitai[bot]`. If those ever stop agreeing, the evidence
+        fingerprint differs from itself between one read and the next and every
+        ready pull request reports that its evidence changed, for ever.
+        """
+        raw = {"databaseId": 11, "body": "receipt", "createdAt": "2026-09-01T00:00:00Z",
+               "updatedAt": "2026-09-01T00:05:00Z"}
+        graph = {"data": {"repository": {"pr1": {
+            "number": 1,
+            "comments": {"totalCount": 1, "nodes": [dict(raw, author={"login": "coderabbitai",
+                                                                     "__typename": "Bot"})]},
+            "timelineItems": {"nodes": []}}}}}
+        with patch.object(self.api, "request", side_effect=lambda *a, **k: graph):
+            batched = self.api.histories([1])[1]["comments"]
+        rest_page = [{"id": 11, "user": {"login": "coderabbitai[bot]"}, "body": "receipt",
+                      "created_at": "2026-09-01T00:00:00Z", "updated_at": "2026-09-01T00:05:00Z"}]
+        with patch.object(self.api, "pages", side_effect=lambda path: rest_page):
+            per_pr = self.api.comments(1)
+        self.assertEqual(batched, per_pr)
+
     def test_should_refuse_truncated_changed_files(self):
         request, pages = self.snapshot_fixture(files=[])
         with request, pages, self.assertRaises(GitHubError):
