@@ -124,6 +124,19 @@ class GitHub:
         except (OSError, subprocess.TimeoutExpired) as error:
             raise GitHubError("GitHub API command unavailable or timed out") from error
         if result.returncode:
+            # GraphQL answers with a usable payload and an errors array when only
+            # part of a query resolved — a pull request closed since it was
+            # listed answers null for its own alias while the rest answer
+            # normally — and gh reports that as a failure. Hand the payload to
+            # the caller, which decides which of those errors it tolerates.
+            # Anything without one, and every REST call, still fails here.
+            if "graphql" in arguments and result.stdout.strip():
+                try:
+                    body = json.loads(result.stdout)
+                except ValueError:
+                    body = None
+                if isinstance(body, dict) and isinstance(body.get("data"), dict):
+                    return body
             raise GitHubError(f"GitHub API command failed (exit {result.returncode})")
         if not result.stdout.strip():
             return None
