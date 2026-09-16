@@ -254,7 +254,14 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         api.upsert_state(pr['number'], desired, state_body(result), pr.get('controller_comment_id'))
         if not identity_matches():
             return desired
-    api.set_ready_label(pr['number'], ready, pr.get('labels', []))
+    try:
+        api.set_ready_label(pr['number'], ready, pr.get('labels', []))
+    except GitHubError:
+        # The labels were read from a snapshot that another run reconciling this
+        # author can invalidate, and removing a label that is already gone is a
+        # 404. The state is in the status and the comment either way.
+        print(f"PR #{pr['number']}: could not set ready-for-human; the status and comment still carry the state",
+              file=sys.stderr)
     try:
         api.set_label(pr['number'], WAIVED_LABEL, bool(result.get('waived')), pr.get('labels', []))
     except GitHubError:

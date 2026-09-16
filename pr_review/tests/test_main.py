@@ -44,6 +44,10 @@ class PublicationTests(unittest.TestCase):
         self.policy, _ = fixture()
         self.pr['created_at'] = NOW
 
+    def wrote_status_after(self, name):
+        names = [call[0] for call in self.api.mock_calls]
+        return 'post_status' in names[names.index(name) + 1:]
+
     def test_preview_never_mutates_github(self):
         main.publish(self.api, {}, self.pr, self.result, [self.pr], apply=False)
         self.assertEqual(self.api.mock_calls, [])
@@ -182,7 +186,20 @@ class PublicationTests(unittest.TestCase):
         self.api.request_reviewers.side_effect = GitHubError('reviewer request refused')
         main.publish(self.api, self.policy, self.pr, result, [self.pr], apply=True)
         self.api.request_reviewers.assert_called_once()
-        self.assertNotIn('error', [call.args[1] for call in self.api.post_status.call_args_list])
+        self.assertTrue(self.wrote_status_after('request_reviewers'),
+                        'the run must carry on and publish a status, not stop at the refusal')
+
+    def test_a_refused_ready_label_does_not_abort_the_pull_request(self):
+        # Removing a label another run has already removed is a 404, and the
+        # labels are read from a snapshot that run can invalidate. Its sibling
+        # write, the waiver label, has survived its own failure from the start.
+        self.api.set_ready_label.side_effect = GitHubError('label does not exist')
+        result = dict(self.result, state='ready-for-human')
+        main.publish(self.api, self.policy, self.pr, result, [self.pr], apply=True)
+        self.api.set_ready_label.assert_called_once()
+        self.api.set_label.assert_called_once()
+        self.assertTrue(self.wrote_status_after('set_ready_label'),
+                        'the run must carry on and publish a status, not stop at the refusal')
 
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)
