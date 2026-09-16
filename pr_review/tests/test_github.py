@@ -207,6 +207,34 @@ class GitHubTests(unittest.TestCase):
             histories = self.api.histories([1, 2])
         self.assertEqual(sorted(histories), [1], 'the surviving pull request still has its history')
 
+    def test_a_failing_rest_call_is_never_relaxed(self):
+        # The relaxation is keyed on the command being a GraphQL one. Without
+        # that, every failing REST read whose body happens to carry a data key
+        # would be treated as a success.
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout='{"data": {"whatever": 1}}', stderr="not found")
+        with patch.object(subprocess, "run", return_value=completed):
+            with self.assertRaises(GitHubError):
+                self.api.request("GET", "repos/dashpay/platform/pulls/1")
+
+    def test_a_partial_failure_that_is_not_a_missing_pull_request_still_fails(self):
+        # These reach the caller's filter rather than stopping at the exit code,
+        # which is the only behaviour this relaxation actually changes.
+        good = {"number": 1, "comments": {"totalCount": 0, "nodes": []}, "timelineItems": {"nodes": []}}
+        for errors, label in [
+            ([{"type": "FORBIDDEN", "message": "no"}], 'one field refused'),
+            ([{"message": "spec-shaped error with no type"}], 'no type at all'),
+            ([{"type": "NOT_FOUND"}, {"message": "and something else"}], 'mixed with a real one'),
+            ([{"type": "RATE_LIMITED"}], 'rate limited'),
+            ("boom", 'errors is not a list'),
+            (["boom"], 'errors is not a list of objects'),
+        ]:
+            body = json.dumps({"data": {"repository": {"pr1": good}}, "errors": errors})
+            completed = subprocess.CompletedProcess(args=[], returncode=1, stdout=body, stderr="failed")
+            with patch.object(subprocess, "run", return_value=completed):
+                with self.assertRaises(GitHubError, msg=label):
+                    self.api.histories([1])
+
     def test_a_real_graphql_failure_is_still_a_failure(self):
         for body, label in [('{"errors":[{"type":"FORBIDDEN","message":"nope"}]}', 'no data'),
                             ('{"data":null,"errors":[{"type":"NOT_FOUND"}]}', 'null data'),
