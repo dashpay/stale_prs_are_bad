@@ -186,6 +186,65 @@ class GitHubTests(unittest.TestCase):
         self.assertEqual(parse_controller_state(tied)[1], 5)
         self.assertEqual(parse_controller_state(list(reversed(tied)))[1], 5)
 
+    def test_a_pull_request_that_vanished_mid_run_does_not_fail_the_others(self):
+        """`gh` exits non-zero whenever GraphQL answers with any errors array.
+
+        A pull request closed between listing the queue and reading its history
+        answers null for its own alias while every other alias answers normally.
+        Treating that exit code as a failure aborted the whole reconciliation,
+        and the handler for it posts an error status on every pull request in
+        scope, so one person closing a pull request marked the rest red.
+        """
+        body = json.dumps({
+            "data": {"repository": {
+                "pr1": {"number": 1, "comments": {"totalCount": 0, "nodes": []},
+                        "timelineItems": {"nodes": []}},
+                "pr2": None}},
+            "errors": [{"type": "NOT_FOUND", "path": ["repository", "pr2"],
+                        "message": "Could not resolve to a PullRequest with the number of 2."}]})
+        completed = subprocess.CompletedProcess(args=[], returncode=1, stdout=body, stderr="not found")
+        with patch.object(subprocess, "run", return_value=completed):
+            histories = self.api.histories([1, 2])
+        self.assertEqual(sorted(histories), [1], 'the surviving pull request still has its history')
+
+    def test_a_failing_rest_call_is_never_relaxed(self):
+        # The relaxation is keyed on the command being a GraphQL one. Without
+        # that, every failing REST read whose body happens to carry a data key
+        # would be treated as a success.
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout='{"data": {"whatever": 1}}', stderr="not found")
+        with patch.object(subprocess, "run", return_value=completed):
+            with self.assertRaises(GitHubError):
+                self.api.request("GET", "repos/dashpay/platform/pulls/1")
+
+    def test_a_partial_failure_that_is_not_a_missing_pull_request_still_fails(self):
+        # These reach the caller's filter rather than stopping at the exit code,
+        # which is the only behaviour this relaxation actually changes.
+        good = {"number": 1, "comments": {"totalCount": 0, "nodes": []}, "timelineItems": {"nodes": []}}
+        for errors, label in [
+            ([{"type": "FORBIDDEN", "message": "no"}], 'one field refused'),
+            ([{"message": "spec-shaped error with no type"}], 'no type at all'),
+            ([{"type": "NOT_FOUND"}, {"message": "and something else"}], 'mixed with a real one'),
+            ([{"type": "RATE_LIMITED"}], 'rate limited'),
+            ("boom", 'errors is not a list'),
+            (["boom"], 'errors is not a list of objects'),
+        ]:
+            body = json.dumps({"data": {"repository": {"pr1": good}}, "errors": errors})
+            completed = subprocess.CompletedProcess(args=[], returncode=1, stdout=body, stderr="failed")
+            with patch.object(subprocess, "run", return_value=completed):
+                with self.assertRaises(GitHubError, msg=label):
+                    self.api.histories([1])
+
+    def test_a_real_graphql_failure_is_still_a_failure(self):
+        for body, label in [('{"errors":[{"type":"FORBIDDEN","message":"nope"}]}', 'no data'),
+                            ('{"data":null,"errors":[{"type":"NOT_FOUND"}]}', 'null data'),
+                            ('not json', 'unparseable'),
+                            ('', 'empty')]:
+            completed = subprocess.CompletedProcess(args=[], returncode=1, stdout=body, stderr="failed")
+            with patch.object(subprocess, "run", return_value=completed):
+                with self.assertRaises(GitHubError, msg=label):
+                    self.api.histories([1])
+
     def test_should_fail_on_malformed_trusted_state(self):
         comments = [{"id": 2, "user": {"login": "github-actions[bot]"},
                      "body": "<!-- platform-pr-review-state-v1 {oops} -->",

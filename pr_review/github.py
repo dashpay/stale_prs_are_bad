@@ -124,7 +124,21 @@ class GitHub:
         except (OSError, subprocess.TimeoutExpired) as error:
             raise GitHubError("GitHub API command unavailable or timed out") from error
         if result.returncode:
-            raise GitHubError(f"GitHub API command failed (exit {result.returncode})")
+            # GraphQL answers with a usable payload and an errors array when
+            # only part of a query resolved: one aliased field is null while the
+            # rest answer normally. gh reports that as a failure. Hand the
+            # payload to the caller, which decides which of those errors it
+            # tolerates. Anything without one, and every REST call, still fails.
+            if "graphql" in arguments and result.stdout.strip():
+                try:
+                    body = json.loads(result.stdout)
+                except ValueError:
+                    body = None
+                if isinstance(body, dict) and isinstance(body.get("data"), dict):
+                    return body
+            detail = result.stderr.strip()[:300]
+            raise GitHubError(f"GitHub API command failed (exit {result.returncode})"
+                              + (f": {detail}" if detail else ""))
         if not result.stdout.strip():
             return None
         try:
@@ -232,11 +246,14 @@ class GitHub:
         response = self.request("POST", "graphql", {"query": query, "variables": {"owner": owner, "repo": repo}})
         if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
             raise GitHubError("GraphQL history query failed")
-        # A pull request closed since the listing answers null for its own alias
-        # while the rest answer normally; anything else is a real failure.
-        for error in response.get("errors") or []:
-            if (error or {}).get("type") != "NOT_FOUND":
-                raise GitHubError("GraphQL history query failed")
+        # A pull request the listing saw but GraphQL can no longer resolve — a
+        # deleted one — answers null for its own alias while the rest answer
+        # normally. Every other error, and any errors array that is not a list
+        # of objects, is a real failure.
+        errors = response.get("errors") or []
+        if not isinstance(errors, list) or any(not isinstance(error, dict)
+                                               or error.get("type") != "NOT_FOUND" for error in errors):
+            raise GitHubError("GraphQL history query failed")
         repository = response["data"].get("repository")
         if not isinstance(repository, dict):
             raise GitHubError("GraphQL history query returned no repository")
