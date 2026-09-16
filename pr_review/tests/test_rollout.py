@@ -2,8 +2,42 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pr_review.rollout import write_bundle
+from pr_review.rollout import caller_workflow, write_bundle
 from pr_review.main import run
+from pr_review import policy
+
+
+class CommentTriggerTests(unittest.TestCase):
+    """The workflow decides which comments are worth a run from the event body.
+
+    It can only do that by testing for the same markers the engine parses, and
+    the two live in different files. If the engine's marker changes and the
+    workflow's does not, receipts stop starting runs and nothing fails: the
+    pull request simply waits for the next sweep, for ever.
+    """
+
+    def setUp(self):
+        self.workflow = caller_workflow('a' * 40)
+
+    def test_the_workflow_tests_for_the_markers_the_engine_parses(self):
+        import inspect
+        source = inspect.getsource(policy)
+        self.assertIn('final_review_risk_coverage', source, 'engine stopped parsing the receipt marker')
+        self.assertIn('final_review_risk_coverage', self.workflow, 'workflow stopped listening for it')
+        self.assertIn('rate limited by coderabbit.ai', policy.RATE_LIMITED)
+        self.assertIn('rate limited by coderabbit.ai', self.workflow)
+
+    def test_it_still_hears_an_attestation_from_anyone(self):
+        # The engine honours one only from the author, but over-hearing costs a
+        # run and under-hearing costs an author a wait they cannot diagnose.
+        self.assertIn("contains(github.event.comment.body, '/self-reviewed')", self.workflow)
+
+    def test_it_no_longer_wakes_for_a_bot_whose_receipt_is_a_review(self):
+        # thepastaclaw reports by review, which arrives on its own event, and
+        # nothing reads its comments.
+        comment_rule = self.workflow[self.workflow.index('if: >-'):self.workflow.index('uses:')]
+        self.assertNotIn('thepastaclaw', comment_rule)
+        self.assertIn('pull_request_review', self.workflow, 'its receipts must still arrive')
 
 
 class RolloutTests(unittest.TestCase):

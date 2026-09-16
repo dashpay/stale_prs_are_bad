@@ -32,13 +32,24 @@ permissions:
   statuses: write
 jobs:
   policy:
-    # Only comments this controller actually reads can change an outcome: a bot
-    # receipt or an author's attestation. Its own comments, coverage bots and
-    # human discussion cannot, and were most of the runs it caused.
+    # Only comments this controller actually reads can change an outcome, and a
+    # comment it reads only matters for what it carries. CodeRabbit never
+    # approves — measured over 75 recent pull requests, every one of its
+    # receipts arrived as a comment and none as a review — so its completion
+    # marker and its rate-limit notice have to be heard, and its walkthroughs
+    # and progress edits do not. thepastaclaw is the mirror image: its receipt
+    # is always a review, which arrives on its own event, and nothing reads its
+    # comments at all.
+    #
+    # Narrowing this costs latency and never correctness: comments are read from
+    # the pull request when a run happens, not from the event that started it,
+    # so a comment that starts no run is still seen by the next one.
     if: >-
       github.event_name != 'issue_comment' ||
-      contains(fromJSON('["coderabbitai", "coderabbitai[bot]", "thepastaclaw"]'), github.event.comment.user.login) ||
-      contains(github.event.comment.body, '/self-reviewed')
+      contains(github.event.comment.body, '/self-reviewed') ||
+      (contains(fromJSON('["coderabbitai", "coderabbitai[bot]"]'), github.event.comment.user.login) &&
+       (contains(github.event.comment.body, 'final_review_risk_coverage') ||
+        contains(github.event.comment.body, 'rate limited by coderabbit.ai')))
     uses: {CENTRAL_REPOSITORY}/.github/workflows/pr-review-reusable.yml@{engine_revision}
 '''
 
