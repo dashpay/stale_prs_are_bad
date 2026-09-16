@@ -90,6 +90,25 @@ class GitHubTests(unittest.TestCase):
             return []
         return patch.object(self.api, "request", side_effect=request), patch.object(self.api, "pages", side_effect=pages)
 
+    def test_evidence_already_read_for_admission_is_not_read_again(self):
+        # collect() reads every candidate's comments and lifecycle in one
+        # batched query, and the snapshot then read both a second time over
+        # REST: the comments again and the whole issue timeline, which pages.
+        comment = {"id": 7, "user": {"login": "author"}, "body": "hello",
+                   "created_at": "2026-09-01T00:00:00Z", "updated_at": "2026-09-01T00:00:00Z"}
+        request, pages = self.snapshot_fixture(comments=[comment])
+        with request, pages:
+            fresh = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        history = {"comments": fresh["comments"], "lifecycle_at": fresh["lifecycle_at"]}
+
+        request, pages = self.snapshot_fixture(comments=[comment])
+        with request, pages:
+            reused = self.api.snapshot(1, {"fallback": ["owner"], "areas": []}, history=history)
+            read = [call.args[0] for call in self.api.pages.call_args_list]
+        self.assertEqual(reused, fresh, 'reusing the batched read must change nothing')
+        self.assertFalse([path for path in read if "/comments" in path or "/timeline" in path],
+                         'neither the comments nor the timeline may be read a second time')
+
     def test_should_refuse_truncated_changed_files(self):
         request, pages = self.snapshot_fixture(files=[])
         with request, pages, self.assertRaises(GitHubError):
