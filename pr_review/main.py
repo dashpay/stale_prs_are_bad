@@ -62,7 +62,14 @@ def admission_fingerprint(candidates):
     return sorted((p['number'], effective_admission(p), p.get('lifecycle_at')) for p in candidates)
 
 
-def periodic_batch(prs, size, epoch_seconds=None):
+# How far apart the scheduled sweeps that call periodic_batch actually are. The
+# cursor is read from the clock rather than stored, so this has to match the
+# caller workflow's cron: bucketing by a shorter interval advances the cursor
+# further than one batch per sweep and leaves the skipped PRs unswept for ever.
+SWEEP_SECONDS = 3600
+
+
+def periodic_batch(prs, size, epoch_seconds=None, cadence=SWEEP_SECONDS):
     """Rotate a bounded slice without a persisted scheduler cursor."""
     if type(size) is not int or size < 1:
         raise ValueError('Batch size must be positive')
@@ -70,7 +77,7 @@ def periodic_batch(prs, size, epoch_seconds=None):
     if not ordered:
         return []
     seconds = datetime.now(timezone.utc).timestamp() if epoch_seconds is None else epoch_seconds
-    start = (int(seconds // 900) * size) % len(ordered)
+    start = (int(seconds // cadence) * size) % len(ordered)
     return [ordered[(start + offset) % len(ordered)] for offset in range(min(size, len(ordered)))]
 
 

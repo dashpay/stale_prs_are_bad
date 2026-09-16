@@ -137,10 +137,24 @@ class PublicationTests(unittest.TestCase):
         prs = [dict(self.pr,number=n) for n in range(1,69)]
         seen = set()
         for slot in range(23):
-            batch = main.periodic_batch(prs,3,slot*900)
+            batch = main.periodic_batch(prs,3,slot*main.SWEEP_SECONDS)
             self.assertEqual(len(batch),3)
             seen.update(p['number'] for p in batch)
         self.assertEqual(seen,set(range(1,69)))
+
+    def test_rotation_covers_every_queue_size_at_the_real_sweep_cadence(self):
+        # The cursor is derived from the clock, so it only advances by one batch
+        # per sweep when it is bucketed by the interval the sweep actually runs
+        # at. Bucketing by a shorter interval skips whole slices: at a queue size
+        # sharing a factor with the overshoot, the same few PRs were swept for
+        # ever and the rest were never repaired.
+        for count in [6, 8, 12, 24, 30, 48, 57]:
+            prs = [dict(self.pr, number=n) for n in range(1, count + 1)]
+            seen = set()
+            for sweep in range(240):
+                seen.update(p['number'] for p in
+                            main.periodic_batch(prs, 6, sweep * main.SWEEP_SECONDS))
+            self.assertEqual(seen, set(range(1, count + 1)), f'{count} open PRs')
 
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)
