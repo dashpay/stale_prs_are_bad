@@ -36,6 +36,63 @@ def _validate_state(state):
                 raise GitHubError("Invalid controller " + key) from error
 
 
+# A check is failing, still going, or neither. CANCELLED is deliberately in no
+# set: it is what concurrency looks like, not a failure, and this controller is
+# the most-cancelled check on these repositories by a wide margin.
+BUILD_FAILED = {"FAILURE", "TIMED_OUT", "STARTUP_FAILURE", "failure", "error"}
+BUILD_RUNNING = {"QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED", "ACTION_REQUIRED", "pending"}
+CALLER_WORKFLOW = "/pr-review-policy.yml"
+
+
+def _ours(node):
+    """Whether a check run is this controller reviewing the pull request.
+
+    It is a check on the pull requests it governs, so its own result is in the
+    rollup and it cannot wait for itself. Matched on the caller workflow, which
+    the engine refuses to run from any other path, rather than on the job name,
+    which each repository is free to rename. An Actions job is distinguished
+    from a check run some other tool filed into the same suite, which GitHub
+    attributes to this workflow too.
+    """
+    suite = ((node.get("checkSuite") or {}).get("workflowRun") or {}).get("workflow") or {}
+    details = node.get("detailsUrl") or ""
+    return (suite.get("resourcePath") or "").endswith(CALLER_WORKFLOW) and "/actions/runs/" in details and "/job/" in details
+
+
+def build_verdict(nodes):
+    """`green`, `running` or `failed` over a head's checks.
+
+    Only the newest run of each check counts. Re-running a check does not
+    replace the run it repeats, it adds another beside it, so a head keeps every
+    failed and cancelled attempt for ever — GitHub's own rollup reads FAILURE on
+    pull requests whose every check has since passed. Without this a flaky test
+    could never be cleared by re-running it.
+    """
+    latest = {}
+    for node in nodes:
+        if node.get("__typename") == "CheckRun":
+            if _ours(node):
+                continue
+            suite = ((node.get("checkSuite") or {}).get("workflowRun") or {}).get("workflow") or {}
+            # Keyed by workflow as well as name, so a job called `build` in two
+            # workflows cannot stand in for the other.
+            key = (suite.get("resourcePath") or "", _text(node["name"], "check name"))
+            when, state = node.get("startedAt") or "", node.get("conclusion") or node.get("status")
+        else:
+            if node.get("context") == "PR Hygiene":
+                continue
+            key = ("", _text(node["context"], "status context"))
+            when, state = node.get("createdAt") or "", node.get("state")
+        if key not in latest or when >= latest[key][0]:
+            latest[key] = (when, state)
+    states = [state for _, state in latest.values()]
+    if any(state in BUILD_FAILED for state in states):
+        return "failed"
+    if any(state is None or state in BUILD_RUNNING for state in states):
+        return "running"
+    return "green"
+
+
 def parse_controller_state(comments):
     """Ignore copied receipts; the oldest record wins; refuse corrupt history."""
     found = []
@@ -351,6 +408,48 @@ class GitHub:
             raise GitHubError("Incomplete review-thread list")
         return _unique(results, "id", "review thread")
 
+    BUILD_QUERY = """query($owner:String!, $repo:String!, $number:Int!) {
+      repository(owner:$owner, name:$repo) { pullRequest(number:$number) {
+        commits(last:1) { nodes { commit { oid statusCheckRollup {
+          contexts(first:100) { totalCount nodes {
+            __typename
+            ... on CheckRun { name conclusion status startedAt detailsUrl
+              checkSuite { workflowRun { workflow { resourcePath } } } }
+            ... on StatusContext { context state createdAt }
+          } } } } } } } } }"""
+
+    def build_state(self, number, head):
+        """This head's build, as `green`, `running` or `failed`."""
+        owner, repo = self.repo.split("/")
+        response = self.request("POST", "graphql", {
+            "query": self.BUILD_QUERY, "variables": {"owner": owner, "repo": repo, "number": number}})
+        try:
+            commits = response["data"]["repository"]["pullRequest"]["commits"]["nodes"]
+        except (KeyError, TypeError) as error:
+            raise GitHubError("Build state unavailable") from error
+        if not commits:
+            raise GitHubError("Build state unavailable")
+        commit = commits[0]["commit"]
+        if commit.get("oid") != head:
+            # The head moved while this was read; the answer describes another
+            # commit. Treat it as unfinished rather than pass a stale green.
+            return "running"
+        rollup = commit.get("statusCheckRollup")
+        if rollup is None:
+            # No checks at all. Several governed repositories have none, and
+            # blocking them for ever is not what the rule is for.
+            return "green"
+        connection = rollup["contexts"]
+        total, nodes = connection["totalCount"], connection["nodes"]
+        if type(total) is not int or not isinstance(nodes, list):
+            raise GitHubError("Incomplete check connection")
+        if total > len(nodes):
+            # Every other read here refuses partial evidence; a silent green on
+            # truncation would defeat the rule in the repositories with the most
+            # checks, which are the ones it exists for.
+            raise GitHubError("Incomplete check list")
+        return build_verdict(nodes)
+
     def snapshot(self, number, policy, history=None):
         """Full evidence for one pull request.
 
@@ -397,6 +496,7 @@ class GitHub:
             result["threads"] = self.threads(number)
             result["lifecycle_at"] = history["lifecycle_at"] if reuse else self.activity(number)
             result["head_seen_at"] = self.head_seen_at(result["head"])
+            result["build"] = self.build_state(number, result["head"])
             result["requested_reviewers"] = [_login(user) for user in raw["requested_reviewers"]]
             result["labels"] = [_text(label["name"], "label name") for label in raw["labels"]]
             state, comment_id = parse_controller_state(result["comments"])

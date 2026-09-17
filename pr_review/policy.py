@@ -140,7 +140,7 @@ def admit(policy, prs, nowISO):
 
 def fingerprint(pr):
     relevant = copy.deepcopy(pr)
-    for name in ('controller_state', 'controller_comment_id', 'labels', 'requested_reviewers'):
+    for name in ('controller_state', 'controller_comment_id', 'labels', 'requested_reviewers', 'build'):
         relevant.pop(name, None)
     # This controller's own comments are effects, not evidence: counting them
     # would make writing one look like the world changed underneath the write.
@@ -392,9 +392,21 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 needed.update(eligible)
         needed.update(u for u in objectors if u != author and permissions.get(u) in WRITE and u not in BOTS)
         if needed or objectors:
-            result['reviewers'] = sorted(people.get(u,u) for u in needed)
             previous = pr.get('controller_state') or {}
-            if previous.get('state') == 'ready-for-human' and previous.get('head') == pr['head'] and previous.get('ready_since'):
+            # Latching on the recorded state, not on ready_since: a pull request
+            # can be ready with no ready_since yet, on the first run that makes
+            # it ready, and that one would otherwise be sent back.
+            was_ready = previous.get('state') == 'ready-for-human' and previous.get('head') == pr['head']
+            build = pr.get('build', 'green')
+            if not was_ready and build != 'green':
+                # Green before a human is asked; red afterwards does not take it
+                # back, so a flake cannot withdraw a review request already sent
+                # or drop its author out of a slot.
+                return stop('waiting-build',
+                            'The build must pass before a human is asked' if build == 'failed'
+                            else 'Waiting for the build to finish')
+            result['reviewers'] = sorted(people.get(u,u) for u in needed)
+            if was_ready and previous.get('ready_since'):
                 _time(previous['ready_since'])
                 result['ready_since'] = previous['ready_since']
             elif previous.get('admitted_at'):

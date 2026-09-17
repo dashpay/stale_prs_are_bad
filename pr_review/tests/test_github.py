@@ -5,7 +5,109 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from pr_review.github import GitHub, GitHubError, parse_controller_state
+from pr_review.github import GitHub, GitHubError, build_verdict, parse_controller_state
+
+
+def check(name, conclusion, started, workflow="/dashpay/x/actions/workflows/ci.yml", job=True):
+    return {"__typename": "CheckRun", "name": name, "conclusion": conclusion, "status": "COMPLETED",
+            "startedAt": started,
+            "detailsUrl": "https://github.com/dashpay/x/actions/runs/1/job/2" if job
+                          else "https://example.test/report",
+            "checkSuite": {"workflowRun": {"workflow": {"resourcePath": workflow}}}}
+
+
+OURS = "/dashpay/x/actions/workflows/pr-review-policy.yml"
+
+
+def rollup(nodes=None, head="a" * 40, total=None):
+    return {"data": {"repository": {"pullRequest": {"commits": {"nodes": [{"commit": {
+        "oid": head,
+        "statusCheckRollup": {"contexts": {
+            "totalCount": len(nodes or []) if total is None else total,
+            "nodes": nodes or []}}}}]}}}}}
+
+
+class BuildVerdictTests(unittest.TestCase):
+    checks = staticmethod(rollup)
+    def test_re_running_a_flaky_check_clears_it(self):
+        # The question this whole rule turns on. A re-run does not replace the
+        # run it repeats, it adds another beside it, so the failure stays on the
+        # head for ever. Counting it would mean a flake could never be cleared.
+        # The newest run decides, and the newest is not the last one listed:
+        # GitHub returns these in no useful order.
+        self.assertEqual(build_verdict([
+            check("tests", "SUCCESS", "2026-09-01T11:00:00Z"),
+            check("tests", "FAILURE", "2026-09-01T10:00:00Z")]), "green")
+        self.assertEqual(build_verdict([
+            check("tests", "FAILURE", "2026-09-01T11:00:00Z"),
+            check("tests", "SUCCESS", "2026-09-01T10:00:00Z")]), "failed")
+
+    def test_this_controller_never_waits_for_itself(self):
+        # It is a check on the pull requests it governs, and its own run ends
+        # cancelled on about a fifth of heads — permanently. Counting any of
+        # them would deadlock those pull requests with no error anywhere.
+        # The decisive shape is its own run, still going, while it decides.
+        running = dict(check("policy / reconcile", None, "2026-09-01T10:02:00Z", OURS), status="IN_PROGRESS")
+        nodes = [check("policy / reconcile", "CANCELLED", "2026-09-01T10:00:00Z", OURS),
+                 check("policy / reconcile", "CANCELLED", "2026-09-01T10:00:01Z", OURS),
+                 running,
+                 {"__typename": "StatusContext", "context": "PR Hygiene", "state": "pending",
+                  "createdAt": "2026-09-01T10:00:00Z"},
+                 check("tests", "SUCCESS", "2026-09-01T10:00:00Z")]
+        self.assertEqual(build_verdict(nodes), "green")
+
+    def test_a_renamed_job_in_our_workflow_is_still_ours(self):
+        # Each repository owns its caller and may rename the job; the workflow
+        # path is the part this engine refuses to run from anywhere else.
+        renamed = dict(check("hygiene / anything", None, "2026-09-01T10:00:00Z", OURS), status="IN_PROGRESS")
+        self.assertEqual(build_verdict([renamed]), "green")
+
+    def test_another_tool_filed_into_our_suite_is_not_ours(self):
+        # GitHub files API-created check runs into whichever Actions suite is
+        # current, so workflow attribution alone would swallow real failures.
+        self.assertEqual(build_verdict([
+            check("Clippy Report", "FAILURE", "2026-09-01T10:00:00Z", OURS, job=False)]), "failed")
+
+    def test_cancelled_alone_is_not_a_failure(self):
+        # It is what concurrency looks like. Treating it as red made 6 of 16
+        # rust-dashcore pull requests unmergeable for jobs cancelled by design.
+        self.assertEqual(build_verdict([check("check-title", "CANCELLED", "2026-09-01T10:00:00Z")]), "green")
+
+    def test_nothing_to_check_is_green_not_blocked_for_ever(self):
+        self.assertEqual(build_verdict([]), "green")
+
+    def test_skipped_and_neutral_do_not_fail(self):
+        self.assertEqual(build_verdict([check("a", "SKIPPED", "1"), check("b", "NEUTRAL", "1")]), "green")
+
+    def test_unfinished_work_is_running_not_green(self):
+        for state in ["QUEUED", "IN_PROGRESS", "ACTION_REQUIRED"]:
+            self.assertEqual(build_verdict([check("a", state, "1")]), "running", state)
+        self.assertEqual(build_verdict([{"__typename": "StatusContext", "context": "ci",
+                                         "state": "pending", "createdAt": "1"}]), "running")
+
+    def test_a_truncated_check_list_is_refused_rather_than_called_green(self):
+        api = GitHub("dashpay/platform")
+        body = self.checks(nodes=[check("tests", "SUCCESS", "1")], total=200)
+        with patch.object(api, "request", return_value=body):
+            with self.assertRaises(GitHubError):
+                api.build_state(1, "a" * 40)
+
+    def test_a_head_that_moved_under_the_read_is_not_reported_green(self):
+        api = GitHub("dashpay/platform")
+        with patch.object(api, "request", return_value=self.checks(nodes=[], head="b" * 40)):
+            self.assertEqual(api.build_state(1, "a" * 40), "running")
+
+    def test_a_pull_request_with_no_checks_at_all_is_green(self):
+        api = GitHub("dashpay/platform")
+        empty = {"data": {"repository": {"pullRequest": {"commits": {"nodes": [
+            {"commit": {"oid": "a" * 40, "statusCheckRollup": None}}]}}}}}
+        with patch.object(api, "request", return_value=empty):
+            self.assertEqual(api.build_state(1, "a" * 40), "green")
+
+    def test_the_same_job_name_in_two_workflows_does_not_mask_the_other(self):
+        self.assertEqual(build_verdict([
+            check("build", "SUCCESS", "2026-09-01T11:00:00Z", "/dashpay/x/actions/workflows/a.yml"),
+            check("build", "FAILURE", "2026-09-01T10:00:00Z", "/dashpay/x/actions/workflows/b.yml")]), "failed")
 
 
 class GitHubTests(unittest.TestCase):
@@ -65,9 +167,16 @@ class GitHubTests(unittest.TestCase):
             "totalCount": len(nodes or []) if total is None else total,
             "nodes": nodes or [], "pageInfo": {"hasNextPage": more, "endCursor": cursor}}}}}}
 
-    def snapshot_fixture(self, comments=None, files=None, graph=None):
+    def checks(self, nodes=None, head="a" * 40, total=None):
+        return rollup(nodes, head, total)
+
+    def snapshot_fixture(self, comments=None, files=None, graph=None, checks=None):
         def request(method, path, payload=None):
             if path == "graphql":
+                # One fixture answers two queries; they are told apart the same
+                # way the engine tells them apart — by what was asked for.
+                if "statusCheckRollup" in (payload or {}).get("query", ""):
+                    return checks or self.checks()
                 return graph or self.graph()
             if path.endswith("/permission"):
                 return {"permission": "write"}
