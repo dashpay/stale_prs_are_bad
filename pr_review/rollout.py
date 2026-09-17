@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 
+from .event import BUILD_SCAN_CRON, SWEEP_CRON
 from .policy import RATE_LIMITED_MARKER, RECEIPT_MARKER, codeowners, validate_policy
 from .registry import CENTRAL_REPOSITORY, POLICIES, ROOT, entry_for, load_registry, policy_path
 
@@ -24,7 +25,12 @@ on:
     types: [submitted, edited, dismissed]
   workflow_dispatch:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '{SWEEP_CRON}'
+    # A build turning green raises no event this controller hears. This one
+    # reconciles only the pull requests already recorded as waiting on one, so
+    # it costs a listing and a single batched read when none are — which is
+    # almost always. Offset from the hourly sweep so the two never collide.
+    - cron: '{BUILD_SCAN_CRON}'
 permissions:
   contents: read
   pull-requests: write

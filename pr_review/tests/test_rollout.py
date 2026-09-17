@@ -7,6 +7,7 @@ import unittest
 from pr_review.rollout import caller_workflow, write_bundle
 from pr_review.main import run
 from pr_review import policy
+from pr_review.event import BUILD_SCAN_CRON
 
 
 class CommentTriggerTests(unittest.TestCase):
@@ -51,6 +52,15 @@ class CommentTriggerTests(unittest.TestCase):
 
     def test_a_walkthrough_carrying_neither_marker_would_not(self):
         self.assertFalse(self.admits('**Walkthrough**\n\nThis change adds a test.'))
+
+    def test_it_looks_again_at_pull_requests_waiting_on_a_build(self):
+        # A build turning green raises no event this controller hears, so
+        # without this schedule such a pull request waits for the hourly sweep.
+        crons = re.findall(r"- cron: '([^']+)'", self.workflow)
+        self.assertIn(BUILD_SCAN_CRON, crons)
+        self.assertEqual(len(crons), 2, 'the hourly sweep is still the backstop')
+        minutes = [set(cron.split()[0].split(',')) for cron in crons]
+        self.assertFalse(minutes[0] & minutes[1], 'the two schedules must never fire together')
 
     def test_it_no_longer_wakes_for_a_bot_whose_receipt_is_a_review(self):
         # thepastaclaw reports by review, which arrives on its own event, and

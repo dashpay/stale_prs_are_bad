@@ -31,6 +31,13 @@ class TargetCheckoutTests(unittest.TestCase):
         inner = re.sub(r'^\$\{\{|\}\}$', '', text.strip()).strip()
         return re.sub(r'\s+', ' ', inner)
 
+    def test_the_scan_between_sweeps_does_not_pay_for_the_clone(self):
+        # The scan is a schedule too, so gating on the event name alone would
+        # re-add the slowest step in the run three times an hour per repository.
+        gate = self.condition(self.steps['Checkout target default branch']['if'])
+        self.assertIn(event.SWEEP_CRON, gate, 'the sweep is named, not every schedule')
+        self.assertNotIn(event.BUILD_SCAN_CRON, gate)
+
     def test_the_clone_is_only_paid_when_the_policy_is_revalidated(self):
         gate = self.condition(self.steps['Checkout target default branch']['if'])
         self.assertIn('github.event_name', gate)
@@ -45,7 +52,11 @@ class TargetCheckoutTests(unittest.TestCase):
         clone = self.condition(self.steps['Checkout target default branch']['if'])
         root = self.steps['Reconcile with repository-local credentials']['env']['PR_REVIEW_REPOSITORY_ROOT']
         gate, _, fallback = self.condition(root).partition('&&')
-        self.assertEqual(gate.strip(), clone,
+        # `&&` binds tighter than `||`, so without the parentheses a dispatch
+        # hands the engine the string `true` instead of a path.
+        self.assertTrue(gate.strip().startswith('(') and gate.strip().endswith(')'),
+                        'the event test must be grouped or it does not gate the path at all')
+        self.assertEqual(gate.strip().strip('()'), clone,
                          'a tree is handed to the engine on events that never cloned one')
         self.assertTrue(fallback.strip().endswith("|| ''"),
                         'the path must be empty on every other event, not merely wrong')

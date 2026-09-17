@@ -204,6 +204,73 @@ class PublicationTests(unittest.TestCase):
         self.assertTrue(self.wrote_status_after('set_ready_label'),
                         'the run must carry on and publish a status, not stop at the refusal')
 
+    def waiting_on_build(self, *states):
+        prs = [dict(self.pr, number=n + 1) for n in range(len(states))]
+        self.api.open_prs.return_value = prs
+        self.api.histories.side_effect = lambda numbers: {
+            pr['number']: {'comments': [], 'lifecycle_at': None} for pr in prs}
+        recorded = {pr['number']: state for pr, state in zip(prs, states)}
+        with patch.object(main, 'parse_controller_state',
+                          side_effect=lambda comments: (None, None)):
+            with patch.object(main, 'load_histories', side_effect=lambda api, selected: [
+                    dict(p, comments=[], lifecycle_at=None, controller_comment_id=None,
+                         controller_state={'state': recorded[p['number']], 'head': p['head'],
+                                           'admitted_at': NOW, 'ready_since': None}
+                         if recorded[p['number']] else None) for p in selected]):
+                return main.collect(self.api, self.policy, waiting_on_build=True)
+
+    def test_the_build_scan_looks_only_at_what_is_waiting_on_a_build(self):
+        self.waiting_on_build('waiting-bots', 'waiting-build', 'ready-for-human')
+        self.assertEqual([call.args[0] for call in self.api.snapshot.call_args_list], [2])
+
+    def test_the_build_scan_costs_nothing_when_nothing_is_waiting(self):
+        # The point of reading the recorded state first: on a quiet repository
+        # this is a listing and one batched read, and no snapshots at all.
+        self.waiting_on_build('waiting-bots', 'ready-for-human', None)
+        self.api.snapshot.assert_not_called()
+
+    def test_the_build_scan_selects_its_own_pull_requests(self):
+        # Combining it with a selector silently discarded that selector, and
+        # asking for one pull request that was not waiting reported it as not
+        # open on a configured branch, which was not true.
+        for extra in [['--pr', '1'], ['--batch-size', '6']]:
+            with self.assertRaises(SystemExit):
+                main.run(['sync', '--repo', 'dashpay/platform', '--waiting-on-build'] + extra)
+
+    def test_a_scan_can_carry_a_pull_request_out_of_waiting_for_a_build(self):
+        # The point of the whole schedule: a build that went green with no
+        # event to announce it still reaches a human.
+        from pr_review.tests.test_policy import fixture
+        policy, pr = fixture()
+        # The default fixture's author owns the area it touches, so nobody is
+        # asked; this is the shape that needs a human.
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr.update(build='green', ready_published=False,
+                  controller_state=dict(admitted_at=NOW, head=pr['head'],
+                                        state='waiting-build', ready_since=None))
+        result = main.evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human', 'the scan found it green')
+        self.policy = policy
+        self.api.snapshot.return_value = copy.deepcopy(pr)
+        self.api.pull.return_value = copy.deepcopy(pr)
+        self.api.open_prs.return_value = [copy.deepcopy(pr)]
+        # The admission re-read must see the same recorded state the candidate
+        # carries, or publish stops at "admission context changed".
+        with patch.object(main, 'load_histories', side_effect=lambda api, selected: [copy.deepcopy(pr)]):
+            main.publish(self.api, self.policy, pr, result, [pr], apply=True)
+        self.api.request_reviewers.assert_called_once()
+        self.api.set_ready_label.assert_called_once()
+        self.assertTrue(self.api.set_ready_label.call_args.args[1], 'the label goes on')
+
+    def test_the_build_scan_rotates_at_its_own_cadence(self):
+        # The rotation cursor is read from the clock, so a slice bucketed by the
+        # hourly sweep would advance four times per scan and skip the rest —
+        # the defect that left the same six pull requests swept for ever.
+        with patch.object(main, 'periodic_batch', return_value=[]) as batch:
+            self.waiting_on_build('waiting-build')
+        self.assertEqual(batch.call_args.args[1], main.BUILD_SCAN_SIZE)
+        self.assertEqual(batch.call_args.kwargs['cadence'], main.BUILD_SCAN_SECONDS)
+
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)
         result = dict(self.result, state='draft', status='pending')

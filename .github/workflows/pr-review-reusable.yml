@@ -118,7 +118,11 @@ jobs:
           sparse-checkout: policies
           persist-credentials: false
       # Cloning the governed repository is the slowest step in a run — nine of
-      # its twenty seconds on a monorepo — and it answers one question: do the
+      # its twenty seconds on a monorepo — so the scan between sweeps, which is
+      # also a schedule, must not pay for it: it is named here rather than
+      # matched by event, and a test holds the name to the engine's own.
+      #
+      # It answers one question: do the
       # policy's area directories still exist. That can only change when a pull
       # request merges, the policies are already checked against a fresh clone
       # of every repository when one is proposed, and the sweeps ask again.
@@ -129,7 +133,7 @@ jobs:
       # again. So a single pull request can read green while the repository's
       # policy is broken, until the next sweep reaches it.
       - name: Checkout target default branch
-        if: contains(fromJSON('["schedule", "workflow_dispatch", "push"]'), github.event_name)
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '17 * * * *'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: ${{ github.repository }}
@@ -137,7 +141,7 @@ jobs:
           path: review-target
           persist-credentials: false
       - name: Check policy paths and CODEOWNERS against the target tree
-        if: contains(fromJSON('["schedule", "workflow_dispatch", "push"]'), github.event_name)
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '17 * * * *'
         working-directory: review-engine
         continue-on-error: true
         env:
@@ -162,5 +166,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_REVIEW_AUTOMATION_ENABLED: ${{ vars.PR_REVIEW_AUTOMATION_ENABLED }}
           PR_REVIEW_POLICIES_ROOT: ${{ github.workspace }}/review-policies/policies
-          PR_REVIEW_REPOSITORY_ROOT: ${{ contains(fromJSON('["schedule", "workflow_dispatch", "push"]'), github.event_name) && format('{0}/review-target', github.workspace) || '' }}
+          PR_REVIEW_REPOSITORY_ROOT: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '17 * * * *') && format('{0}/review-target', github.workspace) || '' }}
         run: python3 -m pr_review.event >> "$GITHUB_STEP_SUMMARY"

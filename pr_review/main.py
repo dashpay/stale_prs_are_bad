@@ -83,7 +83,17 @@ def periodic_batch(prs, size, epoch_seconds=None, cadence=SWEEP_SECONDS):
     return [ordered[(start + offset) % len(ordered)] for offset in range(min(size, len(ordered)))]
 
 
-def collect(api, policy, number=None, apply=False, reconcile_author=False, batch_size=None):
+# The build scan runs between sweeps and reconciles only pull requests already
+# recorded as waiting on one. A build turning green raises no event this
+# controller hears, so without it a pull request waits for the hourly rotation
+# to reach it; with it the scan costs a listing and one batched read when
+# nothing is waiting, which is the usual case.
+BUILD_SCAN_SECONDS = 900
+BUILD_SCAN_SIZE = 12
+
+
+def collect(api, policy, number=None, apply=False, reconcile_author=False, batch_size=None,
+            waiting_on_build=False):
     """Load global admission history, then full evidence for requested PRs."""
     prs = api.open_prs()
     selected = [p for p in prs if p['base'] in policy['target_branches']]
@@ -109,6 +119,12 @@ def collect(api, policy, number=None, apply=False, reconcile_author=False, batch
                          or p['author'].lower() in conflicts]
         if batch_numbers is not None:
             requested = [p for p in requested if p['number'] in batch_numbers]
+        if waiting_on_build:
+            # The recorded state, not a fresh verdict: knowing which pull
+            # requests are worth a snapshot is the whole saving.
+            waiting = [p for p in candidates
+                       if (p.get('controller_state') or {}).get('state') == 'waiting-build']
+            requested = periodic_batch(waiting, BUILD_SCAN_SIZE, cadence=BUILD_SCAN_SECONDS)
         if number is not None and not requested and not reconcile_author:
             raise GitHubError(f'PR #{number} is not open on a configured target branch')
         with ThreadPoolExecutor(max_workers=4) as pool:
@@ -387,6 +403,8 @@ def run(argv=None):
     parser.add_argument('--policy', type=Path, help='explicit policy file instead of the registry entry')
     parser.add_argument('--pr', type=int)
     parser.add_argument('--batch-size', type=int)
+    parser.add_argument('--waiting-on-build', action='store_true',
+                        help='reconcile only pull requests recorded as waiting on a build')
     parser.add_argument('--user')
     parser.add_argument('--format', choices=['markdown', 'json'], default='markdown')
     parser.add_argument('--check', action='store_true')
@@ -402,6 +420,8 @@ def run(argv=None):
         parser.error('apply requires the registered policy, not an explicit file')
     if args.command == 'codeowners' and args.check and not args.repository_root:
         parser.error('codeowners --check requires --repository-root')
+    if args.waiting_on_build and (args.pr is not None or args.batch_size is not None):
+        parser.error('waiting-on-build selects its own pull requests')
     if args.apply and (os.environ.get('GITHUB_ACTIONS') != 'true'
                        or os.environ.get('GITHUB_REPOSITORY') != args.repo
                        or os.environ.get('PR_REVIEW_AUTOMATION_ENABLED') != 'true'):
@@ -450,7 +470,8 @@ def run(argv=None):
 
     api = GitHub(args.repo)
     context, candidates, snapshots = collect(api, policy, args.pr, apply=args.apply,
-                                           reconcile_author=args.command == 'sync', batch_size=args.batch_size)
+                                           reconcile_author=args.command == 'sync', batch_size=args.batch_size,
+                                           waiting_on_build=args.waiting_on_build)
     now = utc_now()
     # Read the review system's public page once per run, never inside evaluation:
     # that runs twice per publication and must give the same answer both times.
