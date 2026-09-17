@@ -2,6 +2,10 @@
   "version": 1,
   "repository": "dashpay/dash-evo-tool",
   "max_active_prs": 5,
+  "bot_timeouts": {
+    "nudge_after_hours": 6,
+    "waive_after_hours": 16
+  },
   "target_branches": [
     "v1.0-dev"
   ],
