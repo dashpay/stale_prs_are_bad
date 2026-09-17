@@ -23,7 +23,7 @@ def fixture():
               comments=[dict(id=3,user='owner',body=f'/self-reviewed {HEAD}',
                              created_at='2026-09-11T11:00:00Z',updated_at='2026-09-11T11:00:00Z')],
               threads=[], requested_reviewers=[], permissions={'owner':'write','reviewer':'write','fallback':'write'},
-              controller_state=None, labels=[], complete=True)
+              controller_state=None, labels=[], complete=True, build='green')
     return policy, pr
 
 
@@ -35,6 +35,92 @@ class PolicyTests(unittest.TestCase):
         result = evaluate(p, pr, NOW, NOW)
         self.assertEqual(result['state'], 'ready-for-human')
         self.assertEqual(result['reviewers'], ['owner'])
+
+    def ready(self):
+        """A pull request that reaches ready-for-human on the current head."""
+        p, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        return p, pr
+
+    def test_a_human_is_not_asked_until_the_build_is_green(self):
+        p, pr = self.ready()
+        pr['build'] = 'failed'
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-build')
+        self.assertEqual(result['blockers'], ['The build must pass before a human is asked'])
+        self.assertEqual(result['reviewers'], [], 'nobody is requested for a red pull request')
+        pr['build'] = 'running'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['blockers'], ['Waiting for the build to finish'])
+        pr['build'] = 'green'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
+
+    def test_a_build_going_red_afterwards_does_not_take_the_review_back(self):
+        # The owner's rule: latch on green, never retract. A flake must not
+        # withdraw a review request already sent or drop its author's slot.
+        p, pr = self.ready()
+        pr['build'] = 'failed'
+        pr['controller_state'] = dict(admitted_at=NOW, head=pr['head'], state='ready-for-human', ready_since=NOW)
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human')
+        self.assertEqual(result['ready_since'], NOW, 'the clock keeps running from when it first went green')
+
+    def test_a_pull_request_ready_without_a_recorded_clock_still_latches(self):
+        # The run that first makes a pull request ready records no ready_since,
+        # so a latch keyed on that value would send exactly those back the
+        # moment their build went red — the newest ready pull requests, the
+        # ones most likely to have a build still settling.
+        p, pr = self.ready()
+        pr['build'] = 'failed'
+        pr['controller_state'] = dict(admitted_at=NOW, head=pr['head'],
+                                      state='ready-for-human', ready_since=None)
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
+
+    def test_the_latch_is_for_this_head_only(self):
+        # A new push restarts the bots and the attestation; it restarts this too.
+        p, pr = self.ready()
+        pr['build'] = 'failed'
+        pr['controller_state'] = dict(admitted_at=NOW, head='b' * 40, state='ready-for-human', ready_since=NOW)
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-build')
+
+    def test_the_first_run_that_makes_it_ready_is_not_sent_back(self):
+        # There is no ready_since yet on that run, so a latch keyed on one would
+        # bounce a pull request that had just been admitted.
+        p, pr = self.ready()
+        pr['build'] = 'green'
+        pr['controller_state'] = None
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
+
+    def test_missing_build_evidence_is_not_a_pass(self):
+        # A repository with no CI reads green from the snapshot, which is what
+        # keeps it moving; evidence that never arrived is a different thing and
+        # a gate that treats the unknown as a pass is not a gate.
+        p, pr = self.ready()
+        pr.pop('build', None)
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'configuration-error')
+        self.assertEqual(result['status'], 'error')
+
+    def test_a_pull_request_already_asked_of_a_human_is_not_asked_again_for_green(self):
+        # The recorded state is rewritten every run, so a pull request that
+        # passes through any other state loses it — and one unresolved bot
+        # thread does that. The published status cannot be edited or deleted,
+        # so it records that a human was asked and nothing takes it back.
+        p, pr = self.ready()
+        pr['build'] = 'failed'
+        pr['controller_state'] = dict(admitted_at=NOW, head=pr['head'],
+                                      state='waiting-bots', ready_since=None)
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-build')
+        pr['ready_published'] = True
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
+
+    def test_the_build_is_not_evidence_that_can_change_under_a_write(self):
+        # publish re-reads and bails when the fingerprint moves. On a pull
+        # request with 45 checks one finishing mid-run would strand it.
+        p, pr = self.ready()
+        pr['build'] = 'green'
+        original = fingerprint(pr)
+        pr['build'] = 'failed'
+        self.assertEqual(original, fingerprint(pr))
 
     def test_rename_requires_source_and_destination_coverage(self):
         p, pr = fixture()

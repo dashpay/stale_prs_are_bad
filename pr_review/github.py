@@ -36,6 +36,76 @@ def _validate_state(state):
                 raise GitHubError("Invalid controller " + key) from error
 
 
+# GraphQL spells these uppercase; the REST spellings are a different API and
+# would be dead entries here. CANCELLED and STALE carry no verdict at all — a
+# cancelled attempt says nothing about the code, and this controller is the
+# most-cancelled check on these repositories by a wide margin. ACTION_REQUIRED
+# is a conclusion, not a status: the check has finished and wants a human, so
+# it is failing, not running.
+BUILD_FAILED = {"FAILURE", "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED", "ERROR"}
+BUILD_PASSED = {"SUCCESS", "SKIPPED", "NEUTRAL", "EXPECTED"}
+BUILD_NO_VERDICT = {"CANCELLED", "STALE"}
+CALLER_WORKFLOW = "/pr-review-policy.yml"
+
+
+def _ours(node):
+    """Whether a check run is this controller reviewing the pull request.
+
+    It is a check on the pull requests it governs, so its own result is in the
+    rollup and it cannot wait for itself. Matched on the caller workflow, which
+    the engine refuses to run from any other path, rather than on the job name,
+    which each repository is free to rename. An Actions job is distinguished
+    from a check run some other tool filed into the same suite, which GitHub
+    attributes to this workflow too.
+    """
+    suite = ((node.get("checkSuite") or {}).get("workflowRun") or {}).get("workflow") or {}
+    details = node.get("detailsUrl") or ""
+    return (suite.get("resourcePath") or "").endswith(CALLER_WORKFLOW) and "/actions/runs/" in details and "/job/" in details
+
+
+def build_verdict(nodes):
+    """`green`, `running` or `failed` over a head's checks.
+
+    Only the newest run of each check counts. Re-running a check does not
+    replace the run it repeats, it adds another beside it, so a head keeps every
+    failed and cancelled attempt for ever — GitHub's own rollup reads FAILURE on
+    pull requests whose every check has since passed. Without this a flaky test
+    could never be cleared by re-running it.
+
+    A result this code does not recognise is unfinished, never green: a gate
+    that treats the unknown as a pass is not a gate.
+    """
+    latest = {}
+    for node in nodes:
+        if not isinstance(node, dict):
+            raise GitHubError("Incomplete check list")
+        if node.get("__typename") == "CheckRun":
+            if _ours(node):
+                continue
+            suite = ((node.get("checkSuite") or {}).get("workflowRun") or {}).get("workflow") or {}
+            # Keyed by workflow as well as name, so a job called `build` in two
+            # workflows cannot stand in for the other.
+            key = ("check", suite.get("resourcePath") or "", _text(node["name"], "check name"))
+            when, state = node.get("startedAt") or "", node.get("conclusion") or node.get("status")
+        else:
+            if node.get("context") == "PR Hygiene":
+                continue
+            key = ("status", "", _text(node["context"], "status context"))
+            when, state = node.get("createdAt") or "", node.get("state")
+        # A cancelled attempt is not a result. Letting one overwrite an older
+        # verdict would turn a failure green by cancelling its re-run.
+        if state in BUILD_NO_VERDICT:
+            continue
+        if key not in latest or when >= latest[key][0]:
+            latest[key] = (when, state)
+    states = [state for _, state in latest.values()]
+    if any(state in BUILD_FAILED for state in states):
+        return "failed"
+    if any(state not in BUILD_PASSED for state in states):
+        return "running"
+    return "green"
+
+
 def parse_controller_state(comments):
     """Ignore copied receipts; the oldest record wins; refuse corrupt history."""
     found = []
@@ -113,6 +183,7 @@ class GitHub:
         # large part of this tool's traffic against the organisation's limit.
         self._permissions = {}
         self._statuses = {}
+        self._builds = {}
 
     def _run(self, arguments, payload=None):
         try:
@@ -351,6 +422,71 @@ class GitHub:
             raise GitHubError("Incomplete review-thread list")
         return _unique(results, "id", "review thread")
 
+    BUILD_QUERY = """query($owner:String!, $repo:String!, $number:Int!, $cursor:String) {
+      repository(owner:$owner, name:$repo) { pullRequest(number:$number) {
+        commits(last:1) { nodes { commit { oid statusCheckRollup {
+          contexts(first:100, after:$cursor) {
+            totalCount pageInfo { hasNextPage endCursor }
+            nodes {
+              __typename
+              ... on CheckRun { name conclusion status startedAt detailsUrl
+                checkSuite { workflowRun { workflow { resourcePath } } } }
+              ... on StatusContext { context state createdAt }
+            } } } } } } } } }"""
+
+    def build_state(self, number, head):
+        """This head's build, as `green`, `running` or `failed`.
+
+        Cached per head like the head's statuses: a reconciliation reads the
+        same pull request up to three times and the answer cannot differ
+        usefully between them.
+        """
+        if head in self._builds:
+            return self._builds[head]
+        owner, repo = self.repo.split("/")
+        nodes, cursor = [], None
+        while True:
+            response = self.request("POST", "graphql", {
+                "query": self.BUILD_QUERY,
+                "variables": {"owner": owner, "repo": repo, "number": number, "cursor": cursor}})
+            # A partial answer nulls the field it could not resolve and says so.
+            # Reading that as "no checks" would turn a rate-limited read into a
+            # green light for every pull request in the run.
+            if not isinstance(response, dict) or response.get("errors"):
+                raise GitHubError("Build state query failed")
+            try:
+                commits = response["data"]["repository"]["pullRequest"]["commits"]["nodes"]
+            except (KeyError, TypeError) as error:
+                raise GitHubError("Build state unavailable") from error
+            if not commits:
+                raise GitHubError("Build state unavailable")
+            commit = commits[0]["commit"]
+            if commit.get("oid") != head:
+                # The head moved while this was read, so the answer describes
+                # another commit. Unfinished, rather than a stale green.
+                return "running"
+            rollup = commit.get("statusCheckRollup")
+            if rollup is None:
+                # No checks at all, and no error to explain it away. Several
+                # governed repositories have none, and blocking them for ever
+                # is not what the rule is for.
+                verdict = "green"
+                self._builds[head] = verdict
+                return verdict
+            connection = rollup["contexts"]
+            page, info = connection["nodes"], connection["pageInfo"]
+            if not isinstance(page, list) or not isinstance(info, dict):
+                raise GitHubError("Incomplete check connection")
+            nodes += page
+            if not info.get("hasNextPage"):
+                break
+            cursor = info.get("endCursor")
+            if not cursor:
+                raise GitHubError("Check pagination did not advance")
+        verdict = build_verdict(nodes)
+        self._builds[head] = verdict
+        return verdict
+
     def snapshot(self, number, policy, history=None):
         """Full evidence for one pull request.
 
@@ -397,6 +533,8 @@ class GitHub:
             result["threads"] = self.threads(number)
             result["lifecycle_at"] = history["lifecycle_at"] if reuse else self.activity(number)
             result["head_seen_at"] = self.head_seen_at(result["head"])
+            result["build"] = self.build_state(number, result["head"])
+            result["ready_published"] = self.ready_published(result["head"])
             result["requested_reviewers"] = [_login(user) for user in raw["requested_reviewers"]]
             result["labels"] = [_text(label["name"], "label name") for label in raw["labels"]]
             state, comment_id = parse_controller_state(result["comments"])
@@ -462,6 +600,7 @@ class GitHub:
         """Re-read permissions and statuses, for the checks made before writing."""
         self._permissions.clear()
         self._statuses.clear()
+        self._builds.clear()
 
     def _head_statuses(self, head):
         if head not in self._statuses:
@@ -482,6 +621,20 @@ class GitHub:
         if any(not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stamp) for stamp in stamps):
             raise GitHubError("Unexpected status timestamp format")
         return min(stamps)
+
+    def ready_published(self, head):
+        """Whether a human has ever been asked to review this head.
+
+        Commit statuses cannot be edited or deleted, so this is a record no
+        later run can take back. The recorded controller state cannot serve:
+        it is rewritten on every run, so a pull request passing through any
+        other state — an unresolved bot thread, a withdrawn objection, a
+        transient configuration error — would lose the fact that it was ready.
+        """
+        return any(item.get("context") == "PR Hygiene"
+                   and (item.get("creator") or {}).get("login", "").lower() == "github-actions[bot]"
+                   and item.get("description") == "ready-for-human"
+                   for item in self._head_statuses(head))
 
     def post_status(self, head, state, description, target_url=None):
         if state not in {"pending", "success", "failure", "error"}:

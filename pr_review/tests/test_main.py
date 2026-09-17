@@ -28,7 +28,7 @@ class PublicationTests(unittest.TestCase):
                    'base': 'v4.2-dev', 'base_sha': 'b' * 40, 'state': 'open',
                    'draft': False, 'labels': [], 'requested_reviewers': [],
                    'controller_comment_id': None, 'reviews': [], 'comments': [],'created_at':NOW,
-                   'lifecycle_at': None}
+                   'lifecycle_at': None, 'build': 'green'}
         self.result = {'number': 1, 'head': 'a' * 40, 'author': 'alice',
                        'state': 'ready-to-merge', 'status': 'success',
                        'blockers': [], 'reviewers': [], 'areas': ['core'],
