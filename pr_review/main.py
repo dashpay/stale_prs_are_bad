@@ -420,6 +420,8 @@ def run(argv=None):
         parser.error('apply requires the registered policy, not an explicit file')
     if args.command == 'codeowners' and args.check and not args.repository_root:
         parser.error('codeowners --check requires --repository-root')
+    if args.waiting_on_build and (args.pr is not None or args.batch_size is not None):
+        parser.error('waiting-on-build selects its own pull requests')
     if args.apply and (os.environ.get('GITHUB_ACTIONS') != 'true'
                        or os.environ.get('GITHUB_REPOSITORY') != args.repo
                        or os.environ.get('PR_REVIEW_AUTOMATION_ENABLED') != 'true'):

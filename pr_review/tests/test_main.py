@@ -229,6 +229,39 @@ class PublicationTests(unittest.TestCase):
         self.waiting_on_build('waiting-bots', 'ready-for-human', None)
         self.api.snapshot.assert_not_called()
 
+    def test_the_build_scan_selects_its_own_pull_requests(self):
+        # Combining it with a selector silently discarded that selector, and
+        # asking for one pull request that was not waiting reported it as not
+        # open on a configured branch, which was not true.
+        for extra in [['--pr', '1'], ['--batch-size', '6']]:
+            with self.assertRaises(SystemExit):
+                main.run(['sync', '--repo', 'dashpay/platform', '--waiting-on-build'] + extra)
+
+    def test_a_scan_can_carry_a_pull_request_out_of_waiting_for_a_build(self):
+        # The point of the whole schedule: a build that went green with no
+        # event to announce it still reaches a human.
+        from pr_review.tests.test_policy import fixture
+        policy, pr = fixture()
+        # The default fixture's author owns the area it touches, so nobody is
+        # asked; this is the shape that needs a human.
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr.update(build='green', ready_published=False,
+                  controller_state=dict(admitted_at=NOW, head=pr['head'],
+                                        state='waiting-build', ready_since=None))
+        result = main.evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human', 'the scan found it green')
+        self.policy = policy
+        self.api.snapshot.return_value = copy.deepcopy(pr)
+        self.api.pull.return_value = copy.deepcopy(pr)
+        self.api.open_prs.return_value = [copy.deepcopy(pr)]
+        # The admission re-read must see the same recorded state the candidate
+        # carries, or publish stops at "admission context changed".
+        with patch.object(main, 'load_histories', side_effect=lambda api, selected: [copy.deepcopy(pr)]):
+            main.publish(self.api, self.policy, pr, result, [pr], apply=True)
+        self.api.request_reviewers.assert_called_once()
+        self.api.set_ready_label.assert_called_once()
+        self.assertTrue(self.api.set_ready_label.call_args.args[1], 'the label goes on')
+
     def test_the_build_scan_rotates_at_its_own_cadence(self):
         # The rotation cursor is read from the clock, so a slice bucketed by the
         # hourly sweep would advance four times per scan and skip the rest —

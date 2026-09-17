@@ -1,3 +1,4 @@
+import io
 import json
 import os
 from pathlib import Path
@@ -17,9 +18,27 @@ class EventTests(unittest.TestCase):
     def test_the_two_schedules_are_told_apart_by_which_cron_fired(self):
         # One workflow, two crons. If they were not distinguished the frequent
         # one would run a full sweep every fifteen minutes.
-        self.assertEqual(selections('schedule', {'schedule': BUILD_SCAN_CRON}), [['--waiting-on-build']])
+        with patch.dict(os.environ, {'PR_REVIEW_AUTOMATION_ENABLED': 'true'}):
+            self.assertEqual(selections('schedule', {'schedule': BUILD_SCAN_CRON}), [['--waiting-on-build']])
         self.assertEqual(selections('schedule', {'schedule': '17 * * * *'}), [['--batch-size', '6']])
         self.assertEqual(selections('schedule', {}), [['--batch-size', '6']])
+
+    def test_the_scan_does_nothing_where_this_controller_does_not_write(self):
+        # Nothing is recorded as waiting on a build where writes are off, so
+        # the scan would list every pull request to find an empty set, three
+        # times an hour, for ever.
+        with patch.dict(os.environ, {'PR_REVIEW_AUTOMATION_ENABLED': 'false'}):
+            self.assertEqual(selections('schedule', {'schedule': BUILD_SCAN_CRON}), [])
+
+    def test_a_schedule_this_engine_does_not_know_is_reported(self):
+        # A caller can carry a cron an older pinned engine has never heard of.
+        # Falling through sweeps on it; saying nothing would sweep four times
+        # an hour and look like nothing had changed.
+        with patch.dict(os.environ, {'PR_REVIEW_AUTOMATION_ENABLED': 'true'}):
+            with patch('sys.stderr', new_callable=io.StringIO) as err:
+                self.assertEqual(selections('schedule', {'schedule': '5,20,35,50 * * * *'}),
+                                 [['--batch-size', '6']])
+        self.assertIn('Unrecognised schedule', err.getvalue())
 
     def test_event_number_only_selects_freshly_refetched_pr(self):
         self.assertEqual(selections('issue_comment',{'issue':{'number':44,'pull_request':{}}}),[['--pr','44']])
