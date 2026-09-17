@@ -3,6 +3,7 @@
 import json
 import re
 import subprocess
+import sys
 from datetime import datetime
 from urllib.parse import quote
 
@@ -106,6 +107,19 @@ def build_verdict(nodes):
     return "green"
 
 
+def _capability(granted):
+    """A collaborator's level from the capability flags, highest first.
+
+    The flags are read rather than the role's name because a custom
+    organisation role carries a name this policy has never heard of but still
+    says plainly whether its holder can push.
+    """
+    for level in ("admin", "maintain", "push", "triage", "pull"):
+        if granted.get(level) is True:
+            return {"push": "write", "pull": "read"}.get(level, level)
+    return None
+
+
 def parse_controller_state(comments):
     """Ignore copied receipts; the oldest record wins; refuse corrupt history."""
     found = []
@@ -184,6 +198,7 @@ class GitHub:
         self._permissions = {}
         self._statuses = {}
         self._builds = {}
+        self._listed = False
 
     def _run(self, arguments, payload=None):
         try:
@@ -580,19 +595,14 @@ class GitHub:
         One list answers what a request per person used to, and asking per
         person per pull request was thousands of requests a day.
         """
-        if not self._permissions:
+        if not self._listed:
+            self._listed = True
             for entry in self.pages(f"{self.root}/collaborators?affiliation=all"):
                 login = _login(entry)
                 granted = entry.get("permissions")
                 if not isinstance(granted, dict):
                     raise GitHubError("Collaborator listing is missing its permissions")
-                # Read the capabilities, not the role's name: a custom organisation
-                # role carries a name this policy has never heard of but still says
-                # plainly whether its holder can push.
-                for level in ("admin", "maintain", "push", "triage", "pull"):
-                    if granted.get(level) is True:
-                        self._permissions[login.lower()] = {"push": "write", "pull": "read"}.get(level, level)
-                        break
+                self._permissions[login.lower()] = _capability(granted)
         return self._permissions
 
     def permission(self, login):
@@ -615,11 +625,24 @@ class GitHub:
             return self._permissions[key]
         try:
             answer = self.request("GET", f"{self.root}/collaborators/{quote(login, safe='')}/permission")
-        except GitHubError:
+        except GitHubError as error:
+            # Remembered for the run. Asking again on every snapshot turns one
+            # unreachable answer into hundreds of requests, and a rate limit
+            # into a loop that answers it with more requests. The pre-write
+            # re-read clears this, so access revoked mid-run is still caught.
+            print(f'Could not read access for {login}: {error}', file=sys.stderr)
+            self._permissions[key] = None
             return None
-        level = answer.get("permission") if isinstance(answer, dict) else None
-        if level not in {"admin", "write", "read", "none"}:
-            return None
+        # The same capability flags the listing reads, not the legacy role
+        # string beside them: a custom organisation role carries a name this
+        # policy has never heard of but says plainly whether its holder pushes.
+        granted = (answer or {}).get("user", {}).get("permissions") if isinstance(answer, dict) else None
+        level = _capability(granted) if isinstance(granted, dict) else None
+        if level is None:
+            legacy = answer.get("permission") if isinstance(answer, dict) else None
+            level = legacy if legacy in {"admin", "write", "read", "none"} else None
+        if level is None:
+            print(f'Unreadable access answer for {login}', file=sys.stderr)
         self._permissions[key] = level
         return level
 
@@ -628,6 +651,7 @@ class GitHub:
         self._permissions.clear()
         self._statuses.clear()
         self._builds.clear()
+        self._listed = False
 
     def _head_statuses(self, head):
         if head not in self._statuses:

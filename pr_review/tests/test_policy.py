@@ -90,6 +90,19 @@ class PolicyTests(unittest.TestCase):
         pr['controller_state'] = None
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
 
+    def test_an_objection_is_not_dropped_because_access_could_not_be_read(self):
+        # Everywhere else an unreadable permission holds a pull request back.
+        # Dropping an objection on the strength of it was the one place the
+        # same uncertainty let one through, invisibly to whoever raised it.
+        p, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['threads'] = [dict(id=9, author='outsider', is_resolved=False,
+                              created_at=NOW, body='this is wrong')]
+        pr['permissions'] = dict(pr['permissions'], outsider=None)
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-author')
+        pr['permissions'] = dict(pr['permissions'], outsider='read')
+        self.assertNotEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-author')
+
     def test_an_unverifiable_reviewer_is_reported_as_unverifiable(self):
         # "lacks verified write access" said something false about an
         # administrator whose access this token simply could not enumerate.

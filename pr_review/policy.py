@@ -172,6 +172,17 @@ RATE_LIMITED = '<!-- This is an auto-generated comment: rate limited by coderabb
 RATE_LIMITED_MARKER = 'rate limited by coderabbit.ai'
 
 
+def _may_object(permissions, user):
+    """Whether this person's objection counts.
+
+    An answer that never arrived is kept rather than discarded. Everywhere else
+    an unreadable permission holds a pull request back; dropping an objection on
+    the strength of it would be the one place the same uncertainty let one
+    through, and a dropped objection is invisible to whoever raised it.
+    """
+    return permissions.get(user) in WRITE or permissions.get(user) is None
+
+
 def _rabbit_receipt(body, head):
     # The producer embeds a JSON object directly after its named HTML marker.
     for marker in re.finditer(r'(?m)^<!-- ' + re.escape(RECEIPT_MARKER) + r':\s*', body):
@@ -378,12 +389,12 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         result['self_reviewed_at'] = self_time
         objectors = {}
         for user, review in latest.items():
-            if user not in BOTS and permissions.get(user) in WRITE and review['state'].upper() == 'CHANGES_REQUESTED':
+            if user not in BOTS and _may_object(permissions, user) and review['state'].upper() == 'CHANGES_REQUESTED':
                 objectors[user] = review['submitted_at']
         for thread in pr['threads']:
             if not thread['is_resolved'] and thread['author'].lower() not in BOTS:
                 user = thread['author'].lower()
-                if permissions.get(user) not in WRITE:
+                if not _may_object(permissions, user):
                     continue
                 objectors[user] = max(objectors.get(user, thread['created_at']), thread['created_at'],key=_time)
         if any(_time(value) >= _time(self_time) for value in objectors.values()):
@@ -396,7 +407,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             eligible = {x.lower() for x in area['owners'] + area['reviewers']} - {author}
             if not any(u in latest and latest[u]['state'].upper() == 'APPROVED' and latest[u]['commit_id'] == pr['head'] for u in eligible):
                 needed.update(eligible)
-        needed.update(u for u in objectors if u != author and permissions.get(u) in WRITE and u not in BOTS)
+        needed.update(u for u in objectors if u != author and _may_object(permissions, u) and u not in BOTS)
         if needed or objectors:
             previous = pr.get('controller_state') or {}
             # Latching on the recorded state, not on ready_since: a pull request
