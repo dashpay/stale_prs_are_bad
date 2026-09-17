@@ -6,13 +6,20 @@ import unittest
 from unittest.mock import patch
 
 from pr_review import event
-from pr_review.event import selections
+from pr_review.event import BUILD_SCAN_CRON, selections
 
 
 class EventTests(unittest.TestCase):
     def test_schedule_push_and_dispatch_are_bounded(self):
         for kind in ['schedule','push','workflow_dispatch']:
             self.assertEqual(selections(kind,{}),[['--batch-size','6']])
+
+    def test_the_two_schedules_are_told_apart_by_which_cron_fired(self):
+        # One workflow, two crons. If they were not distinguished the frequent
+        # one would run a full sweep every fifteen minutes.
+        self.assertEqual(selections('schedule', {'schedule': BUILD_SCAN_CRON}), [['--waiting-on-build']])
+        self.assertEqual(selections('schedule', {'schedule': '17 * * * *'}), [['--batch-size', '6']])
+        self.assertEqual(selections('schedule', {}), [['--batch-size', '6']])
 
     def test_event_number_only_selects_freshly_refetched_pr(self):
         self.assertEqual(selections('issue_comment',{'issue':{'number':44,'pull_request':{}}}),[['--pr','44']])

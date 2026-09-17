@@ -204,6 +204,40 @@ class PublicationTests(unittest.TestCase):
         self.assertTrue(self.wrote_status_after('set_ready_label'),
                         'the run must carry on and publish a status, not stop at the refusal')
 
+    def waiting_on_build(self, *states):
+        prs = [dict(self.pr, number=n + 1) for n in range(len(states))]
+        self.api.open_prs.return_value = prs
+        self.api.histories.side_effect = lambda numbers: {
+            pr['number']: {'comments': [], 'lifecycle_at': None} for pr in prs}
+        recorded = {pr['number']: state for pr, state in zip(prs, states)}
+        with patch.object(main, 'parse_controller_state',
+                          side_effect=lambda comments: (None, None)):
+            with patch.object(main, 'load_histories', side_effect=lambda api, selected: [
+                    dict(p, comments=[], lifecycle_at=None, controller_comment_id=None,
+                         controller_state={'state': recorded[p['number']], 'head': p['head'],
+                                           'admitted_at': NOW, 'ready_since': None}
+                         if recorded[p['number']] else None) for p in selected]):
+                return main.collect(self.api, self.policy, waiting_on_build=True)
+
+    def test_the_build_scan_looks_only_at_what_is_waiting_on_a_build(self):
+        self.waiting_on_build('waiting-bots', 'waiting-build', 'ready-for-human')
+        self.assertEqual([call.args[0] for call in self.api.snapshot.call_args_list], [2])
+
+    def test_the_build_scan_costs_nothing_when_nothing_is_waiting(self):
+        # The point of reading the recorded state first: on a quiet repository
+        # this is a listing and one batched read, and no snapshots at all.
+        self.waiting_on_build('waiting-bots', 'ready-for-human', None)
+        self.api.snapshot.assert_not_called()
+
+    def test_the_build_scan_rotates_at_its_own_cadence(self):
+        # The rotation cursor is read from the clock, so a slice bucketed by the
+        # hourly sweep would advance four times per scan and skip the rest —
+        # the defect that left the same six pull requests swept for ever.
+        with patch.object(main, 'periodic_batch', return_value=[]) as batch:
+            self.waiting_on_build('waiting-build')
+        self.assertEqual(batch.call_args.args[1], main.BUILD_SCAN_SIZE)
+        self.assertEqual(batch.call_args.kwargs['cadence'], main.BUILD_SCAN_SECONDS)
+
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)
         result = dict(self.result, state='draft', status='pending')

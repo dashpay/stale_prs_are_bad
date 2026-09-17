@@ -7,7 +7,16 @@ from pathlib import Path
 from .main import run
 
 
+# The schedule that reconciles only pull requests waiting on a build. GitHub
+# reports which cron fired, which is what tells the two schedules apart.
+BUILD_SCAN_CRON = '2,32,47 * * * *'
+
+
 def selections(kind, event):
+    if kind == 'schedule' and event.get('schedule') == BUILD_SCAN_CRON:
+        # A build turning green raises no event this controller hears, so the
+        # pull requests already waiting on one are looked at between sweeps.
+        return [['--waiting-on-build']]
     if kind in {'schedule', 'push', 'workflow_dispatch'}:
         # The sweep repairs what events missed. It runs hourly now, so it covers
         # more per run to keep a large repository's rotation inside a day.
