@@ -271,6 +271,19 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(batch.call_args.args[1], main.BUILD_SCAN_SIZE)
         self.assertEqual(batch.call_args.kwargs['cadence'], main.BUILD_SCAN_SECONDS)
 
+    def test_the_report_asks_for_one_thing_in_one_way(self):
+        # The attestation is the only instruction in this comment an author has
+        # to act on, and it used to be given three times over: the bare form,
+        # then when to post it, then the same thing again with the commit
+        # spelled out. Naming a commit still works; it is no longer advertised.
+        body = main.state_body(dict(self.result, head='f' * 40))
+        self.assertIn('`/self-reviewed`  — covers everything pushed so far', body)
+        self.assertEqual(body.count('/self-reviewed'), 1, 'asked for once, not three ways')
+        # The header names the commit the report is about; nothing asks an
+        # author to copy it.
+        self.assertEqual(body.count('f' * 40), 1)
+        self.assertNotIn('f' * 40, body.split('Self-review')[1])
+
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)
         result = dict(self.result, state='draft', status='pending')
