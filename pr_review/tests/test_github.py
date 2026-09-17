@@ -147,6 +147,76 @@ class BuildVerdictTests(unittest.TestCase):
                  dict(check("build", "SUCCESS", "2"), checkSuite=None)]
         self.assertEqual(build_verdict(nodes), "failed")
 
+    def test_someone_the_listing_omits_is_asked_about_directly(self):
+        # An organisation's own members reach a repository through the
+        # organisation, and a repository-scoped token does not enumerate them.
+        # Reading that absence as "no write access" marked six pull requests a
+        # configuration error the day writes were turned on.
+        api = GitHub("dashpay/platform")
+        asked = []
+
+        def request(method, path, payload=None):
+            asked.append(path)
+            return {"permission": "admin"}
+
+        with patch.object(api, "pages", return_value=[
+                {"login": "direct", "permissions": {"push": True, "pull": True}}]):
+            with patch.object(api, "request", side_effect=request):
+                self.assertEqual(api.permission("direct"), "write")
+                self.assertEqual(api.permission("via-the-org"), "admin")
+                self.assertEqual(api.permission("via-the-org"), "admin", 'asked once, then remembered')
+        self.assertEqual([path for path in asked if "/permission" in path],
+                         ["repos/dashpay/platform/collaborators/via-the-org/permission"])
+
+    def test_an_unreadable_answer_is_asked_for_once_not_on_every_snapshot(self):
+        # A reconciliation snapshots the same pull request up to three times,
+        # and a sweep covers six. Re-asking each time turns one unreachable
+        # answer into hundreds of requests — and a rate limit into a loop that
+        # answers it with more requests.
+        api = GitHub("dashpay/platform")
+        with patch.object(api, "pages", return_value=[]):
+            with patch.object(api, "request", side_effect=GitHubError("403")) as request:
+                for _ in range(5):
+                    self.assertIsNone(api.permission("someone"))
+        self.assertEqual(request.call_count, 1)
+        api.forget_cached_access()
+        with patch.object(api, "pages", return_value=[]):
+            with patch.object(api, "request", return_value={"permission": "admin"}) as again:
+                self.assertEqual(api.permission("someone"), "admin", 'the pre-write re-read asks again')
+        self.assertEqual(again.call_count, 1)
+
+    def test_a_fallback_answer_does_not_stand_in_for_having_read_the_listing(self):
+        # The listing is read once, and "have I read it" must not be answered
+        # by an entry the fallback put there — otherwise a repository whose
+        # listing came back empty never reads it again.
+        api = GitHub("dashpay/platform")
+        with patch.object(api, "pages", return_value=[]) as pages:
+            api.access()
+            api.access()
+        self.assertEqual(pages.call_count, 1,
+                         'a listing that came back empty is still a listing that was read')
+        api.forget_cached_access()
+        with patch.object(api, "pages", return_value=[]) as again:
+            api.access()
+        self.assertEqual(again.call_count, 1, 'and the pre-write re-read reads it afresh')
+
+    def test_the_fallback_reads_the_same_capability_flags_as_the_listing(self):
+        # A custom organisation role's legacy `permission` string is only an
+        # approximation; the flags beside it say plainly whether they push.
+        api = GitHub("dashpay/platform")
+        answer = {"permission": "read",
+                  "user": {"permissions": {"admin": False, "maintain": False, "push": True,
+                                           "triage": True, "pull": True}}}
+        with patch.object(api, "pages", return_value=[]):
+            with patch.object(api, "request", return_value=answer):
+                self.assertEqual(api.permission("custom-role"), "write")
+
+    def test_an_answer_that_never_arrives_is_unknown_not_none(self):
+        api = GitHub("dashpay/platform")
+        with patch.object(api, "pages", return_value=[]):
+            with patch.object(api, "request", side_effect=GitHubError("403")):
+                self.assertIsNone(api.permission("someone"))
+
     def test_the_same_job_name_in_two_workflows_does_not_mask_the_other(self):
         self.assertEqual(build_verdict([
             check("build", "SUCCESS", "2026-09-01T11:00:00Z", "/dashpay/x/actions/workflows/a.yml"),
