@@ -266,7 +266,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
     try:
         validate_policy(policy)
         _time(nowISO)
-        required = {'number','author','head','base','base_sha','created_at','draft','state','files','reviews','comments','threads','permissions','complete'}
+        required = {'number','author','head','base','base_sha','created_at','draft','state','files','reviews','comments','threads','permissions','complete','build'}
         if required - set(pr) or not pr['complete']:
             return stop('configuration-error', 'Incomplete GitHub snapshot', status='error')
         if not re.fullmatch(r'[0-9a-f]{40}', pr['head']):
@@ -396,8 +396,13 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             # Latching on the recorded state, not on ready_since: a pull request
             # can be ready with no ready_since yet, on the first run that makes
             # it ready, and that one would otherwise be sent back.
-            was_ready = previous.get('state') == 'ready-for-human' and previous.get('head') == pr['head']
-            build = pr.get('build', 'green')
+            # Ever ready for this head, not still ready. The recorded state is
+            # rewritten on every run, so a pull request that passed through any
+            # other state would come back needing a green build again — and one
+            # unresolved bot thread is enough to do that.
+            was_ready = (pr.get('ready_published')
+                         or (previous.get('state') == 'ready-for-human' and previous.get('head') == pr['head']))
+            build = pr['build']
             if not was_ready and build != 'green':
                 # Green before a human is asked; red afterwards does not take it
                 # back, so a flake cannot withdraw a review request already sent

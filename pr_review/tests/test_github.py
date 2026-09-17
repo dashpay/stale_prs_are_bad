@@ -19,11 +19,12 @@ def check(name, conclusion, started, workflow="/dashpay/x/actions/workflows/ci.y
 OURS = "/dashpay/x/actions/workflows/pr-review-policy.yml"
 
 
-def rollup(nodes=None, head="a" * 40, total=None):
+def rollup(nodes=None, head="a" * 40, total=None, more=False, cursor=None):
     return {"data": {"repository": {"pullRequest": {"commits": {"nodes": [{"commit": {
         "oid": head,
         "statusCheckRollup": {"contexts": {
             "totalCount": len(nodes or []) if total is None else total,
+            "pageInfo": {"hasNextPage": more, "endCursor": cursor},
             "nodes": nodes or []}}}}]}}}}}
 
 
@@ -80,17 +81,40 @@ class BuildVerdictTests(unittest.TestCase):
         self.assertEqual(build_verdict([check("a", "SKIPPED", "1"), check("b", "NEUTRAL", "1")]), "green")
 
     def test_unfinished_work_is_running_not_green(self):
-        for state in ["QUEUED", "IN_PROGRESS", "ACTION_REQUIRED"]:
-            self.assertEqual(build_verdict([check("a", state, "1")]), "running", state)
+        for status in ["QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED"]:
+            self.assertEqual(build_verdict([dict(check("a", None, "1"), status=status)]), "running", status)
         self.assertEqual(build_verdict([{"__typename": "StatusContext", "context": "ci",
                                          "state": "pending", "createdAt": "1"}]), "running")
 
-    def test_a_truncated_check_list_is_refused_rather_than_called_green(self):
+    def test_more_than_one_page_of_checks_is_read_not_refused(self):
+        # Live precedent: platform #2974 carries 113 contexts. Refusing would
+        # error every pull request of that author, and blank the repository out
+        # of the digest.
         api = GitHub("dashpay/platform")
-        body = self.checks(nodes=[check("tests", "SUCCESS", "1")], total=200)
-        with patch.object(api, "request", return_value=body):
+        pages = [self.checks(nodes=[check("a", "SUCCESS", "1")], more=True, cursor="next"),
+                 self.checks(nodes=[check("b", "FAILURE", "1")])]
+        with patch.object(api, "request", side_effect=pages):
+            self.assertEqual(api.build_state(1, "a" * 40), "failed")
+
+    def test_a_partial_answer_is_never_read_as_no_checks(self):
+        # statusCheckRollup is nullable, so a rate-limited or timed-out read
+        # nulls it and reports the error beside it. Reading that as "this
+        # repository has no CI" would quietly open the gate for every pull
+        # request in the run.
+        api = GitHub("dashpay/platform")
+        partial = {"data": {"repository": {"pullRequest": {"commits": {"nodes": [
+            {"commit": {"oid": "a" * 40, "statusCheckRollup": None}}]}}}},
+            "errors": [{"type": "RATE_LIMITED", "message": "rate limited"}]}
+        with patch.object(api, "request", return_value=partial):
             with self.assertRaises(GitHubError):
                 api.build_state(1, "a" * 40)
+
+    def test_the_answer_is_read_once_per_head(self):
+        api = GitHub("dashpay/platform")
+        with patch.object(api, "request", return_value=self.checks()) as request:
+            api.build_state(1, "a" * 40)
+            api.build_state(1, "a" * 40)
+        self.assertEqual(request.call_count, 1)
 
     def test_a_head_that_moved_under_the_read_is_not_reported_green(self):
         api = GitHub("dashpay/platform")
@@ -103,6 +127,25 @@ class BuildVerdictTests(unittest.TestCase):
             {"commit": {"oid": "a" * 40, "statusCheckRollup": None}}]}}}}}
         with patch.object(api, "request", return_value=empty):
             self.assertEqual(api.build_state(1, "a" * 40), "green")
+
+    def test_a_finished_check_that_wants_a_human_is_not_waited_for(self):
+        # ACTION_REQUIRED is a conclusion, not a status: the check has finished
+        # and needs someone. Calling it running would hold the pull request at
+        # "waiting for the build to finish" for ever, with nothing to clear it.
+        self.assertEqual(build_verdict([check("deploy", "ACTION_REQUIRED", "1")]), "failed")
+
+    def test_a_status_in_error_is_a_failure_not_a_pass(self):
+        # Integrations post `error` for infrastructure failures as often as
+        # `failure` for test failures, and GraphQL spells it ERROR.
+        for state, expected in [("ERROR", "failed"), ("FAILURE", "failed"),
+                                ("PENDING", "running"), ("EXPECTED", "green"), ("SUCCESS", "green")]:
+            node = {"__typename": "StatusContext", "context": "ci", "state": state, "createdAt": "1"}
+            self.assertEqual(build_verdict([node]), expected, state)
+
+    def test_a_status_and_a_check_of_the_same_name_are_different_checks(self):
+        nodes = [{"__typename": "StatusContext", "context": "build", "state": "FAILURE", "createdAt": "1"},
+                 dict(check("build", "SUCCESS", "2"), checkSuite=None)]
+        self.assertEqual(build_verdict(nodes), "failed")
 
     def test_the_same_job_name_in_two_workflows_does_not_mask_the_other(self):
         self.assertEqual(build_verdict([
@@ -167,8 +210,8 @@ class GitHubTests(unittest.TestCase):
             "totalCount": len(nodes or []) if total is None else total,
             "nodes": nodes or [], "pageInfo": {"hasNextPage": more, "endCursor": cursor}}}}}}
 
-    def checks(self, nodes=None, head="a" * 40, total=None):
-        return rollup(nodes, head, total)
+    def checks(self, nodes=None, head="a" * 40, total=None, more=False, cursor=None):
+        return rollup(nodes, head, total, more, cursor)
 
     def snapshot_fixture(self, comments=None, files=None, graph=None, checks=None):
         def request(method, path, payload=None):

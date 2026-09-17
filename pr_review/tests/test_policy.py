@@ -23,7 +23,7 @@ def fixture():
               comments=[dict(id=3,user='owner',body=f'/self-reviewed {HEAD}',
                              created_at='2026-09-11T11:00:00Z',updated_at='2026-09-11T11:00:00Z')],
               threads=[], requested_reviewers=[], permissions={'owner':'write','reviewer':'write','fallback':'write'},
-              controller_state=None, labels=[], complete=True)
+              controller_state=None, labels=[], complete=True, build='green')
     return policy, pr
 
 
@@ -90,9 +90,27 @@ class PolicyTests(unittest.TestCase):
         pr['controller_state'] = None
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
 
-    def test_a_repository_without_checks_is_not_blocked_for_ever(self):
+    def test_missing_build_evidence_is_not_a_pass(self):
+        # A repository with no CI reads green from the snapshot, which is what
+        # keeps it moving; evidence that never arrived is a different thing and
+        # a gate that treats the unknown as a pass is not a gate.
         p, pr = self.ready()
         pr.pop('build', None)
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'configuration-error')
+        self.assertEqual(result['status'], 'error')
+
+    def test_a_pull_request_already_asked_of_a_human_is_not_asked_again_for_green(self):
+        # The recorded state is rewritten every run, so a pull request that
+        # passes through any other state loses it — and one unresolved bot
+        # thread does that. The published status cannot be edited or deleted,
+        # so it records that a human was asked and nothing takes it back.
+        p, pr = self.ready()
+        pr['build'] = 'failed'
+        pr['controller_state'] = dict(admitted_at=NOW, head=pr['head'],
+                                      state='waiting-bots', ready_since=None)
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-build')
+        pr['ready_published'] = True
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
 
     def test_the_build_is_not_evidence_that_can_change_under_a_write(self):
