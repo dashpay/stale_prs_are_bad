@@ -558,7 +558,6 @@ class GitHub:
                 users.update(group.get("reviewers", []))
             users.update(review["user"] for review in reviews)
             users.update(thread["author"] for thread in result["threads"])
-            access = self.access()
             permissions = {}
             for user in sorted(users):
                 if user.lower() in BOT_LOGINS or user.lower().endswith("[bot]"):
@@ -567,7 +566,7 @@ class GitHub:
                 # per-person endpoint would answer "read" for a stranger on a
                 # public repository; every decision here asks only whether
                 # someone can write, so the two agree where it counts.
-                permissions[user] = access.get(user.lower(), "none")
+                permissions[user] = self.permission(user)
             result["permissions"] = permissions
             result["repo"] = self.repo
             result["complete"] = True
@@ -595,6 +594,34 @@ class GitHub:
                         self._permissions[login.lower()] = {"push": "write", "pull": "read"}.get(level, level)
                         break
         return self._permissions
+
+    def permission(self, login):
+        """One person's level, asking directly when the listing did not name them.
+
+        The listing answers for the collaborators a token can see, and a
+        repository-scoped Actions token does not enumerate the people who reach
+        a repository through the organisation rather than as collaborators of
+        it. On one governed repository that is an administrator, and reading
+        their absence as "no write access" marked six pull requests a
+        configuration error on the day writes were turned on.
+
+        `None` means the answer is unknown, which is not the same as `none`.
+        """
+        key = login.lower()
+        if key in self._permissions:
+            return self._permissions[key]
+        self.access()
+        if key in self._permissions:
+            return self._permissions[key]
+        try:
+            answer = self.request("GET", f"{self.root}/collaborators/{quote(login, safe='')}/permission")
+        except GitHubError:
+            return None
+        level = answer.get("permission") if isinstance(answer, dict) else None
+        if level not in {"admin", "write", "read", "none"}:
+            return None
+        self._permissions[key] = level
+        return level
 
     def forget_cached_access(self):
         """Re-read permissions and statuses, for the checks made before writing."""

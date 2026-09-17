@@ -90,6 +90,15 @@ class PolicyTests(unittest.TestCase):
         pr['controller_state'] = None
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
 
+    def test_an_unverifiable_reviewer_is_reported_as_unverifiable(self):
+        # "lacks verified write access" said something false about an
+        # administrator whose access this token simply could not enumerate.
+        p, pr = fixture()
+        pr['permissions'] = dict(pr['permissions'], owner=None)
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'configuration-error')
+        self.assertEqual(result['blockers'], ['Cannot verify write access for owner'])
+
     def test_missing_build_evidence_is_not_a_pass(self):
         # A repository with no CI reads green from the snapshot, which is what
         # keeps it moving; evidence that never arrived is a different thing and

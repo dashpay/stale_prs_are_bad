@@ -147,6 +147,33 @@ class BuildVerdictTests(unittest.TestCase):
                  dict(check("build", "SUCCESS", "2"), checkSuite=None)]
         self.assertEqual(build_verdict(nodes), "failed")
 
+    def test_someone_the_listing_omits_is_asked_about_directly(self):
+        # An organisation's own members reach a repository through the
+        # organisation, and a repository-scoped token does not enumerate them.
+        # Reading that absence as "no write access" marked six pull requests a
+        # configuration error the day writes were turned on.
+        api = GitHub("dashpay/platform")
+        asked = []
+
+        def request(method, path, payload=None):
+            asked.append(path)
+            return {"permission": "admin"}
+
+        with patch.object(api, "pages", return_value=[
+                {"login": "direct", "permissions": {"push": True, "pull": True}}]):
+            with patch.object(api, "request", side_effect=request):
+                self.assertEqual(api.permission("direct"), "write")
+                self.assertEqual(api.permission("via-the-org"), "admin")
+                self.assertEqual(api.permission("via-the-org"), "admin", 'asked once, then remembered')
+        self.assertEqual([path for path in asked if "/permission" in path],
+                         ["repos/dashpay/platform/collaborators/via-the-org/permission"])
+
+    def test_an_answer_that_never_arrives_is_unknown_not_none(self):
+        api = GitHub("dashpay/platform")
+        with patch.object(api, "pages", return_value=[]):
+            with patch.object(api, "request", side_effect=GitHubError("403")):
+                self.assertIsNone(api.permission("someone"))
+
     def test_the_same_job_name_in_two_workflows_does_not_mask_the_other(self):
         self.assertEqual(build_verdict([
             check("build", "SUCCESS", "2026-09-01T11:00:00Z", "/dashpay/x/actions/workflows/a.yml"),

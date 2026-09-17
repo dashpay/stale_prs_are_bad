@@ -294,6 +294,12 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         for area in touched.values():
             if area.get('unresolved'):
                 return stop('configuration-error', 'Unresolved identities in ' + area['id'], status='error')
+        unverified = sorted(x for x in people if permissions.get(x) is None)
+        if unverified:
+            # Not the same as lacking access: the answer never arrived.
+            return stop('configuration-error',
+                        'Cannot verify write access for ' + ', '.join(people.get(x, x) for x in unverified),
+                        status='error')
         if any(permissions.get(x) not in WRITE for x in people):
             return stop('configuration-error', 'An assigned owner/reviewer lacks verified write access', status='error')
         required = set(policy.get('required_bots', REVIEW_BOTS))
