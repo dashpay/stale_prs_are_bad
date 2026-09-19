@@ -252,6 +252,7 @@ class GitHub:
         try:
             result = {
                 "number": raw["number"], "author": _login(raw["user"]),
+                "author_is_bot": (raw.get("user") or {}).get("type") == "Bot",
                 "head": _text(raw["head"]["sha"], "head SHA"),
                 "base": _text(raw["base"]["ref"], "base branch"),
                 "base_sha": _text(raw["base"]["sha"], "base SHA"),
@@ -383,7 +384,7 @@ class GitHub:
               reviewThreads(first:100, after:$cursor) {
                 totalCount
                 pageInfo { hasNextPage endCursor }
-                nodes { id isResolved comments(first:1) {
+                nodes { id isResolved comments(first:100) {
                   nodes { author { login } createdAt }
                 } }
               }
@@ -411,15 +412,21 @@ class GitHub:
                     raise GitHubError("Missing review thread nodes")
                 for node in connection["nodes"]:
                     comments = node["comments"]["nodes"]
-                    if not isinstance(comments, list) or len(comments) > 1 or type(node["isResolved"]) is not bool:
+                    if not isinstance(comments, list) or type(node["isResolved"]) is not bool:
                         raise GitHubError("Incomplete review thread")
                     if not comments:
                         # Every comment in the thread was deleted; nothing remains to resolve.
                         emptied += 1
                         continue
+                    # Whoever opened the thread names it; whoever spoke in it can
+                    # be objecting. An author's own thread with a reviewer's
+                    # objection in reply was read as the author's alone.
                     results.append({"id": _text(node["id"], "thread identity"), "is_resolved": node["isResolved"],
                                     "author": _login(comments[0]["author"]),
-                                    "created_at": _text(comments[0]["createdAt"], "thread creation time")})
+                                    "created_at": _text(comments[0]["createdAt"], "thread creation time"),
+                                    "voices": [{"user": _login(c["author"]),
+                                                "created_at": _text(c["createdAt"], "thread comment time")}
+                                               for c in comments]})
                 info = connection["pageInfo"]
                 if type(info["hasNextPage"]) is not bool:
                     raise GitHubError("Missing review-thread pagination state")

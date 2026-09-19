@@ -1,6 +1,11 @@
 name: PR Hygiene policy
 on:
   workflow_call:
+    inputs:
+      scope:
+        description: 'all reconciles every governed pull request; batch is the sweep'
+        type: string
+        default: batch
 permissions:
   contents: read
   pull-requests: write
@@ -165,6 +170,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_REVIEW_AUTOMATION_ENABLED: ${{ vars.PR_REVIEW_AUTOMATION_ENABLED }}
+          PR_REVIEW_SCOPE: ${{ inputs.scope }}
           PR_REVIEW_POLICIES_ROOT: ${{ github.workspace }}/review-policies/policies
           PR_REVIEW_REPOSITORY_ROOT: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '17 * * * *') && format('{0}/review-target', github.workspace) || '' }}
         run: python3 -m pr_review.event >> "$GITHUB_STEP_SUMMARY"

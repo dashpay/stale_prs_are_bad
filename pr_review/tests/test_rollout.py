@@ -53,6 +53,13 @@ class CommentTriggerTests(unittest.TestCase):
     def test_a_walkthrough_carrying_neither_marker_would_not(self):
         self.assertFalse(self.admits('**Walkthrough**\n\nThis change adds a test.'))
 
+    def test_a_dispatch_can_ask_for_everything_and_the_input_reaches_the_engine(self):
+        # Three hops: the caller's dispatch input, the reusable workflow's
+        # input, the engine's environment. Dropping any one silently turns a
+        # full pass back into a batch of six.
+        self.assertIn("scope: ${{ inputs.scope || 'batch' }}", self.workflow)
+        self.assertIn('options: [batch, all]', self.workflow)
+
     def test_it_looks_again_at_pull_requests_waiting_on_a_build(self):
         # A build turning green raises no event this controller hears, so
         # without this schedule such a pull request waits for the hourly sweep.
@@ -69,6 +76,11 @@ class CommentTriggerTests(unittest.TestCase):
         self.assertIn('pull_request_review', self.workflow, 'its receipts must still arrive')
 
 
+def rules(text):
+    """CODEOWNERS lines that GitHub would act on."""
+    return [line for line in text.splitlines() if line.strip() and not line.startswith('#')]
+
+
 class RolloutTests(unittest.TestCase):
     def test_bundle_uses_pinned_shared_engine_and_target_policy(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -81,7 +93,8 @@ class RolloutTests(unittest.TestCase):
             self.assertNotIn('engine_revision', workflow)
             self.assertNotIn('pr-review-policy.json', workflow)
             self.assertFalse((root / '.github/pr-review-policy.json').exists())
-            self.assertIn('* @lklimek @shumkov',(root / '.github/CODEOWNERS').read_text())
+            self.assertEqual(rules((root / '.github/CODEOWNERS').read_text()), [],
+                             'a rule here would have GitHub request reviewers on its own')
             self.assertIn('pull_request_review:', workflow)
             self.assertNotIn('workflow_run:', workflow)
             self.assertFalse((root / '.github/workflows/pr-review-signal.yml').exists())

@@ -147,6 +147,18 @@ class BuildVerdictTests(unittest.TestCase):
                  dict(check("build", "SUCCESS", "2"), checkSuite=None)]
         self.assertEqual(build_verdict(nodes), "failed")
 
+    def test_the_snapshot_says_whether_the_author_is_a_bot(self):
+        # A bot author cannot attest, and the policy has to know that from the
+        # snapshot rather than guess from a login.
+        api = GitHub("dashpay/platform")
+        raw = {"number": 1, "user": {"login": "Copilot", "type": "Bot"}, "head": {"sha": "a" * 40},
+               "base": {"ref": "v4.2-dev", "sha": "b" * 40}, "draft": False, "state": "open",
+               "created_at": "2026-09-11T00:00:00Z", "html_url": "https://github.com/dashpay/platform/pull/1",
+               "title": "t"}
+        self.assertTrue(GitHub._pr(raw)["author_is_bot"])
+        raw["user"]["type"] = "User"
+        self.assertFalse(GitHub._pr(raw)["author_is_bot"])
+
     def test_someone_the_listing_omits_is_asked_about_directly(self):
         # An organisation's own members reach a repository through the
         # organisation, and a repository-scoped token does not enumerate them.
@@ -479,7 +491,8 @@ class GitHubTests(unittest.TestCase):
         node = {"id": "T1", "isResolved": False, "comments": {"nodes": [
             {"author": {"login": "reviewer"}, "createdAt": "2026-09-01T00:00:00Z"}]}}
         with patch.object(self.api, "request", side_effect=[self.graph([node], True, "c1"), self.graph(total=1)] ) as request:
-            self.assertEqual(self.api.threads(1), [{"id": "T1", "is_resolved": False, "author": "reviewer", "created_at": "2026-09-01T00:00:00Z"}])
+            self.assertEqual(self.api.threads(1), [{"id": "T1", "is_resolved": False, "author": "reviewer", "created_at": "2026-09-01T00:00:00Z",
+                                                   "voices": [{"user": "reviewer", "created_at": "2026-09-01T00:00:00Z"}]}])
             self.assertEqual(request.call_args.args[2]["variables"]["cursor"], "c1")
         with patch.object(self.api, "request", return_value=self.graph([], True, "same")), self.assertRaises(GitHubError):
             self.api.threads(1)
@@ -490,9 +503,17 @@ class GitHubTests(unittest.TestCase):
         emptied = {"id": "T2", "isResolved": False, "comments": {"nodes": []}}
         with patch.object(self.api, "request", return_value=self.graph([emptied, live], total=2)):
             self.assertEqual([t["id"] for t in self.api.threads(1)], ["T1"])
-        overfull = dict(live, comments={"nodes": [live["comments"]["nodes"][0]] * 2})
-        with patch.object(self.api, "request", return_value=self.graph([overfull], total=1)), self.assertRaises(GitHubError):
-            self.api.threads(1)
+
+    def test_a_thread_carries_everyone_who_spoke_in_it(self):
+        # An author's own thread with a reviewer's objection in reply was read
+        # as the author's alone, and the objection vanished with it.
+        thread = {"id": "T1", "isResolved": False, "comments": {"nodes": [
+            {"author": {"login": "author"}, "createdAt": "2026-09-01T00:00:00Z"},
+            {"author": {"login": "reviewer"}, "createdAt": "2026-09-02T00:00:00Z"}]}}
+        with patch.object(self.api, "request", return_value=self.graph([thread], total=1)):
+            (only,) = self.api.threads(1)
+        self.assertEqual(only["author"], "author")
+        self.assertEqual([v["user"] for v in only["voices"]], ["author", "reviewer"])
 
     def test_should_refuse_truncated_thread_connection(self):
         with patch.object(self.api, "request", return_value=self.graph(total=1)), self.assertRaises(GitHubError):

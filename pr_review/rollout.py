@@ -24,6 +24,12 @@ on:
   pull_request_review:
     types: [submitted, edited, dismissed]
   workflow_dispatch:
+    inputs:
+      scope:
+        description: 'all reconciles every governed pull request now; batch is the sweep'
+        type: choice
+        options: [batch, all]
+        default: batch
   schedule:
     - cron: '{SWEEP_CRON}'
     # A build turning green raises no event this controller hears. This one
@@ -59,6 +65,8 @@ jobs:
       (contains(github.event.comment.body, '{RECEIPT_MARKER}') ||
       contains(github.event.comment.body, '{RATE_LIMITED_MARKER}')))
     uses: {CENTRAL_REPOSITORY}/.github/workflows/pr-review-reusable.yml@{engine_revision}
+    with:
+      scope: ${{{{ inputs.scope || 'batch' }}}}
 '''
 
 

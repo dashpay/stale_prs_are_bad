@@ -31,6 +31,12 @@ class TargetCheckoutTests(unittest.TestCase):
         inner = re.sub(r'^\$\{\{|\}\}$', '', text.strip()).strip()
         return re.sub(r'\s+', ' ', inner)
 
+    def test_the_dispatch_scope_reaches_the_engine(self):
+        env = self.steps['Reconcile with repository-local credentials']['env']
+        self.assertEqual(env.get('PR_REVIEW_SCOPE'), '${{ inputs.scope }}')
+        doc = yaml.safe_load(WORKFLOW.read_text())
+        self.assertIn('scope', (doc[True]['workflow_call'].get('inputs') or {}), 'yaml reads `on` as True')
+
     def test_the_scan_between_sweeps_does_not_pay_for_the_clone(self):
         # The scan is a schedule too, so gating on the event name alone would
         # re-add the slowest step in the run three times an hour per repository.

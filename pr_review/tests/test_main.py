@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import io
 import unittest
 from unittest.mock import Mock, patch
 
@@ -83,8 +84,10 @@ class PublicationTests(unittest.TestCase):
             with self.assertRaises(main.GitHubError):
                 main.collect(self.api,self.policy)
 
-    def test_collection_failure_revokes_known_heads_only_in_apply(self):
-        self.api.snapshot.side_effect = main.GitHubError('missing review evidence')
+    def test_unreadable_history_revokes_every_known_head_only_in_apply(self):
+        # Admission is decided from every candidate's history, so a history
+        # that cannot be read leaves no pull request's slot knowable.
+        self.api.histories.side_effect = main.GitHubError('missing history')
         with self.assertRaises(main.GitHubError):
             main.collect(self.api,self.policy,apply=True)
         self.assertEqual(self.api.post_status.call_args.args[1], 'error')
@@ -93,7 +96,22 @@ class PublicationTests(unittest.TestCase):
             main.collect(self.api,self.policy)
         self.api.post_status.assert_not_called()
 
-    def test_excess_admitted_history_is_explicit_error(self):
+    def test_unreadable_evidence_marks_only_the_pull_request_it_belongs_to(self):
+        # One rate-limited read used to mark everything selected an error —
+        # and a full pass selects everything open. Admission is already
+        # decided by then; the one pull request says so, the rest proceed.
+        other = dict(self.pr, number=2, head='b' * 40)
+        self.api.open_prs.return_value = [self.pr, other]
+        self.api.pull.side_effect = lambda n: {1: self.pr, 2: other}[n]
+        good = dict(self.pr, number=2, head='b' * 40)
+        self.api.snapshot.side_effect = lambda n, policy, history=None: (
+            good if n == 2 else (_ for _ in ()).throw(main.GitHubError('rate limited')))
+        prs, candidates, snapshots = main.collect(self.api, self.policy, apply=True)
+        self.assertEqual([s['number'] for s in snapshots], [2], 'the readable one is reconciled')
+        errors = [c for c in self.api.post_status.call_args_list if c.args[1] == 'error']
+        self.assertEqual([c.args[0] for c in errors], [self.pr['head']], 'only the unreadable head')
+
+    def test_a_surplus_of_admissions_is_detected(self):
         candidates = [dict(self.pr,number=n,controller_state={'admitted_at':NOW}) for n in range(1,7)]
         self.assertEqual(main.admission_conflicts(self.policy,candidates), {'alice'})
 
@@ -284,6 +302,93 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(body.count('f' * 40), 1)
         self.assertNotIn('f' * 40, body.split('Self-review')[1])
 
+    def test_someone_elses_push_does_not_demote_a_ready_pull_request(self):
+        # The admission context used to be every open pull request in the
+        # repository, so a push anywhere during a run sent the one being
+        # published back to pending — and on a busy repository something moves
+        # every few minutes. Only the author's own pull requests decide slots.
+        mine = dict(self.pr, number=1, author='me', head='a' * 40)
+        theirs = dict(self.pr, number=2, author='someone', head='b' * 40)
+        before = main.context_fingerprint([mine, theirs], 'me')
+        theirs_pushed = dict(theirs, head='c' * 40)
+        self.assertEqual(main.context_fingerprint([mine, theirs_pushed], 'me'), before)
+        # Nor does the author's own push to a different pull request: a slot
+        # depends on which of their pull requests are open and not drafts, not
+        # on what any of them currently points at.
+        mine_pushed = dict(mine, head='d' * 40)
+        self.assertEqual(main.context_fingerprint([mine_pushed, theirs], 'me'), before)
+        mine_drafted = dict(mine, draft=True)
+        self.assertNotEqual(main.context_fingerprint([mine_drafted, theirs], 'me'), before)
+        mine_closed = dict(mine, state='closed')
+        self.assertNotEqual(main.context_fingerprint([mine_closed, theirs], 'me'), before)
+
+    def test_a_surplus_of_admissions_heals_instead_of_erroring_the_author(self):
+        # Two runs reconciling two pull requests of one author can both admit
+        # past the check. Six persisted admissions then marked every pull
+        # request of that author an error — under a required check, an outage
+        # for that person. admit() keeps the five oldest; the sixth waits.
+        from pr_review.tests.test_policy import fixture
+        policy, base = fixture()
+        prs = [dict(copy.deepcopy(base), number=n, author='busy', head=str(n) * 40,
+                    controller_state=dict(admitted_at=f'2026-09-10T0{n}:00:00Z', head=str(n) * 40,
+                                          state='waiting-bots', ready_since=None))
+               for n in range(1, 7)]
+        for pr in prs:
+            pr['comments'][0]['user'] = 'busy'
+        with patch.object(main, 'evaluate', side_effect=lambda p, pr, admitted, now, states=None:
+                          dict(state='ready-to-merge' if admitted else 'waiting-slot', status='success' if admitted else 'pending',
+                               blockers=[], reviewers=[], head=pr['head'], number=pr['number'],
+                               admitted_at=admitted, ready_since=None)):
+            rows = main.evaluate_snapshots(policy, prs, prs, prs, NOW)
+        states = {row['number']: row['state'] for row in rows}
+        self.assertNotIn('configuration-error', states.values())
+        self.assertEqual(states[6], 'waiting-slot', 'the newest admission is the one that yields')
+        self.assertEqual([n for n, s in states.items() if s == 'ready-to-merge'], [1, 2, 3, 4, 5])
+
+    def test_a_policy_directory_gone_from_the_tree_does_not_fail_the_sweep(self):
+        # The validate step reports it. Failing the reconcile too marked every
+        # open pull request an error — as the gate, unmergeable — until a policy
+        # change landed, over a directory someone legitimately removed.
+        import tempfile
+        from pr_review.policy import missing_paths
+        policy = json.loads(Path('policies/platform.json').read_text())
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            for area in policy['areas'][1:]:
+                for prefix in area['paths']:
+                    (root / prefix).mkdir(parents=True, exist_ok=True)
+            gone = policy['areas'][0]['paths']
+            self.assertEqual(missing_paths(policy, root), sorted(gone))
+            with patch('sys.stderr', new_callable=io.StringIO) as err:
+                with patch.object(main, 'collect', return_value=([], [], [])) as collect:
+                    with patch.object(main, 'GitHub'):
+                        main.run(['report', '--repo', 'dashpay/platform', '--repository-root', str(root)])
+            self.assertIn(gone[0], err.getvalue(), 'said, not fatal')
+            self.assertTrue(collect.called, 'the reconcile went ahead')
+            with self.assertRaises(ValueError):
+                main.run(['validate', '--repo', 'dashpay/platform', '--repository-root', str(root)])
+
+    def test_the_report_says_what_the_check_now_means(self):
+        body = main.state_body(dict(self.result, head='f' * 40))
+        self.assertNotIn('does not bypass', body)
+        self.assertIn('passes when the policy is satisfied', body)
+
+    def test_a_pass_gives_every_pull_request_its_turn_before_failing(self):
+        # Stopping at the first failure left the rest with whatever status
+        # they had — on a full pass, possibly a passing one from before the
+        # check became the gate. Every one is attempted; then the run fails.
+        one, two, three = (dict(self.pr, number=n, head=str(n) * 40) for n in (1, 2, 3))
+        with patch.object(main, 'collect', return_value=([one, two, three], [one, two, three], [one, two, three])):
+            with patch.object(main, 'evaluate_snapshots', return_value=[dict(self.result, number=n, head=str(n) * 40)
+                                                                        for n in (1, 2, 3)]):
+                with patch.object(main, 'publish', side_effect=[main.GitHubError('boom'), None, None]) as publish:
+                    with patch.object(main, 'GitHub', return_value=self.api):
+                        with patch('sys.stderr', new_callable=io.StringIO):
+                            with self.assertRaises(main.GitHubError) as failure:
+                                main.run(['sync', '--repo', 'dashpay/platform'])
+        self.assertEqual(publish.call_count, 3, 'the two after the failure still ran')
+        self.assertIn('#1', str(failure.exception))
+
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)
         result = dict(self.result, state='draft', status='pending')
@@ -347,7 +452,7 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in self.api.snapshot.call_args_list],[6])
 
     def test_noop_success_rechecks_reviews_after_admission_history_reads(self):
-        self.pr['controller_state'] = main.state_record(self.pr,self.result,main.context_fingerprint([self.pr]))
+        self.pr['controller_state'] = main.state_record(self.pr,self.result,main.context_fingerprint([self.pr], self.pr['author']))
         changed = dict(self.pr,reviews=[{'id':9,'state':'DISMISSED'}])
         self.api.snapshot.side_effect = [self.pr,changed]
         with patch.object(main,'load_histories',return_value=[self.pr]), patch.object(main,'evaluate',return_value=self.result):

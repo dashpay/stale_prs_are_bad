@@ -1,6 +1,6 @@
 # PR Hygiene architecture
 
-Every governed repository's policy lives in this repository under `policies/<name>.json`, registered in `policies/repositories.json`. The shared Python evaluator (`pr_review/`) implements the policy and is pinned by commit in each caller; the policy itself is read live from this repository's protected default branch, so an ownership change is one reviewed PR here. Each repository's CODEOWNERS is generated from the same manifest. CODEOWNERS requests native reviews but does not express the complete owner/reviewer distinction. The custom status supplies that distinction alongside existing GitHub protections. It reports success while a pull request is progressing, with its state in the description, and reports an error only for a configuration problem someone must fix; a pull request that is merely waiting is not a failed check. Requiring the status as a merge gate would need that mapping revisited.
+Every governed repository's policy lives in this repository under `policies/<name>.json`, registered in `policies/repositories.json`. The shared Python evaluator (`pr_review/`) implements the policy and is pinned by commit in each caller; the policy itself is read live from this repository's protected default branch, so an ownership change is one reviewed PR here. Each repository's CODEOWNERS is generated from the same manifest as a file with no rules, on purpose: a rule there has GitHub request every owner the moment a pull request is opened, before the bots or the author have read it, and nothing short of a rules-free file switches that off. The file points at the policy so whoever looks for it finds the answer. The `PR Hygiene` status is the merge gate. It passes only when the policy is satisfied (`ready-to-merge`), is pending in every waiting state, and is an error only for a configuration problem someone must fix; a pull request that is merely waiting is not a failed check. GitHub's own approval count on governed branches is zero, so the policy — bots, attestation, green build, and an eligible owner's approval where the author does not own every area touched — is the one thing that decides whether a pull request can merge.
 
 ## Ownership and repository boundaries
 
@@ -18,7 +18,7 @@ The repository registry covers:
 | `dashpay/grovedb` | Whole-repository owner QuantumExplorer |
 | `dashpay/dash-evo-tool` | Whole-repository owner lklimek |
 
-Contributor and QA sheet roles are not automatically promoted to owner or reviewer. Uncertain sheet entries are recorded as activation blockers in the manifests and operations guide. No broad existing team receives write access to satisfy CODEOWNERS.
+Contributor and QA sheet roles are not automatically promoted to owner or reviewer. Uncertain sheet entries are recorded as activation blockers in the manifests and operations guide. No broad existing team receives write access; CODEOWNERS carries no rules, so it needs none.
 
 ## Local enforcement
 

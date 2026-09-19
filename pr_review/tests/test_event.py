@@ -40,6 +40,17 @@ class EventTests(unittest.TestCase):
                                  [['--batch-size', '6']])
         self.assertIn('Unrecognised schedule', err.getvalue())
 
+    def test_a_dispatch_can_ask_for_every_governed_pull_request(self):
+        # The sweep's rotation takes hours to reach them all; when what the
+        # status means changes, every head must carry a current answer first.
+        with patch.dict(os.environ, {'PR_REVIEW_SCOPE': 'all'}):
+            self.assertEqual(selections('workflow_dispatch', {}), [[]], 'no selector: everything')
+        with patch.dict(os.environ, {'PR_REVIEW_SCOPE': 'batch'}):
+            self.assertEqual(selections('workflow_dispatch', {}), [['--batch-size', '6']])
+        with patch.dict(os.environ, {'PR_REVIEW_SCOPE': 'all'}):
+            self.assertEqual(selections('schedule', {'schedule': '17 * * * *'}), [['--batch-size', '6']],
+                             'only a dispatch can ask for everything')
+
     def test_event_number_only_selects_freshly_refetched_pr(self):
         self.assertEqual(selections('issue_comment',{'issue':{'number':44,'pull_request':{}}}),[['--pr','44']])
         self.assertEqual(selections('issue_comment',{'issue':{'number':44}}),[])

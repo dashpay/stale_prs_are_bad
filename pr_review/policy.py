@@ -36,9 +36,15 @@ def _handles(values, nonempty=False):
     for handle in values:
         if not isinstance(handle, str) or not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?', handle):
             raise ValueError('Malformed GitHub handle')
-        if handle.lower() in seen or handle.lower() in {'strophy', 'silvanassss'}:
+        if handle.lower() in seen or handle.lower() in {'strophy', 'silvanassss'} | BOTS | {'copilot', 'dependabot'}:
             raise ValueError('Duplicate or excluded identity')
         seen.add(handle.lower())
+
+
+def missing_paths(policy, root: Path):
+    """Policy directories that are not in this checkout of the governed repository."""
+    return sorted(prefix for area in policy['areas'] for prefix in area['paths']
+                  if not (root / prefix).is_dir())
 
 
 def validate_policy(policy, root: Path | None = None):
@@ -96,21 +102,26 @@ def validate_policy(policy, root: Path | None = None):
 
 
 def codeowners(policy):
+    """A CODEOWNERS file with no rules, on purpose.
+
+    A CODEOWNERS with rules makes GitHub request every owner the moment a pull
+    request is opened, before the bots have reported or the author has read the
+    diff — the noise this controller exists to prevent, and nothing switches it
+    off short of a rules-free file. The file stays so anyone looking for who
+    reviews what finds the answer.
+    """
     validate_policy(policy)
     name = policy['repository'].split('/')[1]
-    lines = [f'# Generated from dashpay/stale_prs_are_bad policies/{name}.json; do not edit by hand.',
-             '# Owners and reviewers are combined here for native review routing.']
-    # GitHub honours only the last matching pattern, so a whole-repository area
-    # would silently override a preceding fallback `*` line; emit one or the other.
-    if not any('' in area['paths'] and (area['owners'] or area['reviewers']) for area in policy['areas']):
-        lines.append('* ' + ' '.join('@' + x for x in policy['fallback']['owners'] + policy['fallback']['reviewers']))
-    for area in policy['areas']:
-        if area.get('unresolved'):
-            lines.append('# Unresolved ownership or reviewer identities; see responsibility documentation.')
-        people = ' '.join('@' + x for x in area['owners'] + area['reviewers'])
-        if people:
-            lines.extend(('/' + path if path else '*') + ' ' + people for path in area['paths'])
-    return '\n'.join(lines) + '\n'
+    return '\n'.join([
+        f'# Generated from dashpay/stale_prs_are_bad policies/{name}.json; do not edit by hand.',
+        '#',
+        '# Review routing for this repository is controlled by PR Hygiene:',
+        f'#   https://github.com/dashpay/stale_prs_are_bad/blob/master/policies/{name}.json',
+        '#',
+        '# This file has no rules on purpose. Reviewers are requested by the policy',
+        '# once the bots have reported and the author has self-reviewed, not by',
+        '# GitHub the moment a pull request is opened.',
+    ]) + '\n'
 
 
 def effective_admission(pr):
@@ -263,14 +274,16 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                   ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None,
                   nudge=[], waived=[])
 
-    # A pull request that is progressing normally reports success with its state
-    # in the description: a permanently amber check reads as something broken.
-    # Only a configuration problem someone must fix is not green.
+    # This status is a required check, so it passes only when the policy is
+    # satisfied. Everything still waiting is pending — not red, because an
+    # open pull request spends most of its life waiting and red the whole way
+    # would hide the one red that matters — and only a configuration problem
+    # someone must fix is an error.
     # A waiver is reported wherever the pull request ends up, not only where it
     # was granted: whoever reads the status has to know a bot was given up on.
     notes = []
 
-    def stop(state, *reasons, status='success'):
+    def stop(state, *reasons, status='pending'):
         result.update(state=state, status=status, blockers=list(reasons) + notes)
         return result
 
@@ -286,9 +299,8 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             return stop('configuration-error', 'PR is outside the active policy scope')
         if pr['draft']:
             return stop('draft', 'Draft PR does not occupy a review slot')
-        if not admitted_at:
-            return stop('waiting-slot', 'Waiting for one of five author review slots')
-        _time(admitted_at)
+        if admitted_at:
+            _time(admitted_at)
         if not pr['files']:
             return stop('configuration-error', 'No changed-file evidence', status='error')
         touched = {}
@@ -383,6 +395,11 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 continue
             if _time(comment['created_at']) > _time(floor):
                 attestations.append(comment['created_at'])
+        if not attestations and pr.get('author_is_bot'):
+            # Copilot and dependabot cannot post an attestation. Their pull
+            # requests never own an area, so the eligible approval they need
+            # anyway is what stands in for it.
+            attestations = [seen or completed]
         if not attestations:
             return stop('waiting-self-review', 'Author must post /self-reviewed ' + pr['head'] + ' after bot completion')
         self_time = max(attestations,key=_time)
@@ -392,11 +409,16 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             if user not in BOTS and _may_object(permissions, user) and review['state'].upper() == 'CHANGES_REQUESTED':
                 objectors[user] = review['submitted_at']
         for thread in pr['threads']:
-            if not thread['is_resolved'] and thread['author'].lower() not in BOTS:
-                user = thread['author'].lower()
-                if not _may_object(permissions, user):
+            if thread['is_resolved'] or thread['author'].lower() in BOTS:
+                continue
+            # Everyone who spoke in the thread, not only whoever opened it: an
+            # author's own thread carrying a reviewer's objection in reply is
+            # that reviewer's objection. The author's own words are not one.
+            for voice in thread.get('voices') or [dict(user=thread['author'], created_at=thread['created_at'])]:
+                user = voice['user'].lower()
+                if user in BOTS or user == pr['author'].lower() or not _may_object(permissions, user):
                     continue
-                objectors[user] = max(objectors.get(user, thread['created_at']), thread['created_at'],key=_time)
+                objectors[user] = max(objectors.get(user, voice['created_at']), voice['created_at'], key=_time)
         if any(_time(value) >= _time(self_time) for value in objectors.values()):
             return stop('waiting-author', 'Author response is required after the latest human objection')
         author = pr['author'].lower()
@@ -409,6 +431,11 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 needed.update(eligible)
         needed.update(u for u in objectors if u != author and _may_object(permissions, u) and u not in BOTS)
         if needed or objectors:
+            if not admitted_at:
+                # Five at a time per author is a limit on human attention, so
+                # it applies here, where a human would be asked, and not to a
+                # pull request that needs none.
+                return stop('waiting-slot', 'Waiting for one of five author review slots')
             previous = pr.get('controller_state') or {}
             # Latching on the recorded state, not on ready_since: a pull request
             # can be ready with no ready_since yet, on the first run that makes
@@ -434,6 +461,12 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             elif previous.get('admitted_at'):
                 result['ready_since'] = nowISO
             return stop('ready-for-human', 'Human approval or objection resolution is required')
-        return stop('ready-to-merge', status='success')
+        build = pr['build']
+        if build != 'green':
+            # The owner path asks no human, so nothing else looks at the build.
+            return stop('waiting-build',
+                        'The build must pass before this can merge' if build == 'failed'
+                        else 'Waiting for the build to finish')
+        return stop('ready-to-merge', 'All policy requirements are satisfied', status='success')
     except (ValueError, TypeError, KeyError) as error:
         return stop('configuration-error', str(error), status='error')

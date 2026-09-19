@@ -33,6 +33,12 @@ def selections(kind, event):
             # so rather than quietly sweeping four times an hour.
             print(f'Unrecognised schedule {fired!r}; treating it as the sweep. '
                   f'Re-pin this repository if its crons have moved.', file=sys.stderr)
+    if kind == 'workflow_dispatch' and os.environ.get('PR_REVIEW_SCOPE') == 'all':
+        # Every governed pull request in one run. The sweep's rotation takes
+        # hours to reach them all, and there are moments — a change to what
+        # the status means, a policy that now governs another branch — when
+        # every head has to carry a current answer before anything else moves.
+        return [[]]
     if kind in {'schedule', 'push', 'workflow_dispatch'}:
         # The sweep repairs what events missed. It runs hourly now, so it covers
         # more per run to keep a large repository's rotation inside a day.
