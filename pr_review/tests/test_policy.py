@@ -146,6 +146,15 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review',
                          'a human author with no attestation still has to give one')
 
+    def test_a_reviewers_objection_inside_the_authors_thread_still_counts(self):
+        # The author opens a thread; a reviewer replies objecting. Reading
+        # only who opened it dropped the objection — and as the gate, merged.
+        p, pr = fixture()
+        pr['threads'] = [dict(id=9, author='owner', is_resolved=False, created_at='2026-09-11T11:00:00Z',
+                              voices=[dict(user='owner', created_at='2026-09-11T11:00:00Z'),
+                                      dict(user='reviewer', created_at='2026-09-11T12:00:00Z')])]
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-author')
+
     def test_an_authors_own_thread_is_not_an_objection(self):
         # It made the author an objector to their own pull request, which then
         # asked for a human with nobody to name — and, as the gate, would have

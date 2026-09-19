@@ -409,11 +409,16 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             if user not in BOTS and _may_object(permissions, user) and review['state'].upper() == 'CHANGES_REQUESTED':
                 objectors[user] = review['submitted_at']
         for thread in pr['threads']:
-            if not thread['is_resolved'] and thread['author'].lower() not in BOTS | {pr['author'].lower()}:
-                user = thread['author'].lower()
-                if not _may_object(permissions, user):
+            if thread['is_resolved'] or thread['author'].lower() in BOTS:
+                continue
+            # Everyone who spoke in the thread, not only whoever opened it: an
+            # author's own thread carrying a reviewer's objection in reply is
+            # that reviewer's objection. The author's own words are not one.
+            for voice in thread.get('voices') or [dict(user=thread['author'], created_at=thread['created_at'])]:
+                user = voice['user'].lower()
+                if user in BOTS or user == pr['author'].lower() or not _may_object(permissions, user):
                     continue
-                objectors[user] = max(objectors.get(user, thread['created_at']), thread['created_at'],key=_time)
+                objectors[user] = max(objectors.get(user, voice['created_at']), voice['created_at'], key=_time)
         if any(_time(value) >= _time(self_time) for value in objectors.values()):
             return stop('waiting-author', 'Author response is required after the latest human objection')
         author = pr['author'].lower()

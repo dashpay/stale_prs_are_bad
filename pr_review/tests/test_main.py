@@ -312,8 +312,15 @@ class PublicationTests(unittest.TestCase):
         before = main.context_fingerprint([mine, theirs], 'me')
         theirs_pushed = dict(theirs, head='c' * 40)
         self.assertEqual(main.context_fingerprint([mine, theirs_pushed], 'me'), before)
+        # Nor does the author's own push to a different pull request: a slot
+        # depends on which of their pull requests are open and not drafts, not
+        # on what any of them currently points at.
         mine_pushed = dict(mine, head='d' * 40)
-        self.assertNotEqual(main.context_fingerprint([mine_pushed, theirs], 'me'), before)
+        self.assertEqual(main.context_fingerprint([mine_pushed, theirs], 'me'), before)
+        mine_drafted = dict(mine, draft=True)
+        self.assertNotEqual(main.context_fingerprint([mine_drafted, theirs], 'me'), before)
+        mine_closed = dict(mine, state='closed')
+        self.assertNotEqual(main.context_fingerprint([mine_closed, theirs], 'me'), before)
 
     def test_a_surplus_of_admissions_heals_instead_of_erroring_the_author(self):
         # Two runs reconciling two pull requests of one author can both admit
@@ -365,6 +372,22 @@ class PublicationTests(unittest.TestCase):
         body = main.state_body(dict(self.result, head='f' * 40))
         self.assertNotIn('does not bypass', body)
         self.assertIn('passes when the policy is satisfied', body)
+
+    def test_a_pass_gives_every_pull_request_its_turn_before_failing(self):
+        # Stopping at the first failure left the rest with whatever status
+        # they had — on a full pass, possibly a passing one from before the
+        # check became the gate. Every one is attempted; then the run fails.
+        one, two, three = (dict(self.pr, number=n, head=str(n) * 40) for n in (1, 2, 3))
+        with patch.object(main, 'collect', return_value=([one, two, three], [one, two, three], [one, two, three])):
+            with patch.object(main, 'evaluate_snapshots', return_value=[dict(self.result, number=n, head=str(n) * 40)
+                                                                        for n in (1, 2, 3)]):
+                with patch.object(main, 'publish', side_effect=[main.GitHubError('boom'), None, None]) as publish:
+                    with patch.object(main, 'GitHub', return_value=self.api):
+                        with patch('sys.stderr', new_callable=io.StringIO):
+                            with self.assertRaises(main.GitHubError) as failure:
+                                main.run(['sync', '--repo', 'dashpay/platform'])
+        self.assertEqual(publish.call_count, 3, 'the two after the failure still ran')
+        self.assertIn('#1', str(failure.exception))
 
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)

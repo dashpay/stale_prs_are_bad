@@ -33,7 +33,9 @@ def context_fingerprint(prs, author):
     active repository something moves every few minutes. Only the author's own
     pull requests decide their slots.
     """
-    fields = ('number', 'head', 'base', 'base_sha', 'draft', 'state')
+    # The fields admit() reads and no others: a push to another of the
+    # author's pull requests changes its head, and their slots not at all.
+    fields = ('number', 'base', 'draft', 'state')
     values = [tuple(pr.get(k) for k in fields) for pr in prs if pr['author'].lower() == author.lower()]
     return hashlib.sha256(json.dumps(sorted(values), sort_keys=True).encode()).hexdigest()
 
@@ -509,6 +511,7 @@ def run(argv=None):
     payload = telemetry.fetch() if policy.get('bot_timeouts') else None
     rows = evaluate_snapshots(policy, context, candidates, snapshots, now, payload)
     nudged = 0
+    failed = []
     for pr, result in zip(snapshots, rows):
         if args.command == 'sync':
             try:
@@ -521,10 +524,20 @@ def run(argv=None):
                     for candidate in candidates:
                         if candidate['number'] == pr['number']:
                             candidate['controller_state'] = written
-            except GitHubError:
+            except GitHubError as error:
+                # Every pull request selected gets its turn. Stopping at the
+                # first failure left the rest with whatever status they had —
+                # on a full pass, possibly a passing one from before the check
+                # became the gate.
+                failed.append(pr['number'])
+                print(f"PR #{pr['number']}: {error}", file=sys.stderr)
                 if args.apply:
-                    api.post_status(pr['head'], 'error', 'Policy reconciliation failed; inspect workflow log')
-                raise
+                    try:
+                        api.post_status(pr['head'], 'error', 'Policy reconciliation failed; inspect workflow log')
+                    except GitHubError:
+                        print(f"PR #{pr['number']}: unable to publish the failure either", file=sys.stderr)
+    if failed:
+        raise GitHubError(f"reconciliation failed for {', '.join(f'#{n}' for n in failed)}")
     rows.sort(key=lambda r: (r['state'] != 'ready-for-human', r.get('ready_since') or now, r['number']))
     if args.format == 'json':
         print(json.dumps({'generated_at': now, 'pull_requests': selected_rows(rows, args.user)}, indent=2))
