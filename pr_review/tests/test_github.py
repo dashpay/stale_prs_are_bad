@@ -147,6 +147,18 @@ class BuildVerdictTests(unittest.TestCase):
                  dict(check("build", "SUCCESS", "2"), checkSuite=None)]
         self.assertEqual(build_verdict(nodes), "failed")
 
+    def test_the_snapshot_says_whether_the_author_is_a_bot(self):
+        # A bot author cannot attest, and the policy has to know that from the
+        # snapshot rather than guess from a login.
+        api = GitHub("dashpay/platform")
+        raw = {"number": 1, "user": {"login": "Copilot", "type": "Bot"}, "head": {"sha": "a" * 40},
+               "base": {"ref": "v4.2-dev", "sha": "b" * 40}, "draft": False, "state": "open",
+               "created_at": "2026-09-11T00:00:00Z", "html_url": "https://github.com/dashpay/platform/pull/1",
+               "title": "t"}
+        self.assertTrue(GitHub._pr(raw)["author_is_bot"])
+        raw["user"]["type"] = "User"
+        self.assertFalse(GitHub._pr(raw)["author_is_bot"])
+
     def test_someone_the_listing_omits_is_asked_about_directly(self):
         # An organisation's own members reach a repository through the
         # organisation, and a repository-scoped token does not enumerate them.

@@ -8,6 +8,11 @@ HEAD = 'a' * 40
 NOW = '2026-09-11T12:00:00Z'
 
 
+def rules(text):
+    """CODEOWNERS lines that GitHub would act on."""
+    return [line for line in text.splitlines() if line.strip() and not line.startswith('#')]
+
+
 def fixture():
     policy = dict(version=1, repository='dashpay/platform', max_active_prs=5,
                   target_branches=['v4.2-dev'], fallback={'owners': ['fallback'], 'reviewers': []},
@@ -112,6 +117,44 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(result['state'], 'configuration-error')
         self.assertEqual(result['blockers'], ['Cannot verify write access for owner'])
 
+    def test_the_owner_path_also_needs_a_green_build(self):
+        # An owner's pull request asks no human, so nothing else ever looks at
+        # the build. Before this check was the gate an approver would; now the
+        # check is the only thing standing between a red build and a merge.
+        p, pr = fixture()
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
+        for build, state in [('failed', 'waiting-build'), ('running', 'waiting-build'), ('green', 'ready-to-merge')]:
+            pr['build'] = build
+            result = evaluate(p, pr, NOW, NOW)
+            self.assertEqual(result['state'], state, build)
+            self.assertEqual(result['status'], 'success' if state == 'ready-to-merge' else 'pending', build)
+
+    def test_a_bot_author_is_not_asked_to_attest(self):
+        # Copilot and dependabot cannot post /self-reviewed, so a pull request
+        # of theirs would wait for an attestation for ever. They never own an
+        # area, so the approval they need anyway stands in for it.
+        p, pr = fixture()
+        pr['author'] = 'Copilot'
+        pr['author_is_bot'] = True
+        pr['comments'] = []
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human')
+        self.assertTrue(result['reviewers'], 'a human is asked, not an attestation')
+        pr['reviews'].append(dict(id=4, user='owner', state='APPROVED', commit_id=HEAD, submitted_at=NOW, body=''))
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
+        pr['author_is_bot'] = False
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review',
+                         'a human author with no attestation still has to give one')
+
+    def test_an_authors_own_thread_is_not_an_objection(self):
+        # It made the author an objector to their own pull request, which then
+        # asked for a human with nobody to name — and, as the gate, would have
+        # held the pull request with no one able to release it.
+        p, pr = fixture()
+        pr['threads'] = [dict(id=9, author='owner', is_resolved=False, created_at=NOW, body='note to self')]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-to-merge')
+
     def test_missing_build_evidence_is_not_a_pass(self):
         # A repository with no CI reads green from the snapshot, which is what
         # keeps it moving; evidence that never arrived is a different thing and
@@ -172,17 +215,29 @@ class PolicyTests(unittest.TestCase):
                 validate_policy(dict(p, required_bots=value))
         validate_policy(dict(p, required_bots=[]))
 
-    def test_progress_is_green_and_only_a_configuration_problem_is_not(self):
+    def test_only_a_satisfied_policy_passes_the_check(self):
+        # This status is a required check, so it can pass only when the policy
+        # is satisfied. Anything still waiting is pending — not red, because
+        # every open pull request would be red most of its life — and only a
+        # configuration problem someone must fix is an error.
         p, pr = fixture()
-        pr['reviews'] = []
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
-        pr['draft'] = True
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
-        pr['draft'] = False
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success', 'the owner path, satisfied')
+        for shape in [dict(reviews=[], author='reviewer'), dict(draft=True), dict(build='running')]:
+            q, waiting = fixture()
+            waiting.update(shape)
+            if 'author' in shape:
+                waiting['comments'][0]['user'] = shape['author']
+            result = evaluate(q, waiting, NOW, NOW)
+            self.assertEqual(result['status'], 'pending', shape)
+            self.assertNotEqual(result['state'], 'ready-to-merge', shape)
         p['areas'][0]['unresolved'] = ['Owner: unknown']
         result = evaluate(p, pr, NOW, NOW)
         self.assertEqual((result['state'], result['status']), ('configuration-error', 'error'))
 
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        pr['comments'][0]['body'] = '/self-reviewed'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
     def test_bare_self_review_covers_everything_pushed_so_far(self):
         p, pr = fixture()
         pr['head_seen_at'] = '2026-09-11T09:00:00Z'
@@ -255,19 +310,31 @@ class PolicyTests(unittest.TestCase):
         pr['author'] = pr['comments'][0]['user'] = 'reviewer'
         review = dict(id=4,user='owner',state='APPROVED',commit_id=HEAD,submitted_at=NOW,body='')
         pr['reviews'].append(review)
-        self.assertEqual(evaluate(p,pr,NOW,NOW)['status'], 'success')
+        self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'ready-to-merge')
         review['state'] = 'DISMISSED'
-        self.assertEqual(evaluate(p,pr,NOW,NOW)['status'], 'success')
+        self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'ready-for-human')
         review.update(state='APPROVED',commit_id='c'*40)
-        self.assertEqual(evaluate(p,pr,NOW,NOW)['status'], 'success')
+        self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'ready-for-human')
 
+        p, pr = fixture()
+        prs = [dict(copy.deepcopy(pr),number=n) for n in range(1,7)]
+        prs[-1]['controller_state'] = {'admitted_at':'2026-09-10T01:00:00Z'}
+        slots = admit(p,prs,NOW)
+        self.assertEqual(set(slots), {1,2,3,4,6})
     def test_sixth_waits_without_blocking_admitted_five(self):
         p, pr = fixture()
         prs = [dict(copy.deepcopy(pr),number=n) for n in range(1,7)]
         prs[-1]['controller_state'] = {'admitted_at':'2026-09-10T01:00:00Z'}
         slots = admit(p,prs,NOW)
         self.assertEqual(set(slots), {1,2,3,4,6})
-        self.assertEqual(evaluate(p,prs[4],slots.get(5),NOW)['state'], 'waiting-slot')
+        # The five slots limit human attention. The sixth waits for one only
+        # when it needs a human; the fixture's author owns what it touches, so
+        # it needs none and merges without taking a slot from the others.
+        self.assertEqual(evaluate(p,prs[4],slots.get(5),NOW)['state'], 'ready-to-merge')
+        prs[4]['author'] = prs[4]['comments'][0]['user'] = 'reviewer'
+        sixth = evaluate(p,prs[4],slots.get(5),NOW)
+        self.assertEqual(sixth['state'], 'waiting-slot')
+        self.assertEqual(sixth['reviewers'], [], 'nobody is asked while it waits')
 
     def test_incomplete_or_unresolved_never_succeeds(self):
         p, pr = fixture()
@@ -287,7 +354,6 @@ class PolicyTests(unittest.TestCase):
     def test_validation_rejects_overlap_and_excluded_identity(self):
         p, _ = fixture()
         validate_policy(p)
-        self.assertIn('* @fallback',codeowners(p))
         p['areas'][0]['paths'].append('packages/drive/nested/')
         with self.assertRaises(ValueError): validate_policy(p)
         p, _ = fixture()
@@ -410,7 +476,7 @@ class PolicyTests(unittest.TestCase):
         pr['files'] = [{'filename': 'README.md', 'previous_filename': 'nested/old.md'}]
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['status'], 'success')
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['areas'], ['drive'])
-        self.assertEqual(codeowners(policy).splitlines()[-1], '* @owner @reviewer')
+        self.assertEqual(rules(codeowners(policy)), [])
 
     def test_whole_repository_prefix_cannot_overlap_other_areas(self):
         policy, _ = fixture()
@@ -426,13 +492,13 @@ class PolicyTests(unittest.TestCase):
         result = evaluate(policy, pr, NOW, NOW)
         self.assertEqual(result['status'], 'error')
         self.assertIn('Unresolved identities in drive', result['blockers'])
-        self.assertEqual(codeowners(policy).splitlines()[-1], '/packages/drive/ @reviewer')
+        self.assertEqual(rules(codeowners(policy)), [])
 
     def test_empty_unresolved_area_never_emits_native_owner_suppression(self):
         policy, _ = fixture()
         policy['areas'][0].update(paths=[''], owners=[], reviewers=[], unresolved=['Owner missing'])
         validate_policy(policy)
-        self.assertEqual([line for line in codeowners(policy).splitlines() if not line.startswith('#')], ['* @fallback'])
+        self.assertEqual(rules(codeowners(policy)), [])
 
     def test_empty_owner_without_explicit_gap_is_rejected(self):
         for unresolved in [None, [], [''], 'missing']:

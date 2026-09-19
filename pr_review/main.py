@@ -12,7 +12,7 @@ import sys
 
 from . import telemetry
 from .github import GitHub, GitHubError, parse_controller_state
-from .policy import (NUDGE_MARKER, admit, codeowners, effective_admission, evaluate, fingerprint,
+from .policy import (NUDGE_MARKER, admit, codeowners, effective_admission, evaluate, fingerprint, missing_paths,
                      validate_policy)
 from .registry import POLICIES, entry_for, load_registry, policy_path
 
@@ -25,9 +25,16 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
 
-def context_fingerprint(prs):
-    fields = ('number', 'author', 'head', 'base', 'base_sha', 'draft', 'state')
-    values = [tuple(pr.get(k) for k in fields) for pr in prs]
+def context_fingerprint(prs, author):
+    """What this author's admission depends on, and nothing more.
+
+    Hashing every open pull request made any push anywhere in the repository
+    during a run demote the pull request being published to pending, and on an
+    active repository something moves every few minutes. Only the author's own
+    pull requests decide their slots.
+    """
+    fields = ('number', 'head', 'base', 'base_sha', 'draft', 'state')
+    values = [tuple(pr.get(k) for k in fields) for pr in prs if pr['author'].lower() == author.lower()]
     return hashlib.sha256(json.dumps(sorted(values), sort_keys=True).encode()).hexdigest()
 
 
@@ -162,7 +169,7 @@ def state_body(result):
         '', *[f'- {reason}' for reason in reasons],
         '', 'Self-review is an author attestation that you have read the diff:',
         '`/self-reviewed`  — covers everything pushed so far; post it again after a new push.',
-        '', 'This report does not bypass CI or repository protection rules.',
+        '', 'This check passes when the policy is satisfied; the repository decides whether merging requires it.',
     ])
 
 
@@ -202,7 +209,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
 
     def admission_valid(expected):
         current_prs = api.open_prs()
-        if context_fingerprint(current_prs) != context:
+        if context_fingerprint(current_prs, pr['author']) != context:
             return False
         # Only this author's histories can change this PR's admission decision.
         relevant = [p for p in current_prs if p['base'] in policy['target_branches']
@@ -211,8 +218,6 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         baseline = [p for p in expected if p['author'].lower() == pr['author'].lower()]
         if admission_fingerprint(histories) != admission_fingerprint(baseline):
             return False
-        if pr['author'].lower() in admission_conflicts(policy, histories):
-            return result['status'] != 'success'
         slots = admit(policy, histories, result.get('admitted_at') or utc_now())
         return slots.get(pr['number']) == result.get('admitted_at')
 
@@ -224,7 +229,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
 
     if not identity_matches():
         return
-    context = context_fingerprint(context_prs)
+    context = context_fingerprint(context_prs, pr['author'])
     if actionable and fingerprint(api.snapshot(pr['number'], policy)) != fingerprint(pr):
         api.post_status(pr['head'], 'pending', 'Review evidence changed; reconciliation required')
         return
@@ -373,15 +378,16 @@ def evaluate_snapshots(policy, context, candidates, snapshots, now, payload=None
     """Use the same policy decisions for local enforcement and combined reports."""
     states = telemetry_states(policy, snapshots, now, payload)
     admissions = admit(policy, candidates, now)
-    conflicts = admission_conflicts(policy, candidates)
+    # More than five persisted admissions is a race between two runs for one
+    # author. admit() keeps the five oldest, deterministically, and the surplus
+    # returns to waiting for a slot on its next write — marking the whole
+    # queue an error instead held every pull request of that author.
+    for author in sorted(admission_conflicts(policy, candidates)):
+        print(f'{author}: more than five persisted admissions; keeping the five oldest', file=sys.stderr)
     rows = []
     head_counts = Counter(pr['head'] for pr in context)
     for pr in snapshots:
         result = evaluate(policy, pr, admissions.get(pr['number']), now, states.get(pr['number']))
-        if pr['author'].lower() in conflicts:
-            result.update(state='configuration-error', status='error', reviewers=[], ready_since=None)
-            result['admitted_at'] = effective_admission(pr)
-            result['blockers'].append('More than five persisted author admissions; repair inconsistent history explicitly')
         if head_counts[pr['head']] > 1:
             result.update(state='configuration-error', status='error', reviewers=[], ready_since=None)
             result['blockers'].append('Another open PR shares this head; commit-scoped status is ambiguous')
@@ -429,7 +435,14 @@ def run(argv=None):
         registry = load_registry(args.policies_root)
         source = args.policy or policy_path(args.policies_root, entry_for(registry, args.repo))
         policy = json.loads(source.read_text())
-        validate_policy(policy, repository_root)
+        validate_policy(policy, repository_root if args.command == 'validate' else None)
+        if repository_root is not None and args.command != 'validate':
+            # The dedicated validate step reports a missing directory. Failing
+            # the reconcile over it too would mark every open pull request an
+            # error — and, as a required check, unmergeable — until a policy
+            # change lands, for a directory someone has legitimately removed.
+            for gone in missing_paths(policy, repository_root):
+                print(f'Policy path {gone} is not in the target tree; reconciling anyway', file=sys.stderr)
         if policy['repository'] != args.repo:
             raise ValueError('Repository must match the registered policy')
     except (ValueError, OSError):

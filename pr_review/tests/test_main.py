@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import io
 import unittest
 from unittest.mock import Mock, patch
 
@@ -284,6 +285,70 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(body.count('f' * 40), 1)
         self.assertNotIn('f' * 40, body.split('Self-review')[1])
 
+    def test_someone_elses_push_does_not_demote_a_ready_pull_request(self):
+        # The admission context used to be every open pull request in the
+        # repository, so a push anywhere during a run sent the one being
+        # published back to pending — and on a busy repository something moves
+        # every few minutes. Only the author's own pull requests decide slots.
+        mine = dict(self.pr, number=1, author='me', head='a' * 40)
+        theirs = dict(self.pr, number=2, author='someone', head='b' * 40)
+        before = main.context_fingerprint([mine, theirs], 'me')
+        theirs_pushed = dict(theirs, head='c' * 40)
+        self.assertEqual(main.context_fingerprint([mine, theirs_pushed], 'me'), before)
+        mine_pushed = dict(mine, head='d' * 40)
+        self.assertNotEqual(main.context_fingerprint([mine_pushed, theirs], 'me'), before)
+
+    def test_a_surplus_of_admissions_heals_instead_of_erroring_the_author(self):
+        # Two runs reconciling two pull requests of one author can both admit
+        # past the check. Six persisted admissions then marked every pull
+        # request of that author an error — under a required check, an outage
+        # for that person. admit() keeps the five oldest; the sixth waits.
+        from pr_review.tests.test_policy import fixture
+        policy, base = fixture()
+        prs = [dict(copy.deepcopy(base), number=n, author='busy', head=str(n) * 40,
+                    controller_state=dict(admitted_at=f'2026-09-10T0{n}:00:00Z', head=str(n) * 40,
+                                          state='waiting-bots', ready_since=None))
+               for n in range(1, 7)]
+        for pr in prs:
+            pr['comments'][0]['user'] = 'busy'
+        with patch.object(main, 'evaluate', side_effect=lambda p, pr, admitted, now, states=None:
+                          dict(state='ready-to-merge' if admitted else 'waiting-slot', status='success' if admitted else 'pending',
+                               blockers=[], reviewers=[], head=pr['head'], number=pr['number'],
+                               admitted_at=admitted, ready_since=None)):
+            rows = main.evaluate_snapshots(policy, prs, prs, prs, NOW)
+        states = {row['number']: row['state'] for row in rows}
+        self.assertNotIn('configuration-error', states.values())
+        self.assertEqual(states[6], 'waiting-slot', 'the newest admission is the one that yields')
+        self.assertEqual([n for n, s in states.items() if s == 'ready-to-merge'], [1, 2, 3, 4, 5])
+
+    def test_a_policy_directory_gone_from_the_tree_does_not_fail_the_sweep(self):
+        # The validate step reports it. Failing the reconcile too marked every
+        # open pull request an error — as the gate, unmergeable — until a policy
+        # change landed, over a directory someone legitimately removed.
+        import tempfile
+        from pr_review.policy import missing_paths
+        policy = json.loads(Path('policies/platform.json').read_text())
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            for area in policy['areas'][1:]:
+                for prefix in area['paths']:
+                    (root / prefix).mkdir(parents=True, exist_ok=True)
+            gone = policy['areas'][0]['paths']
+            self.assertEqual(missing_paths(policy, root), sorted(gone))
+            with patch('sys.stderr', new_callable=io.StringIO) as err:
+                with patch.object(main, 'collect', return_value=([], [], [])) as collect:
+                    with patch.object(main, 'GitHub'):
+                        main.run(['report', '--repo', 'dashpay/platform', '--repository-root', str(root)])
+            self.assertIn(gone[0], err.getvalue(), 'said, not fatal')
+            self.assertTrue(collect.called, 'the reconcile went ahead')
+            with self.assertRaises(ValueError):
+                main.run(['validate', '--repo', 'dashpay/platform', '--repository-root', str(root)])
+
+    def test_the_report_says_what_the_check_now_means(self):
+        body = main.state_body(dict(self.result, head='f' * 40))
+        self.assertNotIn('does not bypass', body)
+        self.assertIn('passes when the policy is satisfied', body)
+
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)
         result = dict(self.result, state='draft', status='pending')
@@ -347,7 +412,7 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in self.api.snapshot.call_args_list],[6])
 
     def test_noop_success_rechecks_reviews_after_admission_history_reads(self):
-        self.pr['controller_state'] = main.state_record(self.pr,self.result,main.context_fingerprint([self.pr]))
+        self.pr['controller_state'] = main.state_record(self.pr,self.result,main.context_fingerprint([self.pr], self.pr['author']))
         changed = dict(self.pr,reviews=[{'id':9,'state':'DISMISSED'}])
         self.api.snapshot.side_effect = [self.pr,changed]
         with patch.object(main,'load_histories',return_value=[self.pr]), patch.object(main,'evaluate',return_value=self.result):
