@@ -137,22 +137,42 @@ def collect(api, policy, number=None, apply=False, reconcile_author=False, batch
         with ThreadPoolExecutor(max_workers=4) as pool:
             # load_histories already read these comments and this transition for
             # every candidate in one query; the snapshot reuses that read.
-            snapshots = list(pool.map(lambda p: api.snapshot(
-                p['number'], policy,
-                history={'comments': p['comments'], 'lifecycle_at': p['lifecycle_at']}), requested))
+            def snapshot(p):
+                try:
+                    return api.snapshot(p['number'], policy,
+                                        history={'comments': p['comments'], 'lifecycle_at': p['lifecycle_at']})
+                except GitHubError as error:
+                    return error
+            taken = list(pool.map(snapshot, requested))
+        # Admission was decided above, from every candidate's history, so one
+        # pull request whose evidence could not be read invalidates only itself.
+        # Marking everything selected — which a full pass makes everything
+        # open — turned one rate-limited read into a repository-wide outage.
+        snapshots = []
+        for p, taken_one in zip(requested, taken):
+            if isinstance(taken_one, GitHubError):
+                print(f"PR #{p['number']}: {taken_one}; its status says so", file=sys.stderr)
+                if apply:
+                    _mark_unreadable(api, policy, p)
+                continue
+            snapshots.append(taken_one)
         return prs, candidates, snapshots
     except GitHubError:
         if apply:
             # Admission depends on all candidates, so incomplete history invalidates
             # every known active head, even when only one PR was requested.
             for pr in selected:
-                try:
-                    current = api.pull(pr['number'])
-                    if current['state'] == 'open' and current['base'] in policy['target_branches']:
-                        api.post_status(current['head'], 'error', 'Incomplete policy evidence; reconciliation required')
-                except GitHubError:
-                    print(f"PR #{pr['number']}: unable to publish evidence error status", file=sys.stderr)
+                _mark_unreadable(api, policy, pr)
         raise
+
+
+def _mark_unreadable(api, policy, pr):
+    try:
+        current = api.pull(pr['number'])
+        if current['state'] == 'open' and current['base'] in policy['target_branches']:
+            api.post_status(current['head'], 'error', 'Incomplete policy evidence; reconciliation required')
+    except GitHubError:
+        print(f"PR #{pr['number']}: unable to publish evidence error status", file=sys.stderr)
 
 
 def state_record(pr, result, context):

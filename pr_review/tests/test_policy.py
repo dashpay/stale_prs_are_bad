@@ -234,10 +234,48 @@ class PolicyTests(unittest.TestCase):
         result = evaluate(p, pr, NOW, NOW)
         self.assertEqual((result['state'], result['status']), ('configuration-error', 'error'))
 
-        p, pr = fixture()
-        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
-        pr['comments'][0]['body'] = '/self-reviewed'
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+
+    def test_a_bot_cannot_be_named_as_an_owner(self):
+        # A bot owning an area would satisfy the owner path with no human at
+        # all: the bots report, the bot author is exempt from attesting, and
+        # the check passes. validate_policy is where that has to be refused.
+        for bot in ('Copilot', 'coderabbitai', 'thepastaclaw'):
+            p, _ = fixture()
+            p['areas'][0]['owners'] = [bot]
+            with self.assertRaises(ValueError, msg=bot):
+                validate_policy(p)
+
+    def test_the_check_passes_in_exactly_one_state(self):
+        # The invariant the gate rests on. Every reachable state is driven
+        # here so that changing any one of them to success — one line — turns
+        # this red, and the test fails if a state stops being reachable.
+        def shape(**changes):
+            p, pr = fixture()
+            admitted = changes.pop('admitted', NOW)
+            if 'author' in changes:
+                pr['comments'][0]['user'] = changes['author']
+            pr.update(changes)
+            return evaluate(p, pr, admitted, NOW)
+        objection = dict(id=9, author='reviewer', is_resolved=False, created_at='2026-09-11T12:00:00Z', body='no')
+        seen = {
+            'draft': shape(draft=True),
+            'waiting-slot': shape(author='reviewer', admitted=None),
+            'waiting-bots': shape(reviews=[]),
+            'waiting-build': shape(build='running'),
+            'waiting-self-review': shape(comments=[]),
+            'waiting-author': shape(threads=[objection]),
+            'ready-for-human': shape(author='reviewer'),
+            'ready-to-merge': shape(),
+            'configuration-error': shape(complete=False),
+        }
+        for expected, result in seen.items():
+            self.assertEqual(result['state'], expected, 'the shape must reach the state it names')
+            self.assertEqual(result['status'],
+                             {'ready-to-merge': 'success', 'configuration-error': 'error'}.get(expected, 'pending'),
+                             expected)
+        self.assertEqual(set(seen), {'draft', 'waiting-slot', 'waiting-bots', 'waiting-build', 'waiting-self-review',
+                                     'waiting-author', 'ready-for-human', 'ready-to-merge', 'configuration-error'})
+
     def test_bare_self_review_covers_everything_pushed_so_far(self):
         p, pr = fixture()
         pr['head_seen_at'] = '2026-09-11T09:00:00Z'
@@ -316,11 +354,6 @@ class PolicyTests(unittest.TestCase):
         review.update(state='APPROVED',commit_id='c'*40)
         self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'ready-for-human')
 
-        p, pr = fixture()
-        prs = [dict(copy.deepcopy(pr),number=n) for n in range(1,7)]
-        prs[-1]['controller_state'] = {'admitted_at':'2026-09-10T01:00:00Z'}
-        slots = admit(p,prs,NOW)
-        self.assertEqual(set(slots), {1,2,3,4,6})
     def test_sixth_waits_without_blocking_admitted_five(self):
         p, pr = fixture()
         prs = [dict(copy.deepcopy(pr),number=n) for n in range(1,7)]

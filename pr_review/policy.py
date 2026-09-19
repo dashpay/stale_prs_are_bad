@@ -36,7 +36,7 @@ def _handles(values, nonempty=False):
     for handle in values:
         if not isinstance(handle, str) or not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?', handle):
             raise ValueError('Malformed GitHub handle')
-        if handle.lower() in seen or handle.lower() in {'strophy', 'silvanassss'}:
+        if handle.lower() in seen or handle.lower() in {'strophy', 'silvanassss'} | BOTS | {'copilot', 'dependabot'}:
             raise ValueError('Duplicate or excluded identity')
         seen.add(handle.lower())
 
@@ -274,9 +274,11 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                   ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None,
                   nudge=[], waived=[])
 
-    # A pull request that is progressing normally reports success with its state
-    # in the description: a permanently amber check reads as something broken.
-    # Only a configuration problem someone must fix is not green.
+    # This status is a required check, so it passes only when the policy is
+    # satisfied. Everything still waiting is pending — not red, because an
+    # open pull request spends most of its life waiting and red the whole way
+    # would hide the one red that matters — and only a configuration problem
+    # someone must fix is an error.
     # A waiver is reported wherever the pull request ends up, not only where it
     # was granted: whoever reads the status has to know a bot was given up on.
     notes = []

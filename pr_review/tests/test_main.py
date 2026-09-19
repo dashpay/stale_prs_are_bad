@@ -84,8 +84,10 @@ class PublicationTests(unittest.TestCase):
             with self.assertRaises(main.GitHubError):
                 main.collect(self.api,self.policy)
 
-    def test_collection_failure_revokes_known_heads_only_in_apply(self):
-        self.api.snapshot.side_effect = main.GitHubError('missing review evidence')
+    def test_unreadable_history_revokes_every_known_head_only_in_apply(self):
+        # Admission is decided from every candidate's history, so a history
+        # that cannot be read leaves no pull request's slot knowable.
+        self.api.histories.side_effect = main.GitHubError('missing history')
         with self.assertRaises(main.GitHubError):
             main.collect(self.api,self.policy,apply=True)
         self.assertEqual(self.api.post_status.call_args.args[1], 'error')
@@ -94,7 +96,22 @@ class PublicationTests(unittest.TestCase):
             main.collect(self.api,self.policy)
         self.api.post_status.assert_not_called()
 
-    def test_excess_admitted_history_is_explicit_error(self):
+    def test_unreadable_evidence_marks_only_the_pull_request_it_belongs_to(self):
+        # One rate-limited read used to mark everything selected an error —
+        # and a full pass selects everything open. Admission is already
+        # decided by then; the one pull request says so, the rest proceed.
+        other = dict(self.pr, number=2, head='b' * 40)
+        self.api.open_prs.return_value = [self.pr, other]
+        self.api.pull.side_effect = lambda n: {1: self.pr, 2: other}[n]
+        good = dict(self.pr, number=2, head='b' * 40)
+        self.api.snapshot.side_effect = lambda n, policy, history=None: (
+            good if n == 2 else (_ for _ in ()).throw(main.GitHubError('rate limited')))
+        prs, candidates, snapshots = main.collect(self.api, self.policy, apply=True)
+        self.assertEqual([s['number'] for s in snapshots], [2], 'the readable one is reconciled')
+        errors = [c for c in self.api.post_status.call_args_list if c.args[1] == 'error']
+        self.assertEqual([c.args[0] for c in errors], [self.pr['head']], 'only the unreadable head')
+
+    def test_a_surplus_of_admissions_is_detected(self):
         candidates = [dict(self.pr,number=n,controller_state={'admitted_at':NOW}) for n in range(1,7)]
         self.assertEqual(main.admission_conflicts(self.policy,candidates), {'alice'})
 

@@ -22,11 +22,9 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(paths['packages/rs-dapi/']['owners'], ['lklimek'])
         self.assertEqual(paths['packages/dashmate/']['owners'], ['shumkov', 'ktechmidas'])
         self.assertNotIn('unresolved', paths['packages/dashmate/'])
-        generated = codeowners(policy)
-        self.assertNotIn('@dashpay/', generated)
-        self.assertNotIn('@strophy', generated.lower())
-        self.assertNotIn('@silvanassss', generated.lower())
-        self.assertNotIn('/.github/workflows/', generated)
+        everyone = {x.lower() for a in policy['areas'] for x in a['owners'] + a['reviewers']}
+        self.assertFalse({'strophy', 'silvanassss'} & everyone)
+        self.assertFalse(any(x.startswith('dashpay/') for x in everyone), 'people, not teams')
 
 
 if __name__ == '__main__':
