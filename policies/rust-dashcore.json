@@ -14,7 +14,8 @@
   },
   "fallback": {
     "owners": [
-      "QuantumExplorer"
+      "QuantumExplorer",
+      "xdustinface"
     ],
     "reviewers": []
   },
@@ -24,13 +25,12 @@
       "paths": [
         "dash-spv/"
       ],
-      "owners": [],
-      "reviewers": [
-        "ZocoLini",
+      "owners": [
+        "QuantumExplorer",
         "xdustinface"
       ],
-      "unresolved": [
-        "Owner: no owner visible in responsibility sheet"
+      "reviewers": [
+        "ZocoLini"
       ],
       "metadata": {
         "scope_note": "Only the visible crate column is mapped; cropped protocol column is unconfirmed."
@@ -41,14 +41,12 @@
       "paths": [
         "key-wallet/"
       ],
-      "owners": [],
-      "reviewers": [
+      "owners": [
         "QuantumExplorer",
-        "ZocoLini",
         "xdustinface"
       ],
-      "unresolved": [
-        "Owner: no owner visible in responsibility sheet"
+      "reviewers": [
+        "ZocoLini"
       ],
       "metadata": {
         "scope_note": "Only the visible crate column is mapped; cropped protocol column is unconfirmed."
@@ -59,14 +57,12 @@
       "paths": [
         "key-wallet-manager/"
       ],
-      "owners": [],
-      "reviewers": [
+      "owners": [
         "QuantumExplorer",
-        "ZocoLini",
         "xdustinface"
       ],
-      "unresolved": [
-        "Owner: no owner visible in responsibility sheet"
+      "reviewers": [
+        "ZocoLini"
       ],
       "metadata": {
         "scope_note": "Only the visible crate column is mapped; cropped protocol column is unconfirmed."
