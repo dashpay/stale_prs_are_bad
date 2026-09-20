@@ -45,29 +45,29 @@ class RepositoryConfigurationTests(unittest.TestCase):
                 # GitHub request these people the moment a pull request opens.
                 self.assertEqual(rules(codeowners(policy)), [])
 
-    def test_rust_dashcore_crates_are_owned_by_the_repository_wildcard(self):
-        # These three crates had no owner in the responsibility sheet, and an
-        # ownerless area is a configuration error for every pull request that
-        # touches it — fifteen of thirty-three, once this check became the
-        # gate. The repository's wildcard owners own them, as decided.
+    def test_rust_dashcore_is_one_area_with_a_reviewer_who_can_unblock_it(self):
+        # Over the last forty merged pull requests one person approved fifteen
+        # and nobody else more than five, while the policy let that one person
+        # -- and an owner who approves nothing there -- unblock everything.
+        # ZocoLini approves across the repository, so the fallback names him;
+        # the three crate areas said nothing the fallback does not say now.
         policy = self.policies['dashpay/rust-dashcore']
         self.assertEqual(policy['target_branches'], ['dev'])
-        self.assertEqual(policy['fallback'], {'owners': ['QuantumExplorer', 'xdustinface'], 'reviewers': []})
-        areas = {area['id']: area for area in policy['areas']}
-        self.assertEqual(set(areas), {'dash-spv', 'key-wallet', 'key-wallet-manager'})
-        for name, area in areas.items():
-            self.assertEqual(area['paths'], [name + '/'])
-            self.assertEqual(area['owners'], policy['fallback']['owners'])
-            self.assertEqual(area['reviewers'], ['ZocoLini'])
-            self.assertNotIn('unresolved', area)
-            _, pr = fixture()
-            pr.update(base='dev', author='ZocoLini', files=[{'filename': name + '/src/lib.rs'}], comments=[])
-            pr['permissions'].update(QuantumExplorer='admin', xdustinface='admin', ZocoLini='write')
-            result = evaluate(policy, pr, NOW, NOW)
-            self.assertNotEqual(result['state'], 'configuration-error', name)
+        self.assertEqual(policy['fallback'], {'owners': ['QuantumExplorer', 'xdustinface'], 'reviewers': ['ZocoLini']})
+        self.assertEqual(policy['areas'], [])
+        self.assertNotIn('shumkov', policy['fallback']['owners'], 'the owner said not to; admins merge their own')
+        _, pr = fixture()
+        pr.update(base='dev', author='romchornyi', files=[{'filename': 'rpc-client/src/lib.rs'}], comments=[])
+        pr['permissions'].update(QuantumExplorer='admin', xdustinface='admin', ZocoLini='write', romchornyi='write')
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertNotEqual(result['state'], 'configuration-error')
+        pr['comments'] = [dict(id=3, user='romchornyi', body=f"/self-reviewed {pr['head']}", created_at=NOW, updated_at=NOW)]
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human')
+        self.assertEqual(result['reviewers'], ['QuantumExplorer', 'ZocoLini', 'xdustinface'], 'three people can unblock, not one')
     def test_fallbacks_name_each_repository_owner_not_platform_leads(self):
         expected = {'platform': (['QuantumExplorer', 'shumkov'], []),
-                    'rust-dashcore': (['QuantumExplorer', 'xdustinface'], []),
+                    'rust-dashcore': (['QuantumExplorer', 'xdustinface'], ['ZocoLini']),
                     'tenderdash': (['lklimek'], ['shumkov']),
                     'grovedb': (['QuantumExplorer'], []),
                     'dash-evo-tool': (['lklimek'], [])}
