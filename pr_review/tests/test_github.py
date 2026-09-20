@@ -147,6 +147,32 @@ class BuildVerdictTests(unittest.TestCase):
                  dict(check("build", "SUCCESS", "2"), checkSuite=None)]
         self.assertEqual(build_verdict(nodes), "failed")
 
+    def test_whoever_posts_a_skip_has_their_access_read(self):
+        # The snapshot reads access for area people, reviewers and thread
+        # authors. A skip from anyone else was silently nobody's — which was
+        # most writers, and most authors.
+        api = GitHub("dashpay/platform")
+        raw = {"number": 1, "user": {"login": "author", "type": "User"}, "head": {"sha": "a" * 40},
+               "base": {"ref": "v4.2-dev", "sha": "b" * 40}, "draft": False, "state": "open",
+               "created_at": "2026-09-11T00:00:00Z", "html_url": "u", "title": "t", "changed_files": 1,
+               "requested_reviewers": [], "labels": []}
+        comments = [{"id": 1, "user": "helper", "body": "/skip-bots", "created_at": "2026-09-11T01:00:00Z", "updated_at": "2026-09-11T01:00:00Z"},
+                    {"id": 2, "user": "chatter", "body": "nice", "created_at": "2026-09-11T01:00:00Z", "updated_at": "2026-09-11T01:00:00Z"}]
+        looked_up = []
+        pages = {"/files": [{"filename": "packages/rs-drive/x"}], "/reviews": []}
+        with patch.object(api, "request", return_value=raw), \
+             patch.object(api, "pages", side_effect=lambda path: next(v for k, v in pages.items() if path.endswith(k))), \
+             patch.object(api, "threads", return_value=[]), \
+             patch.object(api, "build_state", return_value="green"), \
+             patch.object(api, "head_seen_at", return_value=None), \
+             patch.object(api, "ready_published", return_value=False), \
+             patch.object(api, "permission", side_effect=lambda u: looked_up.append(u) or "write"):
+            snapshot = api.snapshot(1, {"fallback": {"owners": ["QuantumExplorer"], "reviewers": []}, "areas": [],
+                                        "target_branches": ["v4.2-dev"]},
+                                    history={"comments": comments, "lifecycle_at": None})
+        self.assertIn("helper", looked_up, "the skipper is looked up")
+        self.assertNotIn("chatter", looked_up, "nobody else who merely commented is")
+        self.assertEqual(snapshot["permissions"].get("helper"), "write")
     def test_the_snapshot_says_whether_the_author_is_a_bot(self):
         # A bot author cannot attest, and the policy has to know that from the
         # snapshot rather than guess from a login.
@@ -646,8 +672,8 @@ class GitHubTests(unittest.TestCase):
             self.api.set_state_label(1, "waiting-bots", ["ready-for-human", "bug", "bot-review-skipped"])
             calls = [(c.args[0], c.args[1].rsplit("/", 1)[-1] if c.args[0] == "DELETE" else c.args[2]["labels"])
                      for c in request.call_args_list]
-            self.assertEqual(calls, [("DELETE", "ready-for-human"), ("POST", ["waiting-bots"])],
-                             "the old state label goes, the new one comes, unrelated labels stay")
+            self.assertEqual(calls, [("POST", ["waiting-bots"]), ("DELETE", "ready-for-human")],
+                             "the new label first, so a refused removal never leaves it label-less; unrelated labels stay")
             request.reset_mock()
             self.api.set_state_label(1, "configuration-error", ["waiting-bots"])
             self.assertEqual([c.args[0] for c in request.call_args_list], ["DELETE"], "a state with no label clears the old one")

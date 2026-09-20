@@ -372,19 +372,29 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         # objection raised against the current head is a report, and blocks.
         bot_blocks = [r for r in bot_blocks if r.get('commit_id') == pr['head']]
         receipts = {'thepastaclaw': pasta, 'coderabbitai': rabbit}
-        missing = [bot for bot in sorted(required) if not receipts[bot]]
+        # A bot that objected to this head, or left a thread open, has
+        # reported. It is not missing, so nothing waives it: the objection is
+        # answered by dismissing the review or resolving the thread, in the
+        # open, not by telling this controller to stop waiting.
+        heard = {u for u, r in latest.items() if u in BOTS and r.get('commit_id') == pr['head']
+                 and r['state'].upper() == 'CHANGES_REQUESTED'}
+        heard |= {t['author'].lower().removesuffix('[bot]') for t in bot_threads}
+        missing = [bot for bot in sorted(required) if not receipts[bot] and bot not in heard]
         waived, reasons = {}, []
         outstanding = bool(bot_blocks or bot_threads)
         skip = skipped_by(pr['comments'], permissions, pr.get('head_seen_at'))
-        if skip:
-            result['skipped_by'] = skip['user']
         for bot in missing:
+            plan = bot_schedule(policy, pr, bot, nowISO, (telemetry_states or {}).get(bot))
             if skip:
                 # A human decided the bots are not coming. That is a waiver
-                # with a name on it, and the name is what keeps it honest.
-                waived[bot] = skip['at']
+                # with a name on it, and the name is what keeps it honest. A
+                # waiver that had already taken effect keeps its earlier
+                # instant, or a late skip would send an attested pull request
+                # back for a fresh attestation.
+                instants = [skip['at']] + ([plan['waived_at']] if plan['waived_at'] else [])
+                waived[bot] = min(instants, key=_time)
+                result['skipped_by'] = skip['user']
                 continue
-            plan = bot_schedule(policy, pr, bot, nowISO, (telemetry_states or {}).get(bot))
             # Asking for a review while the pull request owes the bots an answer
             # anyway would spend someone else's capacity on nothing.
             if plan['nudge'] and not outstanding:

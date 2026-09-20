@@ -219,7 +219,7 @@ class SkipBotsTests(unittest.TestCase):
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots')
         pr['comments'].append(skip('reviewer', ago(0.5)))
         result = evaluate(policy, pr, NOW, NOW)
-        self.assertNotEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['state'], 'waiting-self-review', 'the bots are done with; the author is next')
         self.assertEqual(result['waived'], ['thepastaclaw'])
         self.assertEqual(result['skipped_by'], 'reviewer')
         self.assertIn('Proceeded without thepastaclaw: skipped by @reviewer', result['blockers'])
@@ -246,6 +246,13 @@ class SkipBotsTests(unittest.TestCase):
         pr['comments'].append(skip('reviewer', ago(2)))
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots')
 
+    def test_a_skip_in_the_same_instant_as_the_status_does_not_carry(self):
+        # Strictly after: the status is what proves the skip was written for
+        # this head, and a comment in the same second proves nothing.
+        policy, pr = self.waiting_on_bots()
+        pr['comments'].append(skip('reviewer', pr['head_seen_at']))
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots')
+
     def test_an_edited_skip_does_not_count(self):
         policy, pr = self.waiting_on_bots()
         pr['comments'].append(skip('reviewer', ago(0.5), edited=True))
@@ -266,4 +273,69 @@ class SkipBotsTests(unittest.TestCase):
         pr['comments'].append(skip('reviewer', ago(0.5)))
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-self-review')
         pr['comments'].append(dict(id=4, user='owner', body='/self-reviewed', created_at=ago(0.2), updated_at=ago(0.2)))
-        self.assertNotIn(evaluate(policy, pr, NOW, NOW)['state'], ('waiting-self-review', 'waiting-bots'))
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'ready-to-merge')
+
+    def test_a_skip_cannot_wave_away_a_bot_that_objected(self):
+        # A bot that requested changes on this head, or left a thread open,
+        # has reported. The answer is to dismiss the review or resolve the
+        # thread, in the open — not to tell this controller to stop waiting.
+        policy, pr = self.waiting_on_bots()
+        pr['reviews'].append(dict(id=8, user='thepastaclaw', state='CHANGES_REQUESTED', commit_id=pr['head'],
+                                  submitted_at=ago(0.9), body='no'))
+        pr['comments'].append(skip('reviewer', ago(0.5)))
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['waived'], [], 'an objection is not waived, so it is not reported as waived either')
+        self.assertNotIn('skipped_by', result)
+        self.assertIn('Bot changes request remains outstanding', result['blockers'])
+
+        policy, pr = self.waiting_on_bots()
+        pr['threads'] = [dict(id=9, author='coderabbitai[bot]', is_resolved=False, created_at=ago(0.9))]
+        pr['comments'].append(skip('reviewer', ago(0.5)))
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots')
+
+    def test_a_skip_by_someone_this_controller_cannot_vouch_for_is_ignored(self):
+        # Unknown is not the same as read; neither may skip.
+        for level in (None, 'read'):
+            policy, pr = self.waiting_on_bots()
+            pr['permissions']['stranger'] = level
+            pr['comments'].append(skip('stranger', ago(0.5)))
+            self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots', level)
+        policy, pr = self.waiting_on_bots()
+        pr['comments'].append(skip('coderabbitai[bot]', ago(0.5)))
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots', 'a bot cannot skip the bots')
+
+    def test_the_earliest_skip_is_the_one_that_counts(self):
+        # The instant the bots were given up on is what the attestation must
+        # follow. A later repeat must not move it and send the author back.
+        policy, pr = self.waiting_on_bots()
+        pr['comments'].append(skip('reviewer', ago(0.7)))
+        pr['comments'].append(dict(id=91, user='owner', body='/skip-bots', created_at=ago(0.3), updated_at=ago(0.3)))
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(result['skipped_by'], 'reviewer')
+        self.assertEqual(result['bot_completed_at'], ago(0.7))
+
+    def test_a_skip_after_a_timeout_waiver_does_not_move_the_waiver(self):
+        # Waived at +16h, attested at +17h, then someone posts /skip-bots at
+        # +19h: the attestation still stands, or the pull request would be
+        # sent back for a fresh one over nothing.
+        policy, pr = waiting(20)
+        pr['comments'] = [c for c in pr['comments'] if not c['body'].startswith('/self-reviewed')]
+        # The fixture's other bot reported at +18h; the attestation follows both.
+        pr['comments'].append(dict(id=3, user='owner', body='/self-reviewed', created_at=ago(1.5), updated_at=ago(1.5)))
+        before = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(before['state'], 'ready-to-merge')
+        pr['comments'].append(skip('reviewer', ago(1)))
+        after = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(after['state'], 'ready-to-merge')
+        self.assertEqual(after['bot_completed_at'], before['bot_completed_at'], 'the instant did not move')
+
+    def test_only_the_bots_still_missing_are_waived(self):
+        policy, pr = fixture()
+        policy['bot_timeouts'] = {'nudge_after_hours': 6, 'waive_after_hours': 16}
+        policy['required_bots'] = ['thepastaclaw', 'coderabbitai']
+        pr['head_seen_at'] = ago(1)
+        pr['reviews'] = [r for r in pr['reviews'] if 'coderabbitai' not in r['user']]
+        pr['comments'] = [c for c in pr['comments'] if not c['body'].startswith('/self-reviewed')]
+        pr['comments'].append(skip('reviewer', ago(0.5)))
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['waived'], ['coderabbitai'], 'thepastaclaw reported; only the rabbit is waived')
