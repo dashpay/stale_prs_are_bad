@@ -199,3 +199,71 @@ class TelemetryReaderTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def skip(user, at, body='/skip-bots', edited=False):
+    return dict(id=90, user=user, body=body, created_at=at, updated_at=ago(0) if edited else at)
+
+
+class SkipBotsTests(unittest.TestCase):
+    """A human deciding the bots are not coming, with their name on it."""
+
+    def waiting_on_bots(self, **overrides):
+        # Seen an hour ago: inside every window, so only a skip can move it.
+        policy, pr = waiting(1, **overrides)
+        pr['comments'] = [c for c in pr['comments'] if not c['body'].startswith('/self-reviewed')]
+        return policy, pr
+
+    def test_a_writer_can_skip_the_bots_for_this_head(self):
+        policy, pr = self.waiting_on_bots()
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots')
+        pr['comments'].append(skip('reviewer', ago(0.5)))
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertNotEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['waived'], ['thepastaclaw'])
+        self.assertEqual(result['skipped_by'], 'reviewer')
+        self.assertIn('Proceeded without thepastaclaw: skipped by @reviewer', result['blockers'])
+
+    def test_the_author_may_skip_their_own_bots_and_it_says_so(self):
+        # Decided: any writer, the author included. Whoever reviews next sees
+        # who did — the name in the report is the safeguard.
+        policy, pr = self.waiting_on_bots()
+        pr['comments'].append(skip('owner', ago(0.5)))
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(result['skipped_by'], 'owner')
+        self.assertIn('skipped by @owner', ' '.join(result['blockers']))
+
+    def test_someone_without_write_access_cannot_skip(self):
+        policy, pr = self.waiting_on_bots()
+        pr['permissions']['passerby'] = 'read'
+        pr['comments'].append(skip('passerby', ago(0.5)))
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots')
+
+    def test_a_skip_written_before_this_head_had_a_status_does_not_carry(self):
+        # Bare, like the bare attestation: it covers the head that has a status
+        # by then. A skip from an earlier head must not wave a new push through.
+        policy, pr = self.waiting_on_bots()
+        pr['comments'].append(skip('reviewer', ago(2)))
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots')
+
+    def test_an_edited_skip_does_not_count(self):
+        policy, pr = self.waiting_on_bots()
+        pr['comments'].append(skip('reviewer', ago(0.5), edited=True))
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots')
+
+    def test_a_skip_works_where_no_timeouts_are_configured(self):
+        policy, pr = self.waiting_on_bots()
+        del policy['bot_timeouts']
+        pr['comments'].append(skip('reviewer', ago(0.5)))
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['waived'], ['thepastaclaw'])
+
+    def test_the_attestation_must_follow_the_skip(self):
+        # Giving up on the bots is an event the author's self-review must come
+        # after, exactly as a timeout waiver is: the read they attested to
+        # expected the bots' findings still to come.
+        policy, pr = self.waiting_on_bots()
+        pr['comments'].append(dict(id=3, user='owner', body='/self-reviewed', created_at=ago(0.8), updated_at=ago(0.8)))
+        pr['comments'].append(skip('reviewer', ago(0.5)))
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-self-review')
+        pr['comments'].append(dict(id=4, user='owner', body='/self-reviewed', created_at=ago(0.2), updated_at=ago(0.2)))
+        self.assertNotIn(evaluate(policy, pr, NOW, NOW)['state'], ('waiting-self-review', 'waiting-bots'))

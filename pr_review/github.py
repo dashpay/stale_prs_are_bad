@@ -3,6 +3,8 @@
 import json
 import re
 import subprocess
+
+from .policy import STATE_LABELS
 import sys
 from datetime import datetime
 from urllib.parse import quote
@@ -738,13 +740,14 @@ class GitHub:
             return self.request("DELETE", f"{self.root}/issues/{number}/labels/{label}")
         return None
 
-    def set_ready_label(self, number, enabled, current_labels):
-        label = "ready-for-human"
-        if enabled and label not in current_labels:
-            return self.request("POST", f"{self.root}/issues/{number}/labels", {"labels": [label]})
-        if not enabled and label in current_labels:
-            return self.request("DELETE", f"{self.root}/issues/{number}/labels/{label}")
-        return None
+    def set_state_label(self, number, state, current_labels):
+        """Exactly one state label, or none for a state that has no label."""
+        wanted = state if state in STATE_LABELS else None
+        for label in STATE_LABELS:
+            if label in current_labels and label != wanted:
+                self.request("DELETE", f"{self.root}/issues/{number}/labels/{label}")
+        if wanted and wanted not in current_labels:
+            self.request("POST", f"{self.root}/issues/{number}/labels", {"labels": [wanted]})
 
     def request_reviewers(self, number, users):
         if not users:

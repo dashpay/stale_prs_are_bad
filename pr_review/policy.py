@@ -16,6 +16,12 @@ BOTS = {'thepastaclaw', 'coderabbitai', 'coderabbitai[bot]'}
 REVIEW_BOTS = ('thepastaclaw', 'coderabbitai')
 WRITE = {'write', 'maintain', 'admin'}
 
+# One label per state, so a listing reads like the status. Drafts and
+# configuration errors carry none: a draft is not being reviewed, and an error
+# is loud enough already.
+STATE_LABELS = ('waiting-slot', 'waiting-bots', 'waiting-build', 'waiting-self-review',
+                'waiting-author', 'ready-for-human', 'ready-to-merge')
+
 
 def _time(value):
     parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -213,6 +219,25 @@ def _hours(stamp, nowISO):
     return (_time(nowISO) - _time(stamp)).total_seconds() / 3600
 
 
+def skipped_by(comments, permissions, head_seen_at):
+    """Who told this controller not to wait for the bots on this head, and when.
+
+    Any writer may, the author included: whoever reviews next sees who did.
+    Bare `/skip-bots` covers the head that has a status by then, exactly as the
+    bare attestation does, so a skip written for an earlier head cannot carry.
+    """
+    if not head_seen_at:
+        return None
+    skips = [(c['created_at'], c['user']) for c in comments
+             if c['body'].strip() == '/skip-bots' and c['created_at'] == c['updated_at']
+             and permissions.get(c['user'].lower()) in WRITE
+             and _time(c['created_at']) > _time(head_seen_at)]
+    if not skips:
+        return None
+    when, user = min(skips, key=lambda item: _time(item[0]))
+    return {'user': user, 'at': when}
+
+
 def nudged_at(comments, bot, head):
     """When this controller last asked a bot to look at exactly this head."""
     marker = f'{NUDGE_MARKER} bot={bot} sha={head} -->'
@@ -350,7 +375,15 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         missing = [bot for bot in sorted(required) if not receipts[bot]]
         waived, reasons = {}, []
         outstanding = bool(bot_blocks or bot_threads)
+        skip = skipped_by(pr['comments'], permissions, pr.get('head_seen_at'))
+        if skip:
+            result['skipped_by'] = skip['user']
         for bot in missing:
+            if skip:
+                # A human decided the bots are not coming. That is a waiver
+                # with a name on it, and the name is what keeps it honest.
+                waived[bot] = skip['at']
+                continue
             plan = bot_schedule(policy, pr, bot, nowISO, (telemetry_states or {}).get(bot))
             # Asking for a review while the pull request owes the bots an answer
             # anyway would spend someone else's capacity on nothing.
@@ -364,7 +397,8 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             else:
                 reasons.append(f'{bot} has not reported for the current head')
         result['waived'] = sorted(waived)
-        notes.extend(f'Proceeded without {bot}: no review within the configured window'
+        notes.extend((f"Proceeded without {bot}: skipped by @{skip['user']}" if skip
+                      else f'Proceeded without {bot}: no review within the configured window')
                      for bot in sorted(waived))
         if reasons or bot_blocks or bot_threads:
             if bot_blocks: reasons.append('Bot changes request remains outstanding')

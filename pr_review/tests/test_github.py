@@ -638,13 +638,19 @@ class GitHubTests(unittest.TestCase):
         self.assertEqual(first["files"][0]["previous_filename"], "old/a.rs")
         self.assertTrue(first["complete"])
 
-    def test_should_only_mutate_requested_label_delta(self):
+    def test_exactly_one_state_label_and_nothing_else_is_touched(self):
         with patch.object(self.api, "request") as request:
-            self.api.set_ready_label(1, True, ["ready-for-human", "bug"])
-            self.api.set_ready_label(1, False, ["bug"])
+            self.api.set_state_label(1, "ready-for-human", ["ready-for-human", "bug"])
+            self.api.set_state_label(1, "draft", ["bug"])
             request.assert_not_called()
-            self.api.set_ready_label(1, False, ["ready-for-human", "bug"])
-            self.assertEqual(request.call_args.args[:2], ("DELETE", "repos/dashpay/platform/issues/1/labels/ready-for-human"))
+            self.api.set_state_label(1, "waiting-bots", ["ready-for-human", "bug", "bot-review-skipped"])
+            calls = [(c.args[0], c.args[1].rsplit("/", 1)[-1] if c.args[0] == "DELETE" else c.args[2]["labels"])
+                     for c in request.call_args_list]
+            self.assertEqual(calls, [("DELETE", "ready-for-human"), ("POST", ["waiting-bots"])],
+                             "the old state label goes, the new one comes, unrelated labels stay")
+            request.reset_mock()
+            self.api.set_state_label(1, "configuration-error", ["waiting-bots"])
+            self.assertEqual([c.args[0] for c in request.call_args_list], ["DELETE"], "a state with no label clears the old one")
 
     def test_should_reject_unknown_controller_schema(self):
         with self.assertRaises(GitHubError):
