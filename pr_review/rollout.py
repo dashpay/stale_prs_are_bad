@@ -61,6 +61,7 @@ jobs:
     if: >-
       github.event_name != 'issue_comment' ||
       contains(github.event.comment.body, '/self-reviewed') ||
+      contains(github.event.comment.body, '/skip-bots') ||
       (contains(fromJSON('["coderabbitai", "coderabbitai[bot]"]'), github.event.comment.user.login) &&
       (contains(github.event.comment.body, '{RECEIPT_MARKER}') ||
       contains(github.event.comment.body, '{RATE_LIMITED_MARKER}')))

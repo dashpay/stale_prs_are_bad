@@ -60,6 +60,12 @@ class CommentTriggerTests(unittest.TestCase):
         self.assertIn("scope: ${{ inputs.scope || 'batch' }}", self.workflow)
         self.assertIn('options: [batch, all]', self.workflow)
 
+    def test_it_wakes_for_a_skip(self):
+        # A skip that waited for the hourly sweep would be a skip nobody
+        # could see working.
+        self.assertTrue(self.admits('/skip-bots'))
+        self.assertFalse(self.admits('lgtm'))
+
     def test_it_looks_again_at_pull_requests_waiting_on_a_build(self):
         # A build turning green raises no event this controller hears, so
         # without this schedule such a pull request waits for the hourly sweep.

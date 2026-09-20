@@ -214,12 +214,12 @@ class PublicationTests(unittest.TestCase):
         # Removing a label another run has already removed is a 404, and the
         # labels are read from a snapshot that run can invalidate. Its sibling
         # write, the waiver label, has survived its own failure from the start.
-        self.api.set_ready_label.side_effect = GitHubError('label does not exist')
+        self.api.set_state_label.side_effect = GitHubError('label does not exist')
         result = dict(self.result, state='ready-for-human')
         main.publish(self.api, self.policy, self.pr, result, [self.pr], apply=True)
-        self.api.set_ready_label.assert_called_once()
+        self.api.set_state_label.assert_called_once()
         self.api.set_label.assert_called_once()
-        self.assertTrue(self.wrote_status_after('set_ready_label'),
+        self.assertTrue(self.wrote_status_after('set_state_label'),
                         'the run must carry on and publish a status, not stop at the refusal')
 
     def waiting_on_build(self, *states):
@@ -277,8 +277,8 @@ class PublicationTests(unittest.TestCase):
         with patch.object(main, 'load_histories', side_effect=lambda api, selected: [copy.deepcopy(pr)]):
             main.publish(self.api, self.policy, pr, result, [pr], apply=True)
         self.api.request_reviewers.assert_called_once()
-        self.api.set_ready_label.assert_called_once()
-        self.assertTrue(self.api.set_ready_label.call_args.args[1], 'the label goes on')
+        self.api.set_state_label.assert_called_once()
+        self.assertEqual(self.api.set_state_label.call_args.args[1], 'ready-for-human', 'the label goes on')
 
     def test_the_build_scan_rotates_at_its_own_cadence(self):
         # The rotation cursor is read from the clock, so a slice bucketed by the
@@ -367,6 +367,34 @@ class PublicationTests(unittest.TestCase):
             self.assertTrue(collect.called, 'the reconcile went ahead')
             with self.assertRaises(ValueError):
                 main.run(['validate', '--repo', 'dashpay/platform', '--repository-root', str(root)])
+
+    def test_labels_read_like_the_status(self):
+        # One state label at a time, the waiver beside it, unrelated labels
+        # untouched — so a pull request list says what the status says.
+        for state, waived, labels, correct in [
+            ('waiting-bots', [], ['waiting-bots'], True),
+            ('waiting-bots', [], ['ready-for-human'], False),
+            ('waiting-bots', ['thepastaclaw'], ['waiting-bots', 'bot-review-skipped', 'bug'], True),
+            ('waiting-bots', ['thepastaclaw'], ['waiting-bots'], False),
+            ('ready-to-merge', [], ['ready-to-merge', 'bug'], True),
+            ('draft', [], ['waiting-bots'], False),
+            ('draft', [], ['bug'], True),
+        ]:
+            result = dict(self.result, state=state, waived=waived)
+            pr = dict(self.pr, labels=labels, controller_state=main.state_record(
+                self.pr, result, main.context_fingerprint([self.pr], self.pr['author'])))
+            self.api.reset_mock()
+            self.api.snapshot.return_value = copy.deepcopy(pr)
+            self.api.pull.return_value = copy.deepcopy(pr)
+            main.publish(self.api, self.policy, pr, result, [pr], apply=True)
+            self.assertEqual(self.api.set_state_label.called, not correct, (state, waived, labels))
+
+    def test_the_report_offers_the_skip_only_while_bots_are_awaited(self):
+        awaited = main.state_body(dict(self.result, state='waiting-bots', head='f' * 40))
+        self.assertIn('/skip-bots', awaited)
+        self.assertIn('the report says who did', awaited)
+        later = main.state_body(dict(self.result, state='waiting-self-review', head='f' * 40))
+        self.assertNotIn('/skip-bots', later)
 
     def test_the_report_says_what_the_check_now_means(self):
         body = main.state_body(dict(self.result, head='f' * 40))

@@ -12,11 +12,11 @@ import sys
 
 from . import telemetry
 from .github import GitHub, GitHubError, parse_controller_state
-from .policy import (NUDGE_MARKER, admit, codeowners, effective_admission, evaluate, fingerprint, missing_paths,
+from .policy import (NUDGE_MARKER, STATE_LABELS, admit, codeowners, effective_admission, evaluate, fingerprint, missing_paths,
                      validate_policy)
 from .registry import POLICIES, entry_for, load_registry, policy_path
 
-WAIVED_LABEL = 'bot-review-missed'
+WAIVED_LABEL = 'bot-review-skipped'
 NUDGES_PER_RUN = 1
 
 
@@ -191,6 +191,8 @@ def state_body(result):
         '', *[f'- {reason}' for reason in reasons],
         '', 'Self-review is an author attestation that you have read the diff:',
         '`/self-reviewed`  — covers everything pushed so far; post it again after a new push.',
+        *(['`/skip-bots`  — proceed without the bots that have not reported; anyone with write access may, and the report says who did.']
+          if result['state'] == 'waiting-bots' else []),
         '', 'This check passes when the policy is satisfied; the repository decides whether merging requires it.',
     ])
 
@@ -280,8 +282,8 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     requested = set(pr.get('requested_reviewers', []))
     missing = [u for u in result.get('reviewers', []) if u not in requested] if ready else []
     labels = pr.get('labels', [])
-    label_correct = (('ready-for-human' in labels) == ready
-                     and (WAIVED_LABEL in labels) == bool(result.get('waived')))
+    wanted = ({result['state']} if result['state'] in STATE_LABELS else set()) | ({WAIVED_LABEL} if result.get('waived') else set())
+    label_correct = set(labels) & (set(STATE_LABELS) | {WAIVED_LABEL}) == wanted
     if pr.get('controller_state') == desired and label_correct and not missing:
         # Read current evidence on every run, but avoid churning comments and labels.
         if actionable:
@@ -300,12 +302,12 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if not identity_matches():
             return desired
     try:
-        api.set_ready_label(pr['number'], ready, pr.get('labels', []))
+        api.set_state_label(pr['number'], result['state'], pr.get('labels', []))
     except GitHubError:
         # The labels were read from a snapshot that another run reconciling this
         # author can invalidate, and removing a label that is already gone is a
         # 404. The state is in the status and the comment either way.
-        print(f"PR #{pr['number']}: could not set ready-for-human; the status and comment still carry the state",
+        print(f"PR #{pr['number']}: could not set the state label; the status and comment still carry the state",
               file=sys.stderr)
     try:
         api.set_label(pr['number'], WAIVED_LABEL, bool(result.get('waived')), pr.get('labels', []))
