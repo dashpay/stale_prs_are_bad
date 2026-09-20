@@ -45,26 +45,29 @@ class RepositoryConfigurationTests(unittest.TestCase):
                 # GitHub request these people the moment a pull request opens.
                 self.assertEqual(rules(codeowners(policy)), [])
 
-    def test_rust_dashcore_only_maps_visible_crates_and_keeps_missing_owners_blocked(self):
+    def test_rust_dashcore_crates_are_owned_by_the_repository_wildcard(self):
+        # These three crates had no owner in the responsibility sheet, and an
+        # ownerless area is a configuration error for every pull request that
+        # touches it — fifteen of thirty-three, once this check became the
+        # gate. The repository's wildcard owners own them, as decided.
         policy = self.policies['dashpay/rust-dashcore']
         self.assertEqual(policy['target_branches'], ['dev'])
+        self.assertEqual(policy['fallback'], {'owners': ['QuantumExplorer', 'xdustinface'], 'reviewers': []})
         areas = {area['id']: area for area in policy['areas']}
         self.assertEqual(set(areas), {'dash-spv', 'key-wallet', 'key-wallet-manager'})
         for name, area in areas.items():
             self.assertEqual(area['paths'], [name + '/'])
-            self.assertEqual(area['owners'], [])
-            self.assertTrue(area['unresolved'])
-            self.assertEqual(area['reviewers'], ['ZocoLini', 'xdustinface'] if name == 'dash-spv' else ['QuantumExplorer', 'ZocoLini', 'xdustinface'])
+            self.assertEqual(area['owners'], policy['fallback']['owners'])
+            self.assertEqual(area['reviewers'], ['ZocoLini'])
+            self.assertNotIn('unresolved', area)
             _, pr = fixture()
-            pr.update(base='dev', author='QuantumExplorer', files=[{'filename':name + '/src/lib.rs'}])
-            pr['permissions'].update(QuantumExplorer='admin', shumkov='admin', ZocoLini='write')
+            pr.update(base='dev', author='ZocoLini', files=[{'filename': name + '/src/lib.rs'}], comments=[])
+            pr['permissions'].update(QuantumExplorer='admin', xdustinface='admin', ZocoLini='write')
             result = evaluate(policy, pr, NOW, NOW)
-            self.assertEqual(result['state'], 'configuration-error')
-            self.assertIn('Unresolved identities in ' + name, result['blockers'])
-
+            self.assertNotEqual(result['state'], 'configuration-error', name)
     def test_fallbacks_name_each_repository_owner_not_platform_leads(self):
         expected = {'platform': (['QuantumExplorer', 'shumkov'], []),
-                    'rust-dashcore': (['QuantumExplorer'], []),
+                    'rust-dashcore': (['QuantumExplorer', 'xdustinface'], []),
                     'tenderdash': (['lklimek'], ['shumkov']),
                     'grovedb': (['QuantumExplorer'], []),
                     'dash-evo-tool': (['lklimek'], [])}
