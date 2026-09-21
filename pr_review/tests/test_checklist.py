@@ -400,3 +400,148 @@ class RecordTests(unittest.TestCase):
         api = self.publish(pr, result)
         api.set_checklist.assert_not_called()
         api.upsert_state.assert_not_called()
+
+
+class SecondReviewTests(unittest.TestCase):
+    """What the cross-model review found."""
+
+    def setUp(self):
+        self.policy, self.pr = bartek()
+        self.pr['controller_state'] = None
+
+    def publish(self, pr, result, now=LATER, api=None):
+        api = api or Mock()
+        api.state_comment_body.side_effect = GitHub.state_comment_body
+        api.snapshot.return_value = copy.deepcopy(pr)
+        api.pull.return_value = copy.deepcopy(pr)
+        api.open_prs.return_value = [copy.deepcopy(pr)]
+        with patch.object(main, 'load_histories', side_effect=lambda a, s: [copy.deepcopy(pr)]), \
+             patch.object(main, 'utc_now', return_value=now):
+            main.publish(api, self.policy, pr, result, [pr], apply=True)
+        return api
+
+    def test_a_bot_author_still_gets_the_merge_announcement_and_its_record(self):
+        # Only the author-directed move is withheld from a bot: "you can merge"
+        # is for the humans, and it carries the record.
+        pr = dict(self.pr, author_is_bot=True)
+        pr['reviews'].append(dict(id=6, user='QuantumExplorer', state='APPROVED', commit_id=HEAD, submitted_at=LATER, body=''))
+        result = evaluate(self.policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'ready-to-merge')
+        api = self.publish(pr, result)
+        api.upsert_state.assert_called_once()
+        self.assertIn('state=ready-to-merge', api.upsert_state.call_args.args[2])
+
+    def test_a_first_waiting_build_with_no_comment_is_found_by_the_scan_through_its_status(self):
+        # An attestation naming the commit, posted before the bots finish,
+        # skips waiting-self-review: no move, no comment, no record. The scan
+        # asks the head's own last status instead.
+        pr = dict(self.pr, build='running')
+        pr['comments'] = pr['comments'] + [dict(id=2, user='llbartekll', body=f'/self-reviewed {HEAD}',
+                                                created_at='2026-09-11T10:30:00Z', updated_at='2026-09-11T10:30:00Z')]
+        result = evaluate(self.policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-build')
+        api = self.publish(pr, result)
+        api.upsert_state.assert_not_called()
+        api = Mock()
+        api.open_prs.return_value = [dict(pr, controller_state=None)]
+        api.histories.side_effect = lambda numbers: {n: {'comments': [], 'lifecycle_at': None} for n in numbers}
+        api.latest_state_from_status.return_value = 'waiting-build'
+        with patch.object(main, 'load_histories', side_effect=lambda a, s: [
+                dict(p, controller_state=None, controller_comment_id=None, comments=[], lifecycle_at=None) for p in s]):
+            main.collect(api, self.policy, waiting_on_build=True)
+        self.assertEqual([c.args[0] for c in api.snapshot.call_args_list], [pr['number']])
+        api.latest_state_from_status.assert_called_once_with(pr['head'])
+
+    def test_the_holder_is_the_comment_the_record_was_read_from(self):
+        # Two record comments; the older one was written last. The record was
+        # read from it, and it is the one edited and kept.
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        record = main.state_record(self.pr, result, 'c' * 64)
+        older_written_last = dict(id=1, user='github-actions[bot]', created_at='2026-09-10T00:00:00Z', updated_at='2026-09-11T11:00:00Z',
+                                  body=GitHub.state_comment_body(record, 'old text'))
+        newer = dict(id=2, user='github-actions[bot]', created_at='2026-09-10T12:00:00Z', updated_at='2026-09-10T12:00:00Z',
+                     body=GitHub.state_comment_body(dict(record, ready_since='2026-09-10T12:00:00Z'), 'other text'))
+        parsed, holder_id = main.parse_controller_state([newer, older_written_last])
+        self.assertEqual(holder_id, 1)
+        quiet = dict(self.pr, comments=[older_written_last, newer], controller_state=parsed, controller_comment_id=holder_id)
+        api = self.publish(quiet, evaluate(self.policy, quiet, NOW, LATER))
+        self.assertEqual(api.upsert_state.call_args.args[3], 1)
+        self.assertEqual([c.args[0] for c in api.delete_comment.call_args_list], [2])
+
+    def test_a_foreign_bot_comment_quoting_the_marker_is_left_alone(self):
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        record = main.state_record(self.pr, result, 'c' * 64)
+        foreign = dict(id=9, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+                       body=GitHub.state_comment_body(dict(record, number=999), 'another workflow, another pull request'))
+        pr = dict(self.pr, comments=self.pr['comments'] + [foreign])
+        api = self.publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.delete_comment.assert_not_called()
+        self.assertIsNone(api.upsert_state.call_args.args[3], 'a new comment; the foreign one is not edited')
+
+    def test_a_move_cycle_keeps_the_record_under_the_matching_words(self):
+        # A → B → A on one head: the record goes back to A's announcement,
+        # not to B's, whose words would then say the wrong thing.
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        a_record = main.state_record(self.pr, result, 'c' * 64)
+        a = dict(id=50, user='github-actions[bot]', created_at='2026-09-11T10:00:00Z', updated_at='2026-09-11T10:00:00Z',
+                 body=GitHub.state_comment_body(a_record, main.move_text(result)))
+        b_text = f'{MOVE_MARKER} state=ready-for-human sha={HEAD} -->\nReady for review — needs QuantumExplorer or shumkov.\nFull checklist in the description.'
+        b = dict(id=51, user='github-actions[bot]', created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z',
+                 body=GitHub.state_comment_body(dict(a_record, state='ready-for-human'), b_text))
+        pr = dict(self.pr, comments=self.pr['comments'] + [a, b], body='text\n\n' + main.checklist_block(result),
+                  labels=['waiting-self-review', 'bot-review-skipped'])
+        pr['controller_state'], pr['controller_comment_id'] = main.parse_controller_state(pr['comments'])
+        self.assertEqual(pr['controller_comment_id'], 51)
+        again = evaluate(self.policy, pr, NOW, LATER)
+        self.assertEqual(again['state'], 'waiting-self-review')
+        api = self.publish(pr, again)
+        api.upsert_state.assert_called_once()
+        record, text, comment_id = api.upsert_state.call_args.args[1:]
+        self.assertEqual(comment_id, 50, "A's own announcement carries A's record")
+        self.assertIn('state=waiting-self-review', text)
+
+    def test_a_pull_request_back_in_draft_loses_the_stale_block(self):
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        pr = dict(self.pr, draft=True, body='text\n\n' + main.checklist_block(result))
+        api = self.publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.remove_checklist.assert_called_once_with(pr['number'])
+        api.set_checklist.assert_not_called()
+
+    def test_the_status_never_depends_on_the_description_or_the_labels(self):
+        # At capacity, labels refused, description refused: the check is still
+        # what the evidence says.
+        pr = dict(self.pr)
+        pr['comments'] = pr['comments'] + [dict(id=2, user='llbartekll', body='/self-reviewed', created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        pr['reviews'] = pr['reviews'] + [dict(id=6, user='shumkov', state='APPROVED', commit_id=HEAD, submitted_at='2026-09-11T11:30:00Z', body='')]
+        pr['body'] = 'x' * 65500
+        pr['labels'] = ['waiting-bots', 'ready-to-merge', 'nonsense']
+        # The admission is already on record, as it would be once a human was involved.
+        pr['controller_state'] = dict(admitted_at=NOW, head=HEAD, state='waiting-bots', ready_since=None)
+        result = evaluate(self.policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'ready-to-merge')
+        api = Mock()
+        api.set_state_label.side_effect = main.GitHubError('no')
+        api.set_label.side_effect = main.GitHubError('no')
+        api.set_checklist.side_effect = main.GitHubError('no')
+        with patch('sys.stderr'):
+            api = self.publish(pr, result, api=api)
+        self.assertEqual(api.post_status.call_args.args[1:], ('success', 'ready-to-merge'))
+
+
+class MarkerParsingTests(unittest.TestCase):
+    def test_an_extra_end_marker_after_the_block_is_the_authors_and_stays(self):
+        real = f"{CHECKLIST_START}\nreal\n{CHECKLIST_END}"
+        body = f"author\n\n{real}\nKEEP ME\n{CHECKLIST_END}"
+        api = GitHub('dashpay/platform')
+        writes = []
+        with patch.object(api, 'request', side_effect=lambda m, p, payload=None: {'body': body} if m == 'GET' else writes.append(payload)):
+            api.set_checklist(1, f"{CHECKLIST_START}\nfresh\n{CHECKLIST_END}")
+        self.assertIn('KEEP ME', writes[0]['body'])
+        self.assertEqual(writes[0]['body'].count('fresh'), 1)
+
+    def test_a_fenced_example_below_the_block_is_not_the_block(self):
+        real = f"{CHECKLIST_START}\nreal\n{CHECKLIST_END}"
+        fenced = f"```\n{CHECKLIST_START}\nexample\n{CHECKLIST_END}\n```"
+        self.assertEqual(current_checklist(f"{real}\n\n{fenced}"), real)
+        self.assertIsNone(current_checklist(fenced), 'a fenced example alone is no block: the first write appends')
+        self.assertIsNone(current_checklist(f"{CHECKLIST_END}\nreversed\n{CHECKLIST_START}"))

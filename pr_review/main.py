@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 
 from . import telemetry
-from .github import STATE_MARKER, GitHub, GitHubError, current_checklist, parse_controller_state
+from .github import STATE_MARKER, STATE_PATTERN, GitHub, GitHubError, current_checklist, parse_controller_state
 from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
                      STATE_LABELS, admit, codeowners, effective_admission, evaluate, fingerprint, missing_paths,
                      validate_policy)
@@ -132,9 +132,15 @@ def collect(api, policy, number=None, apply=False, reconcile_author=False, batch
             requested = [p for p in requested if p['number'] in batch_numbers]
         if waiting_on_build:
             # The recorded state, not a fresh verdict: knowing which pull
-            # requests are worth a snapshot is the whole saving.
-            waiting = [p for p in candidates
-                       if (p.get('controller_state') or {}).get('state') == 'waiting-build']
+            # requests are worth a snapshot is the whole saving. A pull request
+            # with no record yet — a state reached before any move was
+            # announced — is asked by its own last status, one read per head.
+            def waiting_on(p):
+                recorded = p.get('controller_state') or {}
+                if recorded:
+                    return recorded.get('state') == 'waiting-build'
+                return api.latest_state_from_status(p['head']) == 'waiting-build'
+            waiting = [p for p in candidates if waiting_on(p)]
             requested = periodic_batch(waiting, BUILD_SCAN_SIZE, cadence=BUILD_SCAN_SECONDS)
         if number is not None and not requested and not reconcile_author:
             raise GitHubError(f'PR #{number} is not open on a configured target branch')
@@ -291,10 +297,24 @@ def _same(a, b):
 
 
 def bot_comments(pr, marker):
-    """This controller's own comments carrying `marker`, newest last."""
-    return sorted((c for c in pr.get('comments', [])
-                   if c.get('user', '').lower() == 'github-actions[bot]' and marker in c.get('body', '')),
-                  key=lambda c: (c.get('created_at', ''), c.get('id', 0)))
+    """This controller's own comments carrying `marker`, oldest first by last write.
+
+    Its own: written by github-actions[bot] AND carrying a record that parses
+    and names this pull request. Another workflow's bot comment that quotes
+    a marker is nobody's business here, least of all to edit or delete.
+    """
+    def own(c):
+        if c.get('user', '').lower() != 'github-actions[bot]' or marker not in c.get('body', ''):
+            return False
+        found = STATE_PATTERN.findall(c.get('body', ''))
+        if len(found) != 1:
+            return False
+        try:
+            return json.loads(found[0]).get('number') == pr['number']
+        except (ValueError, TypeError, AttributeError):
+            return False
+    return sorted((c for c in pr.get('comments', []) if own(c)),
+                  key=lambda c: (c.get('updated_at') or c.get('created_at', ''), c.get('id', 0)))
 
 
 def _hours_since(iso, now):
@@ -399,13 +419,16 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     body_now = pr.get('body') or ''
     block = None if result['state'] == 'draft' else checklist_block(result)
     fits = block is None or len(body_now) - len(current_checklist(body_now) or '') + len(block) + 2 <= 65536
-    block_correct = block is None or not fits or _same(current_checklist(body_now), block)
+    stale_block = block is None and current_checklist(body_now) is not None
+    block_correct = not stale_block and (block is None or not fits or _same(current_checklist(body_now), block))
     # The record lives in this controller's newest comment, whichever kind. It
     # is refreshed there silently whenever what it holds has changed — the
     # state, the head, the admission, the waiting time — never by a new
     # comment: a new comment is a notification, and a record is not news.
     holders = bot_comments(pr, STATE_MARKER)
-    holder = holders[-1] if holders else None
+    # The holder is the comment the record was read from — the one written
+    # last — not the one created last.
+    holder = next((c for c in holders if c['id'] == pr.get('controller_comment_id')), holders[-1] if holders else None)
     recorded = pr.get('controller_state') or {}
     record_fields = ('state', 'head', 'admitted_at', 'ready_since')
     record_correct = holder is None or all(recorded.get(k) == desired.get(k) for k in record_fields)
@@ -413,11 +436,11 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     # text is kept current in place. Announced for an earlier head within a
     # day: edited, not reposted. Otherwise: a new comment, which notifies.
     move = MOVE_STATES.get(result['state'])
-    move_body = move_text(result) if move and not (pr.get('author_is_bot') and move != 'ready-for-human') else None
+    move_body = move_text(result) if move and not (pr.get('author_is_bot') and move == 'waiting-self-review') else None
     announced = [c for c in bot_comments(pr, MOVE_MARKER) if f'{MOVE_MARKER} state={move} ' in c['body']]
     same_head = [c for c in announced if f" sha={pr['head']} -->" in c['body']]
     target = (same_head[-1] if same_head
-              else announced[-1] if announced and _hours_since(announced[-1]['created_at'], now) < MOVE_REPEAT_HOURS
+              else announced[-1] if announced and _hours_since(announced[-1].get('updated_at') or announced[-1]['created_at'], now) < MOVE_REPEAT_HOURS
               else None)
     # A standing comment of the earlier engine that already recorded this move
     # for this head is that announcement: it becomes the move comment in place.
@@ -438,6 +461,13 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     api.post_status(pr['head'], 'pending', 'Evaluating current review policy')
     if not identity_matches():
         return
+    if stale_block:
+        try:
+            api.remove_checklist(pr['number'])
+        except GitHubError as error:
+            print(f"PR #{pr['number']}: stale checklist not removed: {error}", file=sys.stderr)
+        if not identity_matches():
+            return desired
     if block is not None and not block_correct:
         try:
             api.set_checklist(pr['number'], block)
@@ -454,10 +484,14 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         api.upsert_state(pr['number'], desired, move_body, kept)
         written = True
     elif holder is not None and (not record_correct or not standing_correct):
-        # Same words, current record — or, for the earlier engine's standing
-        # comment, the pointer at the description.
-        text = _visible(holder['body']) if MOVE_MARKER in holder['body'] else POINTER
-        kept = holder['id']
+        # Same words, current record — carried by the announcement whose words
+        # match this state when there is one, so the record never sits under
+        # the wrong instruction; otherwise by the holder. The earlier engine's
+        # standing comment gets the pointer at the description.
+        carrier = target if (move_body is not None and target is not None) else holder
+        text = move_body if carrier is target and move_body is not None else (
+            _visible(carrier['body']) if MOVE_MARKER in carrier['body'] else POINTER)
+        kept = carrier['id']
         api.upsert_state(pr['number'], desired, text, kept)
         written = True
     # Every standing comment that is not the record holder is noise, and goes:

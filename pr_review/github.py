@@ -126,11 +126,33 @@ def _normalise(text):
     return text.replace("\r\n", "\n").rstrip()
 
 
+def _outside_fences(body):
+    """Character offsets of `body` that are not inside a fenced code block."""
+    inside, offset, spans = False, 0, []
+    for line in body.splitlines(keepends=True):
+        if line.lstrip().startswith("```") or line.lstrip().startswith("~~~"):
+            inside = not inside
+        elif not inside:
+            spans.append((offset, offset + len(line)))
+        offset += len(line)
+    return spans
+
+
 def _split_checklist(body):
-    """(author's text, block, trailing text) around the last marker pair, or (body, None, '')."""
-    start = body.rfind(CHECKLIST_START)
-    end = body.rfind(CHECKLIST_END)
-    if start == -1 or end == -1 or end < start:
+    """(author's text, block, trailing text) around this controller's block, or (body, None, '').
+
+    The block is the LAST start marker outside a fenced code block, up to the
+    FIRST end marker after it. A quoted example in a fence is not a block; an
+    extra end marker further down is the author's, and stays; a start with no
+    end after it is no block at all.
+    """
+    starts = [s for lo, hi in _outside_fences(body)
+              for s in [body.find(CHECKLIST_START, lo, hi)] if s != -1]
+    if not starts:
+        return body, None, ""
+    start = max(starts)
+    end = body.find(CHECKLIST_END, start + len(CHECKLIST_START))
+    if end == -1:
         return body, None, ""
     end += len(CHECKLIST_END)
     return body[:start], body[start:end], body[end:]
@@ -762,6 +784,30 @@ class GitHub:
 
     def delete_comment(self, comment_id):
         return self.request("DELETE", f"{self.root}/issues/comments/{comment_id}")
+
+    def remove_checklist(self, number):
+        """Take this controller's block out of the description, and nothing else."""
+        current = self.request("GET", f"{self.root}/pulls/{number}")
+        body = (current.get("body") or "") if isinstance(current, dict) else ""
+        head, block, tail = _split_checklist(body)
+        if block is None:
+            return False
+        self.request("PATCH", f"{self.root}/pulls/{number}", {"body": (head.rstrip() + tail).rstrip()})
+        return True
+
+    def latest_state_from_status(self, head):
+        """The state this controller last published for `head`, from the commit status.
+
+        For a pull request that has no record comment yet — a state reached
+        before any move was announced — the status is the only trace, and it
+        is this controller's own, posted by github-actions[bot].
+        """
+        mine = [item for item in self._head_statuses(head)
+                if item.get("context") == "PR Hygiene"
+                and (item.get("creator") or {}).get("login", "").lower() == "github-actions[bot]"]
+        if not mine:
+            return None
+        return max(mine, key=lambda item: (item.get("created_at") or "", item.get("id") or 0)).get("description")
 
     def set_checklist(self, number, block):
         """Put this controller's block at the end of the description, and nothing else.
