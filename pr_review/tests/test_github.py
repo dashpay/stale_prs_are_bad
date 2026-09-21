@@ -414,16 +414,14 @@ class GitHubTests(unittest.TestCase):
             result = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
         self.assertEqual(result["controller_state"], state)
         self.assertEqual(result["controller_comment_id"], 2)
-        # Two runs reconciling one pull request at once can each open a state
-        # comment. Refusing to read them left every pull request by that author
-        # on an error status until somebody deleted one by hand, and no run
-        # could clear it. The oldest is authoritative and every later run agrees.
+        # Every announcement of a move carries the record as of then, so the
+        # newest is the current one. Two runs writing at once still agree.
         request, pages = self.snapshot_fixture(comments=[comment(3, "github-actions[bot]"), comment(2, "github-actions[bot]")])
         with request, pages:
             result = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
-        self.assertEqual(result["controller_comment_id"], 2)
+        self.assertEqual(result["controller_comment_id"], 3)
 
-    def test_the_oldest_state_comment_wins_however_the_page_is_ordered(self):
+    def test_the_newest_state_comment_wins_however_the_page_is_ordered(self):
         def state(number):
             return {"version": 1, "number": 1, "head": "a" * 40, "admitted_at": None,
                     "ready_since": None, "state": "waiting-slot",
@@ -439,12 +437,12 @@ class GitHubTests(unittest.TestCase):
         earlier = comment(9, "2026-09-01T00:00:00Z")
         later = comment(4, "2026-09-02T00:00:00Z")
         for page in ([earlier, later], [later, earlier]):
-            self.assertEqual(parse_controller_state(page)[1], 9, 'earliest comment, not lowest id')
+            self.assertEqual(parse_controller_state(page)[1], 4, 'latest comment, not highest id')
         # GitHub timestamps are whole seconds, so simultaneous writes can tie.
         # Without a second key two runs could each keep a different comment.
         tied = [comment(7, "2026-09-01T00:00:00Z"), comment(5, "2026-09-01T00:00:00Z")]
-        self.assertEqual(parse_controller_state(tied)[1], 5)
-        self.assertEqual(parse_controller_state(list(reversed(tied)))[1], 5)
+        self.assertEqual(parse_controller_state(tied)[1], 7)
+        self.assertEqual(parse_controller_state(list(reversed(tied)))[1], 7)
 
     def test_a_pull_request_that_vanished_mid_run_does_not_fail_the_others(self):
         """`gh` exits non-zero whenever GraphQL answers with any errors array.
@@ -668,6 +666,8 @@ class GitHubTests(unittest.TestCase):
         with patch.object(self.api, "request") as request:
             self.api.set_state_label(1, "ready-for-human", ["ready-for-human", "bug"])
             self.api.set_state_label(1, "draft", ["bug"])
+            self.api.set_state_label(1, "waiting-build", ["bug"])
+            self.api.set_state_label(1, "ready-to-merge", ["bug"])
             request.assert_not_called()
             self.api.set_state_label(1, "waiting-bots", ["ready-for-human", "bug", "bot-review-skipped"])
             calls = [(c.args[0], c.args[1].rsplit("/", 1)[-1] if c.args[0] == "DELETE" else c.args[2]["labels"])
@@ -677,7 +677,17 @@ class GitHubTests(unittest.TestCase):
             request.reset_mock()
             self.api.set_state_label(1, "configuration-error", ["waiting-bots"])
             self.assertEqual([c.args[0] for c in request.call_args_list], ["DELETE"], "a state with no label clears the old one")
-
+            request.reset_mock()
+            # An objection and a missing attestation are one move — the author's.
+            self.api.set_state_label(1, "waiting-author", [])
+            self.assertEqual(request.call_args.args[2]["labels"], ["waiting-self-review"])
+            request.reset_mock()
+            self.api.set_state_label(1, "waiting-slot", [])
+            self.assertEqual(request.call_args.args[2]["labels"], ["too-many-open-prs"])
+            request.reset_mock()
+            # Names this controller used to set are cleared wherever still seen.
+            self.api.set_state_label(1, "waiting-bots", ["waiting-bots", "waiting-author", "ready-to-merge"])
+            self.assertEqual(sorted(c.args[1].rsplit("/", 1)[-1] for c in request.call_args_list), ["ready-to-merge", "waiting-author"])
     def test_should_reject_unknown_controller_schema(self):
         with self.assertRaises(GitHubError):
             parse_controller_state([{"id": 1, "user": "github-actions[bot]",

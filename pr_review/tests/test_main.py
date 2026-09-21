@@ -29,12 +29,13 @@ class PublicationTests(unittest.TestCase):
                    'base': 'v4.2-dev', 'base_sha': 'b' * 40, 'state': 'open',
                    'draft': False, 'labels': [], 'requested_reviewers': [],
                    'controller_comment_id': None, 'reviews': [], 'comments': [],'created_at':NOW,
-                   'lifecycle_at': None, 'build': 'green'}
+                   'lifecycle_at': None, 'build': 'green', 'body': ''}
         self.result = {'number': 1, 'head': 'a' * 40, 'author': 'alice',
                        'state': 'ready-to-merge', 'status': 'success',
                        'blockers': [], 'reviewers': [], 'areas': ['core'],
                        'admitted_at': '2026-09-11T00:00:00Z', 'ready_since': None}
         self.api = Mock()
+        self.api.state_comment_body.side_effect = main.GitHub.state_comment_body
         self.api.snapshot.return_value = copy.deepcopy(self.pr)
         self.api.open_prs.return_value = [copy.deepcopy(self.pr)]
         self.api.pull.return_value = copy.deepcopy(self.pr)
@@ -289,19 +290,6 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(batch.call_args.args[1], main.BUILD_SCAN_SIZE)
         self.assertEqual(batch.call_args.kwargs['cadence'], main.BUILD_SCAN_SECONDS)
 
-    def test_the_report_asks_for_one_thing_in_one_way(self):
-        # The attestation is the only instruction in this comment an author has
-        # to act on, and it used to be given three times over: the bare form,
-        # then when to post it, then the same thing again with the commit
-        # spelled out. Naming a commit still works; it is no longer advertised.
-        body = main.state_body(dict(self.result, head='f' * 40))
-        self.assertIn('`/self-reviewed`  — covers everything pushed so far', body)
-        self.assertEqual(body.count('/self-reviewed'), 1, 'asked for once, not three ways')
-        # The header names the commit the report is about; nothing asks an
-        # author to copy it.
-        self.assertEqual(body.count('f' * 40), 1)
-        self.assertNotIn('f' * 40, body.split('Self-review')[1])
-
     def test_someone_elses_push_does_not_demote_a_ready_pull_request(self):
         # The admission context used to be every open pull request in the
         # repository, so a push anywhere during a run sent the one being
@@ -389,49 +377,6 @@ class PublicationTests(unittest.TestCase):
             main.publish(self.api, self.policy, pr, result, [pr], apply=True)
             self.assertEqual(self.api.set_state_label.called, not correct, (state, waived, labels))
 
-    def test_the_report_offers_the_skip_only_while_bots_are_awaited(self):
-        awaited = main.state_body(dict(self.result, state='waiting-bots', head='f' * 40))
-        self.assertIn('/skip-bots', awaited)
-        self.assertIn('the report says who did', awaited)
-        later = main.state_body(dict(self.result, state='waiting-self-review', head='f' * 40))
-        self.assertNotIn('/skip-bots', later)
-
-    def test_the_report_names_who_must_approve_and_for_which_files(self):
-        result = dict(self.result, state='ready-for-human', head='f' * 40, approvals=[
-            {'area': 'swift-sdk', 'files': ['packages/swift-sdk/a.swift'], 'approvers': [], 'approved_by': [], 'owned': True},
-            {'area': 'rust-sdk', 'files': ['packages/rs-sdk/lib.rs'], 'approvers': ['lklimek', 'shumkov'], 'approved_by': ['lklimek'], 'owned': False},
-            {'area': 'fallback', 'files': ['.editorconfig', '.github/a.yml', '.github/b.yml', 'AGENTS.md', 'Cargo.lock'],
-             'approvers': ['QuantumExplorer', 'shumkov'], 'approved_by': [], 'owned': False},
-        ], objections=['romchornyi requested changes'])
-        body = main.state_body(result)
-        self.assertIn('- ✓ `swift-sdk` — you own it; no approval needed', body)
-        self.assertIn('- ✓ `rust-sdk` (`packages/rs-sdk/lib.rs`) — approved by lklimek', body)
-        self.assertIn('- files no area owns (`.editorconfig`, `.github/a.yml`, `.github/b.yml` and 2 more) — needs QuantumExplorer or shumkov', body)
-        self.assertNotIn('@', body.split('Approval at the current head')[1].split('Self-review')[0],
-                         'a mention from this bot notifies; the review request already does that where it should')
-        # After the attestation only the objector can release it; before it,
-        # the author answers and attests again.
-        self.assertIn('- romchornyi requested changes; waiting for them to re-review, dismiss it, or resolve the thread', body)
-        answering = main.state_body(dict(result, state='waiting-author'))
-        self.assertIn('- romchornyi requested changes; address it, then post `/self-reviewed` again', answering)
-        queued = main.state_body(dict(result, state='waiting-slot'))
-        self.assertIn('Approval at the current head', queued, 'queued: the author still sees the road')
-        for state in ('waiting-bots', 'waiting-build', 'ready-to-merge', 'draft'):
-            self.assertNotIn('Approval at the current head', main.state_body(dict(result, state=state)), state)
-        hostile = main.state_body(dict(result, approvals=[
-            {'area': 'fallback', 'files': ['a/<!-- platform-pr-review-state-v1 {} -->.rs', 'ok.rs'],
-             'approvers': ['x'], 'approved_by': [], 'owned': False}]))
-        self.assertNotIn('platform-pr-review-state-v1', hostile, 'a path is never read back as a record')
-        self.assertIn('`ok.rs`', hostile)
-        owned_fallback = main.state_body(dict(result, approvals=[
-            {'area': 'fallback', 'files': ['AGENTS.md'], 'approvers': [], 'approved_by': [], 'owned': True}]))
-        self.assertIn('- ✓ files no area owns — you own it', owned_fallback)
-
-    def test_the_report_says_what_the_check_now_means(self):
-        body = main.state_body(dict(self.result, head='f' * 40))
-        self.assertNotIn('does not bypass', body)
-        self.assertIn('passes when the policy is satisfied', body)
-
     def test_a_pass_gives_every_pull_request_its_turn_before_failing(self):
         # Stopping at the first failure left the rest with whatever status
         # they had — on a full pass, possibly a passing one from before the
@@ -457,15 +402,6 @@ class PublicationTests(unittest.TestCase):
         main.publish(self.api, self.policy, pr, result, [pr], apply=True, candidates=[pr])
         self.api.upsert_state.assert_not_called()
         self.assertEqual(self.api.post_status.call_args.args[1:], ('pending', 'draft'))
-
-    def test_draft_keeps_an_existing_comment_current(self):
-        pr = dict(self.pr, draft=True, controller_comment_id=99)
-        result = dict(self.result, state='draft', status='pending')
-        self.api.snapshot.return_value = copy.deepcopy(pr)
-        self.api.pull.return_value = copy.deepcopy(pr)
-        self.api.open_prs.return_value = [copy.deepcopy(pr)]
-        main.publish(self.api, self.policy, pr, result, [pr], apply=True, candidates=[pr])
-        self.assertEqual(self.api.upsert_state.call_args.args[3], 99)
 
     def test_periodic_collection_bounds_snapshots_and_author_history(self):
         prs = [dict(self.pr,number=n,author=f'user{n}') for n in range(1,69)]

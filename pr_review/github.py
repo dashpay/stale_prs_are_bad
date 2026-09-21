@@ -4,7 +4,7 @@ import json
 import re
 import subprocess
 
-from .policy import STATE_LABELS
+from .policy import CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, RETIRED_LABELS, STATE_LABELS
 import sys
 from datetime import datetime
 from urllib.parse import quote
@@ -122,8 +122,49 @@ def _capability(granted):
     return None
 
 
+def _normalise(text):
+    return text.replace("\r\n", "\n").rstrip()
+
+
+def _outside_fences(body):
+    """Character offsets of `body` that are not inside a fenced code block."""
+    inside, offset, spans = False, 0, []
+    for line in body.splitlines(keepends=True):
+        if line.lstrip().startswith("```") or line.lstrip().startswith("~~~"):
+            inside = not inside
+        elif not inside:
+            spans.append((offset, offset + len(line)))
+        offset += len(line)
+    return spans
+
+
+def _split_checklist(body):
+    """(author's text, block, trailing text) around this controller's block, or (body, None, '').
+
+    The block is the LAST start marker outside a fenced code block, up to the
+    FIRST end marker after it. A quoted example in a fence is not a block; an
+    extra end marker further down is the author's, and stays; a start with no
+    end after it is no block at all.
+    """
+    starts = [s for lo, hi in _outside_fences(body)
+              for s in [body.find(CHECKLIST_START, lo, hi)] if s != -1]
+    if not starts:
+        return body, None, ""
+    start = max(starts)
+    end = body.find(CHECKLIST_END, start + len(CHECKLIST_START))
+    if end == -1:
+        return body, None, ""
+    end += len(CHECKLIST_END)
+    return body[:start], body[start:end], body[end:]
+
+
+def current_checklist(body):
+    """The block a description carries now, or None."""
+    return _split_checklist(body or "")[1]
+
+
 def parse_controller_state(comments):
-    """Ignore copied receipts; the oldest record wins; refuse corrupt history."""
+    """Ignore copied receipts; the newest record wins; refuse corrupt history."""
     found = []
     for comment in comments:
         if comment["user"].lower() != "github-actions[bot]":
@@ -139,17 +180,16 @@ def parse_controller_state(comments):
         except (ValueError, TypeError) as error:
             raise GitHubError("Malformed controller state JSON") from error
         _validate_state(state)
-        found.append((_text(comment["created_at"], "comment creation time"),
+        found.append((_text(comment.get("updated_at") or comment["created_at"], "comment update time"),
                       comment["id"], state))
     if not found:
         return (None, None)
-    # Two runs reconciling one pull request at the same time can each open a
-    # state comment, and refusing to read them held every pull request by that
-    # author on an error status that no later run could clear. The oldest record
-    # is authoritative: it carries the earliest admission, which is what orders
-    # the author's slots, and every run reaches the same answer. GitHub reports
-    # whole seconds, so the id breaks a tie between simultaneous writes.
-    created_at, comment_id, state = min(found, key=lambda record: record[:2])
+    # The record most recently written is the current one: a refresh edits
+    # the newest holder in place and every edit bumps updated_at, so whichever
+    # comment was written last carries the truth. Admission is carried forward
+    # unchanged from record to record, which is what keeps the author's slots
+    # stable. GitHub reports whole seconds, so the id breaks a tie.
+    written_at, comment_id, state = max(found, key=lambda record: record[:2])
     return state, comment_id
 
 
@@ -255,6 +295,7 @@ class GitHub:
             result = {
                 "number": raw["number"], "author": _login(raw["user"]),
                 "author_is_bot": (raw.get("user") or {}).get("type") == "Bot",
+                "body": raw.get("body") or "",
                 "head": _text(raw["head"]["sha"], "head SHA"),
                 "base": _text(raw["base"]["ref"], "base branch"),
                 "base_sha": _text(raw["base"]["sha"], "base SHA"),
@@ -718,14 +759,18 @@ class GitHub:
                                      created_at=written.get("created_at"))] + statuses
         return written
 
+    @staticmethod
+    def state_comment_body(state, body):
+        marker = f"{STATE_MARKER} {json.dumps(state, separators=(',', ':'), sort_keys=True)} -->"
+        if STATE_MARKER in body:
+            raise GitHubError("Controller display body must not contain a state marker")
+        return marker + "\n\n" + body
+
     def upsert_state(self, number, state, body, comment_id=None):
         _validate_state(state)
         if state["number"] != number:
             raise GitHubError("Controller state belongs to another PR")
-        marker = f"{STATE_MARKER} {json.dumps(state, separators=(',', ':'), sort_keys=True)} -->"
-        if STATE_MARKER in body:
-            raise GitHubError("Controller display body must not contain a state marker")
-        payload = {"body": marker + "\n\n" + body}
+        payload = {"body": self.state_comment_body(state, body)}
         if comment_id is None:
             result = self.request("POST", f"{self.root}/issues/{number}/comments", payload)
         else:
@@ -737,6 +782,57 @@ class GitHub:
     def comment(self, number, body):
         return self.request("POST", f"{self.root}/issues/{number}/comments", {"body": body})
 
+    def delete_comment(self, comment_id):
+        return self.request("DELETE", f"{self.root}/issues/comments/{comment_id}")
+
+    def remove_checklist(self, number):
+        """Take this controller's block out of the description, and nothing else."""
+        current = self.request("GET", f"{self.root}/pulls/{number}")
+        body = (current.get("body") or "") if isinstance(current, dict) else ""
+        head, block, tail = _split_checklist(body)
+        if block is None:
+            return False
+        self.request("PATCH", f"{self.root}/pulls/{number}", {"body": (head.rstrip() + tail).rstrip()})
+        return True
+
+    def latest_state_from_status(self, head):
+        """The state this controller last published for `head`, from the commit status.
+
+        For a pull request that has no record comment yet — a state reached
+        before any move was announced — the status is the only trace, and it
+        is this controller's own, posted by github-actions[bot].
+        """
+        mine = [item for item in self._head_statuses(head)
+                if item.get("context") == "PR Hygiene"
+                and (item.get("creator") or {}).get("login", "").lower() == "github-actions[bot]"]
+        if not mine:
+            return None
+        return max(mine, key=lambda item: (item.get("created_at") or "", item.get("id") or 0)).get("description")
+
+    def set_checklist(self, number, block):
+        """Put this controller's block at the end of the description, and nothing else.
+
+        The description is the author's. Only the block between the markers
+        is this controller's to write: read the body immediately before the
+        write, replace the LAST marker pair or append, and leave everything
+        else byte for byte. Line endings are normalised for the comparison
+        only, since the web form re-saves whole bodies as CRLF.
+        """
+        if CHECKLIST_START in block[len(CHECKLIST_START):] or CHECKLIST_END in block[:-len(CHECKLIST_END)]:
+            raise GitHubError("Checklist block must not contain its own delimiters")
+        current = self.request("GET", f"{self.root}/pulls/{number}")
+        body = (current.get("body") or "") if isinstance(current, dict) else ""
+        head, _, tail = _split_checklist(body)
+        # Whatever follows the block is someone else's — CodeRabbit appends its
+        # own — and stays exactly where it was.
+        wanted = ((head.rstrip() + "\n\n" + block) if head.strip() else block) + tail
+        if len(wanted) > 65536:
+            raise GitHubError("Description too long for the checklist")
+        if _normalise(body) == _normalise(wanted):
+            return False
+        self.request("PATCH", f"{self.root}/pulls/{number}", {"body": wanted})
+        return True
+
     def set_label(self, number, label, enabled, current_labels):
         if enabled and label not in current_labels:
             return self.request("POST", f"{self.root}/issues/{number}/labels", {"labels": [label]})
@@ -745,11 +841,11 @@ class GitHub:
         return None
 
     def set_state_label(self, number, state, current_labels):
-        """Exactly one state label, or none for a state that has no label."""
-        wanted = state if state in STATE_LABELS else None
+        """Exactly one state label, or none for a state that has none; retired names cleared."""
+        wanted = LABEL_FOR_STATE.get(state)
         if wanted and wanted not in current_labels:
             self.request("POST", f"{self.root}/issues/{number}/labels", {"labels": [wanted]})
-        for label in STATE_LABELS:
+        for label in dict.fromkeys(STATE_LABELS + RETIRED_LABELS):
             if label in current_labels and label != wanted:
                 self.request("DELETE", f"{self.root}/issues/{number}/labels/{label}")
 
