@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -183,12 +184,51 @@ def state_record(pr, result, context):
                 'version': 1, 'evidence': fingerprint(pr), 'context': context}
 
 
+def _who_must_approve(result):
+    """Per area: who can approve it, who has, and which files put it in play.
+
+    A pull request was held with one approval in hand because five files
+    outside every owned area needed a different approver, and the report said
+    only that "human approval is required". Say for what, from whom, and what
+    is already covered, or the author is left guessing.
+    """
+    state = result['state']
+    if state not in {'ready-for-human', 'waiting-author', 'waiting-slot'}:
+        return []
+    lines = []
+    for area in result.get('approvals') or []:
+        # Paths come from the pull request. One carrying the state marker, a
+        # backtick or a newline would break this comment or, worse, be read
+        # back as a record; such a path is counted, not quoted.
+        files = [f for f in area['files'] if re.fullmatch(r'[A-Za-z0-9._/@+-]+', f)]
+        shown = ', '.join(f'`{f}`' for f in files[:3]) + (f' and {len(area["files"]) - 3} more' if len(area['files']) > 3 else '')
+        name = 'files no area owns' if area['area'] == 'fallback' else f"`{area['area']}`"
+        where = f'{name} ({shown})' if shown else f"{name} ({len(area['files'])} files)"
+        # No @-mentions: a mention from this bot notifies, and a pull request
+        # waiting for a slot is one nobody has been asked to look at yet. In
+        # ready-for-human the review request already carries the ping.
+        if area.get('owned'):
+            lines.append(f'- ✓ {name} — you own it; no approval needed')
+        elif area['approved_by']:
+            lines.append(f"- ✓ {where} — approved by {', '.join(area['approved_by'])}")
+        else:
+            lines.append(f"- {where} — needs {' or '.join(area['approvers'])}")
+    for objection in result.get('objections') or []:
+        # Before the attestation, the author answers and attests again. After
+        # it, only the objector can release it: re-review, dismiss, resolve.
+        release = ('address it, then post `/self-reviewed` again' if state == 'waiting-author'
+                   else 'waiting for them to re-review, dismiss it, or resolve the thread')
+        lines.append(f'- {objection}; {release}')
+    return ['', 'Approval at the current head:'] + lines if lines else []
+
+
 def state_body(result):
     reasons = result.get('blockers') or ['All policy requirements are satisfied.']
     return '\n'.join([
         '### PR Hygiene',
         f"State: **{result['state']}** · commit `{result['head']}`",
         '', *[f'- {reason}' for reason in reasons],
+        *_who_must_approve(result),
         '', 'Self-review is an author attestation that you have read the diff:',
         '`/self-reviewed`  — covers everything pushed so far; post it again after a new push.',
         *(['`/skip-bots`  — proceed without the bots that have not reported; anyone with write access may, and the report says who did.']

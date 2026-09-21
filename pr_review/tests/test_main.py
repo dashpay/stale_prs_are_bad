@@ -396,6 +396,37 @@ class PublicationTests(unittest.TestCase):
         later = main.state_body(dict(self.result, state='waiting-self-review', head='f' * 40))
         self.assertNotIn('/skip-bots', later)
 
+    def test_the_report_names_who_must_approve_and_for_which_files(self):
+        result = dict(self.result, state='ready-for-human', head='f' * 40, approvals=[
+            {'area': 'swift-sdk', 'files': ['packages/swift-sdk/a.swift'], 'approvers': [], 'approved_by': [], 'owned': True},
+            {'area': 'rust-sdk', 'files': ['packages/rs-sdk/lib.rs'], 'approvers': ['lklimek', 'shumkov'], 'approved_by': ['lklimek'], 'owned': False},
+            {'area': 'fallback', 'files': ['.editorconfig', '.github/a.yml', '.github/b.yml', 'AGENTS.md', 'Cargo.lock'],
+             'approvers': ['QuantumExplorer', 'shumkov'], 'approved_by': [], 'owned': False},
+        ], objections=['romchornyi requested changes'])
+        body = main.state_body(result)
+        self.assertIn('- ✓ `swift-sdk` — you own it; no approval needed', body)
+        self.assertIn('- ✓ `rust-sdk` (`packages/rs-sdk/lib.rs`) — approved by lklimek', body)
+        self.assertIn('- files no area owns (`.editorconfig`, `.github/a.yml`, `.github/b.yml` and 2 more) — needs QuantumExplorer or shumkov', body)
+        self.assertNotIn('@', body.split('Approval at the current head')[1].split('Self-review')[0],
+                         'a mention from this bot notifies; the review request already does that where it should')
+        # After the attestation only the objector can release it; before it,
+        # the author answers and attests again.
+        self.assertIn('- romchornyi requested changes; waiting for them to re-review, dismiss it, or resolve the thread', body)
+        answering = main.state_body(dict(result, state='waiting-author'))
+        self.assertIn('- romchornyi requested changes; address it, then post `/self-reviewed` again', answering)
+        queued = main.state_body(dict(result, state='waiting-slot'))
+        self.assertIn('Approval at the current head', queued, 'queued: the author still sees the road')
+        for state in ('waiting-bots', 'waiting-build', 'ready-to-merge', 'draft'):
+            self.assertNotIn('Approval at the current head', main.state_body(dict(result, state=state)), state)
+        hostile = main.state_body(dict(result, approvals=[
+            {'area': 'fallback', 'files': ['a/<!-- platform-pr-review-state-v1 {} -->.rs', 'ok.rs'],
+             'approvers': ['x'], 'approved_by': [], 'owned': False}]))
+        self.assertNotIn('platform-pr-review-state-v1', hostile, 'a path is never read back as a record')
+        self.assertIn('`ok.rs`', hostile)
+        owned_fallback = main.state_body(dict(result, approvals=[
+            {'area': 'fallback', 'files': ['AGENTS.md'], 'approvers': [], 'approved_by': [], 'owned': True}]))
+        self.assertIn('- ✓ files no area owns — you own it', owned_fallback)
+
     def test_the_report_says_what_the_check_now_means(self):
         body = main.state_body(dict(self.result, head='f' * 40))
         self.assertNotIn('does not bypass', body)

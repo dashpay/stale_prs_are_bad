@@ -297,7 +297,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
     result = {k: pr.get(k) for k in ('number', 'head', 'author', 'title', 'url')}
     result.update(state='configuration-error', status='error', blockers=[], reviewers=[], areas=[],
                   ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None,
-                  nudge=[], waived=[])
+                  nudge=[], waived=[], approvals=[], objections=[])
 
     # This status is a required check, so it passes only when the policy is
     # satisfied. Everything still waiting is pending — not red, because an
@@ -328,7 +328,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             _time(admitted_at)
         if not pr['files']:
             return stop('configuration-error', 'No changed-file evidence', status='error')
-        touched = {}
+        touched, files_by_area = {}, {}
         for file in pr['files']:
             for path in {file['filename'], file.get('previous_filename', file['filename'])}:
                 if not isinstance(path, str) or path.startswith('/') or any(x in {'.','..',''} for x in path.split('/')):
@@ -336,6 +336,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 area = next((a for a in policy['areas'] if any(path.startswith(p) for p in a['paths'])), None)
                 area = area or dict(policy['fallback'], id='fallback')
                 touched[area['id']] = area
+                files_by_area.setdefault(area['id'], set()).add(path)
         result['areas'] = sorted(touched)
         permissions = {k.lower(): v for k,v in pr['permissions'].items()}
         people = {x.lower(): x for a in touched.values() for x in a['owners'] + a['reviewers']}
@@ -458,6 +459,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         for user, review in latest.items():
             if user not in BOTS and _may_object(permissions, user) and review['state'].upper() == 'CHANGES_REQUESTED':
                 objectors[user] = review['submitted_at']
+                result['objections'].append(f'{review["user"]} requested changes')
         for thread in pr['threads']:
             if thread['is_resolved'] or thread['author'].lower() in BOTS:
                 continue
@@ -468,17 +470,30 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 user = voice['user'].lower()
                 if user in BOTS or user == pr['author'].lower() or not _may_object(permissions, user):
                     continue
+                if user not in objectors:
+                    result['objections'].append(f"{voice['user']} left a review thread unresolved")
                 objectors[user] = max(objectors.get(user, voice['created_at']), voice['created_at'], key=_time)
-        if any(_time(value) >= _time(self_time) for value in objectors.values()):
-            return stop('waiting-author', 'Author response is required after the latest human objection')
         author = pr['author'].lower()
         needed = set()
         for area in touched.values():
             if author in {x.lower() for x in area['owners']}:
+                result['approvals'].append({'area': area['id'], 'files': sorted(files_by_area.get(area['id'], ())),
+                                            'approvers': [], 'approved_by': [], 'owned': True})
                 continue
             eligible = {x.lower() for x in area['owners'] + area['reviewers']} - {author}
-            if not any(u in latest and latest[u]['state'].upper() == 'APPROVED' and latest[u]['commit_id'] == pr['head'] for u in eligible):
+            approved_by = sorted(people[u] for u in eligible
+                                 if u in latest and latest[u]['state'].upper() == 'APPROVED' and latest[u]['commit_id'] == pr['head'])
+            # Recorded either way: an approval that already covers an area is
+            # as much of the answer as the one still missing, and the author
+            # seeing "romchornyi approved swift-sdk" beside "nobody has
+            # approved .github/" is what tells them what they are waiting for.
+            result['approvals'].append({
+                'area': area['id'], 'files': sorted(files_by_area.get(area['id'], ())),
+                'approvers': sorted(people[u] for u in eligible), 'approved_by': approved_by, 'owned': False})
+            if not approved_by:
                 needed.update(eligible)
+        if any(_time(value) >= _time(self_time) for value in objectors.values()):
+            return stop('waiting-author', 'Author response is required after the latest human objection')
         needed.update(u for u in objectors if u != author and _may_object(permissions, u) and u not in BOTS)
         if needed or objectors:
             if not admitted_at:

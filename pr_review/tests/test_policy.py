@@ -254,6 +254,37 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bot):
                 validate_policy(p)
 
+    def test_the_verdict_says_who_must_approve_what_and_what_is_already_covered(self):
+        # A pull request was held with one approval in hand: seventy-one files
+        # the author owned needed none, five files no area owns needed a lead,
+        # and the report said only that "human approval is required".
+        p, pr = fixture()
+        p['areas'].append(dict(id='docs', paths=['docs/'], owners=['scribe'], reviewers=['editor']))
+        pr['author'] = pr['comments'][0]['user'] = 'owner'          # owns the fixture's first area
+        pr['files'] = [{'filename': 'packages/drive/x.rs'}, {'filename': 'docs/a.md'},
+                       {'filename': '.github/workflows/ci.yml'}, {'filename': 'AGENTS.md'}]
+        pr['permissions'].update(scribe='write', editor='write')
+        pr['reviews'].append(dict(id=7, user='editor', state='APPROVED', commit_id=HEAD, submitted_at=NOW, body=''))
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human')
+        by_area = {a['area']: a for a in result['approvals']}
+        self.assertTrue(by_area[p['areas'][0]['id']]['owned'], 'owned: no approval needed, and said so')
+        self.assertEqual(by_area['docs']['approved_by'], ['editor'], 'covered, and by whom')
+        self.assertEqual(by_area['fallback']['approved_by'], [])
+        self.assertEqual(by_area['fallback']['files'], ['.github/workflows/ci.yml', 'AGENTS.md'], 'the files that put it in play')
+        self.assertEqual(by_area['fallback']['approvers'], ['fallback'])
+        self.assertEqual(result['reviewers'], ['fallback'], 'only the uncovered area is asked')
+
+    def test_an_objection_is_named_and_the_approval_picture_still_shows(self):
+        p, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['threads'] = [dict(id=9, author='owner', is_resolved=False, created_at='2026-09-11T12:30:00Z',
+                              voices=[dict(user='owner', created_at='2026-09-11T12:30:00Z')])]
+        result = evaluate(p, pr, NOW, '2026-09-11T13:00:00Z')
+        self.assertEqual(result['state'], 'waiting-author')
+        self.assertEqual(result['objections'], ['owner left a review thread unresolved'])
+        self.assertTrue(result['approvals'], 'the author still sees what approval the areas need')
+
     def test_the_check_passes_in_exactly_one_state(self):
         # The invariant the gate rests on. Every reachable state is driven
         # here so that changing any one of them to success — one line — turns
