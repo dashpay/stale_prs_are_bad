@@ -101,7 +101,7 @@ class ChecklistTests(unittest.TestCase):
         policy, pr = fixture()
         pr['author'] = pr['comments'][0]['user'] = 'reviewer'
         result = evaluate(policy, pr, None, NOW)
-        self.assertEqual(result['state'], 'waiting-slot')
+        self.assertEqual(result['state'], 'too-many-open-prs')
         block = main.checklist_block(result)
         self.assertIn('- [ ] Within your 5 open PRs — this one is beyond the limit; it waits until one merges', block)
         self.assertTrue(first_unchecked(block).startswith('- [ ] Within'))

@@ -299,7 +299,7 @@ class PolicyTests(unittest.TestCase):
         objection = dict(id=9, author='reviewer', is_resolved=False, created_at='2026-09-11T12:00:00Z', body='no')
         seen = {
             'draft': shape(draft=True),
-            'waiting-slot': shape(author='reviewer', admitted=None),
+            'too-many-open-prs': shape(author='reviewer', admitted=None),
             'waiting-bots': shape(reviews=[]),
             'waiting-build': shape(build='running'),
             'waiting-self-review': shape(comments=[]),
@@ -313,7 +313,7 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual(result['status'],
                              {'ready-to-merge': 'success', 'configuration-error': 'error'}.get(expected, 'pending'),
                              expected)
-        self.assertEqual(set(seen), {'draft', 'waiting-slot', 'waiting-bots', 'waiting-build', 'waiting-self-review',
+        self.assertEqual(set(seen), {'draft', 'too-many-open-prs', 'waiting-bots', 'waiting-build', 'waiting-self-review',
                                      'waiting-author', 'ready-for-human', 'ready-to-merge', 'configuration-error'})
 
     def test_bare_self_review_covers_everything_pushed_so_far(self):
@@ -406,7 +406,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(evaluate(p,prs[4],slots.get(5),NOW)['state'], 'ready-to-merge')
         prs[4]['author'] = prs[4]['comments'][0]['user'] = 'reviewer'
         sixth = evaluate(p,prs[4],slots.get(5),NOW)
-        self.assertEqual(sixth['state'], 'waiting-slot')
+        self.assertEqual(sixth['state'], 'too-many-open-prs')
         self.assertEqual(sixth['reviewers'], [], 'nobody is asked while it waits')
 
     def test_incomplete_or_unresolved_never_succeeds(self):

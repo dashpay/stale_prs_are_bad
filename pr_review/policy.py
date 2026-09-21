@@ -22,7 +22,7 @@ WRITE = {'write', 'maintain', 'admin'}
 LABEL_FOR_STATE = {'waiting-bots': 'waiting-bots',
                    'waiting-self-review': 'waiting-self-review',
                    'waiting-author': 'waiting-self-review',
-                   'waiting-slot': 'too-many-open-prs',
+                   'too-many-open-prs': 'too-many-open-prs',
                    'ready-for-human': 'ready-for-human'}
 STATE_LABELS = tuple(dict.fromkeys(LABEL_FOR_STATE.values()))
 # Labels this controller used to set. Cleared wherever still seen, so a
@@ -574,7 +574,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 # Five at a time per author is a limit on human attention, so
                 # it applies here, where a human would be asked, and not to a
                 # pull request that needs none.
-                gate('waiting-slot', 'Waiting for one of five author review slots')
+                gate('too-many-open-prs', f"More than {policy['max_active_prs']} open pull requests; this one waits until one merges")
             if not was_ready and build != 'green':
                 # Green before a human is asked; red afterwards does not take it
                 # back, so a flake cannot withdraw a review request already sent

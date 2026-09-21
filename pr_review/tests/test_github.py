@@ -424,7 +424,7 @@ class GitHubTests(unittest.TestCase):
 
     def test_should_ignore_copied_controller_markers_and_reject_duplicate_trusted_state(self):
         state = {"version": 1, "number": 1, "head": "a" * 40, "admitted_at": None,
-                 "ready_since": None, "state": "waiting-slot", "evidence": "b" * 64, "context": "c" * 64}
+                 "ready_since": None, "state": "too-many-open-prs", "evidence": "b" * 64, "context": "c" * 64}
         marker = '<!-- platform-pr-review-state-v1 ' + json.dumps(state) + ' -->'
         def comment(number, actor):
             return {"id": number, "user": {"login": actor}, "body": marker,
@@ -444,7 +444,7 @@ class GitHubTests(unittest.TestCase):
     def test_the_newest_state_comment_wins_however_the_page_is_ordered(self):
         def state(number):
             return {"version": 1, "number": 1, "head": "a" * 40, "admitted_at": None,
-                    "ready_since": None, "state": "waiting-slot",
+                    "ready_since": None, "state": "too-many-open-prs",
                     "evidence": str(number) * 64, "context": "c" * 64}
 
         def comment(number, created_at):
@@ -702,7 +702,7 @@ class GitHubTests(unittest.TestCase):
             self.api.set_state_label(1, "waiting-author", [])
             self.assertEqual(request.call_args.args[2]["labels"], ["waiting-self-review"])
             request.reset_mock()
-            self.api.set_state_label(1, "waiting-slot", [])
+            self.api.set_state_label(1, "too-many-open-prs", [])
             self.assertEqual(request.call_args.args[2]["labels"], ["too-many-open-prs"])
             request.reset_mock()
             # Names this controller used to set are cleared wherever still seen.
