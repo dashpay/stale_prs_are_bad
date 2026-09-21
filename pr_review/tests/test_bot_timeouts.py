@@ -125,13 +125,13 @@ class WaiverTests(unittest.TestCase):
                               'commit_id': pr['head'], 'submitted_at': NOW, 'body': ''})
         result = evaluate(policy, pr, NOW, NOW)
         self.assertEqual(result['state'], 'waiting-bots')
-        self.assertIn('Bot changes request remains outstanding', result['blockers'])
+        self.assertIn('coderabbitai requested changes on this head; dismiss the review or push a fix', result['blockers'])
 
     def test_an_objection_against_an_earlier_head_does_not_block_forever(self):
         policy, pr = waiting(20)
         pr['reviews'].append({'id': 9, 'user': 'coderabbitai[bot]', 'state': 'CHANGES_REQUESTED',
                               'commit_id': 'e' * 40, 'submitted_at': '2026-09-10T00:00:00Z', 'body': ''})
-        self.assertNotIn('Bot changes request remains outstanding', evaluate(policy, pr, NOW, NOW)['blockers'])
+        self.assertFalse(any('requested changes' in b for b in evaluate(policy, pr, NOW, NOW)['blockers']))
 
     def test_a_bot_is_not_asked_while_the_pull_request_owes_it_an_answer(self):
         policy, pr = waiting(7)
@@ -287,7 +287,7 @@ class SkipBotsTests(unittest.TestCase):
         self.assertEqual(result['state'], 'waiting-bots')
         self.assertEqual(result['waived'], [], 'an objection is not waived, so it is not reported as waived either')
         self.assertNotIn('skipped_by', result)
-        self.assertIn('Bot changes request remains outstanding', result['blockers'])
+        self.assertIn('thepastaclaw requested changes on this head; dismiss the review or push a fix', result['blockers'])
 
         policy, pr = self.waiting_on_bots()
         pr['threads'] = [dict(id=9, author='coderabbitai[bot]', is_resolved=False, created_at=ago(0.9))]
