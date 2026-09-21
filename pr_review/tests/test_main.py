@@ -324,13 +324,13 @@ class PublicationTests(unittest.TestCase):
         for pr in prs:
             pr['comments'][0]['user'] = 'busy'
         with patch.object(main, 'evaluate', side_effect=lambda p, pr, admitted, now, states=None:
-                          dict(state='ready-to-merge' if admitted else 'waiting-slot', status='success' if admitted else 'pending',
+                          dict(state='ready-to-merge' if admitted else 'too-many-open-prs', status='success' if admitted else 'pending',
                                blockers=[], reviewers=[], head=pr['head'], number=pr['number'],
                                admitted_at=admitted, ready_since=None)):
             rows = main.evaluate_snapshots(policy, prs, prs, prs, NOW)
         states = {row['number']: row['state'] for row in rows}
         self.assertNotIn('configuration-error', states.values())
-        self.assertEqual(states[6], 'waiting-slot', 'the newest admission is the one that yields')
+        self.assertEqual(states[6], 'too-many-open-prs', 'the newest admission is the one that yields')
         self.assertEqual([n for n, s in states.items() if s == 'ready-to-merge'], [1, 2, 3, 4, 5])
 
     def test_a_policy_directory_gone_from_the_tree_does_not_fail_the_sweep(self):
