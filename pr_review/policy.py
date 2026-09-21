@@ -411,8 +411,14 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                       else f'Proceeded without {bot}: no review within the configured window')
                      for bot in sorted(waived))
         if reasons or bot_blocks or bot_threads:
-            if bot_blocks: reasons.append('Bot changes request remains outstanding')
-            if bot_threads: reasons.append('Bot review threads remain unresolved')
+            # Name the bot. "A bot objected" beside "proceeded without a bot"
+            # reads as a contradiction until you know they are two different
+            # bots; the name says which one is still owed an answer.
+            for review in bot_blocks:
+                who = review['user'].lower().removesuffix('[bot]')
+                reasons.append(f'{who} requested changes on this head; dismiss the review or push a fix')
+            for bot in sorted({t['author'].lower().removesuffix('[bot]') for t in bot_threads}):
+                reasons.append(f'{bot} left review threads unresolved; resolve them')
             return stop('waiting-bots', *reasons)
         # Self-review must follow whichever producers this repository runs. With
         # none, the author's own attestation is the only gate.

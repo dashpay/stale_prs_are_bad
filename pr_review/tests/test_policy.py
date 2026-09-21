@@ -215,7 +215,7 @@ class PolicyTests(unittest.TestCase):
         pr['threads'] = [dict(id='t1', is_resolved=False, author='coderabbitai[bot]', created_at=NOW)]
         result = evaluate(p, pr, NOW, NOW)
         self.assertEqual(result['state'], 'waiting-bots')
-        self.assertIn('Bot review threads remain unresolved', result['blockers'])
+        self.assertIn('coderabbitai left review threads unresolved; resolve them', result['blockers'])
 
     def test_required_bots_must_name_known_producers(self):
         p, _ = fixture()
