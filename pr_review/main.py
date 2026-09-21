@@ -202,7 +202,7 @@ def _who_must_approve(result):
         # back as a record; such a path is counted, not quoted.
         files = [f for f in area['files'] if re.fullmatch(r'[A-Za-z0-9._/@+-]+', f)]
         shown = ', '.join(f'`{f}`' for f in files[:3]) + (f' and {len(area["files"]) - 3} more' if len(area['files']) > 3 else '')
-        name = 'files no area owns' if area['area'] == 'fallback' else f"`{area['area']}`"
+        name = 'files with no dedicated owner' if area['area'] == 'fallback' else f"`{area['area']}`"
         where = f'{name} ({shown})' if shown else f"{name} ({len(area['files'])} files)"
         # No @-mentions: a mention from this bot notifies, and a pull request
         # waiting for a slot is one nobody has been asked to look at yet. In
