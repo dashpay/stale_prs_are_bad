@@ -438,16 +438,30 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         notes.extend((f"Proceeded without {bot}: skipped by @{skip['user']}" if skip
                       else f'Proceeded without {bot}: no review within the configured window')
                      for bot in sorted(waived))
+        # Everything about each bot, not the first thing: a bot can have
+        # reported and still hold the box open with an objection or a thread,
+        # and a line that said only "✓" left the open box unexplained.
+        objecting = {u.removesuffix('[bot]') for u, r in latest.items() if u in BOTS
+                     and r.get('commit_id') == pr['head'] and r['state'].upper() == 'CHANGES_REQUESTED'}
+        threads_by = {}
+        for thread in bot_threads:
+            who = thread['author'].lower().removesuffix('[bot]')
+            threads_by[who] = threads_by.get(who, 0) + 1
         bot_lines = []
-        for bot in sorted(required):
+        for bot in sorted(set(required) | set(objecting) | set(threads_by)):
+            parts = []
             if bot in waived:
-                bot_lines.append(f"{bot} skipped by {skip['user']}" if skip else f'{bot} skipped after the window')
-            elif receipts[bot]:
-                bot_lines.append(f'{bot} ✓')
-            elif bot in heard:
-                bot_lines.append(f'{bot} objected')
-            else:
-                bot_lines.append(f'{bot} not yet')
+                parts.append(f"skipped by {skip['user']}" if skip else 'skipped after the window')
+            elif receipts.get(bot):
+                parts.append('✓')
+            elif bot not in objecting and bot not in threads_by:
+                parts.append('not yet')
+            if bot in objecting:
+                parts.append('requested changes — dismiss the review or push a fix')
+            if bot in threads_by:
+                n = threads_by[bot]
+                parts.append(f"{n} thread{'s' if n > 1 else ''} unresolved — resolve {'them' if n > 1 else 'it'}")
+            bot_lines.append(f"{bot} {', '.join(parts)}")
         if reasons or bot_blocks or bot_threads:
             # Name the bot. "A bot objected" beside "proceeded without a bot"
             # reads as a contradiction until you know they are two different
