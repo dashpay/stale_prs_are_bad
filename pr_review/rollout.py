@@ -99,7 +99,7 @@ Delete `.github/workflows/pr-review-signal.yml` if the repository still has it: 
 
 Review these files against the target repository's current default branch. The packet is not a patch application and must not overwrite unrelated local work. Keep the target repository's existing protections and readiness automation until its reviewed activation plan replaces them. `.github/CODEOWNERS` takes precedence over any root CODEOWNERS; inspect the resulting roster explicitly.
 
-Writes are disabled unless the target repository sets PR_REVIEW_AUTOMATION_ENABLED=true. Create the ready-for-human label and verify both bot producers before enabling. Confirm permissions and target branches separately. Do not relax existing native approval requirements until the replacement status has been exercised.
+Writes are disabled unless the target repository sets PR_REVIEW_AUTOMATION_ENABLED=true. Create the labels waiting-bots, waiting-self-review, ready-for-human, too-many-open-prs and bot-review-skipped, and verify both bot producers, before enabling. Confirm permissions and target branches separately. Do not relax existing native approval requirements until the replacement status has been exercised.
 
 Configuration blockers: {('; '.join(unresolved)) or 'none recorded; live preflight still required'}.
 '''

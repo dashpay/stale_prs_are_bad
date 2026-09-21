@@ -158,17 +158,16 @@ def parse_controller_state(comments):
         except (ValueError, TypeError) as error:
             raise GitHubError("Malformed controller state JSON") from error
         _validate_state(state)
-        found.append((_text(comment["created_at"], "comment creation time"),
+        found.append((_text(comment.get("updated_at") or comment["created_at"], "comment update time"),
                       comment["id"], state))
     if not found:
         return (None, None)
-    # Every announcement of a move carries the record as of that moment, so the
-    # newest is the current one; admission is carried forward unchanged from
-    # record to record, which is what keeps the author's slots stable. Two
-    # runs writing at once still agree: ids are monotonic, and both computed
-    # from the same earlier record. GitHub reports whole seconds, so the id
-    # breaks a tie.
-    created_at, comment_id, state = max(found, key=lambda record: record[:2])
+    # The record most recently written is the current one: a refresh edits
+    # the newest holder in place and every edit bumps updated_at, so whichever
+    # comment was written last carries the truth. Admission is carried forward
+    # unchanged from record to record, which is what keeps the author's slots
+    # stable. GitHub reports whole seconds, so the id breaks a tie.
+    written_at, comment_id, state = max(found, key=lambda record: record[:2])
     return state, comment_id
 
 
@@ -778,7 +777,9 @@ class GitHub:
         current = self.request("GET", f"{self.root}/pulls/{number}")
         body = (current.get("body") or "") if isinstance(current, dict) else ""
         head, _, tail = _split_checklist(body)
-        wanted = (head.rstrip() + "\n\n" + block).strip("\n") if head.strip() else block
+        # Whatever follows the block is someone else's — CodeRabbit appends its
+        # own — and stays exactly where it was.
+        wanted = ((head.rstrip() + "\n\n" + block) if head.strip() else block) + tail
         if len(wanted) > 65536:
             raise GitHubError("Description too long for the checklist")
         if _normalise(body) == _normalise(wanted):

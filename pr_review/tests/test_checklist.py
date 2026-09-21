@@ -152,6 +152,7 @@ class DescriptionWriteTests(unittest.TestCase):
         self.assertIn('fresh', body)
         self.assertNotIn('stale', body)
         self.assertEqual(body.count(CHECKLIST_START), 1)
+        self.assertTrue(body.endswith('\n<!-- coderabbit -->\ntrailing'), 'what follows the block is someone else\'s and stays')
 
     def test_an_identical_block_is_not_rewritten_even_when_line_endings_differ(self):
         api = GitHub('dashpay/platform')
@@ -273,3 +274,129 @@ class PublishTests(unittest.TestCase):
             api = self.run_publish(self.pr, result, api)
         self.assertFalse(any(c.args[1] == 'error' for c in api.post_status.call_args_list))
         api.upsert_state.assert_called_once()
+
+
+class RecordTests(unittest.TestCase):
+    """The record is refreshed silently; a comment is posted only for news."""
+
+    def setUp(self):
+        self.policy, self.pr = bartek()
+        self.pr['controller_state'] = None
+
+    def publish(self, pr, result, now=LATER):
+        api = Mock()
+        api.state_comment_body.side_effect = GitHub.state_comment_body
+        api.snapshot.return_value = copy.deepcopy(pr)
+        api.pull.return_value = copy.deepcopy(pr)
+        api.open_prs.return_value = [copy.deepcopy(pr)]
+        with patch.object(main, 'load_histories', side_effect=lambda a, s: [copy.deepcopy(pr)]), \
+             patch.object(main, 'utc_now', return_value=now):
+            main.publish(api, self.policy, pr, result, [pr], apply=True)
+        return api
+
+    def settled(self, pr, result, move_comment_id=50, created_at=NOW):
+        """A pull request whose description, labels and announcement already match `result`."""
+        record = main.state_record(pr, result, main.context_fingerprint([pr], pr['author']))
+        settled = dict(pr, body='text\n\n' + main.checklist_block(result),
+                       labels=[main.LABEL_FOR_STATE.get(result['state'])] + (['bot-review-skipped'] if result.get('waived') else []),
+                       requested_reviewers=list(result.get('reviewers') or []))
+        settled['labels'] = [l for l in settled['labels'] if l]
+        settled['comments'] = pr['comments'] + [dict(id=move_comment_id, user='github-actions[bot]', created_at=created_at,
+                                                     updated_at=created_at,
+                                                     body=GitHub.state_comment_body(record, main.move_text(result)))]
+        settled['controller_state'] = record
+        settled['controller_comment_id'] = move_comment_id
+        return settled
+
+    def test_an_evidence_only_change_refreshes_the_record_in_place_and_posts_nothing(self):
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        pr = self.settled(self.pr, result)
+        # A reviewer's plain comment: evidence changed, nothing else did.
+        pr['comments'].append(dict(id=60, user='romchornyi', body='looks fine', created_at=LATER, updated_at=LATER))
+        again = evaluate(self.policy, pr, NOW, LATER)
+        api = self.publish(pr, again)
+        api.upsert_state.assert_not_called()
+        self.assertFalse(any(c.args[1] == 'pending' and 'Evaluating' in c.args[2] for c in api.post_status.call_args_list),
+                         'the fast path: the record holds only what matters, not the evidence fingerprint')
+
+    def test_a_state_change_that_is_not_a_move_refreshes_the_record_silently(self):
+        # The build scan selects on the recorded state. waiting-build is not a
+        # move, so it must still reach the record — by editing the newest
+        # holder, never by a new comment.
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        pr = self.settled(self.pr, result)
+        pr['comments'].append(dict(id=2, user='llbartekll', body='/self-reviewed', created_at=LATER, updated_at=LATER))
+        pr['build'] = 'running'
+        later = evaluate(self.policy, pr, NOW, '2026-09-11T15:00:00Z')
+        self.assertEqual(later['state'], 'waiting-build')
+        api = self.publish(pr, later, now='2026-09-11T15:00:00Z')
+        api.upsert_state.assert_called_once()
+        record, text, comment_id = api.upsert_state.call_args.args[1:]
+        self.assertEqual(record['state'], 'waiting-build')
+        self.assertEqual(comment_id, 50, 'the newest holder, edited')
+        self.assertIn('Bots are done', text, 'its words unchanged')
+
+    def test_the_first_pass_converts_a_standing_record_of_this_move_rather_than_announcing_it(self):
+        pr = dict(self.pr)
+        pr['comments'] = pr['comments'] + [dict(id=2, user='llbartekll', body='/self-reviewed', created_at=LATER, updated_at=LATER)]
+        result = evaluate(self.policy, pr, NOW, '2026-09-11T15:00:00Z')
+        self.assertEqual(result['state'], 'ready-for-human')
+        record = main.state_record(pr, result, 'c' * 64)
+        standing = dict(id=7, user='github-actions[bot]', created_at='2026-09-10T00:00:00Z', updated_at='2026-09-10T00:00:00Z',
+                        body=GitHub.state_comment_body(record, '### PR Hygiene\nState: **ready-for-human**'))
+        pr['comments'] = pr['comments'] + [standing]
+        pr['controller_state'] = record
+        api = self.publish(pr, evaluate(self.policy, pr, NOW, '2026-09-11T15:00:00Z'), now='2026-09-11T15:00:00Z')
+        api.upsert_state.assert_called_once()
+        self.assertEqual(api.upsert_state.call_args.args[3], 7, 'the standing comment becomes the announcement in place')
+        self.assertIn('Ready for review', api.upsert_state.call_args.args[2])
+        api.delete_comment.assert_not_called()
+
+    def test_ready_since_does_not_drift_between_announcements(self):
+        # Two announcements exist. The record is read from whichever was
+        # written last, so a refresh of the older one is still the truth.
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        pr = self.settled(self.pr, result)                                 # waiting-self-review, id 50
+        pr['comments'].append(dict(id=2, user='llbartekll', body='/self-reviewed', created_at=LATER, updated_at=LATER))
+        ready = evaluate(self.policy, pr, NOW, '2026-09-11T15:00:00Z')
+        self.assertEqual(ready['state'], 'ready-for-human')
+        api = self.publish(pr, ready, now='2026-09-11T15:00:00Z')
+        record = api.upsert_state.call_args.args[1]
+        self.assertEqual(record['ready_since'], '2026-09-11T15:00:00Z')
+        # That announcement exists now, written after the first.
+        pr['comments'].append(dict(id=51, user='github-actions[bot]', created_at='2026-09-11T15:00:00Z', updated_at='2026-09-11T15:00:00Z',
+                                   body=GitHub.state_comment_body(record, main.move_text(ready))))
+        parsed, holder = main.parse_controller_state(pr['comments'])
+        self.assertEqual((parsed['ready_since'], holder), ('2026-09-11T15:00:00Z', 51))
+        pr['controller_state'] = parsed
+        pr['body'] = 'text\n\n' + main.checklist_block(ready); pr['labels'] = ['ready-for-human', 'bot-review-skipped']
+        pr['requested_reviewers'] = ready['reviewers']
+        api = self.publish(pr, evaluate(self.policy, pr, NOW, '2026-09-11T16:00:00Z'), now='2026-09-11T16:00:00Z')
+        api.upsert_state.assert_not_called()
+
+    def test_two_standing_comments_converge_to_one(self):
+        quiet = dict(self.pr, comments=[])
+        result = evaluate(self.policy, quiet, NOW, LATER)
+        record = main.state_record(quiet, result, 'c' * 64)
+        two = [dict(id=i, user='github-actions[bot]', created_at=f'2026-09-1{i}T00:00:00Z', updated_at=f'2026-09-1{i}T00:00:00Z',
+                    body=GitHub.state_comment_body(record, main.POINTER if i == 1 else 'old text')) for i in (0, 1)]
+        quiet['comments'] = two
+        quiet['controller_state'] = record
+        api = self.publish(quiet, evaluate(self.policy, quiet, NOW, LATER))
+        self.assertEqual([c.args[0] for c in api.delete_comment.call_args_list], [0], 'all but the record holder go')
+
+    def test_a_description_with_no_room_is_left_alone_on_the_fast_path(self):
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        pr = self.settled(self.pr, result)
+        pr['body'] = 'x' * 65000
+        api = self.publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.set_checklist.assert_not_called()
+        self.assertFalse(any('Evaluating' in c.args[2] for c in api.post_status.call_args_list))
+
+    def test_a_configuration_error_writes_no_block_and_no_announcement(self):
+        pr = dict(self.pr, files=[])
+        result = evaluate(self.policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'configuration-error')
+        api = self.publish(pr, result)
+        api.set_checklist.assert_not_called()
+        api.upsert_state.assert_not_called()

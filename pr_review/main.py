@@ -281,6 +281,11 @@ def move_text(result):
     return f"{MOVE_MARKER} state={move} sha={result['head']} -->\n{line}\nFull checklist in the description."
 
 
+def _visible(comment_body):
+    """A record comment's text, without the record."""
+    return comment_body.split('-->', 1)[-1].strip() if comment_body.startswith(STATE_MARKER) else comment_body.strip()
+
+
 def _same(a, b):
     return (a or '').replace('\r\n', '\n').strip() == (b or '').replace('\r\n', '\n').strip()
 
@@ -389,22 +394,40 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     managed = set(STATE_LABELS) | set(RETIRED_LABELS) | {WAIVED_LABEL}
     label_correct = set(labels) & managed == wanted
     # The description carries the checklist; a draft's does not (its author is
-    # still writing it, and nobody reviews a draft).
+    # still writing it, and nobody reviews a draft). A description with no room
+    # for it is left alone, and not fought over on every run.
+    body_now = pr.get('body') or ''
     block = None if result['state'] == 'draft' else checklist_block(result)
-    block_correct = block is None or _same(current_checklist(pr.get('body')), block)
-    # A move is announced once, then kept current in place for a day.
+    fits = block is None or len(body_now) - len(current_checklist(body_now) or '') + len(block) + 2 <= 65536
+    block_correct = block is None or not fits or _same(current_checklist(body_now), block)
+    # The record lives in this controller's newest comment, whichever kind. It
+    # is refreshed there silently whenever what it holds has changed — the
+    # state, the head, the admission, the waiting time — never by a new
+    # comment: a new comment is a notification, and a record is not news.
+    holders = bot_comments(pr, STATE_MARKER)
+    holder = holders[-1] if holders else None
+    recorded = pr.get('controller_state') or {}
+    record_fields = ('state', 'head', 'admitted_at', 'ready_since')
+    record_correct = holder is None or all(recorded.get(k) == desired.get(k) for k in record_fields)
+    # A move is announced once per head. Announced already for this head: the
+    # text is kept current in place. Announced for an earlier head within a
+    # day: edited, not reposted. Otherwise: a new comment, which notifies.
     move = MOVE_STATES.get(result['state'])
     move_body = move_text(result) if move and not (pr.get('author_is_bot') and move != 'ready-for-human') else None
     announced = [c for c in bot_comments(pr, MOVE_MARKER) if f'{MOVE_MARKER} state={move} ' in c['body']]
-    latest_move = announced[-1] if announced else None
-    move_correct = move_body is None or (latest_move is not None and _same(latest_move['body'], api.state_comment_body(desired, move_body)))
-    # The standing state comment of earlier engines: kept as the record until
-    # a move comment supersedes it, then removed; its text meanwhile points at
-    # the description.
-    standing = [c for c in bot_comments(pr, STATE_MARKER) if MOVE_MARKER not in c['body']]
-    any_move = bool(bot_comments(pr, MOVE_MARKER))
-    standing_correct = not standing or (not any_move and all(_same(c['body'].split('-->', 1)[-1], POINTER) for c in standing))
-    if block_correct and label_correct and not missing and move_correct and standing_correct:
+    same_head = [c for c in announced if f" sha={pr['head']} -->" in c['body']]
+    target = (same_head[-1] if same_head
+              else announced[-1] if announced and _hours_since(announced[-1]['created_at'], now) < MOVE_REPEAT_HOURS
+              else None)
+    # A standing comment of the earlier engine that already recorded this move
+    # for this head is that announcement: it becomes the move comment in place.
+    standing = [c for c in holders if MOVE_MARKER not in c['body']]
+    if target is None and move_body and standing and recorded.get('state') == result['state'] and recorded.get('head') == pr['head']:
+        target = standing[-1]
+    move_correct = move_body is None or (target is not None and _same(_visible(target['body']), move_body))
+    standing_correct = not standing or (len(standing) == 1 and not bot_comments(pr, MOVE_MARKER)
+                                        and _same(_visible(standing[0]['body']), POINTER))
+    if block_correct and label_correct and not missing and move_correct and record_correct and standing_correct:
         # Read current evidence on every run, but avoid churning the description, labels and comments.
         if actionable:
             finish(candidates)
@@ -419,33 +442,37 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         try:
             api.set_checklist(pr['number'], block)
         except GitHubError as error:
-            # A description this long is the author's; the check and the
-            # labels still carry the state, and one oversized body must not
-            # mark the pull request an error.
+            # The description is the author's; the check and the labels still
+            # carry the state, and one refused write must not mark the pull
+            # request an error.
             print(f"PR #{pr['number']}: checklist not written: {error}", file=sys.stderr)
         if not identity_matches():
             return desired
+    written, kept = False, None
     if move_body is not None and not move_correct:
-        edit = latest_move is not None and _hours_since(latest_move['created_at'], now) < MOVE_REPEAT_HOURS
-        api.upsert_state(pr['number'], desired, move_body, latest_move['id'] if edit else None)
-        for old in standing:
-            try:
-                api.delete_comment(old['id'])
-            except GitHubError:
-                print(f"PR #{pr['number']}: could not remove the old state comment", file=sys.stderr)
-        if not identity_matches():
-            return desired
-    elif standing and not standing_correct:
-        if any_move:
-            for old in standing:
-                try:
-                    api.delete_comment(old['id'])
-                except GitHubError:
-                    print(f"PR #{pr['number']}: could not remove the old state comment", file=sys.stderr)
-        else:
-            api.upsert_state(pr['number'], desired, POINTER, standing[-1]['id'])
-        if not identity_matches():
-            return desired
+        kept = target['id'] if target else None
+        api.upsert_state(pr['number'], desired, move_body, kept)
+        written = True
+    elif holder is not None and (not record_correct or not standing_correct):
+        # Same words, current record — or, for the earlier engine's standing
+        # comment, the pointer at the description.
+        text = _visible(holder['body']) if MOVE_MARKER in holder['body'] else POINTER
+        kept = holder['id']
+        api.upsert_state(pr['number'], desired, text, kept)
+        written = True
+    # Every standing comment that is not the record holder is noise, and goes:
+    # once a move comment exists, all of them; before that, all but the one
+    # carrying the record.
+    if kept is None and not written and holder is not None and not bot_comments(pr, MOVE_MARKER):
+        kept = holder['id']
+    superseded = [c for c in standing if c['id'] != kept]
+    for old in superseded:
+        try:
+            api.delete_comment(old['id'])
+        except GitHubError:
+            print(f"PR #{pr['number']}: could not remove an old state comment", file=sys.stderr)
+    if (written or superseded) and not identity_matches():
+        return desired
     try:
         api.set_state_label(pr['number'], result['state'], pr.get('labels', []))
     except GitHubError:
@@ -665,10 +692,15 @@ def run(argv=None):
             try:
                 if args.apply:
                     if not checked_labels:
-                        # Verify setup explicitly, once: a POST would create a
-                        # missing label as a side effect, in a default colour.
+                        # Say once which labels are missing. A POST creates one
+                        # as a side effect, in a default colour — ugly, but a
+                        # missing label must not mark every pull request an
+                        # error under a required check.
                         for label in STATE_LABELS + (WAIVED_LABEL,):
-                            api.request('GET', f'repos/{args.repo}/labels/{label}')
+                            try:
+                                api.request('GET', f'repos/{args.repo}/labels/{label}')
+                            except GitHubError:
+                                print(f'Label {label} does not exist in {args.repo}; create it', file=sys.stderr)
                         checked_labels.append(True)
                     nudged += nudge(api, pr, result, NUDGES_PER_RUN - nudged)
                 written = publish(api, policy, pr, result, context, args.apply, candidates=candidates)
