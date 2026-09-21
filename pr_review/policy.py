@@ -293,11 +293,16 @@ def bot_schedule(policy, pr, bot, nowISO, telemetry_state=None):
     return {'nudge': due and already is None and not waived, 'waived_at': due_at if waived else None}
 
 
+def _checklist(**items):
+    """Every requirement, met or not, in the order the verdict weighs them."""
+    return [dict(item=name, **facts) for name, facts in items.items()]
+
+
 def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
     result = {k: pr.get(k) for k in ('number', 'head', 'author', 'title', 'url')}
     result.update(state='configuration-error', status='error', blockers=[], reviewers=[], areas=[],
                   ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None,
-                  nudge=[], waived=[], approvals=[], objections=[])
+                  nudge=[], waived=[], approvals=[], objections=[], checklist=[])
 
     # This status is a required check, so it passes only when the policy is
     # satisfied. Everything still waiting is pending — not red, because an
@@ -351,6 +356,17 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                         status='error')
         if any(permissions.get(x) not in WRITE for x in people):
             return stop('configuration-error', 'An assigned owner/reviewer lacks verified write access', status='error')
+        # From here on every requirement is computed, whether or not an earlier
+        # one is met: the checklist shows the whole road. The verdict is still
+        # the first unmet requirement in this order, and fields that used to be
+        # set only past a gate are still set only past it.
+        first = None
+
+        def gate(state, *reasons):
+            nonlocal first
+            if first is None:
+                first = (state, list(reasons))
+
         required = set(policy.get('required_bots', REVIEW_BOTS))
         latest = _latest_reviews(pr['reviews'])
         bot_blocks = [r for u,r in latest.items() if u in BOTS and r['state'].upper() == 'CHANGES_REQUESTED']
@@ -411,6 +427,16 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         notes.extend((f"Proceeded without {bot}: skipped by @{skip['user']}" if skip
                       else f'Proceeded without {bot}: no review within the configured window')
                      for bot in sorted(waived))
+        bot_lines = []
+        for bot in sorted(required):
+            if bot in waived:
+                bot_lines.append(f"{bot} skipped by {skip['user']}" if skip else f'{bot} skipped after the window')
+            elif receipts[bot]:
+                bot_lines.append(f'{bot} ✓')
+            elif bot in heard:
+                bot_lines.append(f'{bot} objected')
+            else:
+                bot_lines.append(f'{bot} not yet')
         if reasons or bot_blocks or bot_threads:
             # Name the bot. "A bot objected" beside "proceeded without a bot"
             # reads as a contradiction until you know they are two different
@@ -420,14 +446,16 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 reasons.append(f'{who} requested changes on this head; dismiss the review or push a fix')
             for bot in sorted({t['author'].lower().removesuffix('[bot]') for t in bot_threads}):
                 reasons.append(f'{bot} left review threads unresolved; resolve them')
-            return stop('waiting-bots', *reasons)
+            gate('waiting-bots', *reasons)
+        bots_done = first is None
         # Self-review must follow whichever producers this repository runs. With
         # none, the author's own attestation is the only gate.
         # A waiver is itself an event the author's self-review must follow, so a
         # attestation written before the bots were given up on cannot count.
         instants = pasta + rabbit + list(waived.values())
         completed = max(instants, key=_time) if instants else pr['created_at']
-        result['bot_completed_at'] = completed
+        if bots_done:
+            result['bot_completed_at'] = completed
         # `/self-reviewed <sha>` names the commit it covers. Bare `/self-reviewed`
         # means "everything pushed so far", which is only safe once this head has
         # a status: that timestamp cannot be moved, so an attestation written
@@ -452,14 +480,15 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             # anyway is what stands in for it.
             attestations = [seen or completed]
         if not attestations:
-            return stop('waiting-self-review', 'Author must post /self-reviewed ' + pr['head'] + ' after bot completion')
-        self_time = max(attestations,key=_time)
-        result['self_reviewed_at'] = self_time
-        objectors = {}
+            gate('waiting-self-review', 'Author must post /self-reviewed ' + pr['head'] + ' after bot completion')
+        self_time = max(attestations, key=_time) if attestations else None
+        if first is None:
+            result['self_reviewed_at'] = self_time
+        objectors, objection_lines = {}, []
         for user, review in latest.items():
             if user not in BOTS and _may_object(permissions, user) and review['state'].upper() == 'CHANGES_REQUESTED':
                 objectors[user] = review['submitted_at']
-                result['objections'].append(f'{review["user"]} requested changes')
+                objection_lines.append(f'{review["user"]} requested changes')
         for thread in pr['threads']:
             if thread['is_resolved'] or thread['author'].lower() in BOTS:
                 continue
@@ -471,14 +500,17 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 if user in BOTS or user == pr['author'].lower() or not _may_object(permissions, user):
                     continue
                 if user not in objectors:
-                    result['objections'].append(f"{voice['user']} left a review thread unresolved")
+                    objection_lines.append(f"{voice['user']} left a review thread unresolved")
                 objectors[user] = max(objectors.get(user, voice['created_at']), voice['created_at'], key=_time)
+        if first is None:
+            result['objections'] = objection_lines
         author = pr['author'].lower()
         needed = set()
+        approvals = []
         for area in touched.values():
             if author in {x.lower() for x in area['owners']}:
-                result['approvals'].append({'area': area['id'], 'files': sorted(files_by_area.get(area['id'], ())),
-                                            'approvers': [], 'approved_by': [], 'owned': True})
+                approvals.append({'area': area['id'], 'files': sorted(files_by_area.get(area['id'], ())),
+                                  'approvers': [], 'approved_by': [], 'owned': True})
                 continue
             eligible = {x.lower() for x in area['owners'] + area['reviewers']} - {author}
             approved_by = sorted(people[u] for u in eligible
@@ -487,51 +519,70 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             # as much of the answer as the one still missing, and the author
             # seeing "romchornyi approved swift-sdk" beside "nobody has
             # approved .github/" is what tells them what they are waiting for.
-            result['approvals'].append({
+            approvals.append({
                 'area': area['id'], 'files': sorted(files_by_area.get(area['id'], ())),
                 'approvers': sorted(people[u] for u in eligible), 'approved_by': approved_by, 'owned': False})
             if not approved_by:
                 needed.update(eligible)
-        if any(_time(value) >= _time(self_time) for value in objectors.values()):
-            return stop('waiting-author', 'Author response is required after the latest human objection')
+        if first is None:
+            result['approvals'] = approvals
+        # An objection at or after the attestation is the author's to answer;
+        # one before it has been answered and waits on the objector.
+        unanswered = {u for u, at in objectors.items() if self_time is None or _time(at) >= _time(self_time)}
+        if self_time is not None and unanswered:
+            gate('waiting-author', 'Author response is required after the latest human objection')
         needed.update(u for u in objectors if u != author and _may_object(permissions, u) and u not in BOTS)
-        if needed or objectors:
+        human = bool(needed or objectors)
+        previous = pr.get('controller_state') or {}
+        # Latching on the recorded state, not on ready_since: a pull request
+        # can be ready with no ready_since yet, on the first run that makes
+        # it ready, and that one would otherwise be sent back.
+        # Ever ready for this head, not still ready. The recorded state is
+        # rewritten on every run, so a pull request that passed through any
+        # other state would come back needing a green build again — and one
+        # unresolved bot thread is enough to do that.
+        was_ready = bool(pr.get('ready_published')
+                         or (previous.get('state') == 'ready-for-human' and previous.get('head') == pr['head']))
+        build = pr['build']
+        if human:
             if not admitted_at:
                 # Five at a time per author is a limit on human attention, so
                 # it applies here, where a human would be asked, and not to a
                 # pull request that needs none.
-                return stop('waiting-slot', 'Waiting for one of five author review slots')
-            previous = pr.get('controller_state') or {}
-            # Latching on the recorded state, not on ready_since: a pull request
-            # can be ready with no ready_since yet, on the first run that makes
-            # it ready, and that one would otherwise be sent back.
-            # Ever ready for this head, not still ready. The recorded state is
-            # rewritten on every run, so a pull request that passed through any
-            # other state would come back needing a green build again — and one
-            # unresolved bot thread is enough to do that.
-            was_ready = (pr.get('ready_published')
-                         or (previous.get('state') == 'ready-for-human' and previous.get('head') == pr['head']))
-            build = pr['build']
+                gate('waiting-slot', 'Waiting for one of five author review slots')
             if not was_ready and build != 'green':
                 # Green before a human is asked; red afterwards does not take it
                 # back, so a flake cannot withdraw a review request already sent
                 # or drop its author out of a slot.
-                return stop('waiting-build',
-                            'The build must pass before a human is asked' if build == 'failed'
-                            else 'Waiting for the build to finish')
-            result['reviewers'] = sorted(people.get(u,u) for u in needed)
-            if was_ready and previous.get('ready_since'):
-                _time(previous['ready_since'])
-                result['ready_since'] = previous['ready_since']
-            elif previous.get('admitted_at'):
-                result['ready_since'] = nowISO
-            return stop('ready-for-human', 'Human approval or objection resolution is required')
-        build = pr['build']
-        if build != 'green':
+                gate('waiting-build',
+                     'The build must pass before a human is asked' if build == 'failed'
+                     else 'Waiting for the build to finish')
+            if first is None:
+                result['reviewers'] = sorted(people.get(u,u) for u in needed)
+                if was_ready and previous.get('ready_since'):
+                    _time(previous['ready_since'])
+                    result['ready_since'] = previous['ready_since']
+                elif previous.get('admitted_at'):
+                    result['ready_since'] = nowISO
+            gate('ready-for-human', 'Human approval or objection resolution is required')
+        elif build != 'green':
             # The owner path asks no human, so nothing else looks at the build.
-            return stop('waiting-build',
-                        'The build must pass before this can merge' if build == 'failed'
-                        else 'Waiting for the build to finish')
+            gate('waiting-build',
+                 'The build must pass before this can merge' if build == 'failed'
+                 else 'Waiting for the build to finish')
+        result['checklist'] = _checklist(
+            bots=dict(done=bots_done, lines=bot_lines, skippable=bool(missing) and not skip),
+            build=dict(done=build == 'green', state=build, latched=was_ready and human),
+            self_review=dict(done=bool(attestations), bot_author=bool(pr.get('author_is_bot')),
+                             address=[line for line in objection_lines
+                                      if line.split(' ', 1)[0].lower() in unanswered or self_time is None]),
+            approvals=dict(done=not human, areas=approvals,
+                           awaiting=[line for line in objection_lines
+                                     if self_time is not None and line.split(' ', 1)[0].lower() not in unanswered]),
+            slot=dict(done=not human or bool(admitted_at), limit=policy['max_active_prs']))
+        if first is not None:
+            state, reasons = first
+            return stop(state, *reasons)
         return stop('ready-to-merge', 'All policy requirements are satisfied', status='success')
     except (ValueError, TypeError, KeyError) as error:
         return stop('configuration-error', str(error), status='error')
