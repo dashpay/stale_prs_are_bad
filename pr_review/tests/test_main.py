@@ -396,6 +396,21 @@ class PublicationTests(unittest.TestCase):
         later = main.state_body(dict(self.result, state='waiting-self-review', head='f' * 40))
         self.assertNotIn('/skip-bots', later)
 
+    def test_the_report_names_who_must_approve_and_for_which_files(self):
+        result = dict(self.result, state='ready-for-human', head='f' * 40, approvals=[
+            {'area': 'swift-sdk', 'files': ['packages/swift-sdk/a.swift'], 'approvers': [], 'approved_by': [], 'owned': True},
+            {'area': 'rust-sdk', 'files': ['packages/rs-sdk/lib.rs'], 'approvers': ['lklimek', 'shumkov'], 'approved_by': ['lklimek'], 'owned': False},
+            {'area': 'fallback', 'files': ['.editorconfig', '.github/a.yml', '.github/b.yml', 'AGENTS.md', 'Cargo.lock'],
+             'approvers': ['QuantumExplorer', 'shumkov'], 'approved_by': [], 'owned': False},
+        ], objections=['romchornyi requested changes'])
+        body = main.state_body(result)
+        self.assertIn('- ✓ `swift-sdk` — you own it; no approval needed', body)
+        self.assertIn('- ✓ `rust-sdk` (`packages/rs-sdk/lib.rs`) — approved by @lklimek', body)
+        self.assertIn('- files no area owns (`.editorconfig`, `.github/a.yml`, `.github/b.yml` and 2 more) — needs @QuantumExplorer or @shumkov', body)
+        self.assertIn('- romchornyi requested changes; address it, then post `/self-reviewed` again', body)
+        quiet = main.state_body(dict(result, state='waiting-bots'))
+        self.assertNotIn('Approval at the current head', quiet, 'not while the bots are still owed')
+
     def test_the_report_says_what_the_check_now_means(self):
         body = main.state_body(dict(self.result, head='f' * 40))
         self.assertNotIn('does not bypass', body)

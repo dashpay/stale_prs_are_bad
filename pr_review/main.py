@@ -183,12 +183,39 @@ def state_record(pr, result, context):
                 'version': 1, 'evidence': fingerprint(pr), 'context': context}
 
 
+def _who_must_approve(result):
+    """Per area: who can approve it, who has, and which files put it in play.
+
+    A pull request was held with one approval in hand because five files
+    outside every owned area needed a different approver, and the report said
+    only that "human approval is required". Say for what, from whom, and what
+    is already covered, or the author is left guessing.
+    """
+    if result['state'] not in {'ready-for-human', 'waiting-author', 'waiting-slot'}:
+        return []
+    lines = []
+    for area in result.get('approvals') or []:
+        files = area['files']
+        shown = ', '.join(f'`{f}`' for f in files[:3]) + (f' and {len(files) - 3} more' if len(files) > 3 else '')
+        where = ('files no area owns' if area['area'] == 'fallback' else f"`{area['area']}`") + f' ({shown})'
+        if area.get('owned'):
+            lines.append(f"- ✓ `{area['area']}` — you own it; no approval needed")
+        elif area['approved_by']:
+            lines.append(f"- ✓ {where} — approved by {', '.join('@' + u for u in area['approved_by'])}")
+        else:
+            lines.append(f"- {where} — needs {' or '.join('@' + u for u in area['approvers'])}")
+    for objection in result.get('objections') or []:
+        lines.append(f'- {objection}; address it, then post `/self-reviewed` again')
+    return ['', 'Approval at the current head:'] + lines if lines else []
+
+
 def state_body(result):
     reasons = result.get('blockers') or ['All policy requirements are satisfied.']
     return '\n'.join([
         '### PR Hygiene',
         f"State: **{result['state']}** · commit `{result['head']}`",
         '', *[f'- {reason}' for reason in reasons],
+        *_who_must_approve(result),
         '', 'Self-review is an author attestation that you have read the diff:',
         '`/self-reviewed`  — covers everything pushed so far; post it again after a new push.',
         *(['`/skip-bots`  — proceed without the bots that have not reported; anyone with write access may, and the report says who did.']
