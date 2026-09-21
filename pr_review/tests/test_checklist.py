@@ -124,6 +124,26 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(result['waived'], ['coderabbitai', 'thepastaclaw'])
         self.assertNotIn('/skip-bots', main.checklist_block(result))
 
+    def test_a_bot_that_reported_and_still_objects_says_both(self):
+        # dashpay/platform#4392: thepastaclaw left its final receipt and two
+        # threads unresolved. "thepastaclaw ✓" beside an open box explained
+        # nothing.
+        policy, pr = bartek()
+        pr['comments'] = []
+        pr['head_seen_at'] = '2026-09-09T00:00:00Z'
+        pr['threads'] = [dict(id=i, author='thepastaclaw', is_resolved=False, created_at=NOW,
+                              voices=[dict(user='thepastaclaw', created_at=NOW)]) for i in (1, 2)]
+        pr['reviews'].append(dict(id=7, user='thepastaclaw', state='COMMENTED', commit_id=HEAD, submitted_at=NOW,
+                                  body=f'<!-- thepastaclaw-review-phase v1 phase=final sha={HEAD} -->'))
+        result = evaluate(policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-bots')
+        block = main.checklist_block(result)
+        self.assertIn('- [ ] Bots — coderabbitai skipped after the window · thepastaclaw ✓, 2 threads unresolved — resolve them', block)
+        pr['threads'] = []
+        pr['reviews'].append(dict(id=8, user='thepastaclaw', state='CHANGES_REQUESTED', commit_id=HEAD, submitted_at=LATER, body='no'))
+        block = main.checklist_block(evaluate(policy, pr, NOW, LATER))
+        self.assertIn('thepastaclaw ✓, requested changes — dismiss the review or push a fix', block)
+
     def test_a_path_is_never_quoted_unsafely(self):
         policy, pr = bartek()
         pr['files'].append({'filename': 'x/<!-- pr-hygiene:end -->.rs'})
