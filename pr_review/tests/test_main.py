@@ -406,7 +406,7 @@ class PublicationTests(unittest.TestCase):
         body = main.state_body(result)
         self.assertIn('- ✓ `swift-sdk` — you own it; no approval needed', body)
         self.assertIn('- ✓ `rust-sdk` (`packages/rs-sdk/lib.rs`) — approved by lklimek', body)
-        self.assertIn('- files no area owns (`.editorconfig`, `.github/a.yml`, `.github/b.yml` and 2 more) — needs QuantumExplorer or shumkov', body)
+        self.assertIn('- files with no dedicated owner (`.editorconfig`, `.github/a.yml`, `.github/b.yml` and 2 more) — needs QuantumExplorer or shumkov', body)
         self.assertNotIn('@', body.split('Approval at the current head')[1].split('Self-review')[0],
                          'a mention from this bot notifies; the review request already does that where it should')
         # After the attestation only the objector can release it; before it,
@@ -425,7 +425,7 @@ class PublicationTests(unittest.TestCase):
         self.assertIn('`ok.rs`', hostile)
         owned_fallback = main.state_body(dict(result, approvals=[
             {'area': 'fallback', 'files': ['AGENTS.md'], 'approvers': [], 'approved_by': [], 'owned': True}]))
-        self.assertIn('- ✓ files no area owns — you own it', owned_fallback)
+        self.assertIn('- ✓ files with no dedicated owner — you own it', owned_fallback)
 
     def test_the_report_says_what_the_check_now_means(self):
         body = main.state_body(dict(self.result, head='f' * 40))
