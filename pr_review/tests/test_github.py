@@ -173,6 +173,26 @@ class BuildVerdictTests(unittest.TestCase):
         self.assertIn("helper", looked_up, "the skipper is looked up")
         self.assertNotIn("chatter", looked_up, "nobody else who merely commented is")
         self.assertEqual(snapshot["permissions"].get("helper"), "write")
+    def test_a_flaky_read_is_asked_once_more_and_a_post_never_is(self):
+        # dashpay/platform#4718: one "unexpected end of JSON input" from gh
+        # marked the pull request an error under the required check for hours.
+        api = GitHub("dashpay/platform")
+        flaky = [subprocess.CompletedProcess([], 1, "", "unexpected end of JSON input"),
+                 subprocess.CompletedProcess([], 0, '{"ok": true}', "")]
+        with patch("pr_review.github.subprocess.run", side_effect=flaky) as run, patch("pr_review.github.time.sleep"):
+            self.assertEqual(api.request("GET", "repos/dashpay/platform/pulls/1"), {"ok": True})
+        self.assertEqual(run.call_count, 2)
+        refused = [subprocess.CompletedProcess([], 1, "", "HTTP 422: Validation Failed")]
+        with patch("pr_review.github.subprocess.run", side_effect=refused) as run:
+            with self.assertRaises(GitHubError):
+                api.request("GET", "repos/dashpay/platform/pulls/1")
+        self.assertEqual(run.call_count, 1, "a refusal is not flakiness")
+        posted = [subprocess.CompletedProcess([], 1, "", "unexpected end of JSON input")]
+        with patch("pr_review.github.subprocess.run", side_effect=posted) as run:
+            with self.assertRaises(GitHubError):
+                api.request("POST", "repos/dashpay/platform/issues/1/comments", {"body": "x"})
+        self.assertEqual(run.call_count, 1, "a second POST could write twice")
+
     def test_the_snapshot_says_whether_the_author_is_a_bot(self):
         # A bot author cannot attest, and the policy has to know that from the
         # snapshot rather than guess from a login.

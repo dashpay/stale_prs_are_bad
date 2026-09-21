@@ -3,6 +3,7 @@
 import json
 import re
 import subprocess
+import time
 
 from .policy import CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, RETIRED_LABELS, STATE_LABELS
 import sys
@@ -120,6 +121,18 @@ def _capability(granted):
         if granted.get(level) is True:
             return {"push": "write", "pull": "read"}.get(level, level)
     return None
+
+
+IDEMPOTENT = {"GET", "PUT", "PATCH", "DELETE"}
+
+
+def _transient(arguments, result):
+    """A failure worth one more try: an idempotent call, and an answer that was not a refusal."""
+    method = arguments[arguments.index("--method") + 1] if "--method" in arguments else "GET"
+    if method not in IDEMPOTENT:
+        return False
+    text = (result.stderr or "") + (result.stdout or "")
+    return any(sign in text for sign in ("unexpected end of JSON input", "502", "503", "504", "timeout", "EOF"))
 
 
 def _normalise(text):
@@ -242,7 +255,7 @@ class GitHub:
         self._builds = {}
         self._listed = False
 
-    def _run(self, arguments, payload=None):
+    def _run(self, arguments, payload=None, attempt=1):
         try:
             result = subprocess.run(
                 ["gh", "api", *arguments],
@@ -251,6 +264,12 @@ class GitHub:
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             raise GitHubError("GitHub API command unavailable or timed out") from error
+        if result.returncode and attempt == 1 and _transient(arguments, result):
+            # One flaky answer marked a pull request an error under a required
+            # check until its next event. Ask once more, only where asking
+            # twice cannot do anything asking once would not.
+            time.sleep(2)
+            return self._run(arguments, payload, attempt=2)
         if result.returncode:
             # GraphQL answers with a usable payload and an errors array when
             # only part of a query resolved: one aliased field is null while the
