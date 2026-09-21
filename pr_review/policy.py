@@ -16,11 +16,21 @@ BOTS = {'thepastaclaw', 'coderabbitai', 'coderabbitai[bot]'}
 REVIEW_BOTS = ('thepastaclaw', 'coderabbitai')
 WRITE = {'write', 'maintain', 'admin'}
 
-# One label per state, so a listing reads like the status. Drafts and
-# configuration errors carry none: a draft is not being reviewed, and an error
-# is loud enough already.
-STATE_LABELS = ('waiting-slot', 'waiting-bots', 'waiting-build', 'waiting-self-review',
-                'waiting-author', 'ready-for-human', 'ready-to-merge')
+# A label says whose move it is, in a listing. A red build is visible there
+# already, a satisfied policy shows as a green check, a draft is not being
+# reviewed and an error is loud enough — none of those carries a label.
+LABEL_FOR_STATE = {'waiting-bots': 'waiting-bots',
+                   'waiting-self-review': 'waiting-self-review',
+                   'waiting-author': 'waiting-self-review',
+                   'waiting-slot': 'too-many-open-prs',
+                   'ready-for-human': 'ready-for-human'}
+STATE_LABELS = tuple(dict.fromkeys(LABEL_FOR_STATE.values()))
+# Labels this controller used to set. Cleared wherever still seen, so a
+# repository that has not deleted them yet does not show two states at once.
+RETIRED_LABELS = ('waiting-slot', 'waiting-build', 'waiting-author', 'ready-to-merge')
+MOVE_MARKER = '<!-- pr-hygiene:move'
+CHECKLIST_START = '<!-- pr-hygiene:start -->'
+CHECKLIST_END = '<!-- pr-hygiene:end -->'
 
 
 def _time(value):
@@ -157,7 +167,8 @@ def admit(policy, prs, nowISO):
 
 def fingerprint(pr):
     relevant = copy.deepcopy(pr)
-    for name in ('controller_state', 'controller_comment_id', 'labels', 'requested_reviewers', 'build'):
+    # The description carries this controller's own checklist, an effect.
+    for name in ('controller_state', 'controller_comment_id', 'labels', 'requested_reviewers', 'build', 'body'):
         relevant.pop(name, None)
     # This controller's own comments are effects, not evidence: counting them
     # would make writing one look like the world changed underneath the write.
@@ -570,16 +581,21 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             gate('waiting-build',
                  'The build must pass before this can merge' if build == 'failed'
                  else 'Waiting for the build to finish')
+        # In the order the verdict weighs them, so the first unchecked line is
+        # the state. Attested-and-nothing-objected-since is what checks
+        # self-review: an objection at or after the attestation is the
+        # author's to answer, and the box stays open.
         result['checklist'] = _checklist(
-            bots=dict(done=bots_done, lines=bot_lines, skippable=bool(missing) and not skip),
-            build=dict(done=build == 'green', state=build, latched=was_ready and human),
-            self_review=dict(done=bool(attestations), bot_author=bool(pr.get('author_is_bot')),
+            bots=dict(done=bots_done, lines=bot_lines, skippable=any(bot not in waived for bot in missing)),
+            self_review=dict(done=bool(attestations) and not (self_time is not None and unanswered),
+                             bot_author=bool(pr.get('author_is_bot')),
                              address=[line for line in objection_lines
                                       if line.split(' ', 1)[0].lower() in unanswered or self_time is None]),
+            slot=dict(done=not human or bool(admitted_at), limit=policy['max_active_prs']),
+            build=dict(done=build == 'green', state=build, latched=was_ready and human),
             approvals=dict(done=not human, areas=approvals,
                            awaiting=[line for line in objection_lines
-                                     if self_time is not None and line.split(' ', 1)[0].lower() not in unanswered]),
-            slot=dict(done=not human or bool(admitted_at), limit=policy['max_active_prs']))
+                                     if self_time is not None and line.split(' ', 1)[0].lower() not in unanswered]))
         if first is not None:
             state, reasons = first
             return stop(state, *reasons)

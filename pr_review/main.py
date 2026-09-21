@@ -12,8 +12,9 @@ from pathlib import Path
 import sys
 
 from . import telemetry
-from .github import GitHub, GitHubError, parse_controller_state
-from .policy import (NUDGE_MARKER, STATE_LABELS, admit, codeowners, effective_admission, evaluate, fingerprint, missing_paths,
+from .github import STATE_MARKER, GitHub, GitHubError, current_checklist, parse_controller_state
+from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
+                     STATE_LABELS, admit, codeowners, effective_admission, evaluate, fingerprint, missing_paths,
                      validate_policy)
 from .registry import POLICIES, entry_for, load_registry, policy_path
 
@@ -184,57 +185,117 @@ def state_record(pr, result, context):
                 'version': 1, 'evidence': fingerprint(pr), 'context': context}
 
 
-def _who_must_approve(result):
-    """Per area: who can approve it, who has, and which files put it in play.
+SAFE_PATH = re.compile(r'[A-Za-z0-9._/@+-]+')
+MOVE_STATES = {'waiting-self-review': 'waiting-self-review', 'waiting-author': 'waiting-self-review',
+               'ready-for-human': 'ready-for-human', 'ready-to-merge': 'ready-to-merge'}
+POINTER = 'PR Hygiene: the checklist is in the description.'
+MOVE_REPEAT_HOURS = 24
 
-    A pull request was held with one approval in hand because five files
-    outside every owned area needed a different approver, and the report said
-    only that "human approval is required". Say for what, from whom, and what
-    is already covered, or the author is left guessing.
+
+def _files(files):
+    """A few paths, quoted only when safe: a path is the pull request's to choose."""
+    safe = [f for f in files if SAFE_PATH.fullmatch(f)]
+    if not safe:
+        return f'{len(files)} files'
+    shown = ', '.join(f'`{f}`' for f in safe[:3])
+    return shown + (f' and {len(files) - 3} more' if len(files) > 3 else '')
+
+
+def checklist_block(result):
+    """The description's block: every requirement, met or not, checked when met.
+
+    One shape always. The state is the first unchecked line, which is what
+    the label and the status say too, so the three surfaces never disagree —
+    and an author with an approval in hand can see which files it did not
+    cover, before anyone has to ask.
     """
-    state = result['state']
-    if state not in {'ready-for-human', 'waiting-author', 'waiting-slot'}:
-        return []
-    lines = []
-    for area in result.get('approvals') or []:
-        # Paths come from the pull request. One carrying the state marker, a
-        # backtick or a newline would break this comment or, worse, be read
-        # back as a record; such a path is counted, not quoted.
-        files = [f for f in area['files'] if re.fullmatch(r'[A-Za-z0-9._/@+-]+', f)]
-        shown = ', '.join(f'`{f}`' for f in files[:3]) + (f' and {len(area["files"]) - 3} more' if len(area['files']) > 3 else '')
-        name = 'files no area owns' if area['area'] == 'fallback' else f"`{area['area']}`"
-        where = f'{name} ({shown})' if shown else f"{name} ({len(area['files'])} files)"
-        # No @-mentions: a mention from this bot notifies, and a pull request
-        # waiting for a slot is one nobody has been asked to look at yet. In
-        # ready-for-human the review request already carries the ping.
-        if area.get('owned'):
-            lines.append(f'- ✓ {name} — you own it; no approval needed')
-        elif area['approved_by']:
-            lines.append(f"- ✓ {where} — approved by {', '.join(area['approved_by'])}")
-        else:
-            lines.append(f"- {where} — needs {' or '.join(area['approvers'])}")
-    for objection in result.get('objections') or []:
-        # Before the attestation, the author answers and attests again. After
-        # it, only the objector can release it: re-review, dismiss, resolve.
-        release = ('address it, then post `/self-reviewed` again' if state == 'waiting-author'
-                   else 'waiting for them to re-review, dismiss it, or resolve the thread')
-        lines.append(f'- {objection}; {release}')
-    return ['', 'Approval at the current head:'] + lines if lines else []
+    items = {item['item']: item for item in result.get('checklist') or []}
+    if not items:
+        return None
+    box = lambda done: '[x]' if done else '[ ]'
+    lines = [CHECKLIST_START, f"### PR Hygiene · `{result['head'][:7]}`"]
+    bots = items['bots']
+    line = f"- {box(bots['done'])} Bots — {' · '.join(bots['lines'])}"
+    if bots['skippable']:
+        line += ' — `/skip-bots` proceeds without the ones not yet reported'
+    lines.append(line)
+    attest = items['self_review']
+    if attest['bot_author']:
+        lines.append(f"- {box(attest['done'])} Self-review — not asked of a bot author")
+    elif attest['address']:
+        lines.append(f"- {box(attest['done'])} Self-review — address {'; '.join(attest['address'])}, then post `/self-reviewed`")
+    elif not bots['done']:
+        lines.append(f"- {box(attest['done'])} Self-review — post `/self-reviewed` once the bots are done")
+    elif attest['done']:
+        lines.append('- [x] Self-review — posted; again after any push')
+    else:
+        lines.append('- [ ] Self-review — post `/self-reviewed`')
+    slot = items['slot']
+    line = f"- {box(slot['done'])} Within your {slot['limit']} open PRs"
+    if not slot['done']:
+        line += ' — this one is beyond the limit; it waits until one merges'
+    lines.append(line)
+    build = items['build']
+    text = {'green': 'Build green', 'failed': 'Build failed', 'running': 'Build running'}.get(build['state'], f"Build {build['state']}")
+    if build['latched'] and not build['done']:
+        text += ' — review was already requested; it still has to pass to merge'
+    lines.append(f"- {box(build['done'])} {text}")
+    approvals = items['approvals']
+    areas = approvals['areas']
+    if all(a.get('owned') for a in areas) and not approvals['awaiting']:
+        lines.append(f"- {box(approvals['done'])} Approvals — you own every area touched; none needed")
+    else:
+        # A plain bullet, not a task: a task parent counts in GitHub's N-of-M
+        # beside its children and the bar would read double.
+        lines.append('- Approvals')
+        for area in areas:
+            name = 'files with no dedicated owner' if area['area'] == 'fallback' else f"`{area['area']}`"
+            if area.get('owned'):
+                lines.append(f'  - [x] {name} — you own it')
+            elif area['approved_by']:
+                lines.append(f"  - [x] {name} ({_files(area['files'])}) — approved by {', '.join(area['approved_by'])}")
+            else:
+                lines.append(f"  - [ ] {name} ({_files(area['files'])}) — {' or '.join(area['approvers'])}")
+        for objection in approvals['awaiting']:
+            lines.append(f'  - [ ] {objection} — waiting for them to re-review or dismiss')
+    lines.append('')
+    lines.append('When every box is checked the `PR Hygiene` check passes and this can merge.')
+    lines.append(CHECKLIST_END)
+    return '\n'.join(lines)
 
 
-def state_body(result):
-    reasons = result.get('blockers') or ['All policy requirements are satisfied.']
-    return '\n'.join([
-        '### PR Hygiene',
-        f"State: **{result['state']}** · commit `{result['head']}`",
-        '', *[f'- {reason}' for reason in reasons],
-        *_who_must_approve(result),
-        '', 'Self-review is an author attestation that you have read the diff:',
-        '`/self-reviewed`  — covers everything pushed so far; post it again after a new push.',
-        *(['`/skip-bots`  — proceed without the bots that have not reported; anyone with write access may, and the report says who did.']
-          if result['state'] == 'waiting-bots' else []),
-        '', 'This check passes when the policy is satisfied; the repository decides whether merging requires it.',
-    ])
+def move_text(result):
+    """One line for the person whose move it now is. No mentions: the comment itself notifies."""
+    move = MOVE_STATES.get(result['state'])
+    if move is None:
+        return None
+    items = {item['item']: item for item in result.get('checklist') or []}
+    if move == 'waiting-self-review':
+        address = items['self_review']['address']
+        what = f"address {'; '.join(address)}, then post `/self-reviewed`" if address else 'post `/self-reviewed`'
+        line = f'Bots are done — your move: {what}.'
+    elif move == 'ready-for-human':
+        line = f"Ready for review — needs {' or '.join(result.get('reviewers') or []) or 'an owner'}."
+    else:
+        line = 'Policy satisfied — this can merge.'
+    return f"{MOVE_MARKER} state={move} sha={result['head']} -->\n{line}\nFull checklist in the description."
+
+
+def _same(a, b):
+    return (a or '').replace('\r\n', '\n').strip() == (b or '').replace('\r\n', '\n').strip()
+
+
+def bot_comments(pr, marker):
+    """This controller's own comments carrying `marker`, newest last."""
+    return sorted((c for c in pr.get('comments', [])
+                   if c.get('user', '').lower() == 'github-actions[bot]' and marker in c.get('body', '')),
+                  key=lambda c: (c.get('created_at', ''), c.get('id', 0)))
+
+
+def _hours_since(iso, now):
+    from datetime import datetime
+    a = datetime.fromisoformat(iso.replace('Z', '+00:00')); b = datetime.fromisoformat(now.replace('Z', '+00:00'))
+    return (b - a).total_seconds() / 3600
 
 
 def nudge(api, pr, result, allowance):
@@ -302,6 +363,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         return
 
     desired = state_record(pr, result, context)
+    now = utc_now()
 
     def finish(expected):
         # Admission history reads can be slow. Read this PR's review evidence
@@ -322,10 +384,28 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     requested = set(pr.get('requested_reviewers', []))
     missing = [u for u in result.get('reviewers', []) if u not in requested] if ready else []
     labels = pr.get('labels', [])
-    wanted = ({result['state']} if result['state'] in STATE_LABELS else set()) | ({WAIVED_LABEL} if result.get('waived') else set())
-    label_correct = set(labels) & (set(STATE_LABELS) | {WAIVED_LABEL}) == wanted
-    if pr.get('controller_state') == desired and label_correct and not missing:
-        # Read current evidence on every run, but avoid churning comments and labels.
+    wanted = ({LABEL_FOR_STATE[result['state']]} if result['state'] in LABEL_FOR_STATE else set()) \
+             | ({WAIVED_LABEL} if result.get('waived') else set())
+    managed = set(STATE_LABELS) | set(RETIRED_LABELS) | {WAIVED_LABEL}
+    label_correct = set(labels) & managed == wanted
+    # The description carries the checklist; a draft's does not (its author is
+    # still writing it, and nobody reviews a draft).
+    block = None if result['state'] == 'draft' else checklist_block(result)
+    block_correct = block is None or _same(current_checklist(pr.get('body')), block)
+    # A move is announced once, then kept current in place for a day.
+    move = MOVE_STATES.get(result['state'])
+    move_body = move_text(result) if move and not (pr.get('author_is_bot') and move != 'ready-for-human') else None
+    announced = [c for c in bot_comments(pr, MOVE_MARKER) if f'{MOVE_MARKER} state={move} ' in c['body']]
+    latest_move = announced[-1] if announced else None
+    move_correct = move_body is None or (latest_move is not None and _same(latest_move['body'], api.state_comment_body(desired, move_body)))
+    # The standing state comment of earlier engines: kept as the record until
+    # a move comment supersedes it, then removed; its text meanwhile points at
+    # the description.
+    standing = [c for c in bot_comments(pr, STATE_MARKER) if MOVE_MARKER not in c['body']]
+    any_move = bool(bot_comments(pr, MOVE_MARKER))
+    standing_correct = not standing or (not any_move and all(_same(c['body'].split('-->', 1)[-1], POINTER) for c in standing))
+    if block_correct and label_correct and not missing and move_correct and standing_correct:
+        # Read current evidence on every run, but avoid churning the description, labels and comments.
         if actionable:
             finish(candidates)
         else:
@@ -335,10 +415,35 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     api.post_status(pr['head'], 'pending', 'Evaluating current review policy')
     if not identity_matches():
         return
-    # Reviewers do not read drafts, so do not open a comment on one. An existing
-    # comment is still kept current, and the status records the state either way.
-    if result['state'] != 'draft' or pr.get('controller_comment_id') is not None:
-        api.upsert_state(pr['number'], desired, state_body(result), pr.get('controller_comment_id'))
+    if block is not None and not block_correct:
+        try:
+            api.set_checklist(pr['number'], block)
+        except GitHubError as error:
+            # A description this long is the author's; the check and the
+            # labels still carry the state, and one oversized body must not
+            # mark the pull request an error.
+            print(f"PR #{pr['number']}: checklist not written: {error}", file=sys.stderr)
+        if not identity_matches():
+            return desired
+    if move_body is not None and not move_correct:
+        edit = latest_move is not None and _hours_since(latest_move['created_at'], now) < MOVE_REPEAT_HOURS
+        api.upsert_state(pr['number'], desired, move_body, latest_move['id'] if edit else None)
+        for old in standing:
+            try:
+                api.delete_comment(old['id'])
+            except GitHubError:
+                print(f"PR #{pr['number']}: could not remove the old state comment", file=sys.stderr)
+        if not identity_matches():
+            return desired
+    elif standing and not standing_correct:
+        if any_move:
+            for old in standing:
+                try:
+                    api.delete_comment(old['id'])
+                except GitHubError:
+                    print(f"PR #{pr['number']}: could not remove the old state comment", file=sys.stderr)
+        else:
+            api.upsert_state(pr['number'], desired, POINTER, standing[-1]['id'])
         if not identity_matches():
             return desired
     try:
@@ -346,15 +451,15 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     except GitHubError:
         # The labels were read from a snapshot that another run reconciling this
         # author can invalidate, and removing a label that is already gone is a
-        # 404. The state is in the status and the comment either way.
-        print(f"PR #{pr['number']}: could not set the state label; the status and comment still carry the state",
+        # 404. The state is in the status and the description either way.
+        print(f"PR #{pr['number']}: could not set the state label; the status and description still carry the state",
               file=sys.stderr)
     try:
         api.set_label(pr['number'], WAIVED_LABEL, bool(result.get('waived')), pr.get('labels', []))
     except GitHubError:
         # The repository may not have the label yet. Say so and carry on: the
-        # waiver is already in the status and the comment, and one missing label
-        # must not abort the remaining pull requests.
+        # waiver is already in the status and the description, and one missing
+        # label must not abort the remaining pull requests.
         print(f"PR #{pr['number']}: could not set {WAIVED_LABEL}; create the label to see waivers in listings",
               file=sys.stderr)
     if missing:
@@ -371,10 +476,10 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
                 # The room left over is read from a snapshot that another run
                 # reconciling this author can invalidate, and GitHub refuses a
                 # request past its own cap. The reviewers are already named in
-                # the comment and the status, and one refusal must not abort the
-                # remaining pull requests.
+                # the description and the status, and one refusal must not abort
+                # the remaining pull requests.
                 print(f"PR #{pr['number']}: could not request {', '.join(missing[:room])}; "
-                      f"the state comment still names them", file=sys.stderr)
+                      f"the description still names them", file=sys.stderr)
 
     if not actionable:
         if identity_matches():
@@ -554,12 +659,17 @@ def run(argv=None):
     rows = evaluate_snapshots(policy, context, candidates, snapshots, now, payload)
     nudged = 0
     failed = []
+    checked_labels = []
     for pr, result in zip(snapshots, rows):
         if args.command == 'sync':
             try:
                 if args.apply:
-                    # Verify setup explicitly; never create labels as a side effect.
-                    api.request('GET', f'repos/{args.repo}/labels/ready-for-human')
+                    if not checked_labels:
+                        # Verify setup explicitly, once: a POST would create a
+                        # missing label as a side effect, in a default colour.
+                        for label in STATE_LABELS + (WAIVED_LABEL,):
+                            api.request('GET', f'repos/{args.repo}/labels/{label}')
+                        checked_labels.append(True)
                     nudged += nudge(api, pr, result, NUDGES_PER_RUN - nudged)
                 written = publish(api, policy, pr, result, context, args.apply, candidates=candidates)
                 if written:

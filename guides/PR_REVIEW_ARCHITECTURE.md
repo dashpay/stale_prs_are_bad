@@ -28,7 +28,7 @@ An author has five active, non-draft admission slots per repository. Admission p
 
 Before human review, both configured bots must finish on the current head, bot objections must be addressed, and the author must post an unedited `/self-reviewed FULL_HEAD_SHA` comment after those bot outcomes. This is an explicit author attestation, not an automated substitute for inspecting the diff. New commits invalidate the attestation and head-bound approvals.
 
-The evaluator determines actionable reviewers, blockers and readiness from fresh GitHub evidence. The publisher revalidates evidence before writing its status, state comment, label and review requests. Errors block readiness. Existing checks and native protection requirements still apply; owner exemption in this policy does not override an independent GitHub approval requirement. Repository administrators and trusted writers retain their existing authority.
+The evaluator determines actionable reviewers, blockers and readiness from fresh GitHub evidence. The publisher revalidates evidence before writing its status, the checklist in the description, the label, the move comment and review requests. Errors block readiness. Existing checks and native protection requirements still apply; owner exemption in this policy does not override an independent GitHub approval requirement. Repository administrators and trusted writers retain their existing authority.
 
 ## Combined reporting and Slack
 
