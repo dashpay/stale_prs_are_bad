@@ -137,13 +137,23 @@ class ChecklistTests(unittest.TestCase):
         pr['reviews'].append(dict(id=7, user='thepastaclaw', state='COMMENTED', commit_id=HEAD, submitted_at=NOW,
                                   body=f'<!-- thepastaclaw-review-phase v1 phase=final sha={HEAD} -->'))
         result = evaluate(policy, pr, NOW, LATER)
-        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['state'], 'waiting-author')
         block = main.checklist_block(result)
         self.assertIn('- [ ] Bots — coderabbitai skipped after the window · thepastaclaw ✓, 2 threads unresolved — resolve them', block)
         pr['threads'] = []
         pr['reviews'].append(dict(id=8, user='thepastaclaw', state='CHANGES_REQUESTED', commit_id=HEAD, submitted_at=LATER, body='no'))
         block = main.checklist_block(evaluate(policy, pr, NOW, LATER))
         self.assertIn('thepastaclaw ✓, requested changes — dismiss the review or push a fix', block)
+
+    def test_the_self_review_line_never_says_post_it_while_checked(self):
+        policy, pr = bartek()
+        pr['comments'].append(dict(id=2, user='llbartekll', body='/self-reviewed',
+                                   created_at='2026-09-11T10:30:00Z', updated_at='2026-09-11T10:30:00Z'))
+        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=False, created_at='2026-09-11T11:00:00Z',
+                              voices=[dict(user='coderabbitai[bot]', created_at='2026-09-11T11:00:00Z')])]
+        block = main.checklist_block(evaluate(policy, pr, NOW, LATER))
+        line = next(l for l in block.splitlines() if 'Self-review' in l)
+        self.assertNotIn('post `/self-reviewed` once', line, 'checked and told to post it is two answers')
 
     def test_a_path_is_never_quoted_unsafely(self):
         policy, pr = bartek()

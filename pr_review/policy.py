@@ -379,6 +379,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 first = (state, list(reasons))
 
         required = set(policy.get('required_bots', REVIEW_BOTS))
+        seen_at = pr.get('head_seen_at')
         latest = _latest_reviews(pr['reviews'])
         bot_blocks = [r for u,r in latest.items() if u in BOTS and r['state'].upper() == 'CHANGES_REQUESTED']
         bot_threads = [t for t in pr['threads'] if not t['is_resolved'] and t['author'].lower() in BOTS]
@@ -462,16 +463,20 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 n = threads_by[bot]
                 parts.append(f"{n} thread{'s' if n > 1 else ''} unresolved — resolve {'them' if n > 1 else 'it'}")
             bot_lines.append(f"{bot} {', '.join(parts)}")
-        if reasons or bot_blocks or bot_threads:
-            # Name the bot. "A bot objected" beside "proceeded without a bot"
-            # reads as a contradiction until you know they are two different
-            # bots; the name says which one is still owed an answer.
-            for review in bot_blocks:
-                who = review['user'].lower().removesuffix('[bot]')
-                reasons.append(f'{who} requested changes on this head; dismiss the review or push a fix')
-            for bot in sorted({t['author'].lower().removesuffix('[bot]') for t in bot_threads}):
-                reasons.append(f'{bot} left review threads unresolved; resolve them')
+        # Waiting for the bots means a bot has not reported. Once it has, what
+        # it said is the author's to answer — and a pull request cannot be
+        # waiting for a bot that was skipped, which is what those two labels
+        # said together on a third of the queue.
+        findings = []
+        for review in bot_blocks:
+            who = review['user'].lower().removesuffix('[bot]')
+            findings.append(f'{who} requested changes on this head; dismiss the review or push a fix')
+        for bot in sorted({th['author'].lower().removesuffix('[bot]') for th in bot_threads}):
+            findings.append(f'{bot} left review threads unresolved; resolve them')
+        if reasons:
             gate('waiting-bots', *reasons)
+        elif findings:
+            gate('waiting-author', *findings)
         bots_done = first is None
         # Self-review must follow whichever producers this repository runs. With
         # none, the author's own attestation is the only gate.
@@ -479,6 +484,17 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         # attestation written before the bots were given up on cannot count.
         instants = pasta + rabbit + list(waived.values())
         completed = max(instants, key=_time) if instants else pr['created_at']
+        # When the bots finished is one thing; what an attestation has to
+        # clear is another. Only a bot that had something to say moves that
+        # floor — one that finished clean leaves nothing to have read — and it
+        # stays where the bot put it, because resolving a thread answers the
+        # finding, it does not unsay it.
+        spoke = {r['user'].lower().removesuffix('[bot]') for r in bot_blocks}
+        spoke |= {th['author'].lower().removesuffix('[bot]') for th in pr['threads']
+                  if th['author'].lower() in BOTS and (not seen_at or _time(th['created_at']) >= _time(seen_at))}
+        said = [x for bot, stamps in (('thepastaclaw', pasta), ('coderabbitai', rabbit))
+                if bot in spoke for x in stamps] + list(waived.values())
+        floor_at = max(said, key=_time) if said else pr['created_at']
         if bots_done:
             result['bot_completed_at'] = completed
         # `/self-reviewed <sha>` names the commit it covers. Bare `/self-reviewed`
@@ -500,9 +516,9 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 continue
             body = comment['body'].strip()
             if body == '/self-reviewed ' + pr['head']:
-                floor = completed
+                floor = floor_at
             elif body == '/self-reviewed' and seen:
-                floor = max(completed, seen, key=_time)
+                floor = max(floor_at, seen, key=_time)
             else:
                 continue
             if _time(comment['at']) > _time(floor):
@@ -511,6 +527,9 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             # Copilot and dependabot cannot post an attestation. Their pull
             # requests never own an area, so the eligible approval they need
             # anyway is what stands in for it.
+            # Stands in for an attestation, so it is dated when the bots were
+            # done — not at the floor, which can predate an objection the pull
+            # request has already answered.
             attestations = [seen or completed]
         if not attestations:
             gate('waiting-self-review', 'Author must post /self-reviewed ' + pr['head'] + ' after bot completion')

@@ -272,10 +272,10 @@ def checklist_block(result):
         lines.append(f"- {box(attest['done'])} Self-review — not asked of a bot author")
     elif attest['address']:
         lines.append(f"- {box(attest['done'])} Self-review — address {'; '.join(attest['address'])}, then post `/self-reviewed`")
-    elif not bots['done']:
-        lines.append(f"- {box(attest['done'])} Self-review — post `/self-reviewed` once the bots are done")
     elif attest['done']:
         lines.append('- [x] Self-review — posted; again after any push')
+    elif not bots['done']:
+        lines.append(f"- {box(attest['done'])} Self-review — post `/self-reviewed` once the bots are done")
     else:
         lines.append('- [ ] Self-review — post `/self-reviewed`')
     slot = items['slot']

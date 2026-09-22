@@ -124,7 +124,7 @@ class WaiverTests(unittest.TestCase):
         pr['reviews'].append({'id': 9, 'user': 'coderabbitai[bot]', 'state': 'CHANGES_REQUESTED',
                               'commit_id': pr['head'], 'submitted_at': NOW, 'body': ''})
         result = evaluate(policy, pr, NOW, NOW)
-        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['state'], 'waiting-author')
         self.assertIn('coderabbitai requested changes on this head; dismiss the review or push a fix', result['blockers'])
 
     def test_an_objection_against_an_earlier_head_does_not_block_forever(self):
@@ -284,7 +284,7 @@ class SkipBotsTests(unittest.TestCase):
                                   submitted_at=ago(0.9), body='no'))
         pr['comments'].append(skip('reviewer', ago(0.5)))
         result = evaluate(policy, pr, NOW, NOW)
-        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['state'], 'waiting-author')
         self.assertEqual(result['waived'], [], 'an objection is not waived, so it is not reported as waived either')
         self.assertNotIn('skipped_by', result)
         self.assertIn('thepastaclaw requested changes on this head; dismiss the review or push a fix', result['blockers'])
@@ -292,7 +292,7 @@ class SkipBotsTests(unittest.TestCase):
         policy, pr = self.waiting_on_bots()
         pr['threads'] = [dict(id=9, author='coderabbitai[bot]', is_resolved=False, created_at=ago(0.9))]
         pr['comments'].append(skip('reviewer', ago(0.5)))
-        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots')
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-author')
 
     def test_a_skip_by_someone_this_controller_cannot_vouch_for_is_ignored(self):
         # Unknown is not the same as read; neither may skip.
