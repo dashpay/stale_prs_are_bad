@@ -579,13 +579,27 @@ class StaleMarkTests(unittest.TestCase):
         # day it left — which reads as a verdict and is not one.
         block = f'{CHECKLIST_START}\nstale\n{CHECKLIST_END}'
         pr = self.pr('keep-history-lifecycle', ['waiting-bots', 'bot-review-skipped', 'enhancement'], 'text\n\n' + block)
+        record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots', 'admitted_at': None, 'ready_since': None}, 'c' * 64)
         api = Mock()
+        api.comments.return_value = [dict(id=7, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+                                          body=GitHub.state_comment_body(record, main.POINTER))]
         with patch('sys.stderr', new_callable=io.StringIO) as err:
             main.clear_marks(api, self.policy, [pr], apply=True)
         self.assertEqual(sorted(c.args[1] for c in api.set_label.call_args_list), ['bot-review-skipped', 'waiting-bots'])
         self.assertTrue(all(c.args[2] is False for c in api.set_label.call_args_list), 'removed, never added')
         api.remove_checklist.assert_called_once_with(4660)
         self.assertIn('no longer governed', err.getvalue())
+        # Its words point at a checklist that is no longer there.
+        api.delete_comment.assert_called_once_with(7)
+
+    def test_the_record_comment_of_another_pull_request_is_not_touched(self):
+        record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots', 'admitted_at': None, 'ready_since': None}, 'c' * 64)
+        api = Mock()
+        api.comments.return_value = [dict(id=9, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+                                          body=GitHub.state_comment_body(dict(record, number=999), main.POINTER))]
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots'], 'x')], apply=True)
+        api.delete_comment.assert_not_called()
 
     def test_a_governed_pull_request_is_never_touched(self):
         api = Mock()

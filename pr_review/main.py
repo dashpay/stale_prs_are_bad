@@ -217,6 +217,15 @@ def clear_marks(api, policy, prs, apply=False):
                 api.remove_checklist(pr['number'])
             except GitHubError as error:
                 print(f"PR #{pr['number']}: could not remove the checklist: {error}", file=sys.stderr)
+        # The record comment goes with them. Its words point at a checklist
+        # that is no longer there, and the record itself is inert: a pull
+        # request outside the policy holds no review slot, so the admission it
+        # carries decides nothing.
+        try:
+            for comment in bot_comments(dict(pr, comments=api.comments(pr['number'])), STATE_MARKER):
+                api.delete_comment(comment['id'])
+        except GitHubError as error:
+            print(f"PR #{pr['number']}: could not remove the record comment: {error}", file=sys.stderr)
 
 
 def state_record(pr, result, context):
