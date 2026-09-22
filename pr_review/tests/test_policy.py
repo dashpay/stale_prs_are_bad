@@ -285,6 +285,38 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(result['objections'], ['owner left a review thread unresolved'])
         self.assertTrue(result['approvals'], 'the author still sees what approval the areas need')
 
+    def test_the_attestation_can_be_the_body_of_the_authors_own_review(self):
+        # tenderdash#1490: the author submitted `/self-reviewed` as a review
+        # from the files view, which is one action on the diff being attested
+        # to. Nothing read it, and they had to post it again as a comment.
+        p, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['comments'] = []
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+        pr['reviews'].append(dict(id=9, user='reviewer', state='COMMENTED', commit_id=HEAD,
+                                  submitted_at='2026-09-11T12:00:00Z', body='/self-reviewed'))
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
+        # The same rules: it must follow the bots, and nobody else's review counts.
+        pr['reviews'][-1]['submitted_at'] = '2026-09-11T09:30:00Z'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', 'before bot completion')
+        pr['reviews'][-1].update(submitted_at='2026-09-11T12:00:00Z', user='owner')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', 'only the author attests')
+
+    def test_an_ordinary_review_by_the_author_is_not_an_attestation(self):
+        # Sixty-two of these exist across the governed repositories, most with
+        # no body at all — replies to a bot's findings. Reading any of them as
+        # "I have read the final diff" would attest by accident.
+        p, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['comments'] = []
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        for body in ('', 'LGTM', 'Reviewed', 'nit: rename this'):
+            pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'reviewer']
+            pr['reviews'].append(dict(id=9, user='reviewer', state='COMMENTED', commit_id=HEAD,
+                                      submitted_at='2026-09-11T12:00:00Z', body=body))
+            self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', repr(body))
+
     def test_the_check_passes_in_exactly_one_state(self):
         # The invariant the gate rests on. Every reachable state is driven
         # here so that changing any one of them to success — one line — turns

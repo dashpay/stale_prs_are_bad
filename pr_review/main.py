@@ -195,7 +195,6 @@ SAFE_PATH = re.compile(r'[A-Za-z0-9._/@+-]+')
 MOVE_STATES = {'waiting-self-review': 'waiting-self-review', 'waiting-author': 'waiting-self-review',
                'ready-for-human': 'ready-for-human', 'ready-to-merge': 'ready-to-merge'}
 POINTER = 'PR Hygiene: the checklist is in the description.'
-MOVE_REPEAT_HOURS = 24
 
 
 def _files(files):
@@ -437,11 +436,15 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     # day: edited, not reposted. Otherwise: a new comment, which notifies.
     move = MOVE_STATES.get(result['state'])
     move_body = move_text(result) if move and not (pr.get('author_is_bot') and move == 'waiting-self-review') else None
-    announced = [c for c in bot_comments(pr, MOVE_MARKER) if f'{MOVE_MARKER} state={move} ' in c['body']]
-    same_head = [c for c in announced if f" sha={pr['head']} -->" in c['body']]
-    target = (same_head[-1] if same_head
-              else announced[-1] if announced and _hours_since(announced[-1].get('updated_at') or announced[-1]['created_at'], now) < MOVE_REPEAT_HOURS
-              else None)
+    # An announcement belongs to a head. The same move on the same head is
+    # kept current in place, which notifies nobody and should not; a new head
+    # is a new cycle the author has to act on, so it is announced afresh.
+    # Editing across heads swallowed exactly that: three of four pull requests
+    # on one repository in a day had an attestation voided by a bot finishing
+    # afterwards, and nobody was told to post another.
+    announced = [c for c in bot_comments(pr, MOVE_MARKER)
+                 if f'{MOVE_MARKER} state={move} sha={pr["head"]} -->' in c['body']]
+    target = announced[-1] if announced else None
     # A standing comment of the earlier engine that already recorded this move
     # for this head is that announcement: it becomes the move comment in place.
     standing = [c for c in holders if MOVE_MARKER not in c['body']]

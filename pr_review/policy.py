@@ -486,9 +486,17 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         # a status: that timestamp cannot be moved, so an attestation written
         # before the last push can never be reused for it.
         seen = pr.get('head_seen_at')
+        # An attestation is the author saying it, wherever they say it: a
+        # comment, or the body of their own review — which is one action from
+        # the diff they are attesting to. A review carries no edit history
+        # here, and needs none: editing an old one cannot move its timestamp
+        # forward, and the floor below is what a later edit would have to beat.
+        written = [dict(user=c['user'], body=c['body'], at=c['created_at'])
+                   for c in pr['comments'] if c['created_at'] == c['updated_at']]
+        written += [dict(user=r['user'], body=r['body'] or '', at=r['submitted_at']) for r in pr['reviews']]
         attestations = []
-        for comment in pr['comments']:
-            if comment['user'].lower() != pr['author'].lower() or comment['created_at'] != comment['updated_at']:
+        for comment in written:
+            if comment['user'].lower() != pr['author'].lower():
                 continue
             body = comment['body'].strip()
             if body == '/self-reviewed ' + pr['head']:
@@ -497,8 +505,8 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 floor = max(completed, seen, key=_time)
             else:
                 continue
-            if _time(comment['created_at']) > _time(floor):
-                attestations.append(comment['created_at'])
+            if _time(comment['at']) > _time(floor):
+                attestations.append(comment['at'])
         if not attestations and pr.get('author_is_bot'):
             # Copilot and dependabot cannot post an attestation. Their pull
             # requests never own an area, so the eligible approval they need

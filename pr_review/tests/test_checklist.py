@@ -245,18 +245,33 @@ class PublishTests(unittest.TestCase):
         api = self.run_publish(wiped, evaluate(self.policy, wiped, NOW, LATER))
         api.set_checklist.assert_called_once()
 
-    def test_a_repeat_within_a_day_edits_the_announcement_and_later_posts_anew(self):
+    def test_the_same_move_on_the_same_head_is_kept_current_in_place(self):
+        # Announced already for this head: the words are kept current without
+        # notifying again.
         result = evaluate(self.policy, self.pr, NOW, LATER)
-        stale = GitHub.state_comment_body(dict(main.state_record(self.pr, result, 'c' * 64), head='b' * 40),
-                                          main.move_text(result).replace(HEAD, 'b' * 40))
-        for age, expect_new in (('2026-09-11T02:00:00Z', False), ('2026-09-09T02:00:00Z', True)):
-            pr = dict(self.pr, body='text\n\n' + main.checklist_block(result), labels=['waiting-self-review', 'bot-review-skipped'])
-            pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=age, updated_at=age, body=stale)]
-            with patch.object(main, 'utc_now', return_value=LATER):
-                api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
-            api.upsert_state.assert_called_once()
-            self.assertEqual(api.upsert_state.call_args.args[3], None if expect_new else 50, age)
+        record = main.state_record(self.pr, result, 'c' * 64)
+        stale = GitHub.state_comment_body(record, main.move_text(result).replace('post `/self-reviewed`', 'do something else'))
+        pr = dict(self.pr, body='text\n\n' + main.checklist_block(result), labels=['waiting-self-review', 'bot-review-skipped'])
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=NOW, updated_at=NOW, body=stale)]
+        api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.upsert_state.assert_called_once()
+        self.assertEqual(api.upsert_state.call_args.args[3], 50, 'edited, so nobody is notified twice')
 
+    def test_a_new_head_is_announced_afresh_so_the_author_is_told_again(self):
+        # tenderdash#1489: the author attested, a bot finished afterwards and
+        # voided it, and the announcement for the new head was edited into the
+        # old one — which notifies nobody. Three of four pull requests on that
+        # repository in one day went quiet the same way.
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        record = main.state_record(self.pr, result, 'c' * 64)
+        older_head = GitHub.state_comment_body(dict(record, head='b' * 40),
+                                               main.move_text(result).replace(HEAD, 'b' * 40))
+        pr = dict(self.pr, body='text\n\n' + main.checklist_block(result), labels=['waiting-self-review', 'bot-review-skipped'])
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=NOW, updated_at=NOW, body=older_head)]
+        api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.upsert_state.assert_called_once()
+        self.assertIsNone(api.upsert_state.call_args.args[3], 'a new comment: that is the notification')
+        self.assertIn(f'sha={HEAD}', api.upsert_state.call_args.args[2])
     def test_the_old_standing_comment_points_at_the_description_then_goes(self):
         result = evaluate(self.policy, self.pr, NOW, LATER)
         old_record = main.state_record(self.pr, dict(result, state='waiting-bots'), 'c' * 64)
