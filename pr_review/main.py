@@ -185,6 +185,40 @@ def _mark_unreadable(api, policy, pr):
         print(f"PR #{pr['number']}: unable to publish evidence error status", file=sys.stderr)
 
 
+def clear_marks(api, policy, prs, apply=False):
+    """Take this controller's marks off a pull request it no longer governs.
+
+    A pull request rebased onto a branch outside the policy is never selected
+    again, so its labels and its checklist stayed exactly as they were the day
+    it left — a pull request wearing `waiting-bots` and `bot-review-skipped`
+    two days after this controller stopped looking at it, which reads as a
+    verdict and is not one. The record comment stays: it holds the admission,
+    which is worth keeping if the pull request comes back.
+    """
+    managed = set(STATE_LABELS) | set(RETIRED_LABELS) | {WAIVED_LABEL}
+    for pr in prs:
+        if pr['state'] != 'open' or pr['base'] in policy['target_branches']:
+            continue
+        stale = sorted(set(pr.get('labels') or []) & managed)
+        block = current_checklist(pr.get('body'))
+        if not stale and block is None:
+            continue
+        print(f"PR #{pr['number']}: no longer governed ({pr['base']}); clearing "
+              + ', '.join(filter(None, [', '.join(stale), 'the checklist' if block else ''])), file=sys.stderr)
+        if not apply:
+            continue
+        for label in stale:
+            try:
+                api.set_label(pr['number'], label, False, pr.get('labels') or [])
+            except GitHubError:
+                print(f"PR #{pr['number']}: could not remove {label}", file=sys.stderr)
+        if block is not None:
+            try:
+                api.remove_checklist(pr['number'])
+            except GitHubError as error:
+                print(f"PR #{pr['number']}: could not remove the checklist: {error}", file=sys.stderr)
+
+
 def state_record(pr, result, context):
     return {key: result.get(key) for key in
             ('number', 'head', 'admitted_at', 'ready_since', 'state')} | {
@@ -759,6 +793,7 @@ def run(argv=None):
                         print(f"PR #{pr['number']}: unable to publish the failure either", file=sys.stderr)
     if failed:
         raise GitHubError(f"reconciliation failed for {', '.join(f'#{n}' for n in failed)}")
+    clear_marks(api, policy, context, args.apply and args.command == 'sync')
     rows.sort(key=lambda r: (r['state'] != 'ready-for-human', r.get('ready_since') or now, r['number']))
     if args.format == 'json':
         print(json.dumps({'generated_at': now, 'pull_requests': selected_rows(rows, args.user)}, indent=2))

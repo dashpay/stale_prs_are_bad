@@ -1,6 +1,7 @@
 """The checklist in the description, the move comments, and what the fast path compares."""
 
 import copy
+import io
 import json
 import re
 import unittest
@@ -561,6 +562,50 @@ class SecondReviewTests(unittest.TestCase):
         with patch('sys.stderr'):
             api = self.publish(pr, result, api=api)
         self.assertEqual(api.post_status.call_args.args[1:], ('success', 'ready-to-merge'))
+
+
+class StaleMarkTests(unittest.TestCase):
+    """A pull request that left the governed set keeps nothing of ours but the record."""
+
+    def setUp(self):
+        self.policy, _ = bartek()
+
+    def pr(self, base, labels, body=''):
+        return {'number': 4660, 'state': 'open', 'base': base, 'labels': labels, 'body': body}
+
+    def test_labels_and_block_are_cleared_when_the_base_leaves_the_policy(self):
+        # dashpay/platform#4660: rebased onto a feature branch, and two days
+        # later still wearing `waiting-bots` and `bot-review-skipped` from the
+        # day it left — which reads as a verdict and is not one.
+        block = f'{CHECKLIST_START}\nstale\n{CHECKLIST_END}'
+        pr = self.pr('keep-history-lifecycle', ['waiting-bots', 'bot-review-skipped', 'enhancement'], 'text\n\n' + block)
+        api = Mock()
+        with patch('sys.stderr', new_callable=io.StringIO) as err:
+            main.clear_marks(api, self.policy, [pr], apply=True)
+        self.assertEqual(sorted(c.args[1] for c in api.set_label.call_args_list), ['bot-review-skipped', 'waiting-bots'])
+        self.assertTrue(all(c.args[2] is False for c in api.set_label.call_args_list), 'removed, never added')
+        api.remove_checklist.assert_called_once_with(4660)
+        self.assertIn('no longer governed', err.getvalue())
+
+    def test_a_governed_pull_request_is_never_touched(self):
+        api = Mock()
+        main.clear_marks(api, self.policy, [self.pr('v4.2-dev', ['waiting-bots'], 'x')], apply=True)
+        api.set_label.assert_not_called()
+        api.remove_checklist.assert_not_called()
+
+    def test_labels_that_are_not_ours_are_left_alone(self):
+        api = Mock()
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['enhancement', 'bug'], 'x')], apply=True)
+        api.set_label.assert_not_called()
+        api.remove_checklist.assert_not_called()
+
+    def test_a_preview_run_says_what_it_would_clear_and_writes_nothing(self):
+        api = Mock()
+        with patch('sys.stderr', new_callable=io.StringIO) as err:
+            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots'], 'x')], apply=False)
+        api.set_label.assert_not_called()
+        self.assertIn('#4660', err.getvalue())
 
 
 class MarkerParsingTests(unittest.TestCase):
