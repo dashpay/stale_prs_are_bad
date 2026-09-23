@@ -264,6 +264,7 @@ class PublishTests(unittest.TestCase):
         stale = GitHub.state_comment_body(record, main.move_text(result).replace('post `/self-reviewed`', 'do something else'))
         pr = dict(self.pr, body='text\n\n' + main.checklist_block(result), labels=['waiting-self-review', 'bot-review-skipped'])
         pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=NOW, updated_at=NOW, body=stale)]
+        pr['controller_state'] = record
         api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
         api.upsert_state.assert_called_once()
         self.assertEqual(api.upsert_state.call_args.args[3], 50, 'edited, so nobody is notified twice')
@@ -301,6 +302,21 @@ class PublishTests(unittest.TestCase):
         api = self.run_publish(moving, evaluate(self.policy, moving, NOW, LATER))
         self.assertIsNone(api.upsert_state.call_args.args[3])
         api.delete_comment.assert_called_once_with(7)
+
+    def test_a_finding_is_the_move_it_names_not_post_slash_self_reviewed(self):
+        # The bots are done and one of them asked for a change. "Bots are done
+        # — your move: post `/self-reviewed`" is wrong three ways there: the
+        # author already attested, posting it again changes nothing, and the
+        # thing actually owed goes unsaid.
+        policy, pr = self.policy, copy.deepcopy(self.pr)
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        pr['comments'] = pr['comments'] + [dict(id=9, user='llbartekll', body=f'/self-reviewed {HEAD}',
+                                                created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
+        result = evaluate(policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-author')
+        text = main.move_text(result)
+        self.assertIn('coderabbitai', text)
+        self.assertNotIn('/self-reviewed', text)
 
     def test_a_bot_author_is_not_told_its_move(self):
         pr = dict(self.pr, author_is_bot=True, comments=[])
@@ -524,9 +540,12 @@ class SecondReviewTests(unittest.TestCase):
         api.delete_comment.assert_not_called()
         self.assertIsNone(api.upsert_state.call_args.args[3], 'a new comment; the foreign one is not edited')
 
-    def test_a_move_cycle_keeps_the_record_under_the_matching_words(self):
-        # A → B → A on one head: the record goes back to A's announcement,
-        # not to B's, whose words would then say the wrong thing.
+    def test_the_move_coming_back_to_the_author_is_announced_again(self):
+        # A → B → A on one head — the author attested, it went out for review,
+        # a bot finished afterwards and voided the attestation. Editing A's
+        # old announcement leaves the author with nothing in their inbox and
+        # a pull request that never moves again, which is how three of four
+        # pull requests on one repository went quiet in a day.
         result = evaluate(self.policy, self.pr, NOW, LATER)
         a_record = main.state_record(self.pr, result, 'c' * 64)
         a = dict(id=50, user='github-actions[bot]', created_at='2026-09-11T10:00:00Z', updated_at='2026-09-11T10:00:00Z',
@@ -543,8 +562,9 @@ class SecondReviewTests(unittest.TestCase):
         api = self.publish(pr, again)
         api.upsert_state.assert_called_once()
         record, text, comment_id = api.upsert_state.call_args.args[1:]
-        self.assertEqual(comment_id, 50, "A's own announcement carries A's record")
+        self.assertIsNone(comment_id, 'a new comment: that is the notification')
         self.assertIn('state=waiting-self-review', text)
+        self.assertEqual(record['state'], 'waiting-self-review')
 
     def test_a_pull_request_back_in_draft_loses_the_stale_block(self):
         result = evaluate(self.policy, self.pr, NOW, LATER)
@@ -575,7 +595,7 @@ class SecondReviewTests(unittest.TestCase):
 
 
 class StaleMarkTests(unittest.TestCase):
-    """A pull request that left the governed set keeps nothing of ours but the record."""
+    """A pull request that left the governed set keeps nothing of ours."""
 
     def setUp(self):
         self.policy, _ = bartek()
@@ -623,6 +643,15 @@ class StaleMarkTests(unittest.TestCase):
             main.clear_marks(api, self.policy, [self.pr('feature', ['enhancement', 'bug'], 'x')], apply=True)
         api.set_label.assert_not_called()
         api.remove_checklist.assert_not_called()
+
+    def test_a_name_this_controller_no_longer_sets_is_left_alone(self):
+        # `waiting-build` and `ready-to-merge` were retired here, which says
+        # nothing about who else uses those words. Off a pull request this
+        # controller does not govern, they are somebody else's labels.
+        api = Mock()
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-build', 'ready-to-merge'], 'x')], apply=True)
+        api.set_label.assert_not_called()
 
     def test_a_preview_run_says_what_it_would_clear_and_writes_nothing(self):
         api = Mock()

@@ -192,15 +192,22 @@ def clear_marks(api, policy, prs, apply=False):
     again, so its labels and its checklist stayed exactly as they were the day
     it left — a pull request wearing `waiting-bots` and `bot-review-skipped`
     two days after this controller stopped looking at it, which reads as a
-    verdict and is not one. The record comment stays: it holds the admission,
-    which is worth keeping if the pull request comes back.
+    verdict and is not one. The record comment goes with them: its words point
+    at a checklist that is no longer there, and a pull request outside the
+    policy holds no review slot, so the admission it records decides nothing.
+
+    Only the labels this controller sets today are taken off. A name it has
+    retired may be somebody else's on a pull request it does not govern.
     """
-    managed = set(STATE_LABELS) | set(RETIRED_LABELS) | {WAIVED_LABEL}
+    managed = set(STATE_LABELS) | {WAIVED_LABEL}
     for pr in prs:
         if pr['state'] != 'open' or pr['base'] in policy['target_branches']:
             continue
         stale = sorted(set(pr.get('labels') or []) & managed)
         block = current_checklist(pr.get('body'))
+        # A record comment never rides alone — it is written with a label or a
+        # checklist — so there is no reason to spend a request looking for one
+        # on every ungoverned pull request in the repository.
         if not stale and block is None:
             continue
         print(f"PR #{pr['number']}: no longer governed ({pr['base']}); clearing "
@@ -319,9 +326,19 @@ def move_text(result):
         return None
     items = {item['item']: item for item in result.get('checklist') or []}
     if move == 'waiting-self-review':
+        # What actually blocks it, not what usually does: this state is also
+        # where a bot's own findings land, and "bots are done, post
+        # /self-reviewed" was wrong three ways on those.
+        reasons = [b for b in result.get('blockers') or [] if not b.startswith('Proceeded without')]
         address = items['self_review']['address']
-        what = f"address {'; '.join(address)}, then post `/self-reviewed`" if address else 'post `/self-reviewed`'
-        line = f'Bots are done — your move: {what}.'
+        if address or result['state'] == 'waiting-self-review':
+            what = f"address {'; '.join(address)}, then post `/self-reviewed`" if address else 'post `/self-reviewed`'
+            line = f'Bots are done — your move: {what}.'
+        else:
+            # A bot's own findings land here too, and "bots are done, post
+            # /self-reviewed" was wrong three ways on those.
+            what = '; '.join(reasons) or 'answer the review'
+            line = f'Your move: {what}.'
     elif move == 'ready-for-human':
         line = f"Ready for review — needs {' or '.join(result.get('reviewers') or []) or 'an owner'}."
     else:
@@ -474,20 +491,18 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     recorded = pr.get('controller_state') or {}
     record_fields = ('state', 'head', 'admitted_at', 'ready_since')
     record_correct = holder is None or all(recorded.get(k) == desired.get(k) for k in record_fields)
-    # A move is announced once per head. Announced already for this head: the
-    # text is kept current in place. Announced for an earlier head within a
-    # day: edited, not reposted. Otherwise: a new comment, which notifies.
     move = MOVE_STATES.get(result['state'])
     move_body = move_text(result) if move and not (pr.get('author_is_bot') and move == 'waiting-self-review') else None
-    # An announcement belongs to a head. The same move on the same head is
-    # kept current in place, which notifies nobody and should not; a new head
-    # is a new cycle the author has to act on, so it is announced afresh.
-    # Editing across heads swallowed exactly that: three of four pull requests
-    # on one repository in a day had an attestation voided by a bot finishing
-    # afterwards, and nobody was told to post another.
+    # An announcement is made when the move passes to somebody, and kept
+    # current in place for as long as it stays with them. Whose move it was
+    # last is on the record, so a pull request that goes back to its author —
+    # an attestation voided by a bot that finished afterwards, no new head —
+    # is announced again rather than edited, which notifies nobody. Three of
+    # four pull requests on one repository in a day went quiet that way.
+    was = MOVE_STATES.get((pr.get('controller_state') or {}).get('state'))
     announced = [c for c in bot_comments(pr, MOVE_MARKER)
                  if f'{MOVE_MARKER} state={move} sha={pr["head"]} -->' in c['body']]
-    target = announced[-1] if announced else None
+    target = announced[-1] if announced and was == move else None
     # A standing comment of the earlier engine that already recorded this move
     # for this head is that announcement: it becomes the move comment in place.
     standing = [c for c in holders if MOVE_MARKER not in c['body']]
@@ -802,7 +817,10 @@ def run(argv=None):
                         print(f"PR #{pr['number']}: unable to publish the failure either", file=sys.stderr)
     if failed:
         raise GitHubError(f"reconciliation failed for {', '.join(f'#{n}' for n in failed)}")
-    clear_marks(api, policy, context, args.apply and args.command == 'sync')
+    # A sweep tidies what it passes; a run aimed at one pull request does not
+    # go looking through the repository.
+    if args.pr is None:
+        clear_marks(api, policy, context, args.apply and args.command == 'sync')
     rows.sort(key=lambda r: (r['state'] != 'ready-for-human', r.get('ready_since') or now, r['number']))
     if args.format == 'json':
         print(json.dumps({'generated_at': now, 'pull_requests': selected_rows(rows, args.user)}, indent=2))

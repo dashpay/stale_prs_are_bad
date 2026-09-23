@@ -41,6 +41,19 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(result['state'], 'ready-for-human')
         self.assertEqual(result['reviewers'], ['owner'])
 
+    def test_a_finding_is_named_even_while_another_bot_is_still_out(self):
+        # The state is waiting-bots — one bot has not reported — but the other
+        # already left a thread open. Reporting only "waiting for X" hides
+        # work the author can do now, and the checklist would show a Bots line
+        # naming the thread while the blockers said nothing about it.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'thepastaclaw']
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertTrue(any('coderabbitai' in b for b in result['blockers']), result['blockers'])
+        self.assertTrue(any('thepastaclaw' in b for b in result['blockers']), result['blockers'])
+
     def ready(self):
         """A pull request that reaches ready-for-human on the current head."""
         p, pr = fixture()
@@ -358,21 +371,18 @@ class PolicyTests(unittest.TestCase):
         self.assertNotEqual(result['state'], 'waiting-bots', 'and so nothing is waiting for a bot')
         self.assertEqual(result['state'], 'waiting-author')
 
-    def test_a_bot_that_finished_clean_does_not_void_the_attestation(self):
-        # tenderdash#1488 and #1491: the author attested, the bot finished an
-        # hour or two later with nothing to say, and the attestation was
-        # thrown away. Posting it a second time read nothing new.
+    def test_every_bot_receipt_raises_the_floor_however_the_finding_is_shaped(self):
+        # A bot states a blocker in the prose of the receipt itself — "Add
+        # signer support or defer selecting these keys before merging", no
+        # thread, no changes request (dashpay/platform#4653). "It had nothing
+        # to say" cannot be read off the evidence, so every receipt counts.
         p, pr = fixture()
         pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        pr['threads'] = []
         pr['comments'][0].update(body='/self-reviewed', created_at='2026-09-11T09:30:00Z',
                                  updated_at='2026-09-11T09:30:00Z')
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge', 'the bots said nothing')
-        # It said something: that had to be read, and still has to be, after
-        # the thread is answered as much as before.
-        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=False, created_at='2026-09-11T10:00:00Z')]
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-author')
-        pr['threads'][0]['is_resolved'] = True
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', 'answered, not unsaid')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review',
+                         'the bots reported after it; nothing here can prove they found nothing')
         pr['comments'][0].update(created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
 
@@ -429,9 +439,6 @@ class PolicyTests(unittest.TestCase):
         pr['comments'][0].update(body='/self-reviewed', created_at='2026-09-11T09:30:00Z',
                                  updated_at='2026-09-11T09:30:00Z')
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
-        # Nothing said, nothing to have read: the attestation stands.
-        pr['threads'] = []
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
 
     def test_an_attestation_sharing_a_second_with_its_floor_does_not_count(self):
         p, pr = fixture()

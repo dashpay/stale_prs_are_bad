@@ -474,7 +474,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         for bot in sorted({th['author'].lower().removesuffix('[bot]') for th in bot_threads}):
             findings.append(f'{bot} left review threads unresolved; resolve them')
         if reasons:
-            gate('waiting-bots', *reasons)
+            gate('waiting-bots', *(reasons + findings))
         elif findings:
             gate('waiting-author', *findings)
         bots_done = first is None
@@ -482,19 +482,15 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         # none, the author's own attestation is the only gate.
         # A waiver is itself an event the author's self-review must follow, so a
         # attestation written before the bots were given up on cannot count.
+        # Every receipt raises the floor an attestation must clear, whether or
+        # not this controller can see a finding in it. A bot states a blocker
+        # in the prose of the receipt itself — "Add signer support or defer
+        # selecting these keys before merging", no thread, no changes request
+        # — so "it had nothing to say" is not a thing that can be read off the
+        # evidence, and guessing it merges pull requests nobody has read.
         instants = pasta + rabbit + list(waived.values())
         completed = max(instants, key=_time) if instants else pr['created_at']
-        # When the bots finished is one thing; what an attestation has to
-        # clear is another. Only a bot that had something to say moves that
-        # floor — one that finished clean leaves nothing to have read — and it
-        # stays where the bot put it, because resolving a thread answers the
-        # finding, it does not unsay it.
-        spoke = {r['user'].lower().removesuffix('[bot]') for r in bot_blocks}
-        spoke |= {th['author'].lower().removesuffix('[bot]') for th in pr['threads']
-                  if th['author'].lower() in BOTS and (not seen_at or _time(th['created_at']) >= _time(seen_at))}
-        said = [x for bot, stamps in (('thepastaclaw', pasta), ('coderabbitai', rabbit))
-                if bot in spoke for x in stamps] + list(waived.values())
-        floor_at = max(said, key=_time) if said else pr['created_at']
+        floor_at = completed
         if bots_done:
             result['bot_completed_at'] = completed
         # `/self-reviewed <sha>` names the commit it covers. Bare `/self-reviewed`
