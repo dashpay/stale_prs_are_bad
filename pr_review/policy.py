@@ -65,7 +65,8 @@ def missing_paths(policy, root: Path):
 
 def validate_policy(policy, root: Path | None = None):
     keys = {'version', 'repository', 'fallback', 'max_active_prs', 'target_branches', 'areas'}
-    _fields(policy, keys | {'required_bots', 'bot_timeouts'}, keys)
+    _fields(policy, keys | {'required_bots', 'bot_timeouts', 'bot_authors'}, keys)
+    _handles(policy.get('bot_authors', []))
     timeouts = policy.get('bot_timeouts')
     if timeouts is not None:
         _fields(timeouts, {'nudge_after_hours', 'waive_after_hours'}, {'nudge_after_hours', 'waive_after_hours'})
@@ -115,6 +116,18 @@ def validate_policy(policy, root: Path | None = None):
             if root is not None and not (root / prefix).is_dir():
                 raise ValueError(f'Missing policy directory: {prefix}')
             prefixes.append(prefix)
+    # A machine author needs no attestation because the approval it cannot do
+    # without stands in for one. Let it own an area and it needs neither: the
+    # owner exemption would merge its pull requests with nobody having read
+    # them at all. Read after the handles are known to be handles — reaching
+    # into them earlier turned a malformed policy from a reported
+    # configuration error into a crash that left the whole run without a status.
+    machines = {handle.lower() for handle in policy.get('bot_authors', [])}
+    named = {handle.lower() for handle in policy['fallback']['owners'] + policy['fallback']['reviewers']}
+    named |= {handle.lower() for area in policy['areas']
+              for handle in area['owners'] + area['reviewers']}
+    if machines & named:
+        raise ValueError('A machine author cannot own or review: ' + ', '.join(sorted(machines & named)))
 
 
 def codeowners(policy):
@@ -224,6 +237,19 @@ def _rabbit_receipt(body, head):
             return True
     return False
 
+
+
+def machine_author(policy, pr):
+    """Whether this pull request was opened by something that cannot attest for itself.
+
+    GitHub marks Copilot and dependabot as bots; the accounts a team runs its
+    own automation from are ordinary users by every API, so the policy names
+    them. Either way nobody is there to read the diff and say so, and the
+    eligible approval such a pull request needs anyway stands in for it.
+    """
+    if pr.get('author_is_bot'):
+        return True
+    return (pr.get('author') or '').lower() in {h.lower() for h in policy.get('bot_authors', [])}
 
 
 def _hours(stamp, nowISO):
@@ -520,10 +546,11 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 continue
             if _time(comment['at']) > _time(floor):
                 attestations.append(comment['at'])
-        if not attestations and pr.get('author_is_bot'):
-            # Copilot and dependabot cannot post an attestation. Their pull
-            # requests never own an area, so the eligible approval they need
-            # anyway is what stands in for it.
+        if not attestations and machine_author(policy, pr):
+            # An account that opens pull requests without a person behind it
+            # cannot post an attestation. It never owns an area — the policy
+            # refuses to load if it does — so the eligible approval it needs
+            # anyway is what stands in for one.
             # Stands in for an attestation, so it is dated when the bots were
             # done — not at the floor, which can predate an objection the pull
             # request has already answered.
@@ -626,7 +653,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         result['checklist'] = _checklist(
             bots=dict(done=bots_done, lines=bot_lines, skippable=any(bot not in waived for bot in missing)),
             self_review=dict(done=bool(attestations) and not (self_time is not None and unanswered),
-                             bot_author=bool(pr.get('author_is_bot')),
+                             bot_author=machine_author(policy, pr),
                              address=[line for line in objection_lines
                                       if line.split(' ', 1)[0].lower() in unanswered or self_time is None]),
             slot=dict(done=not human or bool(admitted_at), limit=policy['max_active_prs']),
