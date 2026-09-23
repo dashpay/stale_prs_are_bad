@@ -90,16 +90,6 @@ def validate_policy(policy, root: Path | None = None):
     _handles(policy['fallback']['reviewers'])
     if not isinstance(policy['areas'], list):
         raise ValueError('Expected areas list')
-    # A machine author needs no attestation because the approval it cannot do
-    # without stands in for one. Let it own an area and it needs neither: the
-    # owner exemption would merge its pull requests with nobody having read
-    # them at all.
-    machines = {handle.lower() for handle in policy.get('bot_authors', [])}
-    named = {handle.lower() for handle in policy['fallback']['owners'] + policy['fallback']['reviewers']}
-    named |= {handle.lower() for area in policy['areas'] if isinstance(area, dict)
-              for handle in (area.get('owners') or []) + (area.get('reviewers') or [])}
-    if machines & named:
-        raise ValueError('A machine author cannot own or review: ' + ', '.join(sorted(machines & named)))
     names, prefixes = set(), []
     for area in policy['areas']:
         _fields(area, {'id', 'paths', 'owners', 'reviewers', 'unresolved', 'metadata'}, {'id', 'paths', 'owners', 'reviewers'})
@@ -126,6 +116,18 @@ def validate_policy(policy, root: Path | None = None):
             if root is not None and not (root / prefix).is_dir():
                 raise ValueError(f'Missing policy directory: {prefix}')
             prefixes.append(prefix)
+    # A machine author needs no attestation because the approval it cannot do
+    # without stands in for one. Let it own an area and it needs neither: the
+    # owner exemption would merge its pull requests with nobody having read
+    # them at all. Read after the handles are known to be handles — reaching
+    # into them earlier turned a malformed policy from a reported
+    # configuration error into a crash that left the whole run without a status.
+    machines = {handle.lower() for handle in policy.get('bot_authors', [])}
+    named = {handle.lower() for handle in policy['fallback']['owners'] + policy['fallback']['reviewers']}
+    named |= {handle.lower() for area in policy['areas']
+              for handle in area['owners'] + area['reviewers']}
+    if machines & named:
+        raise ValueError('A machine author cannot own or review: ' + ', '.join(sorted(machines & named)))
 
 
 def codeowners(policy):

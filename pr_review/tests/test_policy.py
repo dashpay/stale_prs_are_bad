@@ -176,6 +176,8 @@ class PolicyTests(unittest.TestCase):
 
     def test_a_machine_author_is_a_github_handle_like_any_other(self):
         p, _ = fixture()
+        p['bot_authors'] = ['infraclaw-dash']
+        validate_policy(p)
         for bad in ('not a handle', '', '-leading', 'a' * 40, 1, ['x']):
             p['bot_authors'] = [bad]
             with self.assertRaises(ValueError, msg=repr(bad)):
@@ -188,11 +190,30 @@ class PolicyTests(unittest.TestCase):
         p, _ = fixture()
         p['bot_authors'] = ['infraclaw-dash']
         validate_policy(p)
-        for where in (p['areas'][0]['owners'], p['areas'][0]['reviewers'], p['fallback']['owners']):
-            where.append('infraclaw-dash')
-            with self.assertRaises(ValueError):
-                validate_policy(p)
-            where.remove('infraclaw-dash')
+        for where in (p['areas'][0]['owners'], p['areas'][0]['reviewers'],
+                      p['fallback']['owners'], p['fallback']['reviewers']):
+            for spelling in ('infraclaw-dash', 'INFRACLAW-DASH'):
+                # Handles are case-insensitive, and that is what keeps the
+                # exemption safe: a set intersection without it would let the
+                # owner exemption through on a capital letter.
+                where.append(spelling)
+                with self.assertRaises(ValueError, msg=spelling):
+                    validate_policy(p)
+                where.remove(spelling)
+
+    def test_a_machine_author_cannot_approve_its_own_pull_request(self):
+        # It is refused as an owner or reviewer, so it is never eligible —
+        # today only as a consequence of that refusal, which is why it is
+        # pinned here too.
+        p, pr = fixture()
+        p['bot_authors'] = ['infraclaw-dash', 'dcg-claude']
+        pr.update(author='infraclaw-dash', comments=[],
+                  permissions=dict(pr['permissions'], **{'infraclaw-dash': 'write', 'dcg-claude': 'write'}))
+        for who in ('infraclaw-dash', 'dcg-claude'):
+            reviews = pr['reviews'] + [dict(id=9, user=who, state='APPROVED', commit_id=HEAD, submitted_at=NOW, body='')]
+            result = evaluate(p, dict(pr, reviews=reviews), NOW, NOW)
+            self.assertEqual(result['state'], 'ready-for-human', who)
+            self.assertFalse(result['approvals'] and all(a.get('approved_by') for a in result['approvals']), who)
 
     def test_a_reviewers_objection_inside_the_authors_thread_still_counts(self):
         # The author opens a thread; a reviewer replies objecting. Reading
