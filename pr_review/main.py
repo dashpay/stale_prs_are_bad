@@ -14,8 +14,8 @@ import sys
 from . import telemetry
 from .github import STATE_MARKER, STATE_PATTERN, GitHub, GitHubError, current_checklist, parse_controller_state
 from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
-                     STATE_LABELS, admit, codeowners, effective_admission, evaluate, fingerprint, missing_paths,
-                     validate_policy)
+                     STATE_LABELS, admit, codeowners, effective_admission, evaluate, fingerprint,
+                     machine_author, missing_paths, validate_policy)
 from .registry import POLICIES, entry_for, load_registry, policy_path
 
 WAIVED_LABEL = 'bot-review-skipped'
@@ -516,7 +516,8 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     record_fields = ('state', 'head', 'admitted_at', 'ready_since')
     record_correct = holder is None or all(recorded.get(k) == desired.get(k) for k in record_fields)
     move = MOVE_STATES.get(result['state'])
-    move_body = move_text(result) if move and not (pr.get('author_is_bot') and move == 'waiting-self-review') else None
+    # Nothing is told its move: there is nobody there to take it.
+    move_body = move_text(result) if move and not (machine_author(policy, pr) and move == 'waiting-self-review') else None
     # An announcement is made when the move passes to somebody and is kept
     # current in place while it stays with them. Two things take it out of
     # their hands: the move going to someone else and coming back, and a bot

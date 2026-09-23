@@ -407,6 +407,30 @@ class PublishTests(unittest.TestCase):
         api = self.run_publish(pr, result)
         self.assertTrue(api.upsert_state.called, 'the reviewer is told; that is not the bot')
 
+    def test_a_named_machine_author_is_not_told_its_move(self):
+        policy, pr = self.policy, copy.deepcopy(self.pr)
+        pr['author'] = 'infraclaw-dash'
+        pr['permissions'] = dict(pr['permissions'], **{'infraclaw-dash': 'write'})
+        policy = dict(policy, bot_authors=['infraclaw-dash'])
+        # A bot left a finding, so the move is the author's — and there is no
+        # author to take it.
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        result = evaluate(policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-author')
+        self.assertEqual(main.MOVE_STATES.get(result['state']), 'waiting-self-review')
+        api = Mock()
+        api.state_comment_body.side_effect = GitHub.state_comment_body
+        api.snapshot.return_value = copy.deepcopy(pr)
+        api.pull.return_value = copy.deepcopy(pr)
+        api.open_prs.return_value = [copy.deepcopy(pr)]
+        api.histories.side_effect = lambda numbers: {n: {'comments': pr.get('comments', []), 'lifecycle_at': None} for n in numbers}
+        with patch.object(main, 'load_histories', side_effect=lambda a, s: [copy.deepcopy(pr)]):
+            main.publish(api, policy, pr, result, [pr], apply=True)
+        posted = [c.args[2] for c in api.upsert_state.call_args_list]
+        self.assertFalse([body for body in posted if 'your move' in body.lower()], posted)
+        # The verdict is unaffected: what it is owed is still owed.
+        self.assertIn('coderabbitai', ' '.join(result['blockers']))
+
     def test_a_description_too_long_is_a_warning_not_an_error(self):
         result = evaluate(self.policy, self.pr, NOW, LATER)
         api = Mock()

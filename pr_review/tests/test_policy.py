@@ -159,6 +159,41 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review',
                          'a human author with no attestation still has to give one')
 
+    def test_an_account_the_policy_names_a_machine_is_not_asked_to_attest(self):
+        # The accounts a team runs its own automation from are ordinary users
+        # by every API — infraclaw-dash opened a pull request, a colleague
+        # posted `/self-reviewed` on it, and it counted for nothing because
+        # the attestation has to be the author's. Nobody is there to give one.
+        p, pr = fixture()
+        pr.update(author='infraclaw-dash', comments=[])
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+        p['bot_authors'] = ['infraclaw-dash']
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human')
+        self.assertTrue(result['reviewers'], 'a human is asked, not an attestation')
+        pr['reviews'].append(dict(id=4, user='owner', state='APPROVED', commit_id=HEAD, submitted_at=NOW, body=''))
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
+
+    def test_a_machine_author_is_a_github_handle_like_any_other(self):
+        p, _ = fixture()
+        for bad in ('not a handle', '', '-leading', 'a' * 40, 1, ['x']):
+            p['bot_authors'] = [bad]
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                validate_policy(p)
+
+    def test_a_machine_author_that_owns_an_area_is_refused_by_the_policy(self):
+        # It would need neither an attestation nor an approval: the owner
+        # exemption and the stand-in together merge a pull request nobody has
+        # read at all.
+        p, _ = fixture()
+        p['bot_authors'] = ['infraclaw-dash']
+        validate_policy(p)
+        for where in (p['areas'][0]['owners'], p['areas'][0]['reviewers'], p['fallback']['owners']):
+            where.append('infraclaw-dash')
+            with self.assertRaises(ValueError):
+                validate_policy(p)
+            where.remove('infraclaw-dash')
+
     def test_a_reviewers_objection_inside_the_authors_thread_still_counts(self):
         # The author opens a thread; a reviewer replies objecting. Reading
         # only who opened it dropped the objection — and as the gate, merged.
