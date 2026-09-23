@@ -185,6 +185,16 @@ def _mark_unreadable(api, policy, pr):
         print(f"PR #{pr['number']}: unable to publish evidence error status", file=sys.stderr)
 
 
+def _was_ours(api, pr, apply):
+    """Whether this controller's record comment is still on a pull request it no longer governs."""
+    if not apply:
+        return False
+    try:
+        return bool(bot_comments(dict(pr, comments=api.comments(pr['number'])), STATE_MARKER))
+    except GitHubError:
+        return False
+
+
 def clear_marks(api, policy, prs, apply=False):
     """Take this controller's marks off a pull request it no longer governs.
 
@@ -206,12 +216,16 @@ def clear_marks(api, policy, prs, apply=False):
             continue
         labels = set(pr.get('labels') or [])
         block = current_checklist(pr.get('body'))
-        # A record comment with no label and no checklist beside it — a draft
-        # rebased away — is left where it is. Finding one costs a request on
-        # every pull request in the repository, every sweep, to remove a
-        # comment that shows as an empty line.
+        # A retired name on its own proves nothing — `ready-to-merge` is
+        # ordinary English — so the record comment is what says whether this
+        # controller put it there. That read costs a request and is spent only
+        # on the few pull requests still wearing one. A pull request with no
+        # mark at all is not read at all: a record comment with no label and
+        # no checklist beside it, a draft rebased away, shows as an empty line
+        # and is not worth a request against every pull request every sweep.
         if not labels & mine and block is None:
-            continue
+            if not (labels & set(RETIRED_LABELS) and _was_ours(api, pr, apply)):
+                continue
         stale = sorted(labels & (mine | set(RETIRED_LABELS)))
         print(f"PR #{pr['number']}: no longer governed ({pr['base']}); clearing "
               + ', '.join(filter(None, [', '.join(stale), 'the checklist' if block else ''])), file=sys.stderr)
@@ -232,10 +246,16 @@ def clear_marks(api, policy, prs, apply=False):
         # request outside the policy holds no review slot, so the admission it
         # carries decides nothing.
         try:
-            for comment in bot_comments(dict(pr, comments=api.comments(pr['number'])), STATE_MARKER):
-                api.delete_comment(comment['id'])
+            records = bot_comments(dict(pr, comments=api.comments(pr['number'])), STATE_MARKER)
         except GitHubError as error:
-            print(f"PR #{pr['number']}: could not remove the record comment: {error}", file=sys.stderr)
+            records = []
+            print(f"PR #{pr['number']}: could not read the record comment: {error}", file=sys.stderr)
+        # One that will not go does not keep the others.
+        for comment in records:
+            try:
+                api.delete_comment(comment['id'])
+            except GitHubError as error:
+                print(f"PR #{pr['number']}: could not remove the record comment: {error}", file=sys.stderr)
 
 
 def state_record(pr, result, context):
@@ -329,17 +349,18 @@ def move_text(result):
         return None
     items = {item['item']: item for item in result.get('checklist') or []}
     if move == 'waiting-self-review':
-        # What actually blocks it, not what usually does: this state is also
-        # where a bot's own findings land, and "bots are done, post
-        # /self-reviewed" was wrong three ways on those.
+        # What actually blocks it, not what usually does. A bot's own finding
+        # lands in this move too, and "bots are done, post /self-reviewed" is
+        # wrong three ways there: the bots are not done, the author has
+        # already attested, and the thing owed goes unsaid. Which of the two
+        # it is, is the bots line of the checklist — an objection to answer
+        # can sit beside an open bot finding, and used to decide the wording.
         reasons = [b for b in result.get('blockers') or [] if not b.startswith('Proceeded without')]
         address = items['self_review']['address']
-        if address or result['state'] == 'waiting-self-review':
+        if items['bots']['done']:
             what = f"address {'; '.join(address)}, then post `/self-reviewed`" if address else 'post `/self-reviewed`'
             line = f'Bots are done — your move: {what}.'
         else:
-            # A bot's own findings land here too, and "bots are done, post
-            # /self-reviewed" was wrong three ways on those.
             what = '; '.join(reasons) or 'answer the review'
             line = f'Your move: {what}.'
     elif move == 'ready-for-human':

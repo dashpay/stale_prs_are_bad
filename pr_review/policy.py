@@ -490,8 +490,10 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         instants = pasta + rabbit + list(waived.values())
         completed = max(instants, key=_time) if instants else pr['created_at']
         floor_at = completed
-        if bots_done:
-            result['bot_completed_at'] = completed
+        # When the bots last spoke, recorded whether or not they are done with
+        # it. A finding arriving after the author was asked to attest is what
+        # voids the attestation, and whoever has to tell them again reads this.
+        result['bot_completed_at'] = completed if instants else None
         # `/self-reviewed <sha>` names the commit it covers. Bare `/self-reviewed`
         # means "everything pushed so far", which is only safe once this head has
         # a status: that timestamp cannot be moved, so an attestation written
