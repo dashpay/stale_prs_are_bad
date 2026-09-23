@@ -379,7 +379,6 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 first = (state, list(reasons))
 
         required = set(policy.get('required_bots', REVIEW_BOTS))
-        seen_at = pr.get('head_seen_at')
         latest = _latest_reviews(pr['reviews'])
         bot_blocks = [r for u,r in latest.items() if u in BOTS and r['state'].upper() == 'CHANGES_REQUESTED']
         bot_threads = [t for t in pr['threads'] if not t['is_resolved'] and t['author'].lower() in BOTS]

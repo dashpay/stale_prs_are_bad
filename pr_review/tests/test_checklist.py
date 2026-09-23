@@ -303,6 +303,46 @@ class PublishTests(unittest.TestCase):
         self.assertIsNone(api.upsert_state.call_args.args[3])
         api.delete_comment.assert_called_once_with(7)
 
+    def test_a_state_nobody_acts_on_and_back_does_not_announce_again(self):
+        # A check re-run walks ready-to-merge → waiting-build → ready-to-merge
+        # without anybody doing anything. Announcing the merge a second and a
+        # third time is noise on a pull request that never changed hands.
+        policy, pr = self.policy, copy.deepcopy(self.pr)
+        pr['author'] = 'owner-of-everything'
+        pr['comments'] = pr['comments'] + [dict(id=9, user=pr['author'], body=f'/self-reviewed {HEAD}',
+                                                created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
+        pr['permissions'] = dict(pr['permissions'], **{pr['author']: 'write'})
+        result = evaluate(policy, pr, NOW, LATER)
+        move = main.MOVE_STATES.get(result['state'])
+        self.assertIsNotNone(move, result['state'])
+        announced = GitHub.state_comment_body(main.state_record(pr, result, 'c' * 64), main.move_text(result))
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=LATER, updated_at=LATER,
+                                                body=announced)]
+        # The build is re-run: a state the record keeps, that nobody is asked
+        # to act on. Then it passes again and the move is back where it was.
+        pr['controller_state'] = main.state_record(pr, dict(result, state='waiting-build'), 'c' * 64)
+        api = self.run_publish(pr, evaluate(policy, pr, NOW, LATER))
+        if api.upsert_state.called:
+            self.assertEqual(api.upsert_state.call_args.args[3], 50, 'edited: nobody is notified twice')
+
+    def test_a_bot_reporting_after_the_author_was_told_tells_them_again(self):
+        # tenderdash#1489: the author was asked for an attestation, a bot
+        # finished afterwards and voided it, and the state passed through the
+        # build on the way back. Editing the old announcement leaves the
+        # author with nothing in their inbox and the pull request never moves.
+        policy, pr = self.policy, copy.deepcopy(self.pr)
+        result = evaluate(policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-self-review')
+        before = GitHub.state_comment_body(main.state_record(pr, result, 'c' * 64), main.move_text(result))
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', body=before,
+                                                created_at='2026-09-11T09:30:00Z', updated_at='2026-09-11T09:30:00Z')]
+        pr['controller_state'] = main.state_record(pr, dict(result, state='waiting-build'), 'c' * 64)
+        again = evaluate(policy, pr, NOW, LATER)
+        self.assertGreater(again['bot_completed_at'], '2026-09-11T09:30:00Z', 'a bot reported after the author was told')
+        api = self.run_publish(pr, again)
+        api.upsert_state.assert_called_once()
+        self.assertIsNone(api.upsert_state.call_args.args[3], 'a new comment: that is the notification')
+
     def test_a_finding_is_the_move_it_names_not_post_slash_self_reviewed(self):
         # The bots are done and one of them asked for a change. "Bots are done
         # — your move: post `/self-reviewed`" is wrong three ways there: the
@@ -648,10 +688,20 @@ class StaleMarkTests(unittest.TestCase):
         # `waiting-build` and `ready-to-merge` were retired here, which says
         # nothing about who else uses those words. Off a pull request this
         # controller does not govern, they are somebody else's labels.
-        api = Mock()
+        api = Mock(); api.comments.return_value = []
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-build', 'ready-to-merge'], 'x')], apply=True)
         api.set_label.assert_not_called()
+
+    def test_a_retired_name_goes_with_the_marks_beside_it(self):
+        # The same name is this controller's where it left a mark of its own.
+        # Taking the current label and leaving the retired one puts the pull
+        # request back in the state this function exists to prevent: a label
+        # with no checklist beside it, which reads as a verdict and is not one.
+        api = Mock(); api.comments.return_value = []
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots', 'ready-to-merge'], 'x')], apply=True)
+        self.assertEqual(sorted(c.args[1] for c in api.set_label.call_args_list), ['ready-to-merge', 'waiting-bots'])
 
     def test_a_preview_run_says_what_it_would_clear_and_writes_nothing(self):
         api = Mock()

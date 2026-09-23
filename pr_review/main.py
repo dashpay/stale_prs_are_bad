@@ -196,20 +196,23 @@ def clear_marks(api, policy, prs, apply=False):
     at a checklist that is no longer there, and a pull request outside the
     policy holds no review slot, so the admission it records decides nothing.
 
-    Only the labels this controller sets today are taken off. A name it has
-    retired may be somebody else's on a pull request it does not govern.
+    A name this controller has retired goes too, but only where it left a
+    mark of its own: `ready-to-merge` is ordinary English, and a pull request
+    that was never governed may be wearing somebody else's.
     """
-    managed = set(STATE_LABELS) | {WAIVED_LABEL}
+    mine = set(STATE_LABELS) | {WAIVED_LABEL}
     for pr in prs:
         if pr['state'] != 'open' or pr['base'] in policy['target_branches']:
             continue
-        stale = sorted(set(pr.get('labels') or []) & managed)
+        labels = set(pr.get('labels') or [])
         block = current_checklist(pr.get('body'))
-        # A record comment never rides alone — it is written with a label or a
-        # checklist — so there is no reason to spend a request looking for one
-        # on every ungoverned pull request in the repository.
-        if not stale and block is None:
+        # A record comment with no label and no checklist beside it — a draft
+        # rebased away — is left where it is. Finding one costs a request on
+        # every pull request in the repository, every sweep, to remove a
+        # comment that shows as an empty line.
+        if not labels & mine and block is None:
             continue
+        stale = sorted(labels & (mine | set(RETIRED_LABELS)))
         print(f"PR #{pr['number']}: no longer governed ({pr['base']}); clearing "
               + ', '.join(filter(None, [', '.join(stale), 'the checklist' if block else ''])), file=sys.stderr)
         if not apply:
@@ -493,16 +496,21 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     record_correct = holder is None or all(recorded.get(k) == desired.get(k) for k in record_fields)
     move = MOVE_STATES.get(result['state'])
     move_body = move_text(result) if move and not (pr.get('author_is_bot') and move == 'waiting-self-review') else None
-    # An announcement is made when the move passes to somebody, and kept
-    # current in place for as long as it stays with them. Whose move it was
-    # last is on the record, so a pull request that goes back to its author —
-    # an attestation voided by a bot that finished afterwards, no new head —
-    # is announced again rather than edited, which notifies nobody. Three of
-    # four pull requests on one repository in a day went quiet that way.
-    was = MOVE_STATES.get((pr.get('controller_state') or {}).get('state'))
+    # An announcement is made when the move passes to somebody and is kept
+    # current in place while it stays with them. Two things take it out of
+    # their hands: the move going to someone else and coming back, and a bot
+    # reporting after they were told — the finding that voids an attestation.
+    # Editing through either leaves the person with nothing in their inbox,
+    # which is how three of four pull requests on one repository went quiet in
+    # a day. A state nobody is asked to act on — a build re-run, a permission
+    # read that failed — is not a change of hands and must not repost.
+    was = MOVE_STATES.get(recorded.get('state'))
     announced = [c for c in bot_comments(pr, MOVE_MARKER)
                  if f'{MOVE_MARKER} state={move} sha={pr["head"]} -->' in c['body']]
-    target = announced[-1] if announced and was == move else None
+    same_hand = was == move or was is None
+    fresh = not announced or not result.get('bot_completed_at') or \
+        announced[-1]['created_at'] >= result['bot_completed_at']
+    target = announced[-1] if announced and same_hand and fresh else None
     # A standing comment of the earlier engine that already recorded this move
     # for this head is that announcement: it becomes the move comment in place.
     standing = [c for c in holders if MOVE_MARKER not in c['body']]
