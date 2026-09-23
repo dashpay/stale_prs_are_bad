@@ -1,6 +1,7 @@
 """The checklist in the description, the move comments, and what the fast path compares."""
 
 import copy
+import io
 import json
 import re
 import unittest
@@ -136,13 +137,23 @@ class ChecklistTests(unittest.TestCase):
         pr['reviews'].append(dict(id=7, user='thepastaclaw', state='COMMENTED', commit_id=HEAD, submitted_at=NOW,
                                   body=f'<!-- thepastaclaw-review-phase v1 phase=final sha={HEAD} -->'))
         result = evaluate(policy, pr, NOW, LATER)
-        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['state'], 'waiting-author')
         block = main.checklist_block(result)
         self.assertIn('- [ ] Bots — coderabbitai skipped after the window · thepastaclaw ✓, 2 threads unresolved — resolve them', block)
         pr['threads'] = []
         pr['reviews'].append(dict(id=8, user='thepastaclaw', state='CHANGES_REQUESTED', commit_id=HEAD, submitted_at=LATER, body='no'))
         block = main.checklist_block(evaluate(policy, pr, NOW, LATER))
         self.assertIn('thepastaclaw ✓, requested changes — dismiss the review or push a fix', block)
+
+    def test_the_self_review_line_never_says_post_it_while_checked(self):
+        policy, pr = bartek()
+        pr['comments'].append(dict(id=2, user='llbartekll', body='/self-reviewed',
+                                   created_at='2026-09-11T10:30:00Z', updated_at='2026-09-11T10:30:00Z'))
+        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=False, created_at='2026-09-11T11:00:00Z',
+                              voices=[dict(user='coderabbitai[bot]', created_at='2026-09-11T11:00:00Z')])]
+        block = main.checklist_block(evaluate(policy, pr, NOW, LATER))
+        line = next(l for l in block.splitlines() if 'Self-review' in l)
+        self.assertNotIn('post `/self-reviewed` once', line, 'checked and told to post it is two answers')
 
     def test_a_path_is_never_quoted_unsafely(self):
         policy, pr = bartek()
@@ -245,18 +256,34 @@ class PublishTests(unittest.TestCase):
         api = self.run_publish(wiped, evaluate(self.policy, wiped, NOW, LATER))
         api.set_checklist.assert_called_once()
 
-    def test_a_repeat_within_a_day_edits_the_announcement_and_later_posts_anew(self):
+    def test_the_same_move_on_the_same_head_is_kept_current_in_place(self):
+        # Announced already for this head: the words are kept current without
+        # notifying again.
         result = evaluate(self.policy, self.pr, NOW, LATER)
-        stale = GitHub.state_comment_body(dict(main.state_record(self.pr, result, 'c' * 64), head='b' * 40),
-                                          main.move_text(result).replace(HEAD, 'b' * 40))
-        for age, expect_new in (('2026-09-11T02:00:00Z', False), ('2026-09-09T02:00:00Z', True)):
-            pr = dict(self.pr, body='text\n\n' + main.checklist_block(result), labels=['waiting-self-review', 'bot-review-skipped'])
-            pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=age, updated_at=age, body=stale)]
-            with patch.object(main, 'utc_now', return_value=LATER):
-                api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
-            api.upsert_state.assert_called_once()
-            self.assertEqual(api.upsert_state.call_args.args[3], None if expect_new else 50, age)
+        record = main.state_record(self.pr, result, 'c' * 64)
+        stale = GitHub.state_comment_body(record, main.move_text(result).replace('post `/self-reviewed`', 'do something else'))
+        pr = dict(self.pr, body='text\n\n' + main.checklist_block(result), labels=['waiting-self-review', 'bot-review-skipped'])
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=NOW, updated_at=NOW, body=stale)]
+        pr['controller_state'] = record
+        api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.upsert_state.assert_called_once()
+        self.assertEqual(api.upsert_state.call_args.args[3], 50, 'edited, so nobody is notified twice')
 
+    def test_a_new_head_is_announced_afresh_so_the_author_is_told_again(self):
+        # tenderdash#1489: the author attested, a bot finished afterwards and
+        # voided it, and the announcement for the new head was edited into the
+        # old one — which notifies nobody. Three of four pull requests on that
+        # repository in one day went quiet the same way.
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        record = main.state_record(self.pr, result, 'c' * 64)
+        older_head = GitHub.state_comment_body(dict(record, head='b' * 40),
+                                               main.move_text(result).replace(HEAD, 'b' * 40))
+        pr = dict(self.pr, body='text\n\n' + main.checklist_block(result), labels=['waiting-self-review', 'bot-review-skipped'])
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=NOW, updated_at=NOW, body=older_head)]
+        api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.upsert_state.assert_called_once()
+        self.assertIsNone(api.upsert_state.call_args.args[3], 'a new comment: that is the notification')
+        self.assertIn(f'sha={HEAD}', api.upsert_state.call_args.args[2])
     def test_the_old_standing_comment_points_at_the_description_then_goes(self):
         result = evaluate(self.policy, self.pr, NOW, LATER)
         old_record = main.state_record(self.pr, dict(result, state='waiting-bots'), 'c' * 64)
@@ -275,6 +302,100 @@ class PublishTests(unittest.TestCase):
         api = self.run_publish(moving, evaluate(self.policy, moving, NOW, LATER))
         self.assertIsNone(api.upsert_state.call_args.args[3])
         api.delete_comment.assert_called_once_with(7)
+
+    def test_a_state_nobody_acts_on_and_back_does_not_announce_again(self):
+        # A check re-run walks ready-to-merge → waiting-build → ready-to-merge
+        # without anybody doing anything. Announcing the merge a second and a
+        # third time is noise on a pull request that never changed hands.
+        policy, pr = self.policy, copy.deepcopy(self.pr)
+        pr['author'] = 'owner-of-everything'
+        pr['comments'] = pr['comments'] + [dict(id=9, user=pr['author'], body=f'/self-reviewed {HEAD}',
+                                                created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
+        pr['permissions'] = dict(pr['permissions'], **{pr['author']: 'write'})
+        result = evaluate(policy, pr, NOW, LATER)
+        move = main.MOVE_STATES.get(result['state'])
+        self.assertIsNotNone(move, result['state'])
+        announced = GitHub.state_comment_body(main.state_record(pr, result, 'c' * 64), main.move_text(result))
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=LATER, updated_at=LATER,
+                                                body=announced)]
+        # The build is re-run: a state the record keeps, that nobody is asked
+        # to act on. Then it passes again and the move is back where it was.
+        pr['controller_state'] = main.state_record(pr, dict(result, state='waiting-build'), 'c' * 64)
+        api = self.run_publish(pr, evaluate(policy, pr, NOW, LATER))
+        api.upsert_state.assert_called_once()
+        self.assertEqual(api.upsert_state.call_args.args[3], 50, 'edited: nobody is notified twice')
+
+    def test_a_bot_reporting_after_the_author_was_told_tells_them_again(self):
+        # tenderdash#1489: the author was asked for an attestation, a bot
+        # finished afterwards and voided it, and the state passed through the
+        # build on the way back. Editing the old announcement leaves the
+        # author with nothing in their inbox and the pull request never moves.
+        policy, pr = self.policy, copy.deepcopy(self.pr)
+        result = evaluate(policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-self-review')
+        before = GitHub.state_comment_body(main.state_record(pr, result, 'c' * 64), main.move_text(result))
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', body=before,
+                                                created_at='2026-09-11T09:30:00Z', updated_at='2026-09-11T09:30:00Z')]
+        pr['controller_state'] = main.state_record(pr, dict(result, state='waiting-build'), 'c' * 64)
+        again = evaluate(policy, pr, NOW, LATER)
+        self.assertGreater(again['bot_completed_at'], '2026-09-11T09:30:00Z', 'a bot reported after the author was told')
+        api = self.run_publish(pr, again)
+        api.upsert_state.assert_called_once()
+        self.assertIsNone(api.upsert_state.call_args.args[3], 'a new comment: that is the notification')
+
+    def test_a_human_objection_does_not_make_the_bots_done(self):
+        # An objection to answer and a bot finding open at once. The objection
+        # is the wording's usual trigger, so "Bots are done — address …, then
+        # post `/self-reviewed`" went out while a bot was still waited on and
+        # its finding went unsaid.
+        policy, pr = self.policy, copy.deepcopy(self.pr)
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        pr['comments'] = pr['comments'] + [dict(id=9, user='llbartekll', body=f'/self-reviewed {HEAD}',
+                                                created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
+        pr['reviews'] = pr['reviews'] + [dict(id=7, user='romchornyi', state='CHANGES_REQUESTED',
+                                              commit_id=HEAD, submitted_at='2026-09-11T13:00:00Z', body='')]
+        result = evaluate(policy, pr, NOW, LATER)
+        items = {i['item']: i for i in result['checklist']}
+        self.assertFalse(items['bots']['done'])
+        self.assertTrue(items['self_review']['address'], 'the objection is there too')
+        text = main.move_text(result)
+        self.assertNotIn('Bots are done', text)
+        self.assertIn('coderabbitai', text)
+
+    def test_a_second_bot_speaking_after_the_author_was_told_tells_them_again(self):
+        # The author was told to answer one bot's finding; a second bot then
+        # opened a thread. This move is reached with a bot gating, where the
+        # completion time used to be left unset — so the announcement looked
+        # current and was edited, and the author heard nothing.
+        policy, pr = self.policy, copy.deepcopy(self.pr)
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        pr['comments'] = pr['comments'] + [dict(id=9, user='llbartekll', body=f'/self-reviewed {HEAD}',
+                                                created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
+        result = evaluate(policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-author')
+        self.assertIsNotNone(result['bot_completed_at'], 'a bot spoke; when is on the record')
+        told = GitHub.state_comment_body(main.state_record(pr, result, 'c' * 64), main.move_text(result))
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', body=told,
+                                                created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T09:00:00Z')]
+        pr['controller_state'] = main.state_record(pr, result, 'c' * 64)
+        api = self.run_publish(pr, evaluate(policy, pr, NOW, LATER))
+        api.upsert_state.assert_called_once()
+        self.assertIsNone(api.upsert_state.call_args.args[3], 'a new comment: that is the notification')
+
+    def test_a_finding_is_the_move_it_names_not_post_slash_self_reviewed(self):
+        # The bots are done and one of them asked for a change. "Bots are done
+        # — your move: post `/self-reviewed`" is wrong three ways there: the
+        # author already attested, posting it again changes nothing, and the
+        # thing actually owed goes unsaid.
+        policy, pr = self.policy, copy.deepcopy(self.pr)
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        pr['comments'] = pr['comments'] + [dict(id=9, user='llbartekll', body=f'/self-reviewed {HEAD}',
+                                                created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
+        result = evaluate(policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-author')
+        text = main.move_text(result)
+        self.assertIn('coderabbitai', text)
+        self.assertNotIn('/self-reviewed', text)
 
     def test_a_bot_author_is_not_told_its_move(self):
         pr = dict(self.pr, author_is_bot=True, comments=[])
@@ -498,9 +619,12 @@ class SecondReviewTests(unittest.TestCase):
         api.delete_comment.assert_not_called()
         self.assertIsNone(api.upsert_state.call_args.args[3], 'a new comment; the foreign one is not edited')
 
-    def test_a_move_cycle_keeps_the_record_under_the_matching_words(self):
-        # A → B → A on one head: the record goes back to A's announcement,
-        # not to B's, whose words would then say the wrong thing.
+    def test_the_move_coming_back_to_the_author_is_announced_again(self):
+        # A → B → A on one head — the author attested, it went out for review,
+        # a bot finished afterwards and voided the attestation. Editing A's
+        # old announcement leaves the author with nothing in their inbox and
+        # a pull request that never moves again, which is how three of four
+        # pull requests on one repository went quiet in a day.
         result = evaluate(self.policy, self.pr, NOW, LATER)
         a_record = main.state_record(self.pr, result, 'c' * 64)
         a = dict(id=50, user='github-actions[bot]', created_at='2026-09-11T10:00:00Z', updated_at='2026-09-11T10:00:00Z',
@@ -517,8 +641,9 @@ class SecondReviewTests(unittest.TestCase):
         api = self.publish(pr, again)
         api.upsert_state.assert_called_once()
         record, text, comment_id = api.upsert_state.call_args.args[1:]
-        self.assertEqual(comment_id, 50, "A's own announcement carries A's record")
+        self.assertIsNone(comment_id, 'a new comment: that is the notification')
         self.assertIn('state=waiting-self-review', text)
+        self.assertEqual(record['state'], 'waiting-self-review')
 
     def test_a_pull_request_back_in_draft_loses_the_stale_block(self):
         result = evaluate(self.policy, self.pr, NOW, LATER)
@@ -546,6 +671,111 @@ class SecondReviewTests(unittest.TestCase):
         with patch('sys.stderr'):
             api = self.publish(pr, result, api=api)
         self.assertEqual(api.post_status.call_args.args[1:], ('success', 'ready-to-merge'))
+
+
+class StaleMarkTests(unittest.TestCase):
+    """A pull request that left the governed set keeps nothing of ours."""
+
+    def setUp(self):
+        self.policy, _ = bartek()
+
+    def pr(self, base, labels, body=''):
+        return {'number': 4660, 'state': 'open', 'base': base, 'labels': labels, 'body': body}
+
+    def test_labels_and_block_are_cleared_when_the_base_leaves_the_policy(self):
+        # dashpay/platform#4660: rebased onto a feature branch, and two days
+        # later still wearing `waiting-bots` and `bot-review-skipped` from the
+        # day it left — which reads as a verdict and is not one.
+        block = f'{CHECKLIST_START}\nstale\n{CHECKLIST_END}'
+        pr = self.pr('keep-history-lifecycle', ['waiting-bots', 'bot-review-skipped', 'enhancement'], 'text\n\n' + block)
+        record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots', 'admitted_at': None, 'ready_since': None}, 'c' * 64)
+        api = Mock()
+        api.comments.return_value = [dict(id=7, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+                                          body=GitHub.state_comment_body(record, main.POINTER))]
+        with patch('sys.stderr', new_callable=io.StringIO) as err:
+            main.clear_marks(api, self.policy, [pr], apply=True)
+        self.assertEqual(sorted(c.args[1] for c in api.set_label.call_args_list), ['bot-review-skipped', 'waiting-bots'])
+        self.assertTrue(all(c.args[2] is False for c in api.set_label.call_args_list), 'removed, never added')
+        api.remove_checklist.assert_called_once_with(4660)
+        self.assertIn('no longer governed', err.getvalue())
+        # Its words point at a checklist that is no longer there.
+        api.delete_comment.assert_called_once_with(7)
+
+    def test_the_record_comment_of_another_pull_request_is_not_touched(self):
+        record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots', 'admitted_at': None, 'ready_since': None}, 'c' * 64)
+        api = Mock()
+        api.comments.return_value = [dict(id=9, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+                                          body=GitHub.state_comment_body(dict(record, number=999), main.POINTER))]
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots'], 'x')], apply=True)
+        api.delete_comment.assert_not_called()
+
+    def test_a_governed_pull_request_is_never_touched(self):
+        api = Mock()
+        main.clear_marks(api, self.policy, [self.pr('v4.2-dev', ['waiting-bots'], 'x')], apply=True)
+        api.set_label.assert_not_called()
+        api.remove_checklist.assert_not_called()
+
+    def test_labels_that_are_not_ours_are_left_alone(self):
+        api = Mock()
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['enhancement', 'bug'], 'x')], apply=True)
+        api.set_label.assert_not_called()
+        api.remove_checklist.assert_not_called()
+
+    def test_a_name_this_controller_no_longer_sets_is_left_alone(self):
+        # `waiting-build` and `ready-to-merge` were retired here, which says
+        # nothing about who else uses those words. Off a pull request this
+        # controller does not govern, they are somebody else's labels.
+        api = Mock(); api.comments.return_value = []
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-build', 'ready-to-merge'], 'x')], apply=True)
+        api.set_label.assert_not_called()
+
+    def test_a_retired_name_goes_with_the_marks_beside_it(self):
+        # The same name is this controller's where it left a mark of its own.
+        # Taking the current label and leaving the retired one puts the pull
+        # request back in the state this function exists to prevent: a label
+        # with no checklist beside it, which reads as a verdict and is not one.
+        api = Mock(); api.comments.return_value = []
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots', 'ready-to-merge'], 'x')], apply=True)
+        self.assertEqual(sorted(c.args[1] for c in api.set_label.call_args_list), ['ready-to-merge', 'waiting-bots'])
+
+    def test_a_retired_name_alone_is_swept_where_the_record_says_it_is_ours(self):
+        # Marked `ready-to-merge` by an older engine, the checklist since
+        # removed, then rebased away: the pull request wears what reads as a
+        # merge verdict and nothing beside it says where that came from. The
+        # record comment is what says it is ours, and it is read only for the
+        # few pull requests still wearing such a name.
+        record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'ready-to-merge',
+                                        'admitted_at': None, 'ready_since': None}, 'c' * 64)
+        api = Mock()
+        api.comments.return_value = [dict(id=7, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+                                          body=GitHub.state_comment_body(record, main.POINTER))]
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['ready-to-merge'], 'x')], apply=True)
+        self.assertEqual([c.args[1] for c in api.set_label.call_args_list], ['ready-to-merge'])
+        api.delete_comment.assert_called_once_with(7)
+
+    def test_one_record_comment_that_will_not_go_does_not_keep_the_others(self):
+        record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots',
+                                        'admitted_at': None, 'ready_since': None}, 'c' * 64)
+        body = GitHub.state_comment_body(record, main.POINTER)
+        api = Mock()
+        api.comments.return_value = [dict(id=i, user='github-actions[bot]', created_at=NOW, updated_at=NOW, body=body)
+                                     for i in (7, 8)]
+        api.delete_comment.side_effect = [main.GitHubError('gone'), None]
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots'], 'x')], apply=True)
+        self.assertEqual([c.args[0] for c in api.delete_comment.call_args_list], [7, 8])
+
+    def test_a_preview_run_says_what_it_would_clear_and_writes_nothing(self):
+        api = Mock()
+        with patch('sys.stderr', new_callable=io.StringIO) as err:
+            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots'], 'x')], apply=False)
+        api.set_label.assert_not_called()
+        self.assertIn('#4660', err.getvalue())
 
 
 class MarkerParsingTests(unittest.TestCase):

@@ -393,6 +393,23 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(publish.call_count, 3, 'the two after the failure still ran')
         self.assertIn('#1', str(failure.exception))
 
+    def test_a_run_aimed_at_one_pull_request_does_not_sweep_the_repository(self):
+        # `--pr N` is what a pull_request event runs, dozens of times an hour.
+        # The context it loads is the author's other pull requests, which are
+        # nobody's business on that event: clearing marks there would write to
+        # pull requests the event never named.
+        one = dict(self.pr, number=1, head='1' * 40)
+        for number, sweeps in ((1, False), (None, True)):
+            with patch.object(main, 'collect', return_value=([one], [one], [one])):
+                with patch.object(main, 'evaluate_snapshots', return_value=[dict(self.result, number=1, head='1' * 40)]):
+                    with patch.object(main, 'publish', return_value=None):
+                        with patch.object(main, 'clear_marks') as clear:
+                            with patch.object(main, 'GitHub', return_value=self.api):
+                                with patch('sys.stdout', new_callable=io.StringIO):
+                                    main.run(['sync', '--repo', 'dashpay/platform']
+                                             + (['--pr', str(number)] if number else []))
+            self.assertEqual(clear.called, sweeps, f'--pr {number}')
+
     def test_draft_records_its_state_without_opening_a_comment(self):
         pr = dict(self.pr, draft=True, controller_comment_id=None)
         result = dict(self.result, state='draft', status='pending')

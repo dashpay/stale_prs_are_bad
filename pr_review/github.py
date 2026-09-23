@@ -315,6 +315,7 @@ class GitHub:
                 "number": raw["number"], "author": _login(raw["user"]),
                 "author_is_bot": (raw.get("user") or {}).get("type") == "Bot",
                 "body": raw.get("body") or "",
+                "labels": [_text(label["name"], "label name") for label in raw.get("labels") or []],
                 "head": _text(raw["head"]["sha"], "head SHA"),
                 "base": _text(raw["base"]["ref"], "base branch"),
                 "base_sha": _text(raw["base"]["sha"], "base SHA"),

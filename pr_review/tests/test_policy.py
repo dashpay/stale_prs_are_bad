@@ -41,6 +41,19 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(result['state'], 'ready-for-human')
         self.assertEqual(result['reviewers'], ['owner'])
 
+    def test_a_finding_is_named_even_while_another_bot_is_still_out(self):
+        # The state is waiting-bots — one bot has not reported — but the other
+        # already left a thread open. Reporting only "waiting for X" hides
+        # work the author can do now, and the checklist would show a Bots line
+        # naming the thread while the blockers said nothing about it.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'thepastaclaw']
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertTrue(any('coderabbitai' in b for b in result['blockers']), result['blockers'])
+        self.assertTrue(any('thepastaclaw' in b for b in result['blockers']), result['blockers'])
+
     def ready(self):
         """A pull request that reaches ready-for-human on the current head."""
         p, pr = fixture()
@@ -214,7 +227,7 @@ class PolicyTests(unittest.TestCase):
         pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
         pr['threads'] = [dict(id='t1', is_resolved=False, author='coderabbitai[bot]', created_at=NOW)]
         result = evaluate(p, pr, NOW, NOW)
-        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['state'], 'waiting-author')
         self.assertIn('coderabbitai left review threads unresolved; resolve them', result['blockers'])
 
     def test_required_bots_must_name_known_producers(self):
@@ -285,6 +298,94 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(result['objections'], ['owner left a review thread unresolved'])
         self.assertTrue(result['approvals'], 'the author still sees what approval the areas need')
 
+    def test_the_attestation_can_be_the_body_of_the_authors_own_review(self):
+        # tenderdash#1490: the author submitted `/self-reviewed` as a review
+        # from the files view, which is one action on the diff being attested
+        # to. Nothing read it, and they had to post it again as a comment.
+        p, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['comments'] = []
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+        pr['reviews'].append(dict(id=9, user='reviewer', state='COMMENTED', commit_id=HEAD,
+                                  submitted_at='2026-09-11T12:00:00Z', body='/self-reviewed'))
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
+        # The same rules: it must follow the bots, and nobody else's review counts.
+        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
+        pr['reviews'][-1]['submitted_at'] = '2026-09-11T09:30:00Z'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', 'before what a bot said')
+        pr['reviews'][-1].update(submitted_at='2026-09-11T12:00:00Z', user='owner')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', 'only the author attests')
+
+    def test_an_ordinary_review_by_the_author_is_not_an_attestation(self):
+        # Sixty-two of these exist across the governed repositories, most with
+        # no body at all — replies to a bot's findings. Reading any of them as
+        # "I have read the final diff" would attest by accident.
+        p, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['comments'] = []
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        for body in ('', 'LGTM', 'Reviewed', 'nit: rename this'):
+            pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'reviewer']
+            pr['reviews'].append(dict(id=9, user='reviewer', state='COMMENTED', commit_id=HEAD,
+                                      submitted_at='2026-09-11T12:00:00Z', body=body))
+            self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', repr(body))
+
+    def test_a_bot_authors_stand_in_attestation_is_dated_when_the_bots_were_done(self):
+        # It stands in for an attestation, so it must not be dated at the
+        # floor: with clean bots the floor is the day the pull request opened,
+        # and every objection since would read as unanswered.
+        p, pr = fixture()
+        pr.update(author='Copilot', author_is_bot=True, comments=[], head_seen_at=None)
+        pr['reviews'].append(dict(id=8, user='owner', state='CHANGES_REQUESTED', commit_id=HEAD,
+                                  submitted_at='2026-09-11T09:30:00Z', body=''))
+        pr['permissions'] = dict(pr['permissions'], owner='write')
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertNotEqual(result['state'], 'waiting-author',
+                            "the objection predates the bots finishing; a bot author cannot post an answer")
+
+    def test_waiting_for_the_bots_means_a_bot_has_not_reported(self):
+        # Forty-five pull requests sat in waiting-bots across the governed
+        # repositories and only nine were waiting for a bot; the rest were
+        # waiting for their author to answer what a bot had already said, and
+        # eighteen of those also wore the label saying a bot had been skipped.
+        # A pull request cannot be waiting for a bot it gave up on.
+        p, pr = fixture()
+        silent = copy.deepcopy(pr)
+        silent['reviews'] = [r for r in silent['reviews'] if 'pastaclaw' not in r['user']]
+        self.assertEqual(evaluate(p, silent, NOW, NOW)['state'], 'waiting-bots')
+        spoke = copy.deepcopy(pr)
+        spoke['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=False, created_at=NOW)]
+        result = evaluate(p, spoke, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-author')
+        self.assertEqual(result['blockers'], ['coderabbitai left review threads unresolved; resolve them'])
+
+    def test_a_skipped_bot_and_a_wait_for_the_bots_cannot_both_be_true(self):
+        p, pr = fixture()
+        p['bot_timeouts'] = {'nudge_after_hours': 1, 'waive_after_hours': 2}
+        pr['head_seen_at'] = '2026-09-10T00:00:00Z'          # the window has run out
+        pr['reviews'] = [r for r in pr['reviews'] if 'pastaclaw' not in r['user']]
+        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=False, created_at=NOW)]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['waived'], ['thepastaclaw'], 'one bot given up on')
+        self.assertNotEqual(result['state'], 'waiting-bots', 'and so nothing is waiting for a bot')
+        self.assertEqual(result['state'], 'waiting-author')
+
+    def test_every_bot_receipt_raises_the_floor_however_the_finding_is_shaped(self):
+        # A bot states a blocker in the prose of the receipt itself — "Add
+        # signer support or defer selecting these keys before merging", no
+        # thread, no changes request (dashpay/platform#4653). "It had nothing
+        # to say" cannot be read off the evidence, so every receipt counts.
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        pr['threads'] = []
+        pr['comments'][0].update(body='/self-reviewed', created_at='2026-09-11T09:30:00Z',
+                                 updated_at='2026-09-11T09:30:00Z')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review',
+                         'the bots reported after it; nothing here can prove they found nothing')
+        pr['comments'][0].update(created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
+
     def test_the_check_passes_in_exactly_one_state(self):
         # The invariant the gate rests on. Every reachable state is driven
         # here so that changing any one of them to success — one line — turns
@@ -332,6 +433,9 @@ class PolicyTests(unittest.TestCase):
     def test_bare_self_review_before_the_bots_finish_does_not_count(self):
         p, pr = fixture()
         pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        # A bot that said something on this head is what puts a floor under
+        # the attestation; answered or not, it still had to be read.
+        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
         pr['comments'][0].update(body='/self-reviewed', created_at='2026-09-11T09:30:00Z',
                                  updated_at='2026-09-11T09:30:00Z')
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
@@ -339,6 +443,9 @@ class PolicyTests(unittest.TestCase):
     def test_an_attestation_sharing_a_second_with_its_floor_does_not_count(self):
         p, pr = fixture()
         pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        # A bot that said something on this head is what puts a floor under
+        # the attestation; answered or not, it still had to be read.
+        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
         floor = max(r['submitted_at'] for r in pr['reviews'])
         pr['comments'][0].update(body='/self-reviewed', created_at=floor, updated_at=floor)
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
@@ -362,13 +469,22 @@ class PolicyTests(unittest.TestCase):
 
     def test_bot_failure_blocks_even_owner(self):
         p, pr = fixture()
-        for update in [{'state':'CHANGES_REQUESTED'}, {'commit_id':'c'*40}, {'body':'preliminary'}]:
+        # A receipt on another commit, or one that is not the final phase, is
+        # a bot that has not reported on this head: the wait is the bot's.
+        for update in [{'commit_id':'c'*40}, {'body':'preliminary'}]:
             changed = copy.deepcopy(pr)
             changed['reviews'][0].update(update)
-            self.assertEqual(evaluate(p,changed,NOW,NOW)['state'], 'waiting-bots')
+            self.assertEqual(evaluate(p,changed,NOW,NOW)['state'], 'waiting-bots', update)
+        # It objected: it has reported, and answering it is the author's move.
+        changed = copy.deepcopy(pr)
+        changed['reviews'][0].update(state='CHANGES_REQUESTED')
+        self.assertEqual(evaluate(p,changed,NOW,NOW)['state'], 'waiting-author')
 
     def test_self_review_requires_unedited_author_confirmation_after_bots(self):
         p, pr = fixture()
+        # A bot that said something on this head is what puts a floor under
+        # the attestation; answered or not, it still had to be read.
+        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
         for update in [{'user':'reviewer'}, {'body':'/self-reviewed old'},
                        {'updated_at':NOW}, {'created_at':'2026-09-11T09:00:00Z','updated_at':'2026-09-11T09:00:00Z'}]:
             changed = copy.deepcopy(pr)
@@ -446,6 +562,9 @@ class PolicyTests(unittest.TestCase):
     def test_edited_bot_summary_requires_fresh_author_confirmation(self):
         p, pr = fixture()
         pr['reviews'] = pr['reviews'][:1]
+        # A bot that said something on this head is what puts a floor under
+        # the attestation; answered or not, it still had to be read.
+        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
         pr['comments'].append(dict(id=8,user='coderabbitai[bot]',created_at='2026-09-11T10:00:00Z',
                                   updated_at='2026-09-11T10:00:00Z',
                                   body='<!-- final_review_risk_coverage:{"kind":"reviewed","coveredCommitId":"'+HEAD+'"} -->'))
@@ -460,7 +579,7 @@ class PolicyTests(unittest.TestCase):
         pr['threads'] = [dict(id='thread',is_resolved=False,author='reviewer',created_at='2026-09-11T10:00:00Z')]
         self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'ready-for-human')
         pr['threads'][0]['author'] = 'thepastaclaw'
-        self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'waiting-bots')
+        self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'waiting-author')
 
     def test_non_writer_thread_cannot_block_owner_pr(self):
         for permission in ['read', 'triage', 'none']:
@@ -504,6 +623,9 @@ class PolicyTests(unittest.TestCase):
 
     def test_new_bot_completion_requires_author_to_review_latest_outcome(self):
         p, pr = fixture()
+        # A bot that said something on this head is what puts a floor under
+        # the attestation; answered or not, it still had to be read.
+        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
         pr['reviews'].append(dict(pr['reviews'][1],id=20,submitted_at=NOW))
         self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'waiting-self-review')
 

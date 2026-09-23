@@ -185,6 +185,79 @@ def _mark_unreadable(api, policy, pr):
         print(f"PR #{pr['number']}: unable to publish evidence error status", file=sys.stderr)
 
 
+def _was_ours(api, pr, apply):
+    """Whether this controller's record comment is still on a pull request it no longer governs."""
+    if not apply:
+        return False
+    try:
+        return bool(bot_comments(dict(pr, comments=api.comments(pr['number'])), STATE_MARKER))
+    except GitHubError:
+        return False
+
+
+def clear_marks(api, policy, prs, apply=False):
+    """Take this controller's marks off a pull request it no longer governs.
+
+    A pull request rebased onto a branch outside the policy is never selected
+    again, so its labels and its checklist stayed exactly as they were the day
+    it left — a pull request wearing `waiting-bots` and `bot-review-skipped`
+    two days after this controller stopped looking at it, which reads as a
+    verdict and is not one. The record comment goes with them: its words point
+    at a checklist that is no longer there, and a pull request outside the
+    policy holds no review slot, so the admission it records decides nothing.
+
+    A name this controller has retired goes too, but only where it left a
+    mark of its own: `ready-to-merge` is ordinary English, and a pull request
+    that was never governed may be wearing somebody else's.
+    """
+    mine = set(STATE_LABELS) | {WAIVED_LABEL}
+    for pr in prs:
+        if pr['state'] != 'open' or pr['base'] in policy['target_branches']:
+            continue
+        labels = set(pr.get('labels') or [])
+        block = current_checklist(pr.get('body'))
+        # A retired name on its own proves nothing — `ready-to-merge` is
+        # ordinary English — so the record comment is what says whether this
+        # controller put it there. That read costs a request and is spent only
+        # on the few pull requests still wearing one. A pull request with no
+        # mark at all is not read at all: a record comment with no label and
+        # no checklist beside it, a draft rebased away, shows as an empty line
+        # and is not worth a request against every pull request every sweep.
+        if not labels & mine and block is None:
+            if not (labels & set(RETIRED_LABELS) and _was_ours(api, pr, apply)):
+                continue
+        stale = sorted(labels & (mine | set(RETIRED_LABELS)))
+        print(f"PR #{pr['number']}: no longer governed ({pr['base']}); clearing "
+              + ', '.join(filter(None, [', '.join(stale), 'the checklist' if block else ''])), file=sys.stderr)
+        if not apply:
+            continue
+        for label in stale:
+            try:
+                api.set_label(pr['number'], label, False, pr.get('labels') or [])
+            except GitHubError:
+                print(f"PR #{pr['number']}: could not remove {label}", file=sys.stderr)
+        if block is not None:
+            try:
+                api.remove_checklist(pr['number'])
+            except GitHubError as error:
+                print(f"PR #{pr['number']}: could not remove the checklist: {error}", file=sys.stderr)
+        # The record comment goes with them. Its words point at a checklist
+        # that is no longer there, and the record itself is inert: a pull
+        # request outside the policy holds no review slot, so the admission it
+        # carries decides nothing.
+        try:
+            records = bot_comments(dict(pr, comments=api.comments(pr['number'])), STATE_MARKER)
+        except GitHubError as error:
+            records = []
+            print(f"PR #{pr['number']}: could not read the record comment: {error}", file=sys.stderr)
+        # One that will not go does not keep the others.
+        for comment in records:
+            try:
+                api.delete_comment(comment['id'])
+            except GitHubError as error:
+                print(f"PR #{pr['number']}: could not remove the record comment: {error}", file=sys.stderr)
+
+
 def state_record(pr, result, context):
     return {key: result.get(key) for key in
             ('number', 'head', 'admitted_at', 'ready_since', 'state')} | {
@@ -195,7 +268,6 @@ SAFE_PATH = re.compile(r'[A-Za-z0-9._/@+-]+')
 MOVE_STATES = {'waiting-self-review': 'waiting-self-review', 'waiting-author': 'waiting-self-review',
                'ready-for-human': 'ready-for-human', 'ready-to-merge': 'ready-to-merge'}
 POINTER = 'PR Hygiene: the checklist is in the description.'
-MOVE_REPEAT_HOURS = 24
 
 
 def _files(files):
@@ -230,10 +302,10 @@ def checklist_block(result):
         lines.append(f"- {box(attest['done'])} Self-review — not asked of a bot author")
     elif attest['address']:
         lines.append(f"- {box(attest['done'])} Self-review — address {'; '.join(attest['address'])}, then post `/self-reviewed`")
-    elif not bots['done']:
-        lines.append(f"- {box(attest['done'])} Self-review — post `/self-reviewed` once the bots are done")
     elif attest['done']:
         lines.append('- [x] Self-review — posted; again after any push')
+    elif not bots['done']:
+        lines.append(f"- {box(attest['done'])} Self-review — post `/self-reviewed` once the bots are done")
     else:
         lines.append('- [ ] Self-review — post `/self-reviewed`')
     slot = items['slot']
@@ -277,9 +349,20 @@ def move_text(result):
         return None
     items = {item['item']: item for item in result.get('checklist') or []}
     if move == 'waiting-self-review':
+        # What actually blocks it, not what usually does. A bot's own finding
+        # lands in this move too, and "bots are done, post /self-reviewed" is
+        # wrong three ways there: the bots are not done, the author has
+        # already attested, and the thing owed goes unsaid. Which of the two
+        # it is, is the bots line of the checklist — an objection to answer
+        # can sit beside an open bot finding, and used to decide the wording.
+        reasons = [b for b in result.get('blockers') or [] if not b.startswith('Proceeded without')]
         address = items['self_review']['address']
-        what = f"address {'; '.join(address)}, then post `/self-reviewed`" if address else 'post `/self-reviewed`'
-        line = f'Bots are done — your move: {what}.'
+        if items['bots']['done']:
+            what = f"address {'; '.join(address)}, then post `/self-reviewed`" if address else 'post `/self-reviewed`'
+            line = f'Bots are done — your move: {what}.'
+        else:
+            what = '; '.join(reasons) or 'answer the review'
+            line = f'Your move: {what}.'
     elif move == 'ready-for-human':
         line = f"Ready for review — needs {' or '.join(result.get('reviewers') or []) or 'an owner'}."
     else:
@@ -432,16 +515,23 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     recorded = pr.get('controller_state') or {}
     record_fields = ('state', 'head', 'admitted_at', 'ready_since')
     record_correct = holder is None or all(recorded.get(k) == desired.get(k) for k in record_fields)
-    # A move is announced once per head. Announced already for this head: the
-    # text is kept current in place. Announced for an earlier head within a
-    # day: edited, not reposted. Otherwise: a new comment, which notifies.
     move = MOVE_STATES.get(result['state'])
     move_body = move_text(result) if move and not (pr.get('author_is_bot') and move == 'waiting-self-review') else None
-    announced = [c for c in bot_comments(pr, MOVE_MARKER) if f'{MOVE_MARKER} state={move} ' in c['body']]
-    same_head = [c for c in announced if f" sha={pr['head']} -->" in c['body']]
-    target = (same_head[-1] if same_head
-              else announced[-1] if announced and _hours_since(announced[-1].get('updated_at') or announced[-1]['created_at'], now) < MOVE_REPEAT_HOURS
-              else None)
+    # An announcement is made when the move passes to somebody and is kept
+    # current in place while it stays with them. Two things take it out of
+    # their hands: the move going to someone else and coming back, and a bot
+    # reporting after they were told — the finding that voids an attestation.
+    # Editing through either leaves the person with nothing in their inbox,
+    # which is how three of four pull requests on one repository went quiet in
+    # a day. A state nobody is asked to act on — a build re-run, a permission
+    # read that failed — is not a change of hands and must not repost.
+    was = MOVE_STATES.get(recorded.get('state'))
+    announced = [c for c in bot_comments(pr, MOVE_MARKER)
+                 if f'{MOVE_MARKER} state={move} sha={pr["head"]} -->' in c['body']]
+    same_hand = was == move or was is None
+    fresh = not announced or not result.get('bot_completed_at') or \
+        announced[-1]['created_at'] >= result['bot_completed_at']
+    target = announced[-1] if announced and same_hand and fresh else None
     # A standing comment of the earlier engine that already recorded this move
     # for this head is that announcement: it becomes the move comment in place.
     standing = [c for c in holders if MOVE_MARKER not in c['body']]
@@ -756,6 +846,10 @@ def run(argv=None):
                         print(f"PR #{pr['number']}: unable to publish the failure either", file=sys.stderr)
     if failed:
         raise GitHubError(f"reconciliation failed for {', '.join(f'#{n}' for n in failed)}")
+    # A sweep tidies what it passes; a run aimed at one pull request does not
+    # go looking through the repository.
+    if args.pr is None:
+        clear_marks(api, policy, context, args.apply and args.command == 'sync')
     rows.sort(key=lambda r: (r['state'] != 'ready-for-human', r.get('ready_since') or now, r['number']))
     if args.format == 'json':
         print(json.dumps({'generated_at': now, 'pull_requests': selected_rows(rows, args.user)}, indent=2))
