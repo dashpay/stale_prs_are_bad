@@ -30,6 +30,20 @@ class CommentTriggerTests(unittest.TestCase):
         # contains() on a string is a case-insensitive substring match.
         return any(literal.lower() in body.lower() for literal in self.tested)
 
+    def test_every_spelling_the_engine_accepts_also_starts_a_run(self):
+        # The engine reads comments from the pull request, not from the event,
+        # so a spelling the caller does not match is not lost — it waits for
+        # the next sweep, hours later. That is the complaint that widened the
+        # pattern, so widening it without the filter would only shorten it.
+        workflow = caller_workflow('a' * 40)
+        for said in ('/self-reviewed', '/self-review', '/selfreview', '/self reviewed',
+                     '/self review', '/Self-Reviewed', f'/self-reviewed {"c" * 40}'):
+            self.assertTrue(policy.ATTESTATION.fullmatch(said), said)
+            # GitHub's contains() is case-insensitive, as this comparison is.
+            matched = [x for x in policy.ATTESTATION_TRIGGERS if x in said.lower()]
+            self.assertTrue(matched, said)
+            self.assertTrue(all(f"contains(github.event.comment.body, '{x}')" in workflow for x in matched), said)
+
     def test_a_body_the_engine_accepts_as_a_receipt_would_start_a_run(self):
         head = 'b' * 40
         body = ('Some walkthrough.\n<!-- ' + policy.RECEIPT_MARKER + ': '

@@ -215,6 +215,42 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual(result['state'], 'ready-for-human', who)
             self.assertFalse(result['approvals'] and all(a.get('approved_by') for a in result['approvals']), who)
 
+    def test_the_attestation_is_the_phrase_however_it_is_spelled(self):
+        # kwvg posted `/self-review` on rust-dashcore#1048 and nothing
+        # happened. It is still the author writing it in their own comment.
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T10:30:00Z'
+        for said in ('/self-reviewed', '/self-review', '/Self-Reviewed', '/selfreview',
+                     '/self reviewed', f'/self-review {HEAD}', f'/self-reviewed {HEAD.upper()}'):
+            pr['comments'] = [dict(id=3, user='owner', body=said,
+                                   created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+            self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success', said)
+        for not_said in ('/self-reviewedish', 'about to /self-review', '/self-reviewed later',
+                         f'/self-reviewed {"b" * 40}', '/review', 'self-reviewed'):
+            pr['comments'] = [dict(id=3, user='owner', body=not_said,
+                                   created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+            self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', not_said)
+
+    def test_a_machine_author_does_not_spend_a_review_slot(self):
+        # The five are a limit on one person's attention. An account that
+        # opens pull requests on its own has none to ration, and what its pull
+        # requests cost reviewers is governed by the approvals they still need.
+        p, pr = fixture()
+        p['bot_authors'] = ['infraclaw-dash']
+        pr.update(author='infraclaw-dash', comments=[])
+        result = evaluate(p, pr, None, NOW)
+        self.assertEqual(result['state'], 'ready-for-human')
+        # It holds no slot, so admission is never recorded for it — and the
+        # waiting time keyed off admission, leaving exactly these pull
+        # requests reported as "not recorded" and sorted for ever as the
+        # freshest thing in the queue.
+        self.assertEqual(result['ready_since'], NOW)
+        # The same pull request from a person, attested, still waits its turn.
+        pr.update(author='reviewer', comments=[dict(id=3, user='reviewer', body=f'/self-reviewed {HEAD}',
+                                                    created_at='2026-09-11T11:00:00Z',
+                                                    updated_at='2026-09-11T11:00:00Z')])
+        self.assertEqual(evaluate(p, pr, None, NOW)['state'], 'too-many-open-prs')
+
     def test_a_reviewers_objection_inside_the_authors_thread_still_counts(self):
         # The author opens a thread; a reviewer replies objecting. Reading
         # only who opened it dropped the objection — and as the gate, merged.

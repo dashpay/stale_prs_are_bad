@@ -339,9 +339,11 @@ class GitHub:
 
     def comments(self, number):
         try:
+            # This route carries no editor, so who rewrote an edited comment
+            # is unknown here and the reader must treat it as unknown.
             result = [{"id": raw["id"], "user": _login(raw["user"]),
                        "body": raw["body"], "created_at": _text(raw["created_at"], "comment creation time"),
-                       "updated_at": _text(raw["updated_at"], "comment update time")}
+                       "updated_at": _text(raw["updated_at"], "comment update time"), "edited_by": None}
                       for raw in self.pages(f"{self.root}/issues/{number}/comments")]
             if any(not isinstance(item["body"], str) or type(item["id"]) is not int for item in result):
                 raise GitHubError("Invalid comment identity or body")
@@ -384,7 +386,8 @@ class GitHub:
           number
           comments(last:100) {
             totalCount
-            nodes { databaseId body createdAt updatedAt author { login __typename } }
+            nodes { databaseId body createdAt updatedAt author { login __typename }
+                    editor { login } }
           }
           timelineItems(last:1, itemTypes:[CLOSED_EVENT, CONVERT_TO_DRAFT_EVENT]) {
             nodes {
@@ -423,10 +426,13 @@ class GitHub:
                     # rather than miss this controller's own record.
                     comments = self.comments(number)
                 else:
+                    # Who last wrote it, not only when: a comment edited by
+                    # somebody other than its author is that person speaking.
                     comments = [{"id": comment["databaseId"], "user": _graphql_login(comment["author"]),
                                  "body": comment["body"],
                                  "created_at": _text(comment["createdAt"], "comment creation time"),
-                                 "updated_at": _text(comment["updatedAt"], "comment update time")}
+                                 "updated_at": _text(comment["updatedAt"], "comment update time"),
+                                 "edited_by": _graphql_login(comment["editor"]) if comment.get("editor") else None}
                                 for comment in nodes]
                     if any(not isinstance(item["body"], str) or type(item["id"]) is not int for item in comments):
                         raise GitHubError("Invalid comment identity or body")
