@@ -30,6 +30,43 @@ def rollup(nodes=None, head="a" * 40, total=None, more=False, cursor=None):
 
 class BuildVerdictTests(unittest.TestCase):
     checks = staticmethod(rollup)
+    def test_a_diff_marker_somebody_else_edited_is_not_read(self):
+        # It says which commits a review still covers. Anyone with write
+        # access can edit anyone's comment, and a forged one carries a stale
+        # approval — the only human gate left — onto code nobody read.
+        from pr_review.github import parse_controller_diff
+        diff = {'number': 7, 'diff': 'a' * 64, 'diff_heads': ['b' * 40], 'diff_seen': '2026-09-11T10:00:00Z'}
+        body = GitHub.state_comment_body(
+            {'version': 1, 'number': 7, 'head': 'b' * 40, 'admitted_at': None, 'ready_since': None,
+              'state': 'ready-for-human', 'evidence': 'c' * 64, 'context': 'd' * 64}, 'text', diff)
+        made = dict(id=1, user='github-actions[bot]', body=body,
+                    created_at='2026-09-11T10:00:00Z', updated_at='2026-09-11T10:00:00Z')
+        self.assertEqual(parse_controller_diff([made], 7), diff)
+        for editor in ('llbartekll', None):
+            touched = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by=editor)
+            self.assertIsNone(parse_controller_diff([touched], 7), repr(editor))
+        # Both spellings of this controller's own hand: the login comes back
+        # bare from the route that evaluates pull requests, and refusing it
+        # refused every record the controller had refreshed — which is every
+        # record after its first write.
+        for editor in ('github-actions', 'github-actions[bot]'):
+            kept = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by=editor)
+            self.assertEqual(parse_controller_diff([kept], 7), diff, editor)
+        # And only beside this controller's record for this same pull request:
+        # any workflow can post as the Actions app.
+        alone = dict(made, id=2, body='<!-- pr-hygiene-diff-v1 ' + json.dumps(diff) + ' -->')
+        self.assertIsNone(parse_controller_diff([alone], 7))
+        self.assertIsNone(parse_controller_diff([made], 8), 'another pull request')
+
+    def test_a_diff_timestamp_that_is_not_one_is_refused(self):
+        # It is read back as a time. A string that is not one raised out of
+        # the verdict and took the whole repository's run with it.
+        from pr_review.github import _validate_diff
+        for bad in ('banana', '2026-09-11', '2026-09-11T10:00:00+03:00', 5):
+            with self.assertRaises(GitHubError, msg=repr(bad)):
+                _validate_diff({'number': 1, 'diff': 'a' * 64, 'diff_heads': ['b' * 40], 'diff_seen': bad})
+
+
     def test_re_running_a_flaky_check_clears_it(self):
         # The question this whole rule turns on. A re-run does not replace the
         # run it repeats, it adds another beside it, so the failure stays on the
@@ -344,10 +381,22 @@ class GitHubTests(unittest.TestCase):
     def snapshot_fixture(self, comments=None, files=None, graph=None, checks=None):
         def request(method, path, payload=None):
             if path == "graphql":
-                # One fixture answers two queries; they are told apart the same
-                # way the engine tells them apart — by what was asked for.
-                if "statusCheckRollup" in (payload or {}).get("query", ""):
+                # One fixture answers three queries; they are told apart the
+                # same way the engine tells them apart — by what was asked for.
+                query = (payload or {}).get("query", "")
+                if "statusCheckRollup" in query:
                     return checks or self.checks()
+                if "timelineItems" in query:
+                    return {"data": {"repository": {"pr1": {
+                        "number": 1,
+                        "comments": {"totalCount": len(comments or []), "nodes": [
+                            {"databaseId": c["id"], "body": c["body"],
+                             "createdAt": c["created_at"], "updatedAt": c["updated_at"],
+                             "author": {"login": (c["user"]["login"] if isinstance(c["user"], dict) else c["user"]).removesuffix("[bot]"),
+                                        "__typename": "Bot"},
+                             "editor": ({"login": c["edited_by"]} if c.get("edited_by") else None)}
+                            for c in (comments or [])]},
+                        "timelineItems": {"nodes": []}}}}}
                 return graph or self.graph()
             if path.endswith("/permission"):
                 return {"permission": "write"}
@@ -666,6 +715,46 @@ class GitHubTests(unittest.TestCase):
         self.assertEqual(access["custom-role"], "write")
         # Anyone absent from the list has no access at all.
         self.assertNotIn("stranger", access)
+
+    def test_a_file_read_without_its_patch_says_nothing_about_being_the_same_work(self):
+        # Line counts are two small integers, and they are equal for the one
+        # case this exists to catch: keeping your own side of a conflict
+        # changes the patch and not its counts.
+        from pr_review.policy import diff_print
+        request, pages = self.snapshot_fixture(files=[
+            {"filename": "a.rs", "status": "modified", "sha": "c" * 40,
+             "additions": 1, "deletions": 1, "changes": 2}])
+        with request, pages:
+            no_patch = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertNotIn("shape", no_patch["files"][0])
+        self.assertIsNone(diff_print(no_patch))
+        request, pages = self.snapshot_fixture(files=[
+            {"filename": "a.rs", "status": "modified", "sha": "c" * 40, "patch": "@@ -1 +1 @@\n-a\n+b"}])
+        with request, pages:
+            with_patch = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertIsNotNone(diff_print(with_patch))
+
+    def test_both_reads_of_one_pull_request_see_the_same_comments(self):
+        # Three defects in one day were the same shape: a field one read can
+        # supply and the other cannot, read by something that decides a
+        # verdict. Comments come by one route now — with the editor beside
+        # each of them — so the read before the verdict and the read before
+        # the write cannot disagree.
+        diff = {"number": 1, "diff": "a" * 64, "diff_heads": ["b" * 40], "diff_seen": "2026-09-11T10:00:00Z"}
+        body = GitHub.state_comment_body(
+            {"version": 1, "number": 1, "head": "b" * 40, "admitted_at": None, "ready_since": None,
+             "state": "ready-for-human", "evidence": "c" * 64, "context": "d" * 64}, "text", diff)
+        comment = {"id": 7, "user": "github-actions[bot]", "body": body,
+                   "created_at": "2026-09-11T10:00:00Z", "updated_at": "2026-09-11T12:00:00Z",
+                   "edited_by": "github-actions"}
+        request, pages = self.snapshot_fixture(comments=[comment])
+        with request, pages:
+            read = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+            reused = self.api.snapshot(1, {"fallback": ["owner"], "areas": []},
+                                       history={"comments": [comment], "lifecycle_at": None})
+        self.assertEqual(read["comments"][0].get("edited_by"), "github-actions")
+        self.assertEqual(read["controller_diff"], diff)
+        self.assertEqual(read["controller_diff"], reused["controller_diff"])
 
     def test_should_preserve_rename_source_and_reuse_access_until_told_otherwise(self):
         request, pages = self.snapshot_fixture(files=[{"filename": "new/a.rs", "previous_filename": "old/a.rs", "status": "renamed"}])

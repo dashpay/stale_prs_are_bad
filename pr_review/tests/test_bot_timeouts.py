@@ -90,6 +90,65 @@ class BotTimeoutTests(unittest.TestCase):
         # appeared, so a later edit cannot raise it under a standing attestation.
         self.assertEqual(plan['waived_at'], ago(1))
 
+    def test_a_notice_that_names_this_head_counts_even_if_it_came_first(self):
+        # dash-evo-tool#1021: CodeRabbit refused the head four minutes before
+        # this controller first reported on it, so "not older than the head"
+        # threw the notice away and the pull request waited the whole window
+        # for a review the bot had already said was not coming. The notice
+        # names the commit it could not review; that is what binds it.
+        policy, pr = waiting(2)
+        head = pr['head']
+        pr['comments'] = [{'user': 'coderabbitai[bot]', 'created_at': ago(2.1), 'updated_at': ago(2.1),
+                           'body': ('<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n'
+                                    '> Review limit reached\n'
+                                    f'> Reviewing files that changed between 4ab5161 and {head}.\n'
+                                    '<!-- end of auto-generated comment: rate limited by coderabbit.ai -->')}]
+        plan = bot_schedule(policy, pr, 'coderabbitai', NOW)
+        self.assertEqual(plan['waived_reason'], 'rate-limit')
+        self.assertEqual(plan['waived_at'], ago(1), 'an hour after the head, not after the whole window')
+
+    def test_a_notice_naming_another_head_is_not_about_this_one(self):
+        policy, pr = waiting(2)
+        pr['comments'] = [{'user': 'coderabbitai[bot]', 'created_at': ago(50), 'updated_at': ago(50),
+                           'body': ('<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n'
+                                    f'> Reviewing files that changed between 4ab5161 and {"e" * 40}.\n'
+                                    '<!-- end of auto-generated comment: rate limited by coderabbit.ai -->')}]
+        self.assertIsNone(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'])
+
+    def test_a_bot_already_asked_about_this_work_is_not_asked_again(self):
+        # A push that only moved the base is the same work, and the clock the
+        # bot is waited on keeps running — so asking again because the commit
+        # id changed is noise, and the controller could ask and then proceed
+        # without it minutes later.
+        policy, pr = waiting(7)
+        old = 'f' * 40
+        pr['comments'] = [{'user': 'github-actions[bot]', 'created_at': ago(1), 'updated_at': ago(1),
+                           'body': f'<!-- pr-hygiene-nudge v1 bot=coderabbitai sha={old} -->'}]
+        self.assertTrue(bot_schedule(policy, pr, 'coderabbitai', NOW)['nudge'], 'a commit never asked about')
+        pr['reviewed_heads'] = [old, pr['head']]
+        self.assertFalse(bot_schedule(policy, pr, 'coderabbitai', NOW)['nudge'])
+
+    def test_a_notice_with_no_end_has_no_extent(self):
+        # Reading to the end of the comment would let the walkthrough below
+        # the notice speak for the limit.
+        policy, pr = waiting(2)
+        pr['comments'] = [{'user': 'coderabbitai[bot]', 'created_at': ago(50), 'updated_at': ago(50),
+                           'body': ('<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n'
+                                    '> Review limit reached\n'
+                                    f'Walkthrough of {pr["head"]} follows.')}]
+        self.assertIsNone(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'])
+
+    def test_the_head_named_outside_the_notice_does_not_count(self):
+        # The same comment carries the walkthrough, which names the head as a
+        # matter of course. Only the notice speaks to the limit.
+        policy, pr = waiting(2)
+        pr['comments'] = [{'user': 'coderabbitai[bot]', 'created_at': ago(50), 'updated_at': ago(50),
+                           'body': ('<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n'
+                                    '> Review limit reached\n'
+                                    '<!-- end of auto-generated comment: rate limited by coderabbit.ai -->\n'
+                                    f'Walkthrough of {pr["head"]} follows.')}]
+        self.assertIsNone(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'])
+
     def test_a_notice_rewritten_by_somebody_else_is_not_the_bot_speaking(self):
         # Anyone with write access can edit anyone's comment. Without this,
         # one whitespace edit of a week-old notice drops CodeRabbit's review

@@ -13,6 +13,9 @@ def rules(text):
     return [line for line in text.splitlines() if line.strip() and not line.startswith('#')]
 
 
+OLD_HEAD = 'f' * 40
+
+
 def fixture():
     policy = dict(version=1, repository='dashpay/platform', max_active_prs=5,
                   target_branches=['v4.2-dev'], fallback={'owners': ['fallback'], 'reviewers': []},
@@ -245,6 +248,120 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(fingerprint(graphql), fingerprint(rest))
         later = dict(pr, comments=[dict(pr['comments'][0], updated_at='2026-09-11T12:00:00Z')])
         self.assertNotEqual(fingerprint(pr), fingerprint(later), 'an edit is still noticed')
+
+    def carried(self, files=None, heads=None, print_of=None):
+        """A pull request on a new head, with the record of the one before it."""
+        from pr_review.policy import diff_print
+        p, pr = fixture()
+        pr['files'] = files or [{'filename': 'packages/drive/a.rs', 'status': 'modified', 'content': 'c' * 40, 'shape': 'a' * 64}]
+        before = dict(pr, files=print_of if print_of is not None else pr['files'])
+        pr['controller_diff'] = {'number': 1, 'diff': diff_print(before),
+                                 'diff_heads': heads or [OLD_HEAD], 'diff_seen': '2026-09-11T09:00:00Z'}
+        pr['head'] = HEAD
+        pr['head_seen_at'] = '2026-09-11T13:00:00Z'
+        return p, pr
+
+    def test_a_push_that_leaves_the_diff_alone_keeps_the_review_it_had(self):
+        # A merge of the base is not work anybody has to read again. Without
+        # this, every such push threw away both bots' reports and the author's
+        # attestation, and asked for all three afresh.
+        p, pr = self.carried()
+        for review in pr['reviews']:
+            review['commit_id'] = OLD_HEAD
+            review['body'] = review['body'].replace(HEAD, OLD_HEAD)
+        pr['comments'] = [dict(id=3, user='owner', body=f'/self-reviewed {OLD_HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['status'], 'success', result['blockers'])
+        self.assertEqual(result['reviewed_heads'], [OLD_HEAD, HEAD])
+
+    def test_a_push_that_changes_the_diff_starts_over(self):
+        # A conflict resolved inside a merge commit is code that exists there
+        # and nowhere else, and nobody has read it.
+        p, pr = self.carried(print_of=[{'filename': 'packages/drive/a.rs', 'status': 'modified', 'content': 'd' * 40, 'shape': 'b' * 64}])
+        for review in pr['reviews']:
+            review['commit_id'] = OLD_HEAD
+            review['body'] = review['body'].replace(HEAD, OLD_HEAD)
+        pr['comments'] = [dict(id=3, user='owner', body=f'/self-reviewed {OLD_HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['reviewed_heads'], [HEAD])
+
+    def test_a_file_the_merge_brought_in_starts_over(self):
+        # Anything else a merge carries appears as an entry that was not there.
+        p, pr = self.carried(files=[{'filename': 'packages/drive/a.rs', 'status': 'modified', 'content': 'c' * 40, 'shape': 'a' * 64},
+                                    {'filename': 'packages/drive/b.rs', 'status': 'added', 'content': 'e' * 40, 'shape': 'e' * 64}],
+                             print_of=[{'filename': 'packages/drive/a.rs', 'status': 'modified', 'content': 'c' * 40, 'shape': 'a' * 64}])
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['reviewed_heads'], [HEAD])
+
+    def test_a_read_that_cannot_say_what_changed_starts_over(self):
+        # An older read carries no content ids, and says nothing about whether
+        # a later commit is the same work.
+        p, pr = self.carried(files=[{'filename': 'packages/drive/a.rs'}])
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['reviewed_heads'], [HEAD])
+
+    def test_the_carried_commits_do_not_grow_without_bound(self):
+        p, pr = self.carried(heads=['%040x' % n for n in range(30)])
+        self.assertLessEqual(len(evaluate(p, pr, NOW, NOW)['reviewed_heads']), 21)
+
+    def test_keeping_your_own_side_of_a_conflict_is_not_the_same_work(self):
+        # The file is byte for byte what the reviewer saw, so its content id
+        # does not move — but the patch against the base that moved now also
+        # undoes what the base did, and nobody read that.
+        p, pr = self.carried(
+            files=[{'filename': 'packages/drive/a.rs', 'status': 'modified',
+                    'content': 'c' * 40, 'shape': 'new patch against the moved base'}],
+            print_of=[{'filename': 'packages/drive/a.rs', 'status': 'modified',
+                       'content': 'c' * 40, 'shape': 'the patch the reviewer read'}])
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['reviewed_heads'], [HEAD])
+
+    def test_a_read_that_cannot_say_how_a_file_changed_is_not_carried(self):
+        # Content without a patch says what the file holds and not what it
+        # took to get there, and keeping your own side of a conflict is
+        # exactly the case those two disagree about.
+        from pr_review.policy import diff_print
+        self.assertIsNone(diff_print({'files': [{'filename': 'a.rs', 'status': 'modified', 'content': 'c' * 40}]}))
+
+    def test_a_change_with_no_content_is_not_carried(self):
+        # A mode bit or a type change shows as an entry with nothing in it,
+        # and this cannot see what it did.
+        from pr_review.policy import diff_print
+        self.assertIsNone(diff_print({'files': [{'filename': 'a.sh', 'status': 'modified', 'shape': 'x' * 64}]}))
+
+    def test_the_diff_is_kept_through_a_verdict_that_stops_early(self):
+        # A configuration error reaches the writer like any other verdict. One
+        # that forgot what carries this diff would cut the chain, and the pull
+        # request would quietly start asking for its reviews again.
+        p, pr = self.carried()
+        p['areas'][0]['owners'] = ['nobody-at-all']
+        del p['areas'][0]['paths']
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'configuration-error')
+        self.assertEqual(result['reviewed_heads'], [OLD_HEAD, HEAD])
+
+    def test_the_print_is_not_part_of_the_evidence_print(self):
+        # It is this controller's own note about the evidence, not evidence.
+        # In the print, it would differ between the read and the write.
+        _, pr = fixture()
+        self.assertEqual(fingerprint(dict(pr, controller_diff={'diff': 'a' * 64})),
+                         fingerprint(dict(pr, controller_diff=None)))
+
+    def test_a_bot_asked_about_this_work_is_not_asked_again_on_the_next_commit(self):
+        # The clock the bots are waited on keeps running across a push that
+        # only moved the base, so asking again because the commit id changed
+        # would ask and then proceed without them minutes later.
+        p, pr = self.carried()
+        p['bot_timeouts'] = {'nudge_after_hours': 1, 'waive_after_hours': 48}
+        pr['reviews'] = []
+        pr['comments'] = [dict(id=8, user='github-actions[bot]',
+                               body=f'<!-- pr-hygiene-nudge v1 bot=coderabbitai sha={OLD_HEAD} -->',
+                               created_at='2026-09-11T10:00:00Z', updated_at='2026-09-11T10:00:00Z')]
+        pr['controller_diff'] = dict(pr['controller_diff'], diff_seen='2026-09-11T09:00:00Z')
+        self.assertNotIn('coderabbitai', evaluate(p, pr, NOW, NOW)['nudge'])
+        # A commit nobody was ever asked about is asked about.
+        pr['comments'] = []
+        self.assertIn('coderabbitai', evaluate(p, pr, NOW, NOW)['nudge'])
 
     def test_a_machine_author_does_not_spend_a_review_slot(self):
         # The five are a limit on one person's attention. An account that

@@ -12,10 +12,11 @@ from pathlib import Path
 import sys
 
 from . import telemetry
-from .github import STATE_MARKER, STATE_PATTERN, GitHub, GitHubError, current_checklist, parse_controller_state
+from .github import (DIFF_MARKER, STATE_MARKER, STATE_PATTERN, GitHub, GitHubError, current_checklist,
+                     parse_controller_diff, parse_controller_state)
 from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
-                     STATE_LABELS, admit, codeowners, effective_admission, evaluate, fingerprint,
-                     machine_author, missing_paths, validate_policy)
+                     STATE_LABELS, admit, codeowners, diff_print, effective_admission, evaluate,
+                     fingerprint, machine_author, missing_paths, validate_policy)
 from .registry import POLICIES, entry_for, load_registry, policy_path
 
 WAIVED_LABEL = 'bot-review-skipped'
@@ -55,7 +56,8 @@ def load_histories(api, selected):
         if state is not None and state['number'] != pr['number']:
             raise GitHubError('Controller admission history belongs to another PR')
         loaded.append(dict(pr, comments=history['comments'], controller_state=state,
-                           controller_comment_id=comment_id, lifecycle_at=history['lifecycle_at']))
+                           controller_comment_id=comment_id, lifecycle_at=history['lifecycle_at'],
+                           controller_diff=parse_controller_diff(history['comments'], pr['number'])))
     return loaded
 
 
@@ -264,6 +266,21 @@ def state_record(pr, result, context):
                 'version': 1, 'evidence': fingerprint(pr), 'context': context}
 
 
+def diff_record(pr, result):
+    """The diff this pull request carries and the commits that have carried it.
+
+    Beside the record, not inside it: the record's schema is an exact set of
+    keys, and an engine that predates this would refuse one carrying more and
+    report a configuration error on every pull request in its repository.
+    """
+    print_now = diff_print(pr)
+    if not print_now or not result.get('number'):
+        return None
+    return {'number': result['number'], 'diff': print_now,
+            'diff_heads': (result.get('reviewed_heads') or [pr['head']])[-20:],
+            'diff_seen': result.get('reviewed_since') or pr.get('head_seen_at')}
+
+
 SAFE_PATH = re.compile(r'[A-Za-z0-9._/@+-]+')
 MOVE_STATES = {'waiting-self-review': 'waiting-self-review', 'waiting-author': 'waiting-self-review',
                'ready-for-human': 'ready-for-human', 'ready-to-merge': 'ready-to-merge'}
@@ -377,8 +394,23 @@ def move_text(result):
 
 
 def _visible(comment_body):
-    """A record comment's text, without the record."""
-    return comment_body.split('-->', 1)[-1].strip() if comment_body.startswith(STATE_MARKER) else comment_body.strip()
+    """A record comment's text, without the records it carries.
+
+    There is more than one marker line now, and stripping only the first left
+    the second in the text: the words never matched what this run would write,
+    so the comment was rewritten on every run, and where the record had to be
+    refreshed under a state that posts no words, writing it back raised.
+    """
+    body = comment_body
+    while body.startswith(STATE_MARKER) or body.startswith(DIFF_MARKER):
+        # A line somebody truncated is still that line, and leaving it in the
+        # words is not harmless: the words are written back, and a write that
+        # carries a marker is refused — so the pull request took an error it
+        # could never leave, because the write that would repair the comment
+        # is the write that fails.
+        head, sep, rest = body.partition('-->')
+        body = (rest if sep else head.split('\n', 1)[-1] if '\n' in head else '').lstrip('\n')
+    return body.strip()
 
 
 def _same(a, b):
@@ -521,6 +553,10 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     recorded = pr.get('controller_state') or {}
     record_fields = ('state', 'head', 'admitted_at', 'ready_since')
     record_correct = holder is None or all(recorded.get(k) == desired.get(k) for k in record_fields)
+    # The diff beside the record is what tells the next run whether a push was
+    # new work. A run that leaves it behind teaches the next one nothing.
+    if record_correct and holder is not None:
+        record_correct = (pr.get('controller_diff') or None) == (diff_record(pr, result) or None)
     move = MOVE_STATES.get(result['state'])
     # Nothing is told its move: there is nobody there to take it.
     move_body = move_text(result) if move and not (machine_author(policy, pr) and move == 'waiting-self-review') else None
@@ -576,9 +612,10 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if not identity_matches():
             return desired
     written, kept = False, None
+    carried = diff_record(pr, result)
     if move_body is not None and not move_correct:
         kept = target['id'] if target else None
-        api.upsert_state(pr['number'], desired, move_body, kept)
+        api.upsert_state(pr['number'], desired, move_body, kept, carried)
         written = True
     elif holder is not None and (not record_correct or not standing_correct):
         # Same words, current record — carried by the announcement whose words
@@ -586,10 +623,13 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         # the wrong instruction; otherwise by the holder. The earlier engine's
         # standing comment gets the pointer at the description.
         carrier = target if (move_body is not None and target is not None) else holder
+        kept_words = _visible(carrier['body'])
+        if STATE_MARKER in kept_words or DIFF_MARKER in kept_words:
+            kept_words = POINTER      # unreadable words are not worth a wedged pull request
         text = move_body if carrier is target and move_body is not None else (
-            _visible(carrier['body']) if MOVE_MARKER in carrier['body'] else POINTER)
+            kept_words if MOVE_MARKER in carrier['body'] else POINTER)
         kept = carrier['id']
-        api.upsert_state(pr['number'], desired, text, kept)
+        api.upsert_state(pr['number'], desired, text, kept, carried)
         written = True
     # Every standing comment that is not the record holder is noise, and goes:
     # once a move comment exists, all of them; before that, all but the one

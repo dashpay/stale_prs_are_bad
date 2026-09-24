@@ -258,10 +258,180 @@ class PublishTests(unittest.TestCase):
         api.set_checklist.assert_called_once()
         self.assertEqual(api.set_checklist.call_args.args[1], main.checklist_block(result))
         api.upsert_state.assert_called_once()
-        record, body, comment_id = api.upsert_state.call_args.args[1:]
+        record, body, comment_id = api.upsert_state.call_args.args[1:4]
         self.assertEqual(record['state'], 'waiting-self-review')
         self.assertTrue(body.startswith(f'{MOVE_MARKER} state=waiting-self-review sha={HEAD} -->'))
         self.assertIsNone(comment_id, 'a new comment: that is what notifies')
+
+    def test_the_diff_is_written_beside_the_record_not_inside_it(self):
+        # The next run reads it to tell a push that only moved the base from
+        # one that changed the work. It rides in its own marker because the
+        # record's schema is an exact set of keys: an engine that predates
+        # this would refuse a record carrying more and report a configuration
+        # error on every pull request in its repository until it is re-pinned.
+        pr = dict(self.pr, files=[{'filename': 'packages/swift-sdk/Sources/a.swift',
+                                   'status': 'modified', 'content': 'c' * 40, 'shape': 'a' * 64}])
+        result = evaluate(self.policy, pr, NOW, LATER)
+        api = self.run_publish(pr, result)
+        api.upsert_state.assert_called_once()
+        record, _, _, diff = api.upsert_state.call_args.args[1:5]
+        self.assertNotIn('diff', record, 'the record schema is exact')
+        self.assertEqual(diff['diff_heads'], [pr['head']])
+        self.assertEqual(diff['number'], pr['number'])
+        body = GitHub.state_comment_body(record, 'text', diff)
+        self.assertIn(main.STATE_MARKER, body)
+        self.assertIn('pr-hygiene-diff-v1', body)
+        from pr_review.github import parse_controller_state, parse_controller_diff
+        comments = [dict(id=1, user='github-actions[bot]', body=body, created_at=NOW, updated_at=NOW)]
+        self.assertEqual(parse_controller_state(comments)[0], record, 'an older engine still reads the record')
+        self.assertEqual(parse_controller_diff(comments, pr['number']), diff)
+
+    def test_a_comment_carrying_both_records_is_left_alone_when_it_agrees(self):
+        # The words are read back with the records stripped off. Stripping
+        # only the first left the second in the text, so the words never
+        # matched what this run would write: the comment was rewritten on
+        # every run, and where the record had to be refreshed under a state
+        # that posts no words, writing it back raised and the pull request
+        # took an error status it could not leave.
+        pr = dict(self.pr, files=[{'filename': 'packages/swift-sdk/Sources/a.swift',
+                                   'status': 'modified', 'content': 'c' * 40, 'shape': 'a' * 64}])
+        result = evaluate(self.policy, pr, NOW, LATER)
+        record = main.state_record(pr, result, main.context_fingerprint([pr], pr['author']))
+        body = GitHub.state_comment_body(record, main.move_text(result), main.diff_record(pr, result))
+        self.assertEqual(main._visible(body), main.move_text(result))
+        pr = dict(pr, body='text\n\n' + main.checklist_block(result),
+                  labels=['waiting-self-review', 'bot-review-skipped'], controller_state=record,
+                  controller_diff=main.diff_record(pr, result))
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=NOW,
+                                                updated_at=NOW, body=body)]
+        api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.upsert_state.assert_not_called()
+        api.set_checklist.assert_not_called()
+
+    def test_words_that_cannot_be_written_back_are_replaced_not_refused(self):
+        # A marker anywhere in the words is refused by the writer, and the
+        # write that would repair the comment is the write that fails — so
+        # the pull request keeps an error it cannot leave. The pointer at the
+        # description says less, and says it.
+        pr = copy.deepcopy(self.pr)
+        pr['comments'] = [c for c in pr['comments'] if c['user'] != 'llbartekll']
+        announced = evaluate(self.policy, self.pr, NOW, LATER)
+        record = main.state_record(pr, announced, 'c' * 64)
+        tampered = GitHub.state_comment_body(record, main.move_text(announced)) + (
+            '\n<!-- pr-hygiene-diff-v1 {"number":1} -->')
+        self.assertIn('pr-hygiene-diff-v1', main._visible(tampered))
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', body=tampered,
+                                                created_at=NOW, updated_at=NOW)]
+        pr['controller_state'], pr['controller_comment_id'] = main.parse_controller_state(pr['comments'])
+        api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.upsert_state.assert_called_once()
+        self.assertEqual(api.upsert_state.call_args.args[2], main.POINTER)
+
+    def test_a_record_line_somebody_truncated_does_not_wedge_the_pull_request(self):
+        # Four characters deleted from the bot's own comment, on a pull
+        # request whose state posts no words: the words read back carried the
+        # broken line, the write that carries a marker is refused, and the
+        # write that would have repaired the comment is the one that failed —
+        # so the required check never moved again.
+        pr = copy.deepcopy(self.pr)
+        pr['comments'] = [c for c in pr['comments'] if c['user'] != 'llbartekll']
+        result = evaluate(self.policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-bots', 'a state that posts no words')
+        # The comment as it was written when the move was announced.
+        announced = evaluate(self.policy, self.pr, NOW, LATER)
+        record = main.state_record(pr, announced, 'c' * 64)
+        body = GitHub.state_comment_body(record, main.move_text(announced))
+        self.assertIn(main.MOVE_MARKER, body)
+        broken = body.replace('\n\n', '\n<!-- pr-hygiene-diff-v1 {"number":' + str(pr['number']) + '} \n\n', 1)
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', body=broken,
+                                                created_at=NOW, updated_at=NOW)]
+        pr['controller_state'], pr['controller_comment_id'] = main.parse_controller_state(pr['comments'])
+        api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.upsert_state.assert_called_once()
+        written = api.upsert_state.call_args.args[2]
+        self.assertNotIn('pr-hygiene-diff-v1', written)
+        self.assertNotIn(main.STATE_MARKER, written)
+
+    def test_a_record_line_somebody_truncated_does_not_spin(self):
+        # Deleting four characters from the bot's own comment is enough, and
+        # the reader is a loop: it never returned, so the run hung until the
+        # job timed out and every pull request after it got no status.
+        import signal
+
+        def stop(*_):
+            raise TimeoutError('the reader did not return')
+        signal.signal(signal.SIGALRM, stop); signal.alarm(2)
+        try:
+            for body in ('<!-- pr-hygiene-diff-v1 {"number":1} \nwords',
+                         '<!-- platform-pr-review-state-v1 {"number":1} \nwords',
+                         '<!-- pr-hygiene-diff-v1'):
+                words = main._visible(body)
+                # And nothing of the line is left in them: the words are
+                # written back, and a write that carries a marker is refused.
+                self.assertNotIn('pr-hygiene-diff-v1', words)
+                self.assertNotIn(main.STATE_MARKER, words)
+        finally:
+            signal.alarm(0)
+
+    def test_the_second_verdict_sees_the_same_rate_limit_notice(self):
+        # The notice counts only as the bot's own word, and who edited it
+        # comes from one of the two reads. When the second read could not say,
+        # the verdict flipped between them: the pull request was written as
+        # ready and the required check was then held pending for sixteen
+        # hours — the wait the notice exists to cut short.
+        pr = copy.deepcopy(self.pr)
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        pr['comments'] = [c for c in pr['comments'] if c['user'] != 'llbartekll'] + [
+            dict(id=11, user='coderabbitai[bot]', created_at='2026-09-11T09:30:00Z',
+                 updated_at='2026-09-11T10:00:00Z', edited_by='coderabbitai',
+                 body='<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n'
+                      'Review limit reached\n'
+                      '<!-- end of auto-generated comment: rate limited by coderabbit.ai -->'),
+            dict(id=12, user='llbartekll', body=f'/self-reviewed {HEAD}',
+                 created_at='2026-09-11T13:00:00Z', updated_at='2026-09-11T13:00:00Z')]
+        result = evaluate(self.policy, pr, NOW, LATER)
+        self.assertIn('coderabbitai', result['waived'])
+        api = self.run_publish(pr, result)
+        held = [c.args for c in api.post_status.call_args_list if 'reconciliation required' in str(c.args)]
+        self.assertFalse(held, held)
+
+    def test_the_second_verdict_sees_the_same_carried_review(self):
+        # The write is checked by reading the pull request again, and that
+        # read has no editor to check the marker against. Reading it there
+        # dropped the carry, so the second verdict differed from the first —
+        # and the check was held pending on exactly the pull requests the
+        # carry exists to unblock.
+        from pr_review.policy import diff_print
+        old_head = 'd' * 40
+        pr = copy.deepcopy(self.pr)
+        pr['files'] = [{'filename': 'packages/swift-sdk/Sources/a.swift', 'status': 'modified',
+                        'content': 'c' * 40, 'shape': 'a' * 64}]
+        # Everything this pull request has was said about the commit before
+        # it, and only the carried marker says those still count.
+        for review in pr['reviews']:
+            review['commit_id'] = old_head
+        pr['comments'] = pr['comments'] + [dict(id=9, user='llbartekll', body=f'/self-reviewed {old_head}',
+                                                created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        pr['controller_diff'] = {'number': pr['number'], 'diff': diff_print(pr),
+                                 'diff_heads': [old_head], 'diff_seen': '2026-09-11T09:00:00Z'}
+        result = evaluate(self.policy, pr, NOW, LATER)
+        self.assertEqual(result['status'], 'success', result['blockers'])
+        # The slot this pull request already holds, so the write's own
+        # admission check reads the same answer the verdict did.
+        pr['controller_state'] = main.state_record(pr, result, 'c' * 64)
+        api = Mock()
+        api.state_comment_body.side_effect = GitHub.state_comment_body
+        # What the second read gives back: the same pull request, read the
+        # same way — the whole point, since a read that lost the marker or
+        # the editors gave a different verdict from the first.
+        api.snapshot.return_value = copy.deepcopy(pr)
+        api.pull.return_value = copy.deepcopy(pr)
+        api.open_prs.return_value = [copy.deepcopy(pr)]
+        api.histories.side_effect = lambda numbers: {n: {'comments': pr.get('comments', []), 'lifecycle_at': None} for n in numbers}
+        with patch.object(main, 'load_histories', side_effect=lambda a, s: [copy.deepcopy(pr)]):
+            main.publish(api, self.policy, pr, result, [pr], apply=True)
+        pending = [c.args for c in api.post_status.call_args_list if 'reconciliation required' in str(c.args)]
+        self.assertFalse(pending, pending)
 
     def test_nothing_is_rewritten_when_description_labels_and_comment_already_agree(self):
         result = evaluate(self.policy, self.pr, NOW, LATER)
@@ -324,7 +494,7 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(quiet_result['state'], 'waiting-bots')
         api = self.run_publish(quiet, quiet_result)
         api.upsert_state.assert_called_once()
-        self.assertEqual(api.upsert_state.call_args.args[2:], (main.POINTER, 7))
+        self.assertEqual(api.upsert_state.call_args.args[2:4], (main.POINTER, 7))
         api.delete_comment.assert_not_called()
         # A move: the announcement carries the record, the old comment is removed.
         moving = dict(self.pr); moving['comments'] = self.pr['comments'] + [standing]
@@ -525,7 +695,7 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(later['state'], 'waiting-build')
         api = self.publish(pr, later, now='2026-09-11T15:00:00Z')
         api.upsert_state.assert_called_once()
-        record, text, comment_id = api.upsert_state.call_args.args[1:]
+        record, text, comment_id = api.upsert_state.call_args.args[1:4]
         self.assertEqual(record['state'], 'waiting-build')
         self.assertEqual(comment_id, 50, 'the newest holder, edited')
         self.assertIn('Bots are done', text, 'its words unchanged')
@@ -693,7 +863,7 @@ class SecondReviewTests(unittest.TestCase):
         self.assertEqual(again['state'], 'waiting-self-review')
         api = self.publish(pr, again)
         api.upsert_state.assert_called_once()
-        record, text, comment_id = api.upsert_state.call_args.args[1:]
+        record, text, comment_id = api.upsert_state.call_args.args[1:4]
         self.assertIsNone(comment_id, 'a new comment: that is the notification')
         self.assertIn('state=waiting-self-review', text)
         self.assertEqual(record['state'], 'waiting-self-review')
