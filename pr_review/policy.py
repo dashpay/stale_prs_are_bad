@@ -185,6 +185,11 @@ def fingerprint(pr):
         relevant.pop(name, None)
     # This controller's own comments are effects, not evidence: counting them
     # would make writing one look like the world changed underneath the write.
+    # Who last edited a comment is not how a change is noticed — the time it
+    # was edited is, and that is here. Keeping it would only make the print
+    # depend on which route read the comment.
+    for comment in relevant.get('comments', []):
+        comment.pop('edited_by', None)
     relevant['comments'] = [x for x in relevant.get('comments', []) if not (
         x.get('user', '').lower() == 'github-actions[bot]' and
         (x.get('body', '').startswith(f'<!-- {STATE_MARKER}')
