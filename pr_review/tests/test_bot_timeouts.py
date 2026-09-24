@@ -115,6 +115,19 @@ class BotTimeoutTests(unittest.TestCase):
                                     '<!-- end of auto-generated comment: rate limited by coderabbit.ai -->')}]
         self.assertIsNone(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'])
 
+    def test_a_bot_already_asked_about_this_work_is_not_asked_again(self):
+        # A push that only moved the base is the same work, and the clock the
+        # bot is waited on keeps running — so asking again because the commit
+        # id changed is noise, and the controller could ask and then proceed
+        # without it minutes later.
+        policy, pr = waiting(7)
+        old = 'f' * 40
+        pr['comments'] = [{'user': 'github-actions[bot]', 'created_at': ago(1), 'updated_at': ago(1),
+                           'body': f'<!-- pr-hygiene-nudge v1 bot=coderabbitai sha={old} -->'}]
+        self.assertTrue(bot_schedule(policy, pr, 'coderabbitai', NOW)['nudge'], 'a commit never asked about')
+        pr['reviewed_heads'] = [old, pr['head']]
+        self.assertFalse(bot_schedule(policy, pr, 'coderabbitai', NOW)['nudge'])
+
     def test_a_notice_with_no_end_has_no_extent(self):
         # Reading to the end of the comment would let the walkthrough below
         # the notice speak for the limit.

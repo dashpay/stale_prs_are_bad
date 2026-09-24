@@ -223,7 +223,25 @@ def parse_controller_diff(comments, number):
         # controller is who edited it. Where that cannot be known the pull
         # request starts over, which is what it did before this existed.
         edited = comment.get("updated_at") or comment["created_at"]
-        if edited != comment["created_at"] and (comment.get("edited_by") or "").lower() != "github-actions[bot]":
+        # Both spellings: what comes back is the login, and the "[bot]" suffix
+        # is only appended where the reader asked for the type. Refusing the
+        # bare one refused this controller's own hand, which rewrites the
+        # record on every refresh — so the marker became unreadable the second
+        # time it was written, and stayed that way.
+        if edited != comment["created_at"] and (comment.get("edited_by") or "").lower() not in {
+                "github-actions", "github-actions[bot]"}:
+            continue
+        # In a comment of this controller's own, beside its record for this
+        # same pull request. Any workflow can post as the Actions app, and one
+        # that echoes text a person wrote would otherwise carry a marker with
+        # it.
+        state = list(STATE_PATTERN.finditer(comment["body"]))
+        if len(state) != 1:
+            continue
+        try:
+            if json.loads(state[0].group(1)).get("number") != number:
+                continue
+        except (ValueError, TypeError, AttributeError):
             continue
         matches = list(DIFF_PATTERN.finditer(comment["body"]))
         if len(matches) != 1:
@@ -686,15 +704,15 @@ class GitHub:
                 # enough: a conflict resolved by keeping your own side leaves
                 # the file byte for byte what the reviewer saw while the patch
                 # against the moved base now also undoes what the base did.
+                # Only the patch itself. Counting its lines instead was two
+                # small integers, and they are equal for the one case this
+                # exists to catch: a conflict resolved by keeping your own
+                # side changes the patch and not its line counts. Where
+                # GitHub sends no patch — a file too large, a binary — this
+                # says nothing, and nothing is carried.
                 patch = file.get("patch")
-                counts = tuple(file.get(k) for k in ("additions", "deletions", "changes"))
-                if isinstance(patch, str) or all(type(n) is int for n in counts):
-                    shape = patch if isinstance(patch, str) else repr(counts)
-                    normalized["shape"] = hashlib.sha256(shape.encode()).hexdigest()
-                # A change with no content at all — a mode bit, a type change —
-                # is not something this can see, so it is not carried over.
-                if counts[2] == 0 and not patch:
-                    normalized.pop("content", None)
+                if isinstance(patch, str):
+                    normalized["shape"] = hashlib.sha256(patch.encode()).hexdigest()
                 result["files"].append(normalized)
             _unique(result["files"], "filename", "changed file")
             reviews = []
@@ -725,7 +743,12 @@ class GitHub:
                 raise GitHubError("Controller state belongs to another PR")
             result["controller_state"] = state
             result["controller_comment_id"] = comment_id
-            result["controller_diff"] = parse_controller_diff(result["comments"], number)
+            # Only where the comments came with an editor to check them
+            # against. This route has none, and a reader that dropped the
+            # marker here would give a different verdict from the one that
+            # read it, on the same pull request, in the same run.
+            result["controller_diff"] = (parse_controller_diff(result["comments"], number)
+                                         if reuse else None)
 
             fallback = policy["fallback"]
             if not isinstance(fallback, dict):

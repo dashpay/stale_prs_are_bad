@@ -572,8 +572,8 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         outstanding = bool(bot_blocks or bot_threads)
         skip = skipped_by(pr['comments'], permissions, seen_first)
         for bot in missing:
-            plan = bot_schedule(policy, dict(pr, head_seen_at=seen_first), bot, nowISO,
-                                (telemetry_states or {}).get(bot))
+            plan = bot_schedule(policy, dict(pr, head_seen_at=seen_first, reviewed_heads=reviewed),
+                                bot, nowISO, (telemetry_states or {}).get(bot))
             if skip:
                 # A human decided the bots are not coming. That is a waiver
                 # with a name on it, and the name is what keeps it honest. A

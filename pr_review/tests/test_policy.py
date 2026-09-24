@@ -347,6 +347,22 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(fingerprint(dict(pr, controller_diff={'diff': 'a' * 64})),
                          fingerprint(dict(pr, controller_diff=None)))
 
+    def test_a_bot_asked_about_this_work_is_not_asked_again_on_the_next_commit(self):
+        # The clock the bots are waited on keeps running across a push that
+        # only moved the base, so asking again because the commit id changed
+        # would ask and then proceed without them minutes later.
+        p, pr = self.carried()
+        p['bot_timeouts'] = {'nudge_after_hours': 1, 'waive_after_hours': 48}
+        pr['reviews'] = []
+        pr['comments'] = [dict(id=8, user='github-actions[bot]',
+                               body=f'<!-- pr-hygiene-nudge v1 bot=coderabbitai sha={OLD_HEAD} -->',
+                               created_at='2026-09-11T10:00:00Z', updated_at='2026-09-11T10:00:00Z')]
+        pr['controller_diff'] = dict(pr['controller_diff'], diff_seen='2026-09-11T09:00:00Z')
+        self.assertNotIn('coderabbitai', evaluate(p, pr, NOW, NOW)['nudge'])
+        # A commit nobody was ever asked about is asked about.
+        pr['comments'] = []
+        self.assertIn('coderabbitai', evaluate(p, pr, NOW, NOW)['nudge'])
+
     def test_a_machine_author_does_not_spend_a_review_slot(self):
         # The five are a limit on one person's attention. An account that
         # opens pull requests on its own has none to ration, and what its pull

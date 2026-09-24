@@ -308,6 +308,59 @@ class PublishTests(unittest.TestCase):
         api.upsert_state.assert_not_called()
         api.set_checklist.assert_not_called()
 
+    def test_a_record_line_somebody_truncated_does_not_spin(self):
+        # Deleting four characters from the bot's own comment is enough, and
+        # the reader is a loop: it never returned, so the run hung until the
+        # job timed out and every pull request after it got no status.
+        import signal
+
+        def stop(*_):
+            raise TimeoutError('the reader did not return')
+        signal.signal(signal.SIGALRM, stop); signal.alarm(2)
+        try:
+            for body in ('<!-- pr-hygiene-diff-v1 {"number":1} \nwords',
+                         '<!-- platform-pr-review-state-v1 {"number":1} \nwords',
+                         '<!-- pr-hygiene-diff-v1'):
+                self.assertIsInstance(main._visible(body), str)
+        finally:
+            signal.alarm(0)
+
+    def test_the_second_verdict_sees_the_same_carried_review(self):
+        # The write is checked by reading the pull request again, and that
+        # read has no editor to check the marker against. Reading it there
+        # dropped the carry, so the second verdict differed from the first —
+        # and the check was held pending on exactly the pull requests the
+        # carry exists to unblock.
+        from pr_review.policy import diff_print
+        old_head = 'd' * 40
+        pr = copy.deepcopy(self.pr)
+        pr['files'] = [{'filename': 'packages/swift-sdk/Sources/a.swift', 'status': 'modified',
+                        'content': 'c' * 40, 'shape': 'a' * 64}]
+        # Everything this pull request has was said about the commit before
+        # it, and only the carried marker says those still count.
+        for review in pr['reviews']:
+            review['commit_id'] = old_head
+        pr['comments'] = pr['comments'] + [dict(id=9, user='llbartekll', body=f'/self-reviewed {old_head}',
+                                                created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        pr['controller_diff'] = {'number': pr['number'], 'diff': diff_print(pr),
+                                 'diff_heads': [old_head], 'diff_seen': '2026-09-11T09:00:00Z'}
+        result = evaluate(self.policy, pr, NOW, LATER)
+        self.assertEqual(result['status'], 'success', result['blockers'])
+        # The slot this pull request already holds, so the write's own
+        # admission check reads the same answer the verdict did.
+        pr['controller_state'] = main.state_record(pr, result, 'c' * 64)
+        api = Mock()
+        api.state_comment_body.side_effect = GitHub.state_comment_body
+        # What the second read gives back: the same pull request, no marker.
+        api.snapshot.return_value = dict(copy.deepcopy(pr), controller_diff=None)
+        api.pull.return_value = copy.deepcopy(pr)
+        api.open_prs.return_value = [copy.deepcopy(pr)]
+        api.histories.side_effect = lambda numbers: {n: {'comments': pr.get('comments', []), 'lifecycle_at': None} for n in numbers}
+        with patch.object(main, 'load_histories', side_effect=lambda a, s: [copy.deepcopy(pr)]):
+            main.publish(api, self.policy, pr, result, [pr], apply=True)
+        pending = [c.args for c in api.post_status.call_args_list if 'reconciliation required' in str(c.args)]
+        self.assertFalse(pending, pending)
+
     def test_nothing_is_rewritten_when_description_labels_and_comment_already_agree(self):
         result = evaluate(self.policy, self.pr, NOW, LATER)
         record = main.state_record(self.pr, result, main.context_fingerprint([self.pr], self.pr['author']))

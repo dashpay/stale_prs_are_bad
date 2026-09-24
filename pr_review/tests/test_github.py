@@ -45,8 +45,18 @@ class BuildVerdictTests(unittest.TestCase):
         for editor in ('llbartekll', None):
             touched = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by=editor)
             self.assertIsNone(parse_controller_diff([touched], 7), repr(editor))
-        kept = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by='github-actions[bot]')
-        self.assertEqual(parse_controller_diff([kept], 7), diff)
+        # Both spellings of this controller's own hand: the login comes back
+        # bare from the route that evaluates pull requests, and refusing it
+        # refused every record the controller had refreshed — which is every
+        # record after its first write.
+        for editor in ('github-actions', 'github-actions[bot]'):
+            kept = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by=editor)
+            self.assertEqual(parse_controller_diff([kept], 7), diff, editor)
+        # And only beside this controller's record for this same pull request:
+        # any workflow can post as the Actions app.
+        alone = dict(made, id=2, body='<!-- pr-hygiene-diff-v1 ' + json.dumps(diff) + ' -->')
+        self.assertIsNone(parse_controller_diff([alone], 7))
+        self.assertIsNone(parse_controller_diff([made], 8), 'another pull request')
 
     def test_a_diff_timestamp_that_is_not_one_is_refused(self):
         # It is read back as a time. A string that is not one raised out of
@@ -693,6 +703,44 @@ class GitHubTests(unittest.TestCase):
         self.assertEqual(access["custom-role"], "write")
         # Anyone absent from the list has no access at all.
         self.assertNotIn("stranger", access)
+
+    def test_a_file_read_without_its_patch_says_nothing_about_being_the_same_work(self):
+        # Line counts are two small integers, and they are equal for the one
+        # case this exists to catch: keeping your own side of a conflict
+        # changes the patch and not its counts.
+        from pr_review.policy import diff_print
+        request, pages = self.snapshot_fixture(files=[
+            {"filename": "a.rs", "status": "modified", "sha": "c" * 40,
+             "additions": 1, "deletions": 1, "changes": 2}])
+        with request, pages:
+            no_patch = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertNotIn("shape", no_patch["files"][0])
+        self.assertIsNone(diff_print(no_patch))
+        request, pages = self.snapshot_fixture(files=[
+            {"filename": "a.rs", "status": "modified", "sha": "c" * 40, "patch": "@@ -1 +1 @@\n-a\n+b"}])
+        with request, pages:
+            with_patch = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertIsNotNone(diff_print(with_patch))
+
+    def test_the_marker_is_not_read_from_a_route_that_cannot_check_it(self):
+        # This read has no editor beside each comment, so the marker cannot be
+        # told from a forged one — and reading it here gave a different
+        # verdict from the read that evaluates, on the same pull request.
+        diff = {"number": 1, "diff": "a" * 64, "diff_heads": ["b" * 40], "diff_seen": "2026-09-11T10:00:00Z"}
+        body = GitHub.state_comment_body(
+            {"version": 1, "number": 1, "head": "b" * 40, "admitted_at": None, "ready_since": None,
+             "state": "ready-for-human", "evidence": "c" * 64, "context": "d" * 64}, "text", diff)
+        comment = {"id": 1, "user": {"login": "github-actions[bot]"}, "body": body,
+                   "created_at": "2026-09-11T10:00:00Z", "updated_at": "2026-09-11T10:00:00Z"}
+        request, pages = self.snapshot_fixture(comments=[comment])
+        with request, pages:
+            read = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertIsNone(read["controller_diff"])
+        with request, pages:
+            reused = self.api.snapshot(1, {"fallback": ["owner"], "areas": []},
+                                       history={"comments": [dict(comment, user="github-actions[bot]")],
+                                                "lifecycle_at": None})
+        self.assertEqual(reused["controller_diff"], diff)
 
     def test_should_preserve_rename_source_and_reuse_access_until_told_otherwise(self):
         request, pages = self.snapshot_fixture(files=[{"filename": "new/a.rs", "previous_filename": "old/a.rs", "status": "renamed"}])

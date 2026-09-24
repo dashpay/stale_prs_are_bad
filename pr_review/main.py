@@ -402,7 +402,7 @@ def _visible(comment_body):
     refreshed under a state that posts no words, writing it back raised.
     """
     body = comment_body
-    while body.startswith(STATE_MARKER) or body.startswith(DIFF_MARKER):
+    while (body.startswith(STATE_MARKER) or body.startswith(DIFF_MARKER)) and '-->' in body:
         body = body.split('-->', 1)[-1].lstrip('\n')
     return body.strip()
 
@@ -514,7 +514,13 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if not valid_admission or fingerprint(final) != fingerprint(pr):
             api.post_status(pr['head'], 'pending', 'Review evidence changed; reconciliation required')
             return
-        check = evaluate(policy, final, result.get('admitted_at'), utc_now())
+        # This controller's own note about the evidence, carried across rather
+        # than read again: this read has no editor to check it against, so
+        # reading it here would drop it, and the second verdict would differ
+        # from the first on every pull request whose review was carried —
+        # holding the check pending on exactly the ones the carry unblocks.
+        check = evaluate(policy, dict(final, controller_diff=pr.get('controller_diff')),
+                         result.get('admitted_at'), utc_now())
         if result['status'] == 'success' and check['status'] != 'success':
             api.post_status(pr['head'], 'pending', 'Policy changed; reconciliation required')
             return
