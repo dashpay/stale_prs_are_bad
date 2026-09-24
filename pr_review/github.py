@@ -340,7 +340,11 @@ class GitHub:
     def comments(self, number):
         try:
             # This route carries no editor, so who rewrote an edited comment
-            # is unknown here and the reader must treat it as unknown.
+            # is unknown here and the reader treats it as unknown — which
+            # costs only CodeRabbit's rate-limit waiver, never a merge. The
+            # evidence print must not carry it either, or a pull request read
+            # by both routes would look changed between the read and the
+            # write on every run and never be written to again.
             result = [{"id": raw["id"], "user": _login(raw["user"]),
                        "body": raw["body"], "created_at": _text(raw["created_at"], "comment creation time"),
                        "updated_at": _text(raw["updated_at"], "comment update time"), "edited_by": None}

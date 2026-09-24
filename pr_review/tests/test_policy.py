@@ -231,6 +231,21 @@ class PolicyTests(unittest.TestCase):
                                    created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
             self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', not_said)
 
+    def test_the_evidence_print_does_not_depend_on_which_route_read_a_comment(self):
+        # One route carries who last edited a comment and the other cannot.
+        # With that in the print, a pull request with an edited comment read
+        # as changed between the read and the write on every single run: the
+        # write was refused every time, and platform#4707, #4712 and #4717
+        # stopped being written to at all. The time of the edit is what says
+        # something changed, and it is in the print.
+        _, pr = fixture()
+        pr['comments'] = [dict(pr['comments'][0], updated_at='2026-09-11T11:30:00Z')]
+        graphql = dict(pr, comments=[dict(pr['comments'][0], edited_by='coderabbitai')])
+        rest = dict(pr, comments=[dict(pr['comments'][0], edited_by=None)])
+        self.assertEqual(fingerprint(graphql), fingerprint(rest))
+        later = dict(pr, comments=[dict(pr['comments'][0], updated_at='2026-09-11T12:00:00Z')])
+        self.assertNotEqual(fingerprint(pr), fingerprint(later), 'an edit is still noticed')
+
     def test_a_machine_author_does_not_spend_a_review_slot(self):
         # The five are a limit on one person's attention. An account that
         # opens pull requests on its own has none to ration, and what its pull
