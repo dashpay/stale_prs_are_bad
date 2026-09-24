@@ -178,6 +178,43 @@ def admit(policy, prs, nowISO):
     return result
 
 
+def diff_print(pr):
+    """What a reviewer read: this pull request's own changes, whatever commit carries them.
+
+    The changed-file list is taken against the merge base, so a commit that
+    only brings the base forward leaves every entry identical, while a
+    conflict resolved by hand — code that exists in the merge commit and
+    nowhere else — changes the content of the file it resolved, and anything
+    else the merge brought in appears as an entry that was not there.
+    """
+    files = pr.get('files') or []
+    if any(not f.get('content') for f in files):
+        return None      # an older read with no content ids says nothing
+    items = sorted((f['filename'], f.get('status') or '', f['content'], f.get('previous_filename') or '')
+                   for f in files)
+    return hashlib.sha256(json.dumps(items, separators=(',', ':')).encode()).hexdigest()
+
+
+def carried_heads(pr):
+    """The commits whose review still applies here, newest last.
+
+    A push that leaves the pull request's own diff untouched — a merge of the
+    base, a rebase onto it — is not work anybody has to read again, so what
+    the bots said about the commit before it still stands, and so does the
+    author's attestation. Anything that changes the diff starts over.
+    """
+    record = pr.get('controller_diff') or {}
+    print_now = diff_print(pr)
+    if not print_now or record.get('diff') != print_now:
+        return [pr['head']], pr.get('head_seen_at')
+    kept = [h for h in (record.get('diff_heads') or []) if isinstance(h, str)][-20:]
+    if pr['head'] not in kept:
+        kept = kept + [pr['head']]
+    # The moment the first of them was seen: an attestation written then was
+    # written about this same diff.
+    return kept, record.get('diff_seen') or pr.get('head_seen_at')
+
+
 def fingerprint(pr):
     relevant = copy.deepcopy(pr)
     # The description carries this controller's own checklist, an effect.
@@ -407,7 +444,8 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
     result = {k: pr.get(k) for k in ('number', 'head', 'author', 'title', 'url')}
     result.update(state='configuration-error', status='error', blockers=[], reviewers=[], areas=[],
                   ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None,
-                  nudge=[], waived=[], approvals=[], objections=[], checklist=[])
+                  nudge=[], waived=[], approvals=[], objections=[], checklist=[],
+                  reviewed_heads=[pr.get('head')] if pr.get('head') else [], reviewed_since=pr.get('head_seen_at'))
 
     # This status is a required check, so it passes only when the policy is
     # satisfied. Everything still waiting is pending — not red, because an
@@ -473,40 +511,52 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 first = (state, list(reasons))
 
         required = set(policy.get('required_bots', REVIEW_BOTS))
+        # A push that leaves this pull request's own diff untouched carries
+        # the review of the commit before it: what the bots said still
+        # describes the code, and so does the author's attestation. Anything
+        # that changes the diff — a conflict resolved inside a merge commit is
+        # code that exists nowhere else — starts over.
+        reviewed, seen_first = carried_heads(pr)
+        heads = {h.lower() for h in reviewed}
+        result['reviewed_heads'] = reviewed
+        result['reviewed_since'] = seen_first
         latest = _latest_reviews(pr['reviews'])
         bot_blocks = [r for u,r in latest.items() if u in BOTS and r['state'].upper() == 'CHANGES_REQUESTED']
         bot_threads = [t for t in pr['threads'] if not t['is_resolved'] and t['author'].lower() in BOTS]
         pasta, rabbit = [], []
         for review in pr['reviews']:
             user, state = review['user'].lower(), review['state'].upper()
-            if review['commit_id'] != pr['head']:
+            if (review['commit_id'] or '').lower() not in heads:
                 continue
             if user == 'thepastaclaw' and state in {'APPROVED','COMMENTED'} and re.search(
-                r'(?m)^<!-- thepastaclaw-review-phase v1 phase=final sha=' + re.escape(pr['head']) + r'(?:\s+[^<>]*?)?\s*-->', review['body']):
+                r'(?mi)^<!-- thepastaclaw-review-phase v1 phase=final sha=(' + '|'.join(re.escape(h) for h in sorted(heads))
+                    + r')(?:\s+[^<>]*?)?\s*-->', review['body']):
                 pasta.append(review['submitted_at'])
             if user in {'coderabbitai','coderabbitai[bot]'} and state == 'APPROVED':
                 rabbit.append(review['submitted_at'])
         for comment in pr['comments']:
-            if comment['user'].lower() in {'coderabbitai','coderabbitai[bot]'} and _rabbit_receipt(comment['body'], pr['head']):
+            if comment['user'].lower() in {'coderabbitai','coderabbitai[bot]'} and any(
+                    _rabbit_receipt(comment['body'], h) for h in reviewed):
                 rabbit.append(comment['updated_at'])
         # A bot that requested changes on an earlier head has not reported on
         # this one: that is the shape a nudge and a waiver exist for. An
         # objection raised against the current head is a report, and blocks.
-        bot_blocks = [r for r in bot_blocks if r.get('commit_id') == pr['head']]
+        bot_blocks = [r for r in bot_blocks if (r.get('commit_id') or '').lower() in heads]
         receipts = {'thepastaclaw': pasta, 'coderabbitai': rabbit}
         # A bot that objected to this head, or left a thread open, has
         # reported. It is not missing, so nothing waives it: the objection is
         # answered by dismissing the review or resolving the thread, in the
         # open, not by telling this controller to stop waiting.
-        heard = {u for u, r in latest.items() if u in BOTS and r.get('commit_id') == pr['head']
+        heard = {u for u, r in latest.items() if u in BOTS and (r.get('commit_id') or '').lower() in heads
                  and r['state'].upper() == 'CHANGES_REQUESTED'}
         heard |= {t['author'].lower().removesuffix('[bot]') for t in bot_threads}
         missing = [bot for bot in sorted(required) if not receipts[bot] and bot not in heard]
         waived, why, reasons = {}, {}, []
         outstanding = bool(bot_blocks or bot_threads)
-        skip = skipped_by(pr['comments'], permissions, pr.get('head_seen_at'))
+        skip = skipped_by(pr['comments'], permissions, seen_first)
         for bot in missing:
-            plan = bot_schedule(policy, pr, bot, nowISO, (telemetry_states or {}).get(bot))
+            plan = bot_schedule(policy, dict(pr, head_seen_at=seen_first), bot, nowISO,
+                                (telemetry_states or {}).get(bot))
             if skip:
                 # A human decided the bots are not coming. That is a waiver
                 # with a name on it, and the name is what keeps it honest. A
@@ -539,7 +589,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         # reported and still hold the box open with an objection or a thread,
         # and a line that said only "✓" left the open box unexplained.
         objecting = {u.removesuffix('[bot]') for u, r in latest.items() if u in BOTS
-                     and r.get('commit_id') == pr['head'] and r['state'].upper() == 'CHANGES_REQUESTED'}
+                     and (r.get('commit_id') or '').lower() in heads and r['state'].upper() == 'CHANGES_REQUESTED'}
         threads_by = {}
         for thread in bot_threads:
             who = thread['author'].lower().removesuffix('[bot]')
@@ -597,7 +647,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         # means "everything pushed so far", which is only safe once this head has
         # a status: that timestamp cannot be moved, so an attestation written
         # before the last push can never be reused for it.
-        seen = pr.get('head_seen_at')
+        seen = seen_first
         # An attestation is the author saying it, wherever they say it: a
         # comment, or the body of their own review — which is one action from
         # the diff they are attesting to. A review carries no edit history
@@ -619,7 +669,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             said = ATTESTATION.fullmatch(comment['body'].strip())
             if not said:
                 continue
-            if said['head'] and said['head'].lower() != pr['head'].lower():
+            if said['head'] and said['head'].lower() not in heads:
                 continue
             if said['head']:
                 floor = floor_at
@@ -673,7 +723,8 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 continue
             eligible = {x.lower() for x in area['owners'] + area['reviewers']} - {author}
             approved_by = sorted(people[u] for u in eligible
-                                 if u in latest and latest[u]['state'].upper() == 'APPROVED' and latest[u]['commit_id'] == pr['head'])
+                                 if u in latest and latest[u]['state'].upper() == 'APPROVED'
+                                 and (latest[u]['commit_id'] or '').lower() in heads)
             # Recorded either way: an approval that already covers an area is
             # as much of the answer as the one still missing, and the author
             # seeing "romchornyi approved swift-sdk" beside "nobody has

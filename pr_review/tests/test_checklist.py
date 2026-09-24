@@ -258,10 +258,33 @@ class PublishTests(unittest.TestCase):
         api.set_checklist.assert_called_once()
         self.assertEqual(api.set_checklist.call_args.args[1], main.checklist_block(result))
         api.upsert_state.assert_called_once()
-        record, body, comment_id = api.upsert_state.call_args.args[1:]
+        record, body, comment_id = api.upsert_state.call_args.args[1:4]
         self.assertEqual(record['state'], 'waiting-self-review')
         self.assertTrue(body.startswith(f'{MOVE_MARKER} state=waiting-self-review sha={HEAD} -->'))
         self.assertIsNone(comment_id, 'a new comment: that is what notifies')
+
+    def test_the_diff_is_written_beside_the_record_not_inside_it(self):
+        # The next run reads it to tell a push that only moved the base from
+        # one that changed the work. It rides in its own marker because the
+        # record's schema is an exact set of keys: an engine that predates
+        # this would refuse a record carrying more and report a configuration
+        # error on every pull request in its repository until it is re-pinned.
+        pr = dict(self.pr, files=[{'filename': 'packages/swift-sdk/Sources/a.swift',
+                                   'status': 'modified', 'content': 'c' * 40}])
+        result = evaluate(self.policy, pr, NOW, LATER)
+        api = self.run_publish(pr, result)
+        api.upsert_state.assert_called_once()
+        record, _, _, diff = api.upsert_state.call_args.args[1:5]
+        self.assertNotIn('diff', record, 'the record schema is exact')
+        self.assertEqual(diff['diff_heads'], [pr['head']])
+        self.assertEqual(diff['number'], pr['number'])
+        body = GitHub.state_comment_body(record, 'text', diff)
+        self.assertIn(main.STATE_MARKER, body)
+        self.assertIn('pr-hygiene-diff-v1', body)
+        from pr_review.github import parse_controller_state, parse_controller_diff
+        comments = [dict(id=1, user='github-actions[bot]', body=body, created_at=NOW, updated_at=NOW)]
+        self.assertEqual(parse_controller_state(comments)[0], record, 'an older engine still reads the record')
+        self.assertEqual(parse_controller_diff(comments, pr['number']), diff)
 
     def test_nothing_is_rewritten_when_description_labels_and_comment_already_agree(self):
         result = evaluate(self.policy, self.pr, NOW, LATER)
@@ -324,7 +347,7 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(quiet_result['state'], 'waiting-bots')
         api = self.run_publish(quiet, quiet_result)
         api.upsert_state.assert_called_once()
-        self.assertEqual(api.upsert_state.call_args.args[2:], (main.POINTER, 7))
+        self.assertEqual(api.upsert_state.call_args.args[2:4], (main.POINTER, 7))
         api.delete_comment.assert_not_called()
         # A move: the announcement carries the record, the old comment is removed.
         moving = dict(self.pr); moving['comments'] = self.pr['comments'] + [standing]
@@ -525,7 +548,7 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(later['state'], 'waiting-build')
         api = self.publish(pr, later, now='2026-09-11T15:00:00Z')
         api.upsert_state.assert_called_once()
-        record, text, comment_id = api.upsert_state.call_args.args[1:]
+        record, text, comment_id = api.upsert_state.call_args.args[1:4]
         self.assertEqual(record['state'], 'waiting-build')
         self.assertEqual(comment_id, 50, 'the newest holder, edited')
         self.assertIn('Bots are done', text, 'its words unchanged')
@@ -693,7 +716,7 @@ class SecondReviewTests(unittest.TestCase):
         self.assertEqual(again['state'], 'waiting-self-review')
         api = self.publish(pr, again)
         api.upsert_state.assert_called_once()
-        record, text, comment_id = api.upsert_state.call_args.args[1:]
+        record, text, comment_id = api.upsert_state.call_args.args[1:4]
         self.assertIsNone(comment_id, 'a new comment: that is the notification')
         self.assertIn('state=waiting-self-review', text)
         self.assertEqual(record['state'], 'waiting-self-review')

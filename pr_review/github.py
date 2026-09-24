@@ -17,6 +17,13 @@ class GitHubError(RuntimeError):
 
 STATE_MARKER = "<!-- platform-pr-review-state-v1"
 STATE_PATTERN = re.compile(r"<!-- platform-pr-review-state-v1 (\{[^\r\n]*\}) -->")
+# The diff this pull request carries, beside the record rather than inside it.
+# The record's schema is an exact set of keys, so an engine that predates a new
+# one would refuse a record carrying it and report a configuration error on
+# every pull request in its repository until it is re-pinned. A marker of its
+# own is simply not read by an engine that does not know it.
+DIFF_MARKER = "<!-- pr-hygiene-diff-v1"
+DIFF_PATTERN = re.compile(r"<!-- pr-hygiene-diff-v1 (\{[^\r\n]*\}) -->")
 BOT_LOGINS = {"github-actions[bot]", "coderabbitai[bot]", "coderabbitai", "thepastaclaw"}
 
 
@@ -174,6 +181,47 @@ def _split_checklist(body):
 def current_checklist(body):
     """The block a description carries now, or None."""
     return _split_checklist(body or "")[1]
+
+
+def _validate_diff(diff):
+    keys = {"number", "diff", "diff_heads", "diff_seen"}
+    if not isinstance(diff, dict) or set(diff) != keys:
+        raise GitHubError("Unknown or incomplete controller diff schema")
+    if type(diff["number"]) is not int or diff["number"] < 1:
+        raise GitHubError("Invalid controller diff PR number")
+    if not isinstance(diff["diff"], str) or not re.fullmatch(r"[0-9a-f]{64}", diff["diff"]):
+        raise GitHubError("Invalid controller diff print")
+    heads = diff["diff_heads"]
+    if (not isinstance(heads, list) or not 1 <= len(heads) <= 20
+            or any(not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{40}", h) for h in heads)):
+        raise GitHubError("Invalid controller diff heads")
+    if diff["diff_seen"] is not None and not isinstance(diff["diff_seen"], str):
+        raise GitHubError("Invalid controller diff timestamp")
+
+
+def parse_controller_diff(comments, number):
+    """The newest recorded diff for this pull request, or None.
+
+    Read beside the record, and never fatal: without it a push is read as new
+    work, which is what happened before this was written down at all.
+    """
+    found = []
+    for comment in comments:
+        if comment["user"].lower() != "github-actions[bot]" or DIFF_MARKER not in comment["body"]:
+            continue
+        matches = list(DIFF_PATTERN.finditer(comment["body"]))
+        if len(matches) != 1:
+            continue
+        try:
+            diff = json.loads(matches[0].group(1))
+            _validate_diff(diff)
+        except (ValueError, TypeError, GitHubError):
+            continue
+        if diff["number"] != number:
+            continue
+        found.append((_text(comment.get("updated_at") or comment["created_at"], "comment update time"),
+                      comment["id"], diff))
+    return max(found, key=lambda item: item[:2])[2] if found else None
 
 
 def parse_controller_state(comments):
@@ -607,6 +655,17 @@ class GitHub:
                     raise GitHubError("Renamed file is missing its source path")
                 if "previous_filename" in file:
                     normalized["previous_filename"] = _text(file["previous_filename"], "rename source path")
+                # What this file holds, and what happened to it. This route
+                # lists the pull request against its merge base, so these two
+                # are the pull request's own changes and nothing else — which
+                # is what says a new head carries the same work as the old.
+                # A read that carries neither says nothing about whether a
+                # later commit is the same work, and the reader treats it as
+                # unknown rather than as unchanged.
+                if isinstance(file.get("status"), str):
+                    normalized["status"] = file["status"]
+                if isinstance(file.get("sha"), str) and file["sha"]:
+                    normalized["content"] = file["sha"]
                 result["files"].append(normalized)
             _unique(result["files"], "filename", "changed file")
             reviews = []
@@ -637,6 +696,7 @@ class GitHub:
                 raise GitHubError("Controller state belongs to another PR")
             result["controller_state"] = state
             result["controller_comment_id"] = comment_id
+            result["controller_diff"] = parse_controller_diff(result["comments"], number)
 
             fallback = policy["fallback"]
             if not isinstance(fallback, dict):
@@ -790,17 +850,22 @@ class GitHub:
         return written
 
     @staticmethod
-    def state_comment_body(state, body):
+    def state_comment_body(state, body, diff=None):
         marker = f"{STATE_MARKER} {json.dumps(state, separators=(',', ':'), sort_keys=True)} -->"
-        if STATE_MARKER in body:
+        if STATE_MARKER in body or DIFF_MARKER in body:
             raise GitHubError("Controller display body must not contain a state marker")
+        if diff is not None:
+            _validate_diff(diff)
+            marker += f"\n{DIFF_MARKER} {json.dumps(diff, separators=(',', ':'), sort_keys=True)} -->"
         return marker + "\n\n" + body
 
-    def upsert_state(self, number, state, body, comment_id=None):
+    def upsert_state(self, number, state, body, comment_id=None, diff=None):
         _validate_state(state)
         if state["number"] != number:
             raise GitHubError("Controller state belongs to another PR")
-        payload = {"body": self.state_comment_body(state, body)}
+        if diff is not None and diff["number"] != number:
+            raise GitHubError("Controller diff belongs to another PR")
+        payload = {"body": self.state_comment_body(state, body, diff)}
         if comment_id is None:
             result = self.request("POST", f"{self.root}/issues/{number}/comments", payload)
         else:
