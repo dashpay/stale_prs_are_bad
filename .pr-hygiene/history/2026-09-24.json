@@ -1,7 +1,7 @@
 {
   "date": "2026-09-24",
   "summary": {
-    "open_prs": 90,
+    "open_prs": 89,
     "prs_needing_author_action": 24,
     "total_unresolved": 145
   },
@@ -9,36 +9,19 @@
     {
       "login": "PastaPastaPasta",
       "total_open_prs": 29,
-      "clean_prs": 5,
-      "dirty_prs": 8,
+      "clean_prs": 1,
+      "dirty_prs": 10,
       "deferred_prs": 0,
       "draft_prs": 4,
       "stale_prs": 9,
-      "ci_failing_prs": 3,
+      "ci_failing_prs": 5,
       "changes_requested_prs": 0,
-      "awaiting_review": 0,
-      "prs_needing_author_action": 11,
+      "awaiting_review": 1,
+      "prs_needing_author_action": 13,
       "ready_for_human_prs": 0,
-      "total_unresolved": 47,
-      "total_score": 322.05685241688246,
-      "oldest_stale_pr_days": 383.5669560185185
-    },
-    {
-      "login": "lklimek",
-      "total_open_prs": 16,
-      "clean_prs": 6,
-      "dirty_prs": 3,
-      "deferred_prs": 0,
-      "draft_prs": 0,
-      "stale_prs": 6,
-      "ci_failing_prs": 1,
-      "changes_requested_prs": 0,
-      "awaiting_review": 3,
-      "prs_needing_author_action": 5,
-      "ready_for_human_prs": 2,
-      "total_unresolved": 32,
-      "total_score": 167.27323991765033,
-      "oldest_stale_pr_days": 5.5475462962962965
+      "total_unresolved": 50,
+      "total_score": 330.03728732480664,
+      "oldest_stale_pr_days": 383.8220138888889
     },
     {
       "login": "QuantumExplorer",
@@ -50,20 +33,37 @@
       "stale_prs": 7,
       "ci_failing_prs": 0,
       "changes_requested_prs": 0,
-      "awaiting_review": 4,
+      "awaiting_review": 2,
       "prs_needing_author_action": 3,
       "ready_for_human_prs": 0,
       "total_unresolved": 21,
-      "total_score": 172.6254507501017,
-      "oldest_stale_pr_days": 384.6832986111111
+      "total_score": 174.1178738514738,
+      "oldest_stale_pr_days": 384.9383564814815
+    },
+    {
+      "login": "lklimek",
+      "total_open_prs": 13,
+      "clean_prs": 4,
+      "dirty_prs": 2,
+      "deferred_prs": 0,
+      "draft_prs": 0,
+      "stale_prs": 6,
+      "ci_failing_prs": 0,
+      "changes_requested_prs": 1,
+      "awaiting_review": 0,
+      "prs_needing_author_action": 3,
+      "ready_for_human_prs": 1,
+      "total_unresolved": 29,
+      "total_score": 162.82698846903952,
+      "oldest_stale_pr_days": 5.802604166666667
     },
     {
       "login": "llbartekll",
-      "total_open_prs": 3,
+      "total_open_prs": 4,
       "clean_prs": 0,
       "dirty_prs": 1,
       "deferred_prs": 0,
-      "draft_prs": 1,
+      "draft_prs": 2,
       "stale_prs": 0,
       "ci_failing_prs": 0,
       "changes_requested_prs": 1,
@@ -71,8 +71,8 @@
       "prs_needing_author_action": 2,
       "ready_for_human_prs": 0,
       "total_unresolved": 1,
-      "total_score": 9.50025469146175,
-      "oldest_stale_pr_days": 114.59900462962963
+      "total_score": 9.50466263432081,
+      "oldest_stale_pr_days": 114.8540625
     },
     {
       "login": "shumkov",
@@ -84,12 +84,12 @@
       "stale_prs": 8,
       "ci_failing_prs": 0,
       "changes_requested_prs": 0,
-      "awaiting_review": 4,
+      "awaiting_review": 1,
       "prs_needing_author_action": 1,
       "ready_for_human_prs": 0,
       "total_unresolved": 34,
-      "total_score": 558.8136275610545,
-      "oldest_stale_pr_days": 168.52645833333332
+      "total_score": 559.1452300221655,
+      "oldest_stale_pr_days": 168.78151620370372
     },
     {
       "login": "xdustinface",
@@ -105,25 +105,25 @@
       "prs_needing_author_action": 1,
       "ready_for_human_prs": 0,
       "total_unresolved": 1,
-      "total_score": 8.368680137882594,
-      "oldest_stale_pr_days": 64.65016203703703
+      "total_score": 8.376435295784303,
+      "oldest_stale_pr_days": 64.90521990740741
     },
     {
       "login": "romchornyi",
-      "total_open_prs": 1,
+      "total_open_prs": 2,
       "clean_prs": 0,
       "dirty_prs": 1,
       "deferred_prs": 0,
       "draft_prs": 0,
-      "stale_prs": 0,
+      "stale_prs": 1,
       "ci_failing_prs": 0,
       "changes_requested_prs": 0,
       "awaiting_review": 0,
       "prs_needing_author_action": 1,
       "ready_for_human_prs": 0,
       "total_unresolved": 2,
-      "total_score": 11.501797484163658,
-      "oldest_stale_pr_days": 16.733391203703704
+      "total_score": 11.5589193351999,
+      "oldest_stale_pr_days": 16.988449074074072
     },
     {
       "login": "ZocoLini",
@@ -139,8 +139,8 @@
       "prs_needing_author_action": 0,
       "ready_for_human_prs": 0,
       "total_unresolved": 2,
-      "total_score": 55.07342413620112,
-      "oldest_stale_pr_days": 245.4951736111111
+      "total_score": 55.083766164346564,
+      "oldest_stale_pr_days": 245.75023148148148
     },
     {
       "login": "bfoss765",
@@ -156,8 +156,8 @@
       "prs_needing_author_action": 0,
       "ready_for_human_prs": 0,
       "total_unresolved": 3,
-      "total_score": 19.222376089668856,
-      "oldest_stale_pr_days": 23.639293981481483
+      "total_score": 19.284204556040905,
+      "oldest_stale_pr_days": 23.89435185185185
     },
     {
       "login": "infraclaw-dash",
@@ -173,8 +173,8 @@
       "prs_needing_author_action": 0,
       "ready_for_human_prs": 2,
       "total_unresolved": 2,
-      "total_score": 18.128414207182498,
-      "oldest_stale_pr_days": 91.95388888888888
+      "total_score": 18.139374849421266,
+      "oldest_stale_pr_days": 92.20894675925926
     },
     {
       "login": "HashEngineering",
@@ -197,8 +197,8 @@
   "per_pr": [
     {
       "repo": "dashpay/platform",
-      "number": 4964,
-      "author": "PastaPastaPasta",
+      "number": 4978,
+      "author": "romchornyi",
       "score": 0.0,
       "unresolved_total": 0,
       "by_severity": {
@@ -217,7 +217,7 @@
       "repo": "dashpay/platform",
       "number": 4760,
       "author": "QuantumExplorer",
-      "score": 16.50786060529057,
+      "score": 17.72958207166748,
       "unresolved_total": 3,
       "by_severity": {
         "high": 3,
@@ -230,6 +230,42 @@
         "human": 3
       },
       "needs_author_action": true
+    },
+    {
+      "repo": "dashpay/platform",
+      "number": 4964,
+      "author": "PastaPastaPasta",
+      "score": 0.0,
+      "unresolved_total": 0,
+      "by_severity": {
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_source": {
+        "coderabbit": 0,
+        "bot": 0,
+        "human": 0
+      },
+      "needs_author_action": false
+    },
+    {
+      "repo": "dashpay/platform",
+      "number": 4963,
+      "author": "PastaPastaPasta",
+      "score": 0.0,
+      "unresolved_total": 0,
+      "by_severity": {
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_source": {
+        "coderabbit": 0,
+        "bot": 0,
+        "human": 0
+      },
+      "needs_author_action": false
     },
     {
       "repo": "dashpay/platform",
@@ -251,8 +287,62 @@
     },
     {
       "repo": "dashpay/platform",
-      "number": 4963,
-      "author": "PastaPastaPasta",
+      "number": 4740,
+      "author": "lklimek",
+      "score": 0.0,
+      "unresolved_total": 0,
+      "by_severity": {
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_source": {
+        "coderabbit": 0,
+        "bot": 0,
+        "human": 0
+      },
+      "needs_author_action": false
+    },
+    {
+      "repo": "dashpay/platform",
+      "number": 4973,
+      "author": "llbartekll",
+      "score": 0.0,
+      "unresolved_total": 0,
+      "by_severity": {
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_source": {
+        "coderabbit": 0,
+        "bot": 0,
+        "human": 0
+      },
+      "needs_author_action": false
+    },
+    {
+      "repo": "dashpay/platform",
+      "number": 4652,
+      "author": "shumkov",
+      "score": 0.0,
+      "unresolved_total": 0,
+      "by_severity": {
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_source": {
+        "coderabbit": 0,
+        "bot": 0,
+        "human": 0
+      },
+      "needs_author_action": false
+    },
+    {
+      "repo": "dashpay/platform",
+      "number": 4702,
+      "author": "infraclaw-dash",
       "score": 0.0,
       "unresolved_total": 0,
       "by_severity": {
@@ -289,7 +379,7 @@
       "repo": "dashpay/platform",
       "number": 4312,
       "author": "bfoss765",
-      "score": 6.408684969811676,
+      "score": 6.429281888962291,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -307,7 +397,7 @@
       "repo": "dashpay/platform",
       "number": 4313,
       "author": "bfoss765",
-      "score": 12.813691119857179,
+      "score": 12.854922667078613,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -325,7 +415,7 @@
       "repo": "dashpay/platform",
       "number": 4432,
       "author": "PastaPastaPasta",
-      "score": 4.025266943510041,
+      "score": 4.0923008716561835,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -343,7 +433,7 @@
       "repo": "dashpay/platform",
       "number": 4392,
       "author": "PastaPastaPasta",
-      "score": 5.551804185401985,
+      "score": 5.583331158022925,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -356,24 +446,6 @@
         "human": 0
       },
       "needs_author_action": true
-    },
-    {
-      "repo": "dashpay/platform",
-      "number": 4740,
-      "author": "lklimek",
-      "score": 2.0,
-      "unresolved_total": 1,
-      "by_severity": {
-        "high": 0,
-        "medium": 1,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 1,
-        "human": 0
-      },
-      "needs_author_action": false
     },
     {
       "repo": "dashpay/platform",
@@ -397,7 +469,7 @@
       "repo": "dashpay/platform",
       "number": 4844,
       "author": "PastaPastaPasta",
-      "score": 19.816071890087034,
+      "score": 20.38918496625319,
       "unresolved_total": 6,
       "by_severity": {
         "high": 0,
@@ -451,7 +523,7 @@
       "repo": "dashpay/platform",
       "number": 4632,
       "author": "PastaPastaPasta",
-      "score": 10.537810654826924,
+      "score": 10.610358765648337,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -469,7 +541,7 @@
       "repo": "dashpay/platform",
       "number": 4616,
       "author": "PastaPastaPasta",
-      "score": 31.302025939384492,
+      "score": 31.67863523996547,
       "unresolved_total": 7,
       "by_severity": {
         "high": 0,
@@ -487,7 +559,7 @@
       "repo": "dashpay/platform",
       "number": 4623,
       "author": "PastaPastaPasta",
-      "score": 7.7384792016353225,
+      "score": 7.883230423230305,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -505,7 +577,7 @@
       "repo": "dashpay/platform",
       "number": 4648,
       "author": "PastaPastaPasta",
-      "score": 15.978176570829527,
+      "score": 16.08395983039096,
       "unresolved_total": 3,
       "by_severity": {
         "high": 0,
@@ -523,7 +595,7 @@
       "repo": "dashpay/platform",
       "number": 4539,
       "author": "PastaPastaPasta",
-      "score": 8.848432487217588,
+      "score": 8.95858610326064,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -541,7 +613,7 @@
       "repo": "dashpay/platform",
       "number": 4562,
       "author": "PastaPastaPasta",
-      "score": 12.641222522485512,
+      "score": 12.684261000754889,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -559,7 +631,7 @@
       "repo": "dashpay/platform",
       "number": 4595,
       "author": "romchornyi",
-      "score": 11.501797484163658,
+      "score": 11.5589193351999,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -595,7 +667,7 @@
       "repo": "dashpay/platform",
       "number": 3096,
       "author": "thepastaclaw",
-      "score": 75.43280583116666,
+      "score": 75.44911793829107,
       "unresolved_total": 4,
       "by_severity": {
         "high": 2,
@@ -613,7 +685,7 @@
       "repo": "dashpay/platform",
       "number": 3417,
       "author": "QuantumExplorer",
-      "score": 16.766390912112282,
+      "score": 16.85925184736312,
       "unresolved_total": 3,
       "by_severity": {
         "high": 0,
@@ -631,7 +703,7 @@
       "repo": "dashpay/platform",
       "number": 3560,
       "author": "llbartekll",
-      "score": 9.50025469146175,
+      "score": 9.50466263432081,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -667,7 +739,7 @@
       "repo": "dashpay/platform",
       "number": 3958,
       "author": "infraclaw-dash",
-      "score": 18.128414207182498,
+      "score": 18.139374849421266,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -685,7 +757,7 @@
       "repo": "dashpay/platform",
       "number": 4282,
       "author": "shumkov",
-      "score": 38.31536632910813,
+      "score": 38.44035679496261,
       "unresolved_total": 6,
       "by_severity": {
         "high": 0,
@@ -703,7 +775,7 @@
       "repo": "dashpay/platform",
       "number": 4283,
       "author": "shumkov",
-      "score": 11.663455540706815,
+      "score": 11.71833031451805,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -755,27 +827,9 @@
     },
     {
       "repo": "dashpay/platform",
-      "number": 4702,
-      "author": "infraclaw-dash",
-      "score": 0.0,
-      "unresolved_total": 0,
-      "by_severity": {
-        "high": 0,
-        "medium": 0,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 0,
-        "human": 0
-      },
-      "needs_author_action": false
-    },
-    {
-      "repo": "dashpay/platform",
       "number": 4777,
       "author": "lklimek",
-      "score": 24.55023703117235,
+      "score": 25.155264281551148,
       "unresolved_total": 7,
       "by_severity": {
         "high": 0,
@@ -827,24 +881,6 @@
     },
     {
       "repo": "dashpay/platform",
-      "number": 4652,
-      "author": "shumkov",
-      "score": 0.0,
-      "unresolved_total": 0,
-      "by_severity": {
-        "high": 0,
-        "medium": 0,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 0,
-        "human": 0
-      },
-      "needs_author_action": false
-    },
-    {
-      "repo": "dashpay/platform",
       "number": 4439,
       "author": "HashEngineering",
       "score": 0.0,
@@ -865,7 +901,7 @@
       "repo": "dashpay/platform",
       "number": 4538,
       "author": "PastaPastaPasta",
-      "score": 12.958704192327925,
+      "score": 12.998475005440497,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -955,7 +991,7 @@
       "repo": "dashpay/platform",
       "number": 3549,
       "author": "Claudius-Maginificent",
-      "score": 89.62483404942927,
+      "score": 89.65639207815173,
       "unresolved_total": 9,
       "by_severity": {
         "high": 0,
@@ -991,7 +1027,7 @@
       "repo": "dashpay/platform",
       "number": 4272,
       "author": "QuantumExplorer",
-      "score": 71.38739367923357,
+      "score": 71.47418304673906,
       "unresolved_total": 9,
       "by_severity": {
         "high": 0,
@@ -1009,7 +1045,7 @@
       "repo": "dashpay/platform",
       "number": 4530,
       "author": "PastaPastaPasta",
-      "score": 38.88165587137584,
+      "score": 39.00091348101381,
       "unresolved_total": 6,
       "by_severity": {
         "high": 0,
@@ -1027,7 +1063,7 @@
       "repo": "dashpay/platform",
       "number": 4521,
       "author": "PastaPastaPasta",
-      "score": 12.961507237717434,
+      "score": 13.001250328692528,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -1045,7 +1081,7 @@
       "repo": "dashpay/platform",
       "number": 3936,
       "author": "shumkov",
-      "score": 18.33195865718471,
+      "score": 18.3423762154931,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -1099,7 +1135,7 @@
       "repo": "dashpay/rust-dashcore",
       "number": 264,
       "author": "PastaPastaPasta",
-      "score": 6.1091637904419605,
+      "score": 6.324763368354287,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -1135,7 +1171,7 @@
       "repo": "dashpay/rust-dashcore",
       "number": 634,
       "author": "shumkov",
-      "score": 482.50284703405487,
+      "score": 482.64416669719174,
       "unresolved_total": 20,
       "by_severity": {
         "high": 18,
@@ -1153,7 +1189,7 @@
       "repo": "dashpay/rust-dashcore",
       "number": 860,
       "author": "QuantumExplorer",
-      "score": 26.047277573065188,
+      "score": 26.06717078921026,
       "unresolved_total": 3,
       "by_severity": {
         "high": 0,
@@ -1243,7 +1279,7 @@
       "repo": "dashpay/rust-dashcore",
       "number": 375,
       "author": "ZocoLini",
-      "score": 55.07342413620112,
+      "score": 55.083766164346564,
       "unresolved_total": 2,
       "by_severity": {
         "high": 2,
@@ -1279,7 +1315,7 @@
       "repo": "dashpay/rust-dashcore",
       "number": 856,
       "author": "xdustinface",
-      "score": 8.368680137882594,
+      "score": 8.376435295784303,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -1315,7 +1351,7 @@
       "repo": "dashpay/rust-dashcore",
       "number": 901,
       "author": "thepastaclaw",
-      "score": 15.60889971674944,
+      "score": 15.629452363188458,
       "unresolved_total": 2,
       "by_severity": {
         "high": 0,
@@ -1405,7 +1441,7 @@
       "repo": "dashpay/rust-dashcore",
       "number": 622,
       "author": "QuantumExplorer",
-      "score": 25.841460938453146,
+      "score": 25.84871753148779,
       "unresolved_total": 1,
       "by_severity": {
         "high": 1,
@@ -1513,7 +1549,7 @@
       "repo": "dashpay/rust-dashcore",
       "number": 137,
       "author": "PastaPastaPasta",
-      "score": 41.664825381724796,
+      "score": 41.6694664806431,
       "unresolved_total": 2,
       "by_severity": {
         "high": 1,
@@ -1531,7 +1567,7 @@
       "repo": "dashpay/rust-dashcore",
       "number": 136,
       "author": "QuantumExplorer",
-      "score": 11.910033125551532,
+      "score": 11.911355316954412,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -1547,7 +1583,7 @@
     },
     {
       "repo": "dashpay/tenderdash",
-      "number": 1507,
+      "number": 1509,
       "author": "lklimek",
       "score": 0.0,
       "unresolved_total": 0,
@@ -1567,7 +1603,7 @@
       "repo": "dashpay/grovedb",
       "number": 977,
       "author": "QuantumExplorer",
-      "score": 4.1650339163954255,
+      "score": 4.227613248051718,
       "unresolved_total": 1,
       "by_severity": {
         "high": 0,
@@ -1583,8 +1619,8 @@
     },
     {
       "repo": "dashpay/dash-evo-tool",
-      "number": 976,
-      "author": "lklimek",
+      "number": 853,
+      "author": "thepastaclaw",
       "score": 2.0,
       "unresolved_total": 1,
       "by_severity": {
@@ -1593,44 +1629,8 @@
         "low": 0
       },
       "by_source": {
-        "coderabbit": 0,
-        "bot": 1,
-        "human": 0
-      },
-      "needs_author_action": true
-    },
-    {
-      "repo": "dashpay/dash-evo-tool",
-      "number": 1021,
-      "author": "lklimek",
-      "score": 0.0,
-      "unresolved_total": 0,
-      "by_severity": {
-        "high": 0,
-        "medium": 0,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
+        "coderabbit": 1,
         "bot": 0,
-        "human": 0
-      },
-      "needs_author_action": false
-    },
-    {
-      "repo": "dashpay/dash-evo-tool",
-      "number": 994,
-      "author": "Claudius-Maginificent",
-      "score": 2.0,
-      "unresolved_total": 1,
-      "by_severity": {
-        "high": 0,
-        "medium": 1,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 1,
         "human": 0
       },
       "needs_author_action": true
@@ -1639,114 +1639,24 @@
       "repo": "dashpay/dash-evo-tool",
       "number": 1023,
       "author": "lklimek",
-      "score": 0.0,
-      "unresolved_total": 0,
+      "score": 2.0,
+      "unresolved_total": 1,
       "by_severity": {
         "high": 0,
-        "medium": 0,
+        "medium": 1,
         "low": 0
       },
       "by_source": {
-        "coderabbit": 0,
+        "coderabbit": 1,
         "bot": 0,
         "human": 0
       },
       "needs_author_action": false
-    },
-    {
-      "repo": "dashpay/dash-evo-tool",
-      "number": 901,
-      "author": "lklimek",
-      "score": 45.09816883704871,
-      "unresolved_total": 12,
-      "by_severity": {
-        "high": 0,
-        "medium": 12,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 12,
-        "human": 0
-      },
-      "needs_author_action": true
     },
     {
       "repo": "dashpay/dash-evo-tool",
       "number": 980,
       "author": "lklimek",
-      "score": 0.0,
-      "unresolved_total": 0,
-      "by_severity": {
-        "high": 0,
-        "medium": 0,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 0,
-        "human": 0
-      },
-      "needs_author_action": true
-    },
-    {
-      "repo": "dashpay/dash-evo-tool",
-      "number": 989,
-      "author": "lklimek",
-      "score": 0.0,
-      "unresolved_total": 0,
-      "by_severity": {
-        "high": 0,
-        "medium": 0,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 0,
-        "human": 0
-      },
-      "needs_author_action": false
-    },
-    {
-      "repo": "dashpay/dash-evo-tool",
-      "number": 996,
-      "author": "Claudius-Maginificent",
-      "score": 0.0,
-      "unresolved_total": 0,
-      "by_severity": {
-        "high": 0,
-        "medium": 0,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 0,
-        "human": 0
-      },
-      "needs_author_action": true
-    },
-    {
-      "repo": "dashpay/dash-evo-tool",
-      "number": 1017,
-      "author": "Claudius-Maginificent",
-      "score": 0.0,
-      "unresolved_total": 0,
-      "by_severity": {
-        "high": 0,
-        "medium": 0,
-        "low": 0
-      },
-      "by_source": {
-        "coderabbit": 0,
-        "bot": 0,
-        "human": 0
-      },
-      "needs_author_action": false
-    },
-    {
-      "repo": "dashpay/dash-evo-tool",
-      "number": 853,
-      "author": "thepastaclaw",
       "score": 0.0,
       "unresolved_total": 0,
       "by_severity": {
@@ -1765,6 +1675,24 @@
       "repo": "dashpay/dash-evo-tool",
       "number": 859,
       "author": "thepastaclaw",
+      "score": 4.0,
+      "unresolved_total": 2,
+      "by_severity": {
+        "high": 0,
+        "medium": 2,
+        "low": 0
+      },
+      "by_source": {
+        "coderabbit": 1,
+        "bot": 0,
+        "human": 1
+      },
+      "needs_author_action": true
+    },
+    {
+      "repo": "dashpay/dash-evo-tool",
+      "number": 994,
+      "author": "Claudius-Maginificent",
       "score": 0.0,
       "unresolved_total": 0,
       "by_severity": {
@@ -1783,19 +1711,73 @@
       "repo": "dashpay/dash-evo-tool",
       "number": 1010,
       "author": "Claudius-Maginificent",
-      "score": 2.0,
-      "unresolved_total": 1,
+      "score": 0.0,
+      "unresolved_total": 0,
       "by_severity": {
         "high": 0,
-        "medium": 1,
+        "medium": 0,
         "low": 0
       },
       "by_source": {
         "coderabbit": 0,
-        "bot": 1,
+        "bot": 0,
         "human": 0
       },
       "needs_author_action": false
+    },
+    {
+      "repo": "dashpay/dash-evo-tool",
+      "number": 976,
+      "author": "lklimek",
+      "score": 0.0,
+      "unresolved_total": 0,
+      "by_severity": {
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_source": {
+        "coderabbit": 0,
+        "bot": 0,
+        "human": 0
+      },
+      "needs_author_action": true
+    },
+    {
+      "repo": "dashpay/dash-evo-tool",
+      "number": 901,
+      "author": "lklimek",
+      "score": 46.015332109336654,
+      "unresolved_total": 12,
+      "by_severity": {
+        "high": 0,
+        "medium": 12,
+        "low": 0
+      },
+      "by_source": {
+        "coderabbit": 0,
+        "bot": 12,
+        "human": 0
+      },
+      "needs_author_action": true
+    },
+    {
+      "repo": "dashpay/dash-evo-tool",
+      "number": 996,
+      "author": "Claudius-Maginificent",
+      "score": 0.0,
+      "unresolved_total": 0,
+      "by_severity": {
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      },
+      "by_source": {
+        "coderabbit": 0,
+        "bot": 0,
+        "human": 0
+      },
+      "needs_author_action": true
     },
     {
       "repo": "dashpay/dash-evo-tool",
