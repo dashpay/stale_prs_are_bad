@@ -157,6 +157,23 @@ class ChecklistTests(unittest.TestCase):
         line = first_unchecked(main.checklist_block(result))
         self.assertIn('@ktechmidas posted it, and it has to be the author', line)
 
+    def test_a_bot_author_is_not_told_to_post_it_itself(self):
+        # The line already says the attestation is not asked of it. Appending
+        # "and it has to be the author" instructs an author that is not there.
+        policy, pr = bartek()
+        policy = dict(policy, bot_authors=['infraclaw-dash'])
+        pr['author'] = 'infraclaw-dash'
+        pr['permissions'] = dict(pr['permissions'], **{'infraclaw-dash': 'write'})
+        pr['reviews'] = pr['reviews'] + [dict(id=8, user='romchornyi', state='CHANGES_REQUESTED',
+                                              commit_id=HEAD, submitted_at='2026-09-11T13:00:00Z', body='')]
+        pr['comments'] = pr['comments'] + [dict(id=9, user='ktechmidas', body='/self-reviewed',
+                                                created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
+        result = evaluate(policy, pr, NOW, LATER)
+        items = {i['item']: i for i in result['checklist']}
+        self.assertTrue(items['self_review']['bot_author'])
+        self.assertTrue(items['self_review']['on_their_behalf'])
+        self.assertNotIn('has to be the author', main.checklist_block(result))
+
     def test_the_self_review_line_never_says_post_it_while_checked(self):
         policy, pr = bartek()
         pr['comments'].append(dict(id=2, user='llbartekll', body='/self-reviewed',

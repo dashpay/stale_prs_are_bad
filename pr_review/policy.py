@@ -213,6 +213,11 @@ RECEIPT_MARKER = 'final_review_risk_coverage'
 # in their own words, so the spelling weakens nothing — and `/self-review`
 # without the d has cost two people a merge already.
 ATTESTATION = re.compile(r'/self[- ]?review(?:ed)?(?:\s+(?P<head>[0-9a-fA-F]{40}))?', re.IGNORECASE)
+# The caller workflow starts a run on a comment that contains one of these.
+# Every spelling the pattern above accepts has to contain one, or the phrase
+# is read by the next sweep hours later instead of at once — which is the
+# complaint that widened the pattern in the first place.
+ATTESTATION_TRIGGERS = ('/self-review', '/selfreview', '/self review')
 RATE_LIMITED = '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'
 RATE_LIMITED_MARKER = 'rate limited by coderabbit.ai'
 
@@ -288,20 +293,40 @@ def nudged_at(comments, bot, head):
 
 
 def rate_limited_at(comments, head_seen_at):
-    """When CodeRabbit last said it was rate limited, after this head appeared.
+    """When CodeRabbit first said, about this head, that it was rate limited.
 
-    It keeps one comment and edits it, so when it said so is when that comment
-    was last written — reading the date it was first posted found a notice
-    from a week earlier or, on a pull request open long enough, none at all.
-    The marker is only in the body while the limit stands: a review that
+    It keeps one comment and edits it, so a notice about this head can sit
+    under a creation date from the week the pull request opened; reading that
+    date found nothing at all and the pull request waited the whole window.
+    An edit counts as the bot's word only when the bot made it — anyone with
+    write access can edit anyone's comment, and a stranger's edit of a stale
+    notice would otherwise read as "it cannot review this head", with the
+    report crediting the bot for a skip a person performed.
+
+    The instant returned is a property of the head: the later of the notice
+    and the head, never the moment of the edit that revealed it. An instant
+    that moved with the clock would keep raising the floor an attestation has
+    to clear, so a no-op edit would void one already given.
+
+    The marker is in the body only while the limit stands: a review that
     succeeds later rewrites the comment without it.
     """
     if not head_seen_at:
         return None
-    stamps = [c.get('updated_at') or c['created_at'] for c in comments
-              if c['user'].lower() in {'coderabbitai', 'coderabbitai[bot]'} and RATE_LIMITED in c['body']
-              and _time(c.get('updated_at') or c['created_at']) >= _time(head_seen_at)]
-    return max(stamps, key=_time) if stamps else None
+    stamps = []
+    for c in comments:
+        if c['user'].lower() not in {'coderabbitai', 'coderabbitai[bot]'} or RATE_LIMITED not in c['body']:
+            continue
+        edited = c.get('updated_at') or c['created_at']
+        if _time(edited) < _time(head_seen_at):
+            continue
+        # Unedited, it is the bot's own words. Edited, only if the bot is who
+        # edited it — and where that cannot be known, the ordinary window
+        # applies rather than a skip nobody can attribute.
+        if edited != c['created_at'] and (c.get('edited_by') or '').lower() not in {'coderabbitai', 'coderabbitai[bot]'}:
+            continue
+        stamps.append(max(c['created_at'], head_seen_at, key=_time))
+    return min(stamps, key=_time) if stamps else None
 
 
 def bot_schedule(policy, pr, bot, nowISO, telemetry_state=None):
@@ -314,7 +339,7 @@ def bot_schedule(policy, pr, bot, nowISO, telemetry_state=None):
     timeouts = policy.get('bot_timeouts')
     seen = pr.get('head_seen_at')
     if not timeouts or not seen:
-        return {'nudge': False, 'waived_at': None}
+        return {'nudge': False, 'waived_at': None, 'waived_reason': None}
     waited = _hours(seen, nowISO)
     nudge_after, waive_after = timeouts['nudge_after_hours'], timeouts['waive_after_hours']
     already = nudged_at(pr['comments'], bot, pr['head'])
@@ -678,7 +703,12 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 if was_ready and previous.get('ready_since'):
                     _time(previous['ready_since'])
                     result['ready_since'] = previous['ready_since']
-                elif previous.get('admitted_at'):
+                elif previous.get('admitted_at') or machine_author(policy, pr):
+                    # A machine author holds no slot, so admission is never
+                    # recorded for it — and keying on admission left exactly
+                    # the pull requests this exemption surfaces with no waiting
+                    # time at all, reported as "not recorded" for ever and
+                    # sorted for ever as the freshest thing in the queue.
                     result['ready_since'] = nowISO
             gate('ready-for-human', 'Human approval or objection resolution is required')
         elif build != 'green':

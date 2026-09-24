@@ -238,7 +238,13 @@ class PolicyTests(unittest.TestCase):
         p, pr = fixture()
         p['bot_authors'] = ['infraclaw-dash']
         pr.update(author='infraclaw-dash', comments=[])
-        self.assertEqual(evaluate(p, pr, None, NOW)['state'], 'ready-for-human')
+        result = evaluate(p, pr, None, NOW)
+        self.assertEqual(result['state'], 'ready-for-human')
+        # It holds no slot, so admission is never recorded for it — and the
+        # waiting time keyed off admission, leaving exactly these pull
+        # requests reported as "not recorded" and sorted for ever as the
+        # freshest thing in the queue.
+        self.assertEqual(result['ready_since'], NOW)
         # The same pull request from a person, attested, still waits its turn.
         pr.update(author='reviewer', comments=[dict(id=3, user='reviewer', body=f'/self-reviewed {HEAD}',
                                                     created_at='2026-09-11T11:00:00Z',

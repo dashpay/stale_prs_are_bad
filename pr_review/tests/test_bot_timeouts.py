@@ -81,9 +81,38 @@ class BotTimeoutTests(unittest.TestCase):
         # head was newer than the comment, nothing at all, which is why
         # dash-evo-tool#987 waited the whole window.
         policy, pr = waiting(2)
-        pr['comments'] = [{'user': 'coderabbitai[bot]', 'created_at': ago(200), 'updated_at': ago(1.5),
-                           'body': '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'}]
-        self.assertEqual(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_reason'], 'rate-limit')
+        notice = {'user': 'coderabbitai[bot]', 'created_at': ago(200), 'updated_at': ago(1.5),
+                  'edited_by': 'coderabbitai', 'body': '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'}
+        pr['comments'] = [notice]
+        plan = bot_schedule(policy, pr, 'coderabbitai', NOW)
+        self.assertEqual(plan['waived_reason'], 'rate-limit')
+        # The instant is the head's, not the edit's: an hour after this head
+        # appeared, so a later edit cannot raise it under a standing attestation.
+        self.assertEqual(plan['waived_at'], ago(1))
+
+    def test_a_notice_rewritten_by_somebody_else_is_not_the_bot_speaking(self):
+        # Anyone with write access can edit anyone's comment. Without this,
+        # one whitespace edit of a week-old notice drops CodeRabbit's review
+        # an hour later, and the report credits CodeRabbit for it.
+        policy, pr = waiting(2)
+        notice = {'user': 'coderabbitai[bot]', 'created_at': ago(200), 'updated_at': ago(1.5),
+                  'body': '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'}
+        for editor in ('llbartekll', None):
+            pr['comments'] = [dict(notice, edited_by=editor)]
+            self.assertIsNone(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'], repr(editor))
+
+    def test_the_rate_limit_instant_does_not_move_when_the_notice_is_rewritten(self):
+        # It feeds the floor an attestation must clear. An instant that moved
+        # with each edit would void a standing attestation, withdraw a green
+        # required check, and ask the author for another — on an edit that
+        # said nothing new about the diff.
+        policy, pr = waiting(4)
+        notice = {'user': 'coderabbitai[bot]', 'created_at': ago(3), 'updated_at': ago(3),
+                  'edited_by': 'coderabbitai', 'body': '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'}
+        pr['comments'] = [notice]
+        first = bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at']
+        pr['comments'] = [dict(notice, updated_at=ago(0.1))]
+        self.assertEqual(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'], first)
 
     def test_the_waiver_arrives_on_time_without_any_telemetry(self):
         self.assertIsNone(self.plan(15)['waived_at'])
@@ -105,11 +134,11 @@ class BotTimeoutTests(unittest.TestCase):
     def test_a_repository_without_timeouts_never_nudges_or_waives(self):
         policy, pr = waiting(100)
         del policy['bot_timeouts']
-        self.assertEqual(bot_schedule(policy, pr, 'thepastaclaw', NOW), {'nudge': False, 'waived_at': None})
+        self.assertEqual(bot_schedule(policy, pr, 'thepastaclaw', NOW), {'nudge': False, 'waived_at': None, 'waived_reason': None})
 
     def test_a_head_the_controller_has_not_reported_on_has_no_clock(self):
         policy, pr = waiting(100, head_seen_at=None)
-        self.assertEqual(bot_schedule(policy, pr, 'thepastaclaw', NOW), {'nudge': False, 'waived_at': None})
+        self.assertEqual(bot_schedule(policy, pr, 'thepastaclaw', NOW), {'nudge': False, 'waived_at': None, 'waived_reason': None})
 
 
 class WaiverTests(unittest.TestCase):

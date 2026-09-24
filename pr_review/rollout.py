@@ -6,11 +6,14 @@ from pathlib import Path
 import re
 
 from .event import BUILD_SCAN_CRON, SWEEP_CRON
-from .policy import RATE_LIMITED_MARKER, RECEIPT_MARKER, codeowners, validate_policy
+from .policy import (ATTESTATION_TRIGGERS, RATE_LIMITED_MARKER, RECEIPT_MARKER, codeowners,
+                     validate_policy)
 from .registry import CENTRAL_REPOSITORY, POLICIES, ROOT, entry_for, load_registry, policy_path
 
 
 def caller_workflow(engine_revision):
+    ATTESTATION_CLAUSES = ' ||\n'.join(
+        f"      contains(github.event.comment.body, '{trigger}')" for trigger in ATTESTATION_TRIGGERS) + ' ||'
     return f'''name: PR Hygiene policy
 on:
   pull_request_target:
@@ -60,7 +63,7 @@ jobs:
     # so a comment that starts no run is still seen by the next one.
     if: >-
       github.event_name != 'issue_comment' ||
-      contains(github.event.comment.body, '/self-reviewed') ||
+{ATTESTATION_CLAUSES}
       contains(github.event.comment.body, '/skip-bots') ||
       (contains(fromJSON('["coderabbitai", "coderabbitai[bot]"]'), github.event.comment.user.login) &&
       (contains(github.event.comment.body, '{RECEIPT_MARKER}') ||
