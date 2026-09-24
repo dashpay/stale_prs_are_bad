@@ -273,12 +273,18 @@ def diff_record(pr, result):
     keys, and an engine that predates this would refuse one carrying more and
     report a configuration error on every pull request in its repository.
     """
-    print_now = diff_print(pr)
-    if not print_now or not result.get('number'):
+    if not result.get('number'):
         return None
-    return {'number': result['number'], 'diff': print_now,
-            'diff_heads': (result.get('reviewed_heads') or [pr['head']])[-20:],
-            'diff_seen': result.get('reviewed_since') or pr.get('head_seen_at')}
+    print_now = diff_print(pr)
+    said = {k: v for k, v in list((result.get('receipts') or {}).items())[-8:]}
+    if not print_now and not said:
+        return None
+    record = {'number': result['number'], 'receipts': said}
+    if print_now:
+        record.update(diff=print_now,
+                      diff_heads=(result.get('reviewed_heads') or [pr['head']])[-20:],
+                      diff_seen=result.get('reviewed_since') or pr.get('head_seen_at'))
+    return record
 
 
 SAFE_PATH = re.compile(r'[A-Za-z0-9._/@+-]+')

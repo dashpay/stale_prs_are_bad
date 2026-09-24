@@ -363,6 +363,67 @@ class PolicyTests(unittest.TestCase):
         pr['comments'] = []
         self.assertIn('coderabbitai', evaluate(p, pr, NOW, NOW)['nudge'])
 
+    def rabbit(self, finding='', head=None, extra=''):
+        """CodeRabbit's comment as it writes it: a receipt, a finding, and the rest."""
+        import json as _json
+        covered = _json.dumps({'sourceCommitId': head or HEAD, 'coveredCommitId': head or HEAD,
+                               'kind': 'reviewed'}, separators=(',', ':'))
+        return ('<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n'
+                + extra
+                + '<!-- final_review_risk_start -->\n'
+                + '**Merge Risk:** Minimal\n'
+                + f'<!-- final_review_risk_coverage:{covered} -->\n'
+                + finding + '\n<!-- final_review_risk_end -->\n<!-- tips -->\n')
+
+    def test_a_cosmetic_edit_is_not_the_bot_speaking_again(self):
+        # tenderdash#1489, rust-dashcore#1048: the author attested, CodeRabbit
+        # rewrote its comment hours later to add a banner, and the attestation
+        # was thrown away — the author was asked for another that would read
+        # nothing new. Both of them posted it twice.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
+        pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
+                               created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T09:00:00Z'),
+                          dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        first = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(first['status'], 'success', first['blockers'])
+        # The banner it adds later, with the same words about the code.
+        pr['comments'][0] = dict(pr['comments'][0], updated_at='2026-09-11T13:00:00Z',
+                                 body=self.rabbit(extra='<a href="#">Review in Change Stack</a>\n'))
+        pr['controller_diff'] = {'number': 1, 'receipts': first['receipts']}
+        again = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(again['status'], 'success', again['blockers'])
+
+    def test_a_new_finding_is_the_bot_speaking_again(self):
+        # platform#4653: the blocker was in the prose of the receipt itself —
+        # "Add signer support or defer selecting these keys before merging" —
+        # with no thread and no changes request. An attestation written before
+        # it has not read it.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
+        pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
+                               created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T09:00:00Z'),
+                          dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        first = evaluate(p, pr, NOW, NOW)
+        pr['comments'][0] = dict(pr['comments'][0], updated_at='2026-09-11T13:00:00Z',
+                                 body=self.rabbit(finding='Add signer support before merging.'))
+        pr['controller_diff'] = {'number': 1, 'receipts': first['receipts']}
+        again = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(again['state'], 'waiting-self-review')
+
+    def test_a_receipt_this_controller_has_not_seen_dates_from_the_comment(self):
+        # Nothing remembered yet, and nothing assumed: the comment's own time
+        # is the floor, which is what it was before any of this.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
+        pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
+                               created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T13:00:00Z'),
+                          dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
     def test_a_machine_author_does_not_spend_a_review_slot(self):
         # The five are a limit on one person's attention. An account that
         # opens pull requests on its own has none to ration, and what its pull
