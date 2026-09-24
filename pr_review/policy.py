@@ -225,6 +225,7 @@ ATTESTATION = re.compile(r'/self[- ]?review(?:ed)?(?:\s+(?P<head>[0-9a-fA-F]{40}
 ATTESTATION_TRIGGERS = ('/self-review', '/selfreview', '/self review')
 RATE_LIMITED = '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'
 RATE_LIMITED_MARKER = 'rate limited by coderabbit.ai'
+RATE_LIMITED_END = '<!-- end of auto-generated comment: rate limited by coderabbit.ai -->'
 
 
 def _may_object(permissions, user):
@@ -297,7 +298,16 @@ def nudged_at(comments, bot, head):
     return max(stamps, key=_time) if stamps else None
 
 
-def rate_limited_at(comments, head_seen_at):
+def _limited_block(body):
+    """The rate-limit notice itself, without the rest of the comment around it."""
+    start = body.find(RATE_LIMITED)
+    if start < 0:
+        return ''
+    end = body.find(RATE_LIMITED_END, start)
+    return body[start:] if end < 0 else body[start:end]
+
+
+def rate_limited_at(comments, head_seen_at, head=None):
     """When CodeRabbit first said, about this head, that it was rate limited.
 
     It keeps one comment and edits it, so a notice about this head can sit
@@ -323,7 +333,13 @@ def rate_limited_at(comments, head_seen_at):
         if c['user'].lower() not in {'coderabbitai', 'coderabbitai[bot]'} or RATE_LIMITED not in c['body']:
             continue
         edited = c.get('updated_at') or c['created_at']
-        if _time(edited) < _time(head_seen_at):
+        # The notice names the commit it could not review, and that is what
+        # says it is about this head. Its own timestamp does not: the bot can
+        # say it before this controller has reported on the head, and on
+        # dash-evo-tool#1021 it did, by four minutes — so the pull request
+        # waited the whole window for a review the bot had already refused.
+        about_this_head = _limited_block(c['body']).find(head) >= 0 if head else False
+        if not about_this_head and _time(edited) < _time(head_seen_at):
             continue
         # Unedited, it is the bot's own words. Edited, only if the bot is who
         # edited it — and where that cannot be known, the ordinary window
@@ -349,7 +365,7 @@ def bot_schedule(policy, pr, bot, nowISO, telemetry_state=None):
     nudge_after, waive_after = timeouts['nudge_after_hours'], timeouts['waive_after_hours']
     already = nudged_at(pr['comments'], bot, pr['head'])
 
-    limited = rate_limited_at(pr['comments'], seen) if bot == 'coderabbitai' else None
+    limited = rate_limited_at(pr['comments'], seen, pr.get('head')) if bot == 'coderabbitai' else None
     if limited is not None:
         # CodeRabbit announced its own limit and documents this exact retry.
         due = _hours(limited, nowISO) >= 1
