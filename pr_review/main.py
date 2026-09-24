@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 
 from . import telemetry
-from .github import (STATE_MARKER, STATE_PATTERN, GitHub, GitHubError, current_checklist,
+from .github import (DIFF_MARKER, STATE_MARKER, STATE_PATTERN, GitHub, GitHubError, current_checklist,
                      parse_controller_diff, parse_controller_state)
 from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
                      STATE_LABELS, admit, codeowners, diff_print, effective_admission, evaluate,
@@ -394,8 +394,17 @@ def move_text(result):
 
 
 def _visible(comment_body):
-    """A record comment's text, without the record."""
-    return comment_body.split('-->', 1)[-1].strip() if comment_body.startswith(STATE_MARKER) else comment_body.strip()
+    """A record comment's text, without the records it carries.
+
+    There is more than one marker line now, and stripping only the first left
+    the second in the text: the words never matched what this run would write,
+    so the comment was rewritten on every run, and where the record had to be
+    refreshed under a state that posts no words, writing it back raised.
+    """
+    body = comment_body
+    while body.startswith(STATE_MARKER) or body.startswith(DIFF_MARKER):
+        body = body.split('-->', 1)[-1].lstrip('\n')
+    return body.strip()
 
 
 def _same(a, b):

@@ -1,5 +1,6 @@
 """Read complete GitHub evidence and apply explicit review-workflow effects."""
 
+import hashlib
 import json
 import re
 import subprocess
@@ -195,7 +196,12 @@ def _validate_diff(diff):
     if (not isinstance(heads, list) or not 1 <= len(heads) <= 20
             or any(not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{40}", h) for h in heads)):
         raise GitHubError("Invalid controller diff heads")
-    if diff["diff_seen"] is not None and not isinstance(diff["diff_seen"], str):
+    # A timestamp, checked as one: it is read back as a time, and a string
+    # that is not one raised out of the verdict, which catches no such error,
+    # and took the whole repository's run down with it.
+    if diff["diff_seen"] is not None and (
+            not isinstance(diff["diff_seen"], str)
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", diff["diff_seen"])):
         raise GitHubError("Invalid controller diff timestamp")
 
 
@@ -203,11 +209,21 @@ def parse_controller_diff(comments, number):
     """The newest recorded diff for this pull request, or None.
 
     Read beside the record, and never fatal: without it a push is read as new
-    work, which is what happened before this was written down at all.
+    work, which is what happened before this was written down at all. Only
+    this controller's own unedited words are read.
     """
     found = []
     for comment in comments:
         if comment["user"].lower() != "github-actions[bot]" or DIFF_MARKER not in comment["body"]:
+            continue
+        # Anyone with write access can edit anyone's comment, and this one
+        # says which commits a review still covers — forge it and a stale
+        # approval, the only human gate left, counts for code nobody read.
+        # Unedited it is this controller's own words; edited, only if this
+        # controller is who edited it. Where that cannot be known the pull
+        # request starts over, which is what it did before this existed.
+        edited = comment.get("updated_at") or comment["created_at"]
+        if edited != comment["created_at"] and (comment.get("edited_by") or "").lower() != "github-actions[bot]":
             continue
         matches = list(DIFF_PATTERN.finditer(comment["body"]))
         if len(matches) != 1:
@@ -659,13 +675,26 @@ class GitHub:
                 # lists the pull request against its merge base, so these two
                 # are the pull request's own changes and nothing else — which
                 # is what says a new head carries the same work as the old.
-                # A read that carries neither says nothing about whether a
-                # later commit is the same work, and the reader treats it as
+                # A read that carries none of these says nothing about whether
+                # a later commit is the same work, and the reader treats it as
                 # unknown rather than as unchanged.
                 if isinstance(file.get("status"), str):
                     normalized["status"] = file["status"]
                 if isinstance(file.get("sha"), str) and file["sha"]:
                     normalized["content"] = file["sha"]
+                # And the patch itself, digested. What the file holds is not
+                # enough: a conflict resolved by keeping your own side leaves
+                # the file byte for byte what the reviewer saw while the patch
+                # against the moved base now also undoes what the base did.
+                patch = file.get("patch")
+                counts = tuple(file.get(k) for k in ("additions", "deletions", "changes"))
+                if isinstance(patch, str) or all(type(n) is int for n in counts):
+                    shape = patch if isinstance(patch, str) else repr(counts)
+                    normalized["shape"] = hashlib.sha256(shape.encode()).hexdigest()
+                # A change with no content at all — a mode bit, a type change —
+                # is not something this can see, so it is not carried over.
+                if counts[2] == 0 and not patch:
+                    normalized.pop("content", None)
                 result["files"].append(normalized)
             _unique(result["files"], "filename", "changed file")
             reviews = []

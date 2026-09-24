@@ -270,7 +270,7 @@ class PublishTests(unittest.TestCase):
         # this would refuse a record carrying more and report a configuration
         # error on every pull request in its repository until it is re-pinned.
         pr = dict(self.pr, files=[{'filename': 'packages/swift-sdk/Sources/a.swift',
-                                   'status': 'modified', 'content': 'c' * 40}])
+                                   'status': 'modified', 'content': 'c' * 40, 'shape': 'a' * 64}])
         result = evaluate(self.policy, pr, NOW, LATER)
         api = self.run_publish(pr, result)
         api.upsert_state.assert_called_once()
@@ -285,6 +285,28 @@ class PublishTests(unittest.TestCase):
         comments = [dict(id=1, user='github-actions[bot]', body=body, created_at=NOW, updated_at=NOW)]
         self.assertEqual(parse_controller_state(comments)[0], record, 'an older engine still reads the record')
         self.assertEqual(parse_controller_diff(comments, pr['number']), diff)
+
+    def test_a_comment_carrying_both_records_is_left_alone_when_it_agrees(self):
+        # The words are read back with the records stripped off. Stripping
+        # only the first left the second in the text, so the words never
+        # matched what this run would write: the comment was rewritten on
+        # every run, and where the record had to be refreshed under a state
+        # that posts no words, writing it back raised and the pull request
+        # took an error status it could not leave.
+        pr = dict(self.pr, files=[{'filename': 'packages/swift-sdk/Sources/a.swift',
+                                   'status': 'modified', 'content': 'c' * 40, 'shape': 'a' * 64}])
+        result = evaluate(self.policy, pr, NOW, LATER)
+        record = main.state_record(pr, result, main.context_fingerprint([pr], pr['author']))
+        body = GitHub.state_comment_body(record, main.move_text(result), main.diff_record(pr, result))
+        self.assertEqual(main._visible(body), main.move_text(result))
+        pr = dict(pr, body='text\n\n' + main.checklist_block(result),
+                  labels=['waiting-self-review', 'bot-review-skipped'], controller_state=record,
+                  controller_diff=main.diff_record(pr, result))
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', created_at=NOW,
+                                                updated_at=NOW, body=body)]
+        api = self.run_publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.upsert_state.assert_not_called()
+        api.set_checklist.assert_not_called()
 
     def test_nothing_is_rewritten_when_description_labels_and_comment_already_agree(self):
         result = evaluate(self.policy, self.pr, NOW, LATER)

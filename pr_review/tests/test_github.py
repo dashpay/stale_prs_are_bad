@@ -30,6 +30,33 @@ def rollup(nodes=None, head="a" * 40, total=None, more=False, cursor=None):
 
 class BuildVerdictTests(unittest.TestCase):
     checks = staticmethod(rollup)
+    def test_a_diff_marker_somebody_else_edited_is_not_read(self):
+        # It says which commits a review still covers. Anyone with write
+        # access can edit anyone's comment, and a forged one carries a stale
+        # approval — the only human gate left — onto code nobody read.
+        from pr_review.github import parse_controller_diff
+        diff = {'number': 7, 'diff': 'a' * 64, 'diff_heads': ['b' * 40], 'diff_seen': '2026-09-11T10:00:00Z'}
+        body = GitHub.state_comment_body(
+            {'version': 1, 'number': 7, 'head': 'b' * 40, 'admitted_at': None, 'ready_since': None,
+              'state': 'ready-for-human', 'evidence': 'c' * 64, 'context': 'd' * 64}, 'text', diff)
+        made = dict(id=1, user='github-actions[bot]', body=body,
+                    created_at='2026-09-11T10:00:00Z', updated_at='2026-09-11T10:00:00Z')
+        self.assertEqual(parse_controller_diff([made], 7), diff)
+        for editor in ('llbartekll', None):
+            touched = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by=editor)
+            self.assertIsNone(parse_controller_diff([touched], 7), repr(editor))
+        kept = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by='github-actions[bot]')
+        self.assertEqual(parse_controller_diff([kept], 7), diff)
+
+    def test_a_diff_timestamp_that_is_not_one_is_refused(self):
+        # It is read back as a time. A string that is not one raised out of
+        # the verdict and took the whole repository's run with it.
+        from pr_review.github import _validate_diff
+        for bad in ('banana', '2026-09-11', '2026-09-11T10:00:00+03:00', 5):
+            with self.assertRaises(GitHubError, msg=repr(bad)):
+                _validate_diff({'number': 1, 'diff': 'a' * 64, 'diff_heads': ['b' * 40], 'diff_seen': bad})
+
+
     def test_re_running_a_flaky_check_clears_it(self):
         # The question this whole rule turns on. A re-run does not replace the
         # run it repeats, it adds another beside it, so the failure stays on the

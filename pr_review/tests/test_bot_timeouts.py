@@ -115,6 +115,16 @@ class BotTimeoutTests(unittest.TestCase):
                                     '<!-- end of auto-generated comment: rate limited by coderabbit.ai -->')}]
         self.assertIsNone(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'])
 
+    def test_a_notice_with_no_end_has_no_extent(self):
+        # Reading to the end of the comment would let the walkthrough below
+        # the notice speak for the limit.
+        policy, pr = waiting(2)
+        pr['comments'] = [{'user': 'coderabbitai[bot]', 'created_at': ago(50), 'updated_at': ago(50),
+                           'body': ('<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n'
+                                    '> Review limit reached\n'
+                                    f'Walkthrough of {pr["head"]} follows.')}]
+        self.assertIsNone(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'])
+
     def test_the_head_named_outside_the_notice_does_not_count(self):
         # The same comment carries the walkthrough, which names the head as a
         # matter of course. Only the notice speaks to the limit.

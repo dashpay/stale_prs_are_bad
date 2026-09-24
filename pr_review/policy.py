@@ -182,15 +182,18 @@ def diff_print(pr):
     """What a reviewer read: this pull request's own changes, whatever commit carries them.
 
     The changed-file list is taken against the merge base, so a commit that
-    only brings the base forward leaves every entry identical, while a
-    conflict resolved by hand — code that exists in the merge commit and
-    nowhere else — changes the content of the file it resolved, and anything
-    else the merge brought in appears as an entry that was not there.
+    only brings the base forward leaves every entry identical, while anything
+    else the merge carried appears as an entry that was not there. Both what
+    each file holds and the patch that produced it are read: a conflict
+    resolved by keeping your own side leaves the file byte for byte what the
+    reviewer saw, and only the patch shows that it now also undoes what the
+    base did.
     """
     files = pr.get('files') or []
-    if any(not f.get('content') for f in files):
-        return None      # an older read with no content ids says nothing
-    items = sorted((f['filename'], f.get('status') or '', f['content'], f.get('previous_filename') or '')
+    if any(not f.get('content') or not f.get('shape') for f in files):
+        return None      # a read that cannot say what changed says nothing
+    items = sorted((f['filename'], f.get('status') or '', f['content'], f['shape'],
+                    f.get('previous_filename') or '')
                    for f in files)
     return hashlib.sha256(json.dumps(items, separators=(',', ':')).encode()).hexdigest()
 
@@ -218,7 +221,8 @@ def carried_heads(pr):
 def fingerprint(pr):
     relevant = copy.deepcopy(pr)
     # The description carries this controller's own checklist, an effect.
-    for name in ('controller_state', 'controller_comment_id', 'labels', 'requested_reviewers', 'build', 'body'):
+    for name in ('controller_state', 'controller_comment_id', 'controller_diff',
+                 'labels', 'requested_reviewers', 'build', 'body'):
         relevant.pop(name, None)
     # This controller's own comments are effects, not evidence: counting them
     # would make writing one look like the world changed underneath the write.
@@ -327,11 +331,15 @@ def skipped_by(comments, permissions, head_seen_at):
     return {'user': user, 'at': when}
 
 
-def nudged_at(comments, bot, head):
-    """When this controller last asked a bot to look at exactly this head."""
-    marker = f'{NUDGE_MARKER} bot={bot} sha={head} -->'
+def nudged_at(comments, bot, heads):
+    """When this controller last asked a bot to look at this work.
+
+    Any commit carrying the same diff counts: the bot was asked about this
+    code, and asking again because the base moved underneath it is noise.
+    """
+    markers = [f'{NUDGE_MARKER} bot={bot} sha={h} -->' for h in ([heads] if isinstance(heads, str) else heads)]
     stamps = [c['created_at'] for c in comments
-              if c['user'].lower() == 'github-actions[bot]' and marker in c['body']]
+              if c['user'].lower() == 'github-actions[bot]' and any(m in c['body'] for m in markers)]
     return max(stamps, key=_time) if stamps else None
 
 
@@ -341,7 +349,9 @@ def _limited_block(body):
     if start < 0:
         return ''
     end = body.find(RATE_LIMITED_END, start)
-    return body[start:] if end < 0 else body[start:end]
+    # Without its end, the notice has no extent, and reading to the end of the
+    # comment would let the walkthrough below it speak for the limit.
+    return '' if end < 0 else body[start:end]
 
 
 def rate_limited_at(comments, head_seen_at, head=None):
@@ -400,7 +410,7 @@ def bot_schedule(policy, pr, bot, nowISO, telemetry_state=None):
         return {'nudge': False, 'waived_at': None, 'waived_reason': None}
     waited = _hours(seen, nowISO)
     nudge_after, waive_after = timeouts['nudge_after_hours'], timeouts['waive_after_hours']
-    already = nudged_at(pr['comments'], bot, pr['head'])
+    already = nudged_at(pr['comments'], bot, pr.get('reviewed_heads') or [pr['head']])
 
     limited = rate_limited_at(pr['comments'], seen, pr.get('head')) if bot == 'coderabbitai' else None
     if limited is not None:
@@ -446,6 +456,13 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                   ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None,
                   nudge=[], waived=[], approvals=[], objections=[], checklist=[],
                   reviewed_heads=[pr.get('head')] if pr.get('head') else [], reviewed_since=pr.get('head_seen_at'))
+    # Before anything can gate: a verdict that stops early must still record
+    # what carries this diff, or one configuration error cuts the chain and
+    # the pull request silently starts asking for its reviews again.
+    try:
+        result['reviewed_heads'], result['reviewed_since'] = carried_heads(pr)
+    except (KeyError, TypeError, ValueError):
+        pass
 
     # This status is a required check, so it passes only when the policy is
     # satisfied. Everything still waiting is pending — not red, because an
