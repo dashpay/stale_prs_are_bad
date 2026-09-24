@@ -402,8 +402,14 @@ def _visible(comment_body):
     refreshed under a state that posts no words, writing it back raised.
     """
     body = comment_body
-    while (body.startswith(STATE_MARKER) or body.startswith(DIFF_MARKER)) and '-->' in body:
-        body = body.split('-->', 1)[-1].lstrip('\n')
+    while body.startswith(STATE_MARKER) or body.startswith(DIFF_MARKER):
+        # A line somebody truncated is still that line, and leaving it in the
+        # words is not harmless: the words are written back, and a write that
+        # carries a marker is refused — so the pull request took an error it
+        # could never leave, because the write that would repair the comment
+        # is the write that fails.
+        head, sep, rest = body.partition('-->')
+        body = (rest if sep else head.split('\n', 1)[-1] if '\n' in head else '').lstrip('\n')
     return body.strip()
 
 
@@ -514,13 +520,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if not valid_admission or fingerprint(final) != fingerprint(pr):
             api.post_status(pr['head'], 'pending', 'Review evidence changed; reconciliation required')
             return
-        # This controller's own note about the evidence, carried across rather
-        # than read again: this read has no editor to check it against, so
-        # reading it here would drop it, and the second verdict would differ
-        # from the first on every pull request whose review was carried —
-        # holding the check pending on exactly the ones the carry unblocks.
-        check = evaluate(policy, dict(final, controller_diff=pr.get('controller_diff')),
-                         result.get('admitted_at'), utc_now())
+        check = evaluate(policy, final, result.get('admitted_at'), utc_now())
         if result['status'] == 'success' and check['status'] != 'success':
             api.post_status(pr['head'], 'pending', 'Policy changed; reconciliation required')
             return
@@ -623,8 +623,11 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         # the wrong instruction; otherwise by the holder. The earlier engine's
         # standing comment gets the pointer at the description.
         carrier = target if (move_body is not None and target is not None) else holder
+        kept_words = _visible(carrier['body'])
+        if STATE_MARKER in kept_words or DIFF_MARKER in kept_words:
+            kept_words = POINTER      # unreadable words are not worth a wedged pull request
         text = move_body if carrier is target and move_body is not None else (
-            _visible(carrier['body']) if MOVE_MARKER in carrier['body'] else POINTER)
+            kept_words if MOVE_MARKER in carrier['body'] else POINTER)
         kept = carrier['id']
         api.upsert_state(pr['number'], desired, text, kept, carried)
         written = True

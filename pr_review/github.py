@@ -729,8 +729,15 @@ class GitHub:
             if any(type(item["id"]) is not int or not isinstance(item["body"], str) for item in reviews):
                 raise GitHubError("Invalid review identity or body")
             result["reviews"] = _unique(reviews, "id", "review")
+            # One route for comments, always. The other carries no editor,
+            # and three defects in one day came from the same shape: a field
+            # one read can supply and the other cannot, read by something
+            # that decides a verdict — so the same pull request got two
+            # different answers in one run, and the write was refused or the
+            # check held pending for ever.
             reuse = history is not None
-            result["comments"] = history["comments"] if reuse else self.comments(number)
+            result["comments"] = history["comments"] if reuse else self.histories([number]).get(
+                number, {"comments": []})["comments"]
             result["threads"] = self.threads(number)
             result["lifecycle_at"] = history["lifecycle_at"] if reuse else self.activity(number)
             result["head_seen_at"] = self.head_seen_at(result["head"])
@@ -743,12 +750,7 @@ class GitHub:
                 raise GitHubError("Controller state belongs to another PR")
             result["controller_state"] = state
             result["controller_comment_id"] = comment_id
-            # Only where the comments came with an editor to check them
-            # against. This route has none, and a reader that dropped the
-            # marker here would give a different verdict from the one that
-            # read it, on the same pull request, in the same run.
-            result["controller_diff"] = (parse_controller_diff(result["comments"], number)
-                                         if reuse else None)
+            result["controller_diff"] = parse_controller_diff(result["comments"], number)
 
             fallback = policy["fallback"]
             if not isinstance(fallback, dict):

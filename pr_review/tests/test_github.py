@@ -381,10 +381,22 @@ class GitHubTests(unittest.TestCase):
     def snapshot_fixture(self, comments=None, files=None, graph=None, checks=None):
         def request(method, path, payload=None):
             if path == "graphql":
-                # One fixture answers two queries; they are told apart the same
-                # way the engine tells them apart — by what was asked for.
-                if "statusCheckRollup" in (payload or {}).get("query", ""):
+                # One fixture answers three queries; they are told apart the
+                # same way the engine tells them apart — by what was asked for.
+                query = (payload or {}).get("query", "")
+                if "statusCheckRollup" in query:
                     return checks or self.checks()
+                if "timelineItems" in query:
+                    return {"data": {"repository": {"pr1": {
+                        "number": 1,
+                        "comments": {"totalCount": len(comments or []), "nodes": [
+                            {"databaseId": c["id"], "body": c["body"],
+                             "createdAt": c["created_at"], "updatedAt": c["updated_at"],
+                             "author": {"login": (c["user"]["login"] if isinstance(c["user"], dict) else c["user"]).removesuffix("[bot]"),
+                                        "__typename": "Bot"},
+                             "editor": ({"login": c["edited_by"]} if c.get("edited_by") else None)}
+                            for c in (comments or [])]},
+                        "timelineItems": {"nodes": []}}}}}
                 return graph or self.graph()
             if path.endswith("/permission"):
                 return {"permission": "write"}
@@ -722,25 +734,27 @@ class GitHubTests(unittest.TestCase):
             with_patch = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
         self.assertIsNotNone(diff_print(with_patch))
 
-    def test_the_marker_is_not_read_from_a_route_that_cannot_check_it(self):
-        # This read has no editor beside each comment, so the marker cannot be
-        # told from a forged one — and reading it here gave a different
-        # verdict from the read that evaluates, on the same pull request.
+    def test_both_reads_of_one_pull_request_see_the_same_comments(self):
+        # Three defects in one day were the same shape: a field one read can
+        # supply and the other cannot, read by something that decides a
+        # verdict. Comments come by one route now — with the editor beside
+        # each of them — so the read before the verdict and the read before
+        # the write cannot disagree.
         diff = {"number": 1, "diff": "a" * 64, "diff_heads": ["b" * 40], "diff_seen": "2026-09-11T10:00:00Z"}
         body = GitHub.state_comment_body(
             {"version": 1, "number": 1, "head": "b" * 40, "admitted_at": None, "ready_since": None,
              "state": "ready-for-human", "evidence": "c" * 64, "context": "d" * 64}, "text", diff)
-        comment = {"id": 1, "user": {"login": "github-actions[bot]"}, "body": body,
-                   "created_at": "2026-09-11T10:00:00Z", "updated_at": "2026-09-11T10:00:00Z"}
+        comment = {"id": 7, "user": "github-actions[bot]", "body": body,
+                   "created_at": "2026-09-11T10:00:00Z", "updated_at": "2026-09-11T12:00:00Z",
+                   "edited_by": "github-actions"}
         request, pages = self.snapshot_fixture(comments=[comment])
         with request, pages:
             read = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
-        self.assertIsNone(read["controller_diff"])
-        with request, pages:
             reused = self.api.snapshot(1, {"fallback": ["owner"], "areas": []},
-                                       history={"comments": [dict(comment, user="github-actions[bot]")],
-                                                "lifecycle_at": None})
-        self.assertEqual(reused["controller_diff"], diff)
+                                       history={"comments": [comment], "lifecycle_at": None})
+        self.assertEqual(read["comments"][0].get("edited_by"), "github-actions")
+        self.assertEqual(read["controller_diff"], diff)
+        self.assertEqual(read["controller_diff"], reused["controller_diff"])
 
     def test_should_preserve_rename_source_and_reuse_access_until_told_otherwise(self):
         request, pages = self.snapshot_fixture(files=[{"filename": "new/a.rs", "previous_filename": "old/a.rs", "status": "renamed"}])
