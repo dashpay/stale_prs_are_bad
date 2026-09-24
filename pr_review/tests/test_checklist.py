@@ -145,6 +145,18 @@ class ChecklistTests(unittest.TestCase):
         block = main.checklist_block(evaluate(policy, pr, NOW, LATER))
         self.assertIn('thepastaclaw ✓, requested changes — dismiss the review or push a fix', block)
 
+    def test_a_colleagues_attestation_is_named_rather_than_ignored(self):
+        # platform#4702 and dash-evo-tool#987: somebody other than the author
+        # posted the phrase, nothing happened, and both pull requests sat
+        # until a person went looking. It still cannot count.
+        policy, pr = bartek()
+        pr['comments'] = pr['comments'] + [dict(id=9, user='ktechmidas', body='/self-reviewed',
+                                                created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
+        result = evaluate(policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-self-review')
+        line = first_unchecked(main.checklist_block(result))
+        self.assertIn('@ktechmidas posted it, and it has to be the author', line)
+
     def test_the_self_review_line_never_says_post_it_while_checked(self):
         policy, pr = bartek()
         pr['comments'].append(dict(id=2, user='llbartekll', body='/self-reviewed',

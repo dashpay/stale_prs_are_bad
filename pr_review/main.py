@@ -308,6 +308,12 @@ def checklist_block(result):
         lines.append(f"- {box(attest['done'])} Self-review — post `/self-reviewed` once the bots are done")
     else:
         lines.append('- [ ] Self-review — post `/self-reviewed`')
+    # Somebody posted it who is not the author. It cannot count, and saying so
+    # is the difference between a pull request that moves and one whose author
+    # believes it already has.
+    if attest['on_their_behalf'] and not attest['done']:
+        who = ', '.join('@' + name for name in attest['on_their_behalf'])
+        lines[-1] += f' — {who} posted it, and it has to be the author'
     slot = items['slot']
     line = f"- {box(slot['done'])} Within your {slot['limit']} open PRs"
     if not slot['done']:

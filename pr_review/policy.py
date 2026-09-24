@@ -209,6 +209,10 @@ def _latest_reviews(reviews):
 # are shared rather than written twice: a marker that changed here and not
 # there would stop receipts waking the controller, and nothing would fail.
 RECEIPT_MARKER = 'final_review_risk_coverage'
+# The phrase, however the author spells it. It is still the author writing it
+# in their own words, so the spelling weakens nothing — and `/self-review`
+# without the d has cost two people a merge already.
+ATTESTATION = re.compile(r'/self[- ]?review(?:ed)?(?:\s+(?P<head>[0-9a-fA-F]{40}))?', re.IGNORECASE)
 RATE_LIMITED = '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'
 RATE_LIMITED_MARKER = 'rate limited by coderabbit.ai'
 
@@ -284,12 +288,19 @@ def nudged_at(comments, bot, head):
 
 
 def rate_limited_at(comments, head_seen_at):
-    """When CodeRabbit last said it was rate limited, after this head appeared."""
+    """When CodeRabbit last said it was rate limited, after this head appeared.
+
+    It keeps one comment and edits it, so when it said so is when that comment
+    was last written — reading the date it was first posted found a notice
+    from a week earlier or, on a pull request open long enough, none at all.
+    The marker is only in the body while the limit stands: a review that
+    succeeds later rewrites the comment without it.
+    """
     if not head_seen_at:
         return None
-    stamps = [c['created_at'] for c in comments
+    stamps = [c.get('updated_at') or c['created_at'] for c in comments
               if c['user'].lower() in {'coderabbitai', 'coderabbitai[bot]'} and RATE_LIMITED in c['body']
-              and _time(c['created_at']) >= _time(head_seen_at)]
+              and _time(c.get('updated_at') or c['created_at']) >= _time(head_seen_at)]
     return max(stamps, key=_time) if stamps else None
 
 
@@ -327,7 +338,18 @@ def bot_schedule(policy, pr, bot, nowISO, telemetry_state=None):
     # request back by claiming a review is still running.
     due_at = (_time(seen) + timedelta(hours=waive_after)).isoformat().replace('+00:00', 'Z')
     waived = waited >= waive_after
-    return {'nudge': due and already is None and not waived, 'waived_at': due_at if waived else None}
+    reason = 'window' if waived else None
+    # A bot that has said it cannot review this head is not a bot that has not
+    # answered yet. CodeRabbit documents an hour's retry; when the hour passes
+    # with no receipt, proceed without it rather than hold the pull request
+    # for the whole window — sixteen hours of waiting for a review its author
+    # was already told is not coming.
+    if limited is not None and _hours(limited, nowISO) >= 1:
+        limit_at = (_time(limited) + timedelta(hours=1)).isoformat().replace('+00:00', 'Z')
+        if not waived or _time(limit_at) < _time(due_at):
+            due_at, waived, reason = limit_at, True, 'rate-limit'
+    return {'nudge': due and already is None and not waived,
+            'waived_at': due_at if waived else None, 'waived_reason': reason}
 
 
 def _checklist(**items):
@@ -434,7 +456,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                  and r['state'].upper() == 'CHANGES_REQUESTED'}
         heard |= {t['author'].lower().removesuffix('[bot]') for t in bot_threads}
         missing = [bot for bot in sorted(required) if not receipts[bot] and bot not in heard]
-        waived, reasons = {}, []
+        waived, why, reasons = {}, {}, []
         outstanding = bool(bot_blocks or bot_threads)
         skip = skipped_by(pr['comments'], permissions, pr.get('head_seen_at'))
         for bot in missing:
@@ -458,10 +480,13 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             # The label and the stated blocker are what keep that honest.
             if plan['waived_at']:
                 waived[bot] = plan['waived_at']
+                why[bot] = plan['waived_reason']
             else:
                 reasons.append(f'{bot} has not reported for the current head')
         result['waived'] = sorted(waived)
         notes.extend((f"Proceeded without {bot}: skipped by @{skip['user']}" if skip
+                      else f'Proceeded without {bot}: it reported a rate limit and did not return'
+                      if why.get(bot) == 'rate-limit'
                       else f'Proceeded without {bot}: no review within the configured window')
                      for bot in sorted(waived))
         # Everything about each bot, not the first thing: a bot can have
@@ -477,7 +502,9 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         for bot in sorted(set(required) | set(objecting) | set(threads_by)):
             parts = []
             if bot in waived:
-                parts.append(f"skipped by {skip['user']}" if skip else 'skipped after the window')
+                parts.append(f"skipped by {skip['user']}" if skip
+                             else 'skipped after its own rate limit' if why.get(bot) == 'rate-limit'
+                             else 'skipped after the window')
             elif receipts.get(bot):
                 parts.append('✓')
             elif bot not in objecting and bot not in threads_by:
@@ -533,14 +560,24 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         written = [dict(user=c['user'], body=c['body'], at=c['created_at'])
                    for c in pr['comments'] if c['created_at'] == c['updated_at']]
         written += [dict(user=r['user'], body=r['body'] or '', at=r['submitted_at']) for r in pr['reviews']]
-        attestations = []
+        # Twice in two days a colleague posted the phrase on somebody else's
+        # pull request and nothing happened. It cannot count — an attestation
+        # is the author saying they read their own diff — but silence about it
+        # leaves them believing they have done the thing.
+        attestations, on_their_behalf = [], []
         for comment in written:
             if comment['user'].lower() != pr['author'].lower():
+                if ATTESTATION.fullmatch(comment['body'].strip()) and comment['user'].lower() not in BOTS:
+                    on_their_behalf.append(comment['user'])
                 continue
-            body = comment['body'].strip()
-            if body == '/self-reviewed ' + pr['head']:
+            said = ATTESTATION.fullmatch(comment['body'].strip())
+            if not said:
+                continue
+            if said['head'] and said['head'].lower() != pr['head'].lower():
+                continue
+            if said['head']:
                 floor = floor_at
-            elif body == '/self-reviewed' and seen:
+            elif seen:
                 floor = max(floor_at, seen, key=_time)
             else:
                 continue
@@ -621,10 +658,13 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                          or (previous.get('state') == 'ready-for-human' and previous.get('head') == pr['head']))
         build = pr['build']
         if human:
-            if not admitted_at:
+            if not admitted_at and not machine_author(policy, pr):
                 # Five at a time per author is a limit on human attention, so
                 # it applies here, where a human would be asked, and not to a
-                # pull request that needs none.
+                # pull request that needs none. An account that opens pull
+                # requests on its own has no attention to ration; what it
+                # costs reviewers is governed by the approvals it still needs,
+                # not by a queue its author never feels.
                 gate('too-many-open-prs', f"More than {policy['max_active_prs']} open pull requests; this one waits until one merges")
             if not was_ready and build != 'green':
                 # Green before a human is asked; red afterwards does not take it
@@ -654,9 +694,11 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             bots=dict(done=bots_done, lines=bot_lines, skippable=any(bot not in waived for bot in missing)),
             self_review=dict(done=bool(attestations) and not (self_time is not None and unanswered),
                              bot_author=machine_author(policy, pr),
+                             on_their_behalf=sorted(set(on_their_behalf)),
                              address=[line for line in objection_lines
                                       if line.split(' ', 1)[0].lower() in unanswered or self_time is None]),
-            slot=dict(done=not human or bool(admitted_at), limit=policy['max_active_prs']),
+            slot=dict(done=not human or bool(admitted_at) or machine_author(policy, pr),
+                      limit=policy['max_active_prs']),
             build=dict(done=build == 'green', state=build, latched=was_ready and human),
             approvals=dict(done=not human, areas=approvals,
                            awaiting=[line for line in objection_lines
