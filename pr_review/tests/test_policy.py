@@ -363,8 +363,13 @@ class PolicyTests(unittest.TestCase):
         pr['comments'] = []
         self.assertIn('coderabbitai', evaluate(p, pr, NOW, NOW)['nudge'])
 
-    def rabbit(self, finding='', head=None, extra=''):
-        """CodeRabbit's comment as it writes it: a receipt, a finding, and the rest."""
+    def rabbit(self, finding='', head=None, extra='', checks='✅ Passed', why='It reads well.'):
+        """CodeRabbit's comment as it writes it, in the shape it really writes.
+
+        The findings and the commit they cover are in one block; the checks are
+        a table somewhere else in the same comment, with a heading that counts
+        them and a column of prose it rewrites without changing a verdict.
+        """
         import json as _json
         covered = _json.dumps({'sourceCommitId': head or HEAD, 'coveredCommitId': head or HEAD,
                                'kind': 'reviewed'}, separators=(',', ':'))
@@ -373,7 +378,12 @@ class PolicyTests(unittest.TestCase):
                 + '<!-- final_review_risk_start -->\n'
                 + '**Merge Risk:** Minimal\n'
                 + f'<!-- final_review_risk_coverage:{covered} -->\n'
-                + finding + '\n<!-- final_review_risk_end -->\n<!-- tips -->\n')
+                + finding + '\n<!-- final_review_risk_end -->\n'
+                + '<!-- pre_merge_checks_walkthrough_start -->\n'
+                + f'<summary>🚥 Pre-merge checks | {checks}</summary>\n\n'
+                + '| Check name | Status | Explanation |\n| :---: | :--- | :--- |\n'
+                + f'| Title check | {checks} | {why} |\n'
+                + '<!-- pre_merge_checks_walkthrough_end -->\n<!-- tips -->\n')
 
     def test_a_cosmetic_edit_is_not_the_bot_speaking_again(self):
         # tenderdash#1489, rust-dashcore#1048: the author attested, CodeRabbit
@@ -395,6 +405,29 @@ class PolicyTests(unittest.TestCase):
         again = evaluate(p, pr, NOW, NOW)
         self.assertEqual(again['status'], 'success', again['blockers'])
 
+    def test_a_check_that_fails_is_the_bot_speaking_again(self):
+        # The checks are not in the block with the findings, and they are
+        # verdicts too: "Out of Scope Changes check ❌" is this producer
+        # saying something about the code, in prose, with no thread and no
+        # changes request — the shape that makes guessing unsafe.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
+        pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
+                               created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T09:00:00Z'),
+                          dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        first = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(first['status'], 'success', first['blockers'])
+        pr['controller_diff'] = {'number': 1, 'receipts': first['receipts']}
+        # Same words about the code; the explanation of a passing check is
+        # reworded. That is what it did on rust-dashcore#1048.
+        pr['comments'][0] = dict(pr['comments'][0], updated_at='2026-09-11T13:00:00Z',
+                                 body=self.rabbit(why='It identifies the change well.'))
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success', 'a reworded explanation')
+        # The verdict itself changes.
+        pr['comments'][0] = dict(pr['comments'][0], body=self.rabbit(checks='❌ Failed'))
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
     def test_a_new_finding_is_the_bot_speaking_again(self):
         # platform#4653: the blocker was in the prose of the receipt itself —
         # "Add signer support or defer selecting these keys before merging" —
@@ -412,6 +445,21 @@ class PolicyTests(unittest.TestCase):
         pr['controller_diff'] = {'number': 1, 'receipts': first['receipts']}
         again = evaluate(p, pr, NOW, NOW)
         self.assertEqual(again['state'], 'waiting-self-review')
+
+    def test_what_two_comments_said_is_told_apart(self):
+        # Two reports are two reports even when they say the same thing, and
+        # one of them must not inherit the moment the other was first read.
+        from pr_review.policy import receipt_print
+        body = self.rabbit()
+        self.assertNotEqual(receipt_print({'id': 1, 'body': body}),
+                            receipt_print({'id': 2, 'body': body}))
+
+    def test_a_comment_that_states_nothing_has_nothing_to_compare(self):
+        # Then the time it was written stands, which is what it was before any
+        # of this — never a print that two unrelated comments would share.
+        from pr_review.policy import receipt_print
+        self.assertIsNone(receipt_print({'id': 1, 'body': 'thanks!'}))
+        self.assertIsNone(receipt_print({'id': 2, 'body': ''}))
 
     def test_a_receipt_this_controller_has_not_seen_dates_from_the_comment(self):
         # Nothing remembered yet, and nothing assumed: the comment's own time

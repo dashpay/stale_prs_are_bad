@@ -255,11 +255,14 @@ def _latest_reviews(reviews):
 # are shared rather than written twice: a marker that changed here and not
 # there would stop receipts waking the controller, and nothing would fail.
 RECEIPT_MARKER = 'final_review_risk_coverage'
-# Where this producer states what it found, and the marker that says which
-# commit it covers. What it said is this block; everything else in the comment
-# — a banner, the tips, the walkthrough — is not.
-RISK_START = '<!-- final_review_risk_start -->'
-RISK_END = '<!-- final_review_risk_end -->'
+# What this producer says about a pull request, and where. The risk block
+# holds its findings and the marker for the commit they cover; its checks are
+# a table of verdicts and a heading that counts them. Everything else in the
+# comment is how it says it — a banner, the tips, a reworded explanation of a
+# check that still passes — and none of that is a report.
+RISK_BLOCK = re.compile(r'<!-- final_review_risk_start -->(.*?)<!-- final_review_risk_end -->', re.S)
+VERDICT_ROW = re.compile(r'(?m)^\|([^|\n]+)\|([^|\n]+)\|')
+VERDICT_HEADING = re.compile(r'(?m)^<summary>([^<\n]*(?:✅|❌|⚠️|🚫)[^<\n]*)</summary>')
 # The phrase, however the author spells it. It is still the author writing it
 # in their own words, so the spelling weakens nothing — and `/self-review`
 # without the d has cost two people a merge already.
@@ -285,20 +288,29 @@ def _may_object(permissions, user):
     return permissions.get(user) in WRITE or permissions.get(user) is None
 
 
-def receipt_print(body):
-    """What this producer said, apart from everything else in the comment.
+def receipt_print(comment):
+    """What this producer said about the code, apart from how it said it.
 
-    It keeps one comment and rewrites it, so the time it was last written says
-    only that it was written — and an edit that adds a banner or refreshes a
-    walkthrough would otherwise read as the bot speaking again, which voids
-    the author's attestation and asks them for another that reads nothing new.
-    Two people hit that in two days.
+    It keeps one comment and rewrites it — for a banner, for a re-run that
+    found nothing, to reword the explanation of a check that still passes —
+    and the time it was last written says only that it was written. Two
+    authors were asked to attest a second time to reports that said nothing
+    new, and this is what tells the two apart.
+
+    Everything it states is read: its findings, the commit they cover, every
+    check in its table and the heading that counts them. Only the prose
+    explaining a verdict is left out, which is the column it rewrites. Read
+    nothing at all, and there is nothing to compare — the time stands.
     """
-    start = body.find(RISK_START)
-    end = body.find(RISK_END, start) if start >= 0 else -1
-    if start < 0 or end < 0:
+    body = comment['body']
+    said = list(RISK_BLOCK.findall(body))
+    said += [f'{name.strip()}|{state.strip()}' for name, state in VERDICT_ROW.findall(body)
+             if set(name.strip()) - set(': -')]
+    said += [heading.strip() for heading in VERDICT_HEADING.findall(body)]
+    if not said:
         return None
-    return hashlib.sha256(body[start:end].encode()).hexdigest()
+    # Per comment: two of them saying the same thing are still two reports.
+    return hashlib.sha256(('\n'.join([str(comment.get('id', ''))] + said)).encode()).hexdigest()
 
 
 def receipt_instant(pr, comment):
@@ -308,7 +320,7 @@ def receipt_instant(pr, comment):
     around it is rewritten. Anything in the block — a finding, a risk level,
     the commit it covers — makes it one.
     """
-    said = receipt_print(comment['body'])
+    said = receipt_print(comment)
     known = ((pr.get('controller_diff') or {}).get('receipts') or {})
     if said and isinstance(known.get(said), str):
         return known[said]
@@ -593,7 +605,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                     _rabbit_receipt(comment['body'], h) for h in reviewed):
                 instant = receipt_instant(pr, comment)
                 rabbit.append(instant)
-                said = receipt_print(comment['body'])
+                said = receipt_print(comment)
                 if said:
                     seen_said[said] = instant
         result['receipts'] = seen_said

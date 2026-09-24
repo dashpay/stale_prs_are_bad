@@ -65,6 +65,15 @@ class BuildVerdictTests(unittest.TestCase):
         for bad in ('banana', '2026-09-11', '2026-09-11T10:00:00+03:00', 5):
             with self.assertRaises(GitHubError, msg=repr(bad)):
                 _validate_diff({'number': 1, 'diff': 'a' * 64, 'diff_heads': ['b' * 40], 'diff_seen': bad})
+        # A key that is there is checked. An empty head list was accepted
+        # once, and it handed whoever wrote it the instant an attestation is
+        # measured against.
+        with self.assertRaises(GitHubError):
+            _validate_diff({'number': 1, 'diff': 'a' * 64, 'diff_heads': [], 'diff_seen': None})
+        # A key that is not there is simply not read, so a marker written by a
+        # newer engine does not make an older one refuse everything it knows.
+        _validate_diff({'number': 1})
+        _validate_diff({'number': 1, 'receipts': {'c' * 64: '2026-09-11T10:00:00Z'}})
 
 
     def test_re_running_a_flaky_check_clears_it(self):

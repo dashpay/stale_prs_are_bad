@@ -197,8 +197,10 @@ def _validate_diff(diff):
     if "diff" in diff and (not isinstance(diff["diff"], str)
                            or not re.fullmatch(r"[0-9a-f]{64}", diff["diff"])):
         raise GitHubError("Invalid controller diff print")
-    heads = diff.get("diff_heads", [])
-    if (not isinstance(heads, list) or len(heads) > 20
+    # Present means at least one: an empty list was accepted once, and it
+    # handed whoever wrote it the instant an attestation is measured against.
+    heads = diff.get("diff_heads", ["0" * 40])
+    if (not isinstance(heads, list) or not 1 <= len(heads) <= 20
             or any(not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{40}", h) for h in heads)):
         raise GitHubError("Invalid controller diff heads")
     # What each producer said, and when it first said it: a print of its own
