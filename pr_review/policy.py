@@ -261,9 +261,18 @@ RECEIPT_MARKER = 'final_review_risk_coverage'
 # comment is how it says it — a banner, the tips, a reworded explanation of a
 # check that still passes — and none of that is a report.
 RISK_BLOCK = re.compile(r'<!-- final_review_risk_start -->(.*?)<!-- final_review_risk_end -->', re.S)
-VERDICT = re.compile(r'✅|❌|⚠️|🚫')
-VERDICT_ROW = re.compile(r'(?m)^\|([^|\n]*)\|([^|\n]*)\|')
-VERDICT_HEADING = re.compile(r'(?m)^<summary>([^<\n]*(?:✅|❌|⚠️|🚫)[^<\n]*)</summary>')
+# Everything this producer writes is what it said, except these. Naming what
+# to ignore rather than what to read is the whole difference: a section it
+# adds tomorrow is then read by default, and the worst that costs is an
+# attestation asked for twice — where reading only what is named would have
+# left whatever it put there unread.
+VOLATILE = ('review_stack_entry', 'tips', 'finishing_touch_checkbox')
+# Its report of the run itself: which run, which commits it walked, how many
+# files. What it found in them is the line above this, and that is kept.
+RUN_DETAIL = re.compile(r'(<!-- recent_review_start -->.*?)<details>.*?(<!-- recent_review_end -->)', re.S)
+TABLE_ROW = re.compile(r'(?m)^(\|[^|\n]*\|[^|\n]*)\|.*$')
+TABLE = re.compile(r'(?m)(?:^\|.*\n?)+')
+SPACES = re.compile(r'\s+')
 # The phrase, however the author spells it. It is still the author writing it
 # in their own words, so the spelling weakens nothing — and `/self-review`
 # without the d has cost two people a merge already.
@@ -298,11 +307,12 @@ def receipt_print(comment):
     authors were asked to attest a second time to reports that said nothing
     new, and this is what tells the two apart.
 
-    Everything it states is read: its findings, the commit they cover, every
-    check that carries a verdict and the heading that counts them. What is
-    left out is the prose beside a verdict and the summary of each file,
-    which is what it rewrites. The order of its checks is not what it said
-    about them, and it reorders them, so they are read as a set.
+    The whole comment counts as what it said, less four things it rewrites
+    without meaning anything by it: its own banner and tips, the checkbox a
+    person ticks, the bookkeeping of which run walked which commits, and the
+    column of prose explaining a verdict — that last one is what it rewrote
+    on rust-dashcore#1048, beside a check that stayed passed, and an author
+    was asked to attest again to it. Whitespace is not what it said either.
 
     Nothing is compared unless the findings themselves were readable: the
     marker that makes this a receipt sits at the top of that block, so a
@@ -311,17 +321,24 @@ def receipt_print(comment):
     while the rest of the comment still produced a print.
     """
     body = comment['body']
-    found = RISK_BLOCK.findall(body)
-    if not found:
+    if not RISK_BLOCK.search(body):
         return None
-    rows = sorted(f'{name.strip()}|{state.strip()}' for name, state in VERDICT_ROW.findall(body)
-                  if VERDICT.search(state))
-    headings = sorted(heading.strip() for heading in VERDICT_HEADING.findall(body))
-    # Per comment, and each part kept apart: two comments saying the same
-    # thing are two reports, and a finding that reads like a table row is not
-    # one.
-    said = {'comment': comment.get('id'), 'found': found, 'checks': rows, 'counted': headings}
-    return hashlib.sha256(json.dumps(said, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    said = body
+    for name in VOLATILE:
+        # Gone, not marked: whether it added its banner at all is as much
+        # its own business as what the banner says.
+        said = re.sub(r'<!-- ' + name + r'_start -->.*?<!-- ' + name + r'_end -->',
+                      '', said, flags=re.S)
+    said = RUN_DETAIL.sub(r'\1\2', said)
+    said = TABLE_ROW.sub(r'\1|', said)
+    # A table it reordered between two writes of the same report is not it
+    # saying anything new, and it did that twice in four recorded versions of
+    # one comment. Sorted as text: nothing is dropped, so a verdict that
+    # changed, a check added or one removed all still read as changed.
+    said = TABLE.sub(lambda block: ''.join(sorted(block.group(0).splitlines(keepends=True))), said)
+    said = SPACES.sub(' ', said)
+    # Per comment: two of them saying the same thing are still two reports.
+    return hashlib.sha256(f'{comment.get("id")}\n{said}'.encode()).hexdigest()
 
 
 def receipt_instant(pr, comment):

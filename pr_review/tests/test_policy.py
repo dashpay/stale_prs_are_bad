@@ -364,7 +364,8 @@ class PolicyTests(unittest.TestCase):
         self.assertIn('coderabbitai', evaluate(p, pr, NOW, NOW)['nudge'])
 
     def rabbit(self, finding='', head=None, extra='', checks='✅ Passed', why='It reads well.',
-               summary='Adds a field and its tests.', rows=None):
+               summary='Adds a field and its tests.', rows=None, found='No actionable comments were generated.',
+               run='d5a7d983'):
         """CodeRabbit's comment as it writes it, in the shape it really writes.
 
         The findings and the commit they cover are in one block; the checks are
@@ -375,11 +376,15 @@ class PolicyTests(unittest.TestCase):
         covered = _json.dumps({'sourceCommitId': head or HEAD, 'coveredCommitId': head or HEAD,
                                'kind': 'reviewed'}, separators=(',', ':'))
         return ('<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n'
-                + extra
+                + ('<!-- review_stack_entry_start -->\n' + extra + '<!-- review_stack_entry_end -->\n'
+                   if extra else '')
                 + '<!-- final_review_risk_start -->\n'
                 + '**Merge Risk:** Minimal\n'
                 + f'<!-- final_review_risk_coverage:{covered} -->\n'
                 + finding + '\n<!-- final_review_risk_end -->\n'
+                + f'<!-- recent_review_start -->\n{found}\n'
+                + f'<details><summary>⚙️ Run configuration</summary>\nRun ID: {run}\n</details>\n'
+                + '<!-- recent_review_end -->\n'
                 + '<!-- walkthrough_start -->\n'
                 + '| Layer / File(s) | Summary |\n| :--- | :--- |\n'
                 + f'| `a.rs` | {summary} |\n'
@@ -433,21 +438,33 @@ class PolicyTests(unittest.TestCase):
         pr['comments'][0] = dict(pr['comments'][0], body=self.rabbit(checks='❌ Failed'))
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
 
-    def test_the_checks_are_read_as_a_set_and_the_file_summaries_not_at_all(self):
+    def test_the_checks_are_read_as_a_set_and_their_explanations_not_at_all(self):
         # It reorders its own table between two writes of the same report —
         # that happened twice in the four recorded versions of the comment on
-        # rust-dashcore#1048 — and it rewords the summary of each file freely.
-        # Neither is it saying anything new about the code.
+        # rust-dashcore#1048 — and it rewords the column explaining a verdict
+        # while the verdict stands. Neither is it saying anything new.
         from pr_review.policy import receipt_print
         first = {'id': 1, 'body': self.rabbit(rows=[('Title check', '✅ Passed'),
                                                     ('Docstring Coverage', '✅ Passed')])}
         same = {'id': 1, 'body': self.rabbit(rows=[('Docstring Coverage', '✅ Passed'),
                                                    ('Title check', '✅ Passed')],
-                                             summary='Adds a field, and tests for it.')}
+                                             why='It identifies the change well.')}
         self.assertEqual(receipt_print(first), receipt_print(same))
         flipped = {'id': 1, 'body': self.rabbit(rows=[('Title check', '❌ Failed'),
                                                       ('Docstring Coverage', '✅ Passed')])}
         self.assertNotEqual(receipt_print(first), receipt_print(flipped))
+
+    def test_what_it_found_is_read_and_which_run_found_it_is_not(self):
+        # Everything it writes counts as what it said unless it is named as
+        # noise, so a section nobody thought about is read by default — the
+        # count of what this run turned up is not in the block with the
+        # findings, and reading only the parts named would have left it out.
+        from pr_review.policy import receipt_print
+        plain = {'id': 1, 'body': self.rabbit()}
+        again = {'id': 1, 'body': self.rabbit(run='a-different-run')}
+        self.assertEqual(receipt_print(plain), receipt_print(again), 'which run walked the code')
+        posted = {'id': 1, 'body': self.rabbit(found='Actionable comments posted: 2')}
+        self.assertNotEqual(receipt_print(plain), receipt_print(posted), 'what the run turned up')
 
     def test_findings_this_cannot_read_are_not_read_as_nothing(self):
         # The marker that makes a comment a receipt sits at the top of the
