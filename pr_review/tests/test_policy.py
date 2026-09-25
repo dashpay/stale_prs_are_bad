@@ -363,7 +363,8 @@ class PolicyTests(unittest.TestCase):
         pr['comments'] = []
         self.assertIn('coderabbitai', evaluate(p, pr, NOW, NOW)['nudge'])
 
-    def rabbit(self, finding='', head=None, extra='', checks='✅ Passed', why='It reads well.'):
+    def rabbit(self, finding='', head=None, extra='', checks='✅ Passed', why='It reads well.',
+               summary='Adds a field and its tests.', rows=None):
         """CodeRabbit's comment as it writes it, in the shape it really writes.
 
         The findings and the commit they cover are in one block; the checks are
@@ -379,10 +380,14 @@ class PolicyTests(unittest.TestCase):
                 + '**Merge Risk:** Minimal\n'
                 + f'<!-- final_review_risk_coverage:{covered} -->\n'
                 + finding + '\n<!-- final_review_risk_end -->\n'
+                + '<!-- walkthrough_start -->\n'
+                + '| Layer / File(s) | Summary |\n| :--- | :--- |\n'
+                + f'| `a.rs` | {summary} |\n'
+                + '<!-- walkthrough_end -->\n'
                 + '<!-- pre_merge_checks_walkthrough_start -->\n'
                 + f'<summary>🚥 Pre-merge checks | {checks}</summary>\n\n'
                 + '| Check name | Status | Explanation |\n| :---: | :--- | :--- |\n'
-                + f'| Title check | {checks} | {why} |\n'
+                + ''.join(f'| {name} | {state} | {why} |\n' for name, state in (rows or [('Title check', checks)]))
                 + '<!-- pre_merge_checks_walkthrough_end -->\n<!-- tips -->\n')
 
     def test_a_cosmetic_edit_is_not_the_bot_speaking_again(self):
@@ -427,6 +432,45 @@ class PolicyTests(unittest.TestCase):
         # The verdict itself changes.
         pr['comments'][0] = dict(pr['comments'][0], body=self.rabbit(checks='❌ Failed'))
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
+    def test_the_checks_are_read_as_a_set_and_the_file_summaries_not_at_all(self):
+        # It reorders its own table between two writes of the same report —
+        # that happened twice in the four recorded versions of the comment on
+        # rust-dashcore#1048 — and it rewords the summary of each file freely.
+        # Neither is it saying anything new about the code.
+        from pr_review.policy import receipt_print
+        first = {'id': 1, 'body': self.rabbit(rows=[('Title check', '✅ Passed'),
+                                                    ('Docstring Coverage', '✅ Passed')])}
+        same = {'id': 1, 'body': self.rabbit(rows=[('Docstring Coverage', '✅ Passed'),
+                                                   ('Title check', '✅ Passed')],
+                                             summary='Adds a field, and tests for it.')}
+        self.assertEqual(receipt_print(first), receipt_print(same))
+        flipped = {'id': 1, 'body': self.rabbit(rows=[('Title check', '❌ Failed'),
+                                                      ('Docstring Coverage', '✅ Passed')])}
+        self.assertNotEqual(receipt_print(first), receipt_print(flipped))
+
+    def test_findings_this_cannot_read_are_not_read_as_nothing(self):
+        # The marker that makes a comment a receipt sits at the top of the
+        # findings block. A block with no end — markup that changed, a comment
+        # trimmed at GitHub's limit — would leave the findings invisible while
+        # the checks around them still produced a print, and a blocker written
+        # into them afterwards would never move the floor.
+        from pr_review.policy import receipt_print
+        whole = self.rabbit()
+        self.assertIsNotNone(receipt_print({'id': 1, 'body': whole}))
+        torn = whole.replace('<!-- final_review_risk_end -->', '<!-- final_review_risk_finished -->')
+        self.assertIsNone(receipt_print({'id': 1, 'body': torn}))
+        self.assertIsNone(receipt_print({'id': 1, 'body': torn + '\nCRITICAL: do not merge.'}))
+
+    def test_a_finding_shaped_like_a_table_row_is_not_a_table_row(self):
+        # The parts are kept apart, so text in one cannot be mistaken for the
+        # other and two different reports cannot print the same.
+        from pr_review.policy import receipt_print
+        start, end = '<!-- final_review_risk_start -->', '<!-- final_review_risk_end -->'
+        # The same words: in one they are the finding, in the other a check.
+        a = {'id': 1, 'body': f'{start}A{end}\n|B|✅|\n'}
+        b = {'id': 1, 'body': f'{start}A\nB|✅{end}\n'}
+        self.assertNotEqual(receipt_print(a), receipt_print(b))
 
     def test_a_new_finding_is_the_bot_speaking_again(self):
         # platform#4653: the blocker was in the prose of the receipt itself —

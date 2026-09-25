@@ -261,7 +261,8 @@ RECEIPT_MARKER = 'final_review_risk_coverage'
 # comment is how it says it — a banner, the tips, a reworded explanation of a
 # check that still passes — and none of that is a report.
 RISK_BLOCK = re.compile(r'<!-- final_review_risk_start -->(.*?)<!-- final_review_risk_end -->', re.S)
-VERDICT_ROW = re.compile(r'(?m)^\|([^|\n]+)\|([^|\n]+)\|')
+VERDICT = re.compile(r'✅|❌|⚠️|🚫')
+VERDICT_ROW = re.compile(r'(?m)^\|([^|\n]*)\|([^|\n]*)\|')
 VERDICT_HEADING = re.compile(r'(?m)^<summary>([^<\n]*(?:✅|❌|⚠️|🚫)[^<\n]*)</summary>')
 # The phrase, however the author spells it. It is still the author writing it
 # in their own words, so the spelling weakens nothing — and `/self-review`
@@ -298,19 +299,29 @@ def receipt_print(comment):
     new, and this is what tells the two apart.
 
     Everything it states is read: its findings, the commit they cover, every
-    check in its table and the heading that counts them. Only the prose
-    explaining a verdict is left out, which is the column it rewrites. Read
-    nothing at all, and there is nothing to compare — the time stands.
+    check that carries a verdict and the heading that counts them. What is
+    left out is the prose beside a verdict and the summary of each file,
+    which is what it rewrites. The order of its checks is not what it said
+    about them, and it reorders them, so they are read as a set.
+
+    Nothing is compared unless the findings themselves were readable: the
+    marker that makes this a receipt sits at the top of that block, so a
+    block this cannot read to the end — markup that changed, a comment
+    trimmed at GitHub's limit — would otherwise leave the findings invisible
+    while the rest of the comment still produced a print.
     """
     body = comment['body']
-    said = list(RISK_BLOCK.findall(body))
-    said += [f'{name.strip()}|{state.strip()}' for name, state in VERDICT_ROW.findall(body)
-             if set(name.strip()) - set(': -')]
-    said += [heading.strip() for heading in VERDICT_HEADING.findall(body)]
-    if not said:
+    found = RISK_BLOCK.findall(body)
+    if not found:
         return None
-    # Per comment: two of them saying the same thing are still two reports.
-    return hashlib.sha256(('\n'.join([str(comment.get('id', ''))] + said)).encode()).hexdigest()
+    rows = sorted(f'{name.strip()}|{state.strip()}' for name, state in VERDICT_ROW.findall(body)
+                  if VERDICT.search(state))
+    headings = sorted(heading.strip() for heading in VERDICT_HEADING.findall(body))
+    # Per comment, and each part kept apart: two comments saying the same
+    # thing are two reports, and a finding that reads like a table row is not
+    # one.
+    said = {'comment': comment.get('id'), 'found': found, 'checks': rows, 'counted': headings}
+    return hashlib.sha256(json.dumps(said, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
 def receipt_instant(pr, comment):
