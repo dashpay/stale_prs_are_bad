@@ -739,6 +739,16 @@ class GitHub:
                 patch = file.get("patch")
                 if isinstance(patch, str):
                     normalized["shape"] = hashlib.sha256(patch.encode()).hexdigest()
+                elif file.get("status") == "added":
+                    # A file this pull request adds is not in the merge base at
+                    # all, so there is nothing for the base to have changed
+                    # underneath it: what its patch says is decided by the blob
+                    # above and by nothing else. Saying so costs no read, and
+                    # without it one large new file — a golden fixture, a
+                    # generated client — stopped the whole pull request
+                    # carrying anything across a merge of its base. It was 32
+                    # of the 69 files the five repositories send no patch for.
+                    normalized["shape"] = "added"
                 result["files"].append(normalized)
             # The same path twice is the listing drifting under the read —
             # unless it is one path changing type, which is the same path

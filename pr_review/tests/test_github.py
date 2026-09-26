@@ -743,6 +743,19 @@ class GitHubTests(unittest.TestCase):
         with request, pages:
             with_patch = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
         self.assertIsNotNone(diff_print(with_patch))
+        # A file the pull request adds is not in the merge base, so nothing the
+        # base did can be hiding in its patch and the blob decides it alone.
+        # GitHub sends no patch for a large or binary one, and one such file
+        # used to stop the whole pull request carrying anything: 32 of the 69
+        # patch-less files across the five repositories are new files, among
+        # them the only one in platform#4760 and in #4730.
+        request, pages = self.snapshot_fixture(files=[
+            {"filename": "golden.bin", "status": "added", "sha": "c" * 40,
+             "additions": 0, "deletions": 0, "changes": 0}])
+        with request, pages:
+            added = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertEqual(added["files"][0]["shape"], "added")
+        self.assertIsNotNone(diff_print(added))
 
     def test_both_reads_of_one_pull_request_see_the_same_comments(self):
         # Three defects in one day were the same shape: a field one read can
