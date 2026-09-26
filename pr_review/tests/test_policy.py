@@ -551,12 +551,49 @@ class PolicyTests(unittest.TestCase):
         from pr_review.policy import receipt_print
         plain = self.rabbit()
         for what in ('rate limited', 'skip review', 'review in progress', 'review paused',
-                     'all tool run failures', 'failure', 'tweet message'):
+                     'tweet message'):
             noisy = (f'<!-- This is an auto-generated comment: {what} by coderabbit.ai -->\n'
                      f'> Next included review available in 27 minutes. Run ID: 9f1c.\n'
                      f'<!-- end of auto-generated comment: {what} by coderabbit.ai -->\n') + plain
             self.assertEqual(receipt_print({'id': 1, 'body': plain}),
                              receipt_print({'id': 1, 'body': noisy}), what)
+
+    def test_a_tool_of_its_own_that_would_not_run_says_why(self):
+        # It names the file and the line that stopped the tool — "File
+        # contains syntax errors that prevent linting: Line 126" — which is a
+        # finding about the author's code, in a receipt this controller
+        # stores. Dropping that notice dropped the finding with it; seen live
+        # on supabase/supabase#50931.
+        from pr_review.policy import receipt_print
+        notice = ('<!-- This is an auto-generated comment: all tool run failures by coderabbit.ai -->\n'
+                  '<details><summary>🔧 Biome</summary>\n{}\n</details>\n'
+                  '<!-- end of auto-generated comment: all tool run failures by coderabbit.ai -->\n')
+        a = self.rabbit() + notice.format('Line 126: Expected an array.')
+        b = self.rabbit() + notice.format('Line 203: Expected an array; plus 41 more in auth.ts.')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': a}), receipt_print({'id': 1, 'body': b}))
+
+    def test_the_fold_it_signs_with_a_letter_is_still_a_fold(self):
+        # ℹ is a letter, so a rule that skipped everything but letters could
+        # never reach the name behind it — and that fold carries the
+        # reviewer's own hourly allowance, which changes on its own.
+        from pr_review.policy import receipt_print
+        fold = ('<details><summary>ℹ️ Recent review info</summary>\n'
+                '**Included review availability:** {} remain after this review.\n</details>\n')
+        a = self.rabbit() + fold.format('0')
+        b = self.rabbit() + fold.format('1')
+        self.assertEqual(receipt_print({'id': 1, 'body': a}), receipt_print({'id': 1, 'body': b}))
+        self.assertEqual(receipt_print({'id': 1, 'body': self.rabbit()}), receipt_print({'id': 1, 'body': a}))
+
+    def test_a_pipe_it_escaped_is_text_not_the_end_of_a_cell(self):
+        # A check's name is written by whoever configures the producer, and a
+        # name carrying an escaped pipe and a passed mark put that mark in the
+        # column this reads — hiding the real verdict, its explanation and
+        # what it asked for.
+        from pr_review.policy import receipt_print
+        name = 'Team sanity \\| ✅ ok'
+        tame = self.rabbit(rows=[(name, '⚠️ Warning')], why='Coverage is fine.')
+        real = self.rabbit(rows=[(name, '⚠️ Warning')], why='Signs with a disabled key. Do not merge.')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': tame}), receipt_print({'id': 1, 'body': real}))
 
     def test_a_box_a_person_ticks_is_not_the_bot_speaking(self):
         from pr_review.policy import receipt_print

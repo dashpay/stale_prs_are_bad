@@ -274,24 +274,32 @@ RISK_BLOCK = re.compile(r'<!-- final_review_risk_start -->(.*?)<!-- final_review
 VOLATILE = (('review_stack_entry', 'review_stack_entry'), ('tips', 'tips'),
             ('finishing_touch_checkbox', 'finishing_touch_checkbox'))
 NOTICES = tuple(
-    # What it is doing, not what it found: its capacity, a review it did not
-    # run, one it is still running, one it paused, a tool of its own that
-    # would not run, a run that failed, and an invitation to praise it.
-    # Every kind it writes that was seen in four repositories; one it writes
-    # tomorrow is read like anything else, and the worst that costs is a
-    # print that moves.
+    # When it can review and whether it did: its capacity, a review it did
+    # not run, one it is still running, one it paused, and an invitation to
+    # praise it. Nothing here is about the code.
+    #
+    # Its tool failures are not on this list, and were: a tool that would not
+    # run says which file and which line stopped it, which is a finding about
+    # the author's code — "File contains syntax errors that prevent linting:
+    # Line 126: Expected an array" — and dropping the notice dropped that.
+    # One it writes tomorrow is read like anything else, and the worst that
+    # costs is a print that moves once.
     (f'<!-- This is an auto-generated comment: {what} by coderabbit.ai -->',
      f'<!-- end of auto-generated comment: {what} by coderabbit.ai -->')
     for what in ('rate limited', 'skip review', 'review in progress', 'review paused',
-                 'all tool run failures', 'failure', 'tweet message'))
+                 'tweet message'))
 # Which run walked which commits and how many files it opened. What it found
 # in them is everything else, and stays — a finding written inside a fold is
 # still a finding.
 # Named exactly, not by a word appearing somewhere in the summary: a fold
 # called "Commits with problems" is a report, and matching loosely made it
 # a place to put a finding where nothing would read it.
+# The name has to start the summary, after whatever sign it puts in front of
+# it — and one of those signs, ℹ, is a letter, so a rule that skipped
+# anything but letters could never reach the name behind it. That fold has
+# never been dropped, and it carries the reviewer's own hourly allowance.
 BOOKKEEPING = re.compile(
-    r'(?is)<details>\s*<summary>[^\w<]*(?:run configuration|commits'
+    r'(?is)<details>\s*<summary>[^A-Za-z<]*(?:run configuration|commits'
     r'|files selected for processing|recent review info)\s*(?:\(\d+\))?\s*</summary>.*?</details>')
 # A box a person ticks is not the bot speaking, and it writes one as a list
 # item of its own — that whole item goes, label and all, because it adds and
@@ -312,7 +320,11 @@ PASSED = re.compile(r'✅')
 # cell under them, so it is redrawn whenever anything in the column changes
 # width. It says nothing, and a row of dashes can hide nothing.
 SEPARATOR = re.compile(r'(?m)^\|(?:\s*:?-+:?\s*\|)+[ \t]*$\n?')
-TABLE_ROW = re.compile(r'(?m)^(\|[^|\n]*\|([^|\n]*)\|).*$')
+# Split where a cell really ends. A pipe the producer escaped is text — and
+# a check's name is written by whoever configures it, so one named
+# "Team sanity \\| ✅ ok" put a passed verdict in the column this reads and
+# hid the real verdict, its explanation and what it asked for.
+TABLE_ROW = re.compile(r'(?m)^(\|(?:\\.|[^|\n\\])*\|((?:\\.|[^|\n\\])*)\|).*$')
 TABLE = re.compile(r'(?m)(?:^\|.*\n?)+')
 SPACES = re.compile(r'\s+')
 # The phrase, however the author spells it. It is still the author writing it
