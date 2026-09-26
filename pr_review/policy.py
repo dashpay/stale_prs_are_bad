@@ -274,13 +274,16 @@ RISK_BLOCK = re.compile(r'<!-- final_review_risk_start -->(.*?)<!-- final_review
 VOLATILE = (('review_stack_entry', 'review_stack_entry'), ('tips', 'tips'),
             ('finishing_touch_checkbox', 'finishing_touch_checkbox'))
 NOTICES = tuple(
-    # What it is doing, not what it found: its own capacity, a review it did
-    # not run, one it is still running, a tool of its own that would not run.
-    # Each says something about the reviewer and nothing about the code, and
-    # each is written and rewritten while the report stands unchanged.
+    # What it is doing, not what it found: its capacity, a review it did not
+    # run, one it is still running, one it paused, a tool of its own that
+    # would not run, a run that failed, and an invitation to praise it.
+    # Every kind it writes that was seen in four repositories; one it writes
+    # tomorrow is read like anything else, and the worst that costs is a
+    # print that moves.
     (f'<!-- This is an auto-generated comment: {what} by coderabbit.ai -->',
      f'<!-- end of auto-generated comment: {what} by coderabbit.ai -->')
-    for what in ('rate limited', 'skip review', 'review in progress', 'all tool run failures'))
+    for what in ('rate limited', 'skip review', 'review in progress', 'review paused',
+                 'all tool run failures', 'failure', 'tweet message'))
 # Which run walked which commits and how many files it opened. What it found
 # in them is everything else, and stays — a finding written inside a fold is
 # still a finding.

@@ -550,7 +550,8 @@ class PolicyTests(unittest.TestCase):
         # movement — and every one of them asked an author to attest again.
         from pr_review.policy import receipt_print
         plain = self.rabbit()
-        for what in ('rate limited', 'skip review', 'review in progress', 'all tool run failures'):
+        for what in ('rate limited', 'skip review', 'review in progress', 'review paused',
+                     'all tool run failures', 'failure', 'tweet message'):
             noisy = (f'<!-- This is an auto-generated comment: {what} by coderabbit.ai -->\n'
                      f'> Next included review available in 27 minutes. Run ID: 9f1c.\n'
                      f'<!-- end of auto-generated comment: {what} by coderabbit.ai -->\n') + plain
