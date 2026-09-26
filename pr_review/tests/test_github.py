@@ -743,6 +743,19 @@ class GitHubTests(unittest.TestCase):
         with request, pages:
             with_patch = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
         self.assertIsNotNone(diff_print(with_patch))
+        # A file the pull request adds is not in the merge base, so nothing the
+        # base did can be hiding in its patch and the blob decides it alone.
+        # GitHub sends no patch for a large or binary one, and one such file
+        # used to stop the whole pull request carrying anything: 32 of the 69
+        # patch-less files across the five repositories are new files, among
+        # them the only one in platform#4760 and in #4730.
+        request, pages = self.snapshot_fixture(files=[
+            {"filename": "golden.bin", "status": "added", "sha": "c" * 40,
+             "additions": 0, "deletions": 0, "changes": 0}])
+        with request, pages:
+            added = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertEqual(added["files"][0]["shape"], "added")
+        self.assertIsNotNone(diff_print(added))
 
     def test_both_reads_of_one_pull_request_see_the_same_comments(self):
         # Three defects in one day were the same shape: a field one read can
@@ -765,6 +778,26 @@ class GitHubTests(unittest.TestCase):
         self.assertEqual(read["comments"][0].get("edited_by"), "github-actions")
         self.assertEqual(read["controller_diff"], diff)
         self.assertEqual(read["controller_diff"], reused["controller_diff"])
+
+    def test_a_file_that_changed_type_is_listed_twice_and_is_not_drift(self):
+        # A regular file becoming a symlink is one path listed twice — removed
+        # and added, a different blob each time. platform 8b466abc74ee is
+        # CLAUDE.md doing exactly that. Reading it as the pagination shifting
+        # under the read left the pull request an error status on a required
+        # check, telling whoever looked to go and investigate pagination.
+        request, pages = self.snapshot_fixture(files=[
+            {"filename": "CLAUDE.md", "status": "removed", "sha": "a" * 40, "patch": "@@ -1 +0,0 @@\n-x"},
+            {"filename": "CLAUDE.md", "status": "added", "sha": "b" * 40, "patch": "@@ -0,0 +1 @@\n+docs/x"}])
+        with request, pages:
+            read = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertEqual([f["status"] for f in read["files"]], ["removed", "added"])
+        # Still drift when the same path arrives twice the same way.
+        request, pages = self.snapshot_fixture(files=[
+            {"filename": "a.rs", "status": "modified", "sha": "a" * 40, "patch": "@@ -1 +1 @@\n-a\n+b"},
+            {"filename": "a.rs", "status": "modified", "sha": "a" * 40, "patch": "@@ -1 +1 @@\n-a\n+b"}])
+        with request, pages:
+            with self.assertRaisesRegex(GitHubError, "Duplicate"):
+                self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
 
     def test_who_the_pull_request_was_handed_to_is_read(self):
         # A hand-over is written down as an assignment, and whoever is holding

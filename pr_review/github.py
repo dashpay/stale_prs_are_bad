@@ -331,7 +331,7 @@ def _login(user):
 
 
 def _unique(items, key, label):
-    values = [item[key] for item in items]
+    values = [tuple(item.get(k) for k in key) if isinstance(key, tuple) else item[key] for item in items]
     if len(values) != len(set(values)):
         raise GitHubError(f"Duplicate {label}; pagination may have changed during collection")
     return items
@@ -700,7 +700,13 @@ class GitHub:
             if type(count) is not int or count < 0 or count > 3000:
                 raise GitHubError("Changed-file count unavailable or above GitHub's 3000-file limit")
             files = self.pages(f"{self.root}/pulls/{number}/files")
-            if len(files) != count:
+            # Against the paths, not the entries. A file whose type changed —
+            # a regular file becoming a symlink — is listed twice, once
+            # removed and once added, with a different blob each time, while
+            # GitHub counts the path once. platform#4180 is CLAUDE.md doing
+            # that: two counted, three listed, and reading the difference as a
+            # short list left it an error status on a required check.
+            if len({_text(file["filename"], "changed-file path") for file in files}) != count:
                 raise GitHubError("Incomplete changed-file list")
             result["files"] = []
             for file in files:
@@ -733,8 +739,26 @@ class GitHub:
                 patch = file.get("patch")
                 if isinstance(patch, str):
                     normalized["shape"] = hashlib.sha256(patch.encode()).hexdigest()
+                elif file.get("status") == "added":
+                    # A path this pull request adds is one the base does not
+                    # have, so there is nothing for the base to have changed
+                    # underneath it: the blob above decides what the patch
+                    # says. Were the base to acquire that path, this entry
+                    # would come back modified — with a patch of its own, or
+                    # with none and nothing carried — and the status is part
+                    # of the print either way. A file that changed type is the
+                    # one shape where the path is in the base: there it is
+                    # listed twice, and the removed entry beside this one
+                    # holds the base side and moves when the base does.
+                    # Without this a single large new file — a golden fixture,
+                    # a generated client — stopped the whole pull request
+                    # carrying anything across a merge of its base.
+                    normalized["shape"] = "added"
                 result["files"].append(normalized)
-            _unique(result["files"], "filename", "changed file")
+            # The same path twice is the listing drifting under the read —
+            # unless it is one path changing type, which is the same path
+            # removed and added, and those are told apart by what happened.
+            _unique(result["files"], ("filename", "status"), "changed file")
             reviews = []
             for review in self.pages(f"{self.root}/pulls/{number}/reviews"):
                 state = _text(review["state"], "review state")

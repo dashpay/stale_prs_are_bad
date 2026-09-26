@@ -323,6 +323,27 @@ class PolicyTests(unittest.TestCase):
         from pr_review.policy import diff_print
         self.assertIsNone(diff_print({'files': [{'filename': 'a.rs', 'status': 'modified', 'content': 'c' * 40}]}))
 
+    def test_a_new_file_needs_no_patch_to_be_carried(self):
+        # Nothing the base did can be hiding in the patch of a file the base
+        # does not have, so the blob decides it. What the base could not hide
+        # is exactly what the status says: were the same path to appear in the
+        # base, it would come back modified rather than added, and that moves
+        # the print by itself.
+        from pr_review.policy import diff_print
+        added = {'files': [{'filename': 'golden.bin', 'status': 'added', 'content': 'c' * 40,
+                            'shape': 'added'}]}
+        self.assertIsNotNone(diff_print(added))
+        # What the shortcut rests on is that the base acquiring that path
+        # cannot pass in silence. With different content the entry comes back
+        # modified, carrying a patch of its own.
+        acquired = {'files': [dict(added['files'][0], status='modified', shape='f' * 64)]}
+        self.assertNotEqual(diff_print(added), diff_print(acquired))
+        # With the same content it stops being a difference at all and leaves
+        # the listing, which moves the print by the file being gone.
+        self.assertNotEqual(diff_print(added), diff_print({'files': []}))
+        rewritten = {'files': [dict(added['files'][0], content='d' * 40)]}
+        self.assertNotEqual(diff_print(added), diff_print(rewritten), 'a new blob is new work')
+
     def test_a_change_with_no_content_is_not_carried(self):
         # A mode bit or a type change shows as an entry with nothing in it,
         # and this cannot see what it did.
