@@ -155,7 +155,10 @@ class ChecklistTests(unittest.TestCase):
         result = evaluate(policy, pr, NOW, LATER)
         self.assertEqual(result['state'], 'waiting-self-review')
         line = first_unchecked(main.checklist_block(result))
-        self.assertIn('@ktechmidas posted it, and it has to be the author', line)
+        self.assertIn('@ktechmidas posted it', line)
+        # And what to do about it: they have read the diff, they are just not
+        # holding the pull request yet.
+        self.assertIn('assign it to yourself and what you posted counts', line)
 
     def test_a_bot_author_is_not_told_to_post_it_itself(self):
         # The line already says the attestation is not asked of it. Appending

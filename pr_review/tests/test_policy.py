@@ -718,6 +718,42 @@ class PolicyTests(unittest.TestCase):
                                                     updated_at='2026-09-11T11:00:00Z')])
         self.assertEqual(evaluate(p, pr, None, NOW)['state'], 'too-many-open-prs')
 
+    def test_whoever_the_pull_request_was_handed_to_can_attest(self):
+        # Pull requests change hands: 23 of the 111 open across these
+        # repositories carry commits by somebody other than whoever opened
+        # them. The one holding it is the one who can say they read it.
+        p, pr = fixture()
+        pr['comments'] = [dict(id=3, user='reviewer', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', 'nobody handed it over')
+        pr['assignees'] = ['reviewer']
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['status'], 'success', result['blockers'])
+        # And the author still can, whoever else is holding it.
+        pr['comments'][0] = dict(pr['comments'][0], user='owner')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+
+    def test_somebody_it_was_not_handed_to_still_cannot(self):
+        p, pr = fixture()
+        pr.update(assignees=['reviewer'],
+                  comments=[dict(id=3, user='fallback', body=f'/self-reviewed {HEAD}',
+                                 created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')])
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-self-review')
+        items = {i['item']: i for i in result['checklist']}
+        self.assertEqual(items['self_review']['on_their_behalf'], ['fallback'], 'and it says who')
+
+    def test_taking_it_over_afterwards_makes_what_was_posted_count(self):
+        # Somebody picks the work up, posts the phrase, and is told to assign
+        # themselves. When they do, what they already wrote is what counts —
+        # asking them to post it a second time would read nothing new.
+        p, pr = fixture()
+        pr['comments'] = [dict(id=3, user='reviewer', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+        pr['assignees'] = ['reviewer']      # the hand-over, written down afterwards
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+
     def test_a_reviewers_objection_inside_the_authors_thread_still_counts(self):
         # The author opens a thread; a reviewer replies objecting. Reading
         # only who opened it dropped the objection — and as the gate, merged.

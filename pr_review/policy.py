@@ -820,13 +820,19 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         written = [dict(user=c['user'], body=c['body'], at=c['created_at'])
                    for c in pr['comments'] if c['created_at'] == c['updated_at']]
         written += [dict(user=r['user'], body=r['body'] or '', at=r['submitted_at']) for r in pr['reviews']]
-        # Twice in two days a colleague posted the phrase on somebody else's
-        # pull request and nothing happened. It cannot count — an attestation
-        # is the author saying they read their own diff — but silence about it
-        # leaves them believing they have done the thing.
+        # Twice in two days somebody posted the phrase on a pull request that
+        # was not theirs and nothing happened. It cannot count — an
+        # attestation is whoever holds the pull request saying they read what
+        # is in it — but silence about it leaves them believing they have
+        # done the thing.
+        # Whoever is holding it: the one who opened it, and anyone it has been
+        # handed to. Pull requests change hands here — a colleague picks one
+        # up and finishes it — and the person finishing it is the one who can
+        # say they read what is in it.
+        holding = {pr['author'].lower()} | {who.lower() for who in pr.get('assignees') or []}
         attestations, on_their_behalf = [], []
         for comment in written:
-            if comment['user'].lower() != pr['author'].lower():
+            if comment['user'].lower() not in holding:
                 if ATTESTATION.fullmatch(comment['body'].strip()) and comment['user'].lower() not in BOTS:
                     on_their_behalf.append(comment['user'])
                 continue
