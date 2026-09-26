@@ -766,6 +766,26 @@ class GitHubTests(unittest.TestCase):
         self.assertEqual(read["controller_diff"], diff)
         self.assertEqual(read["controller_diff"], reused["controller_diff"])
 
+    def test_a_file_that_changed_type_is_listed_twice_and_is_not_drift(self):
+        # A regular file becoming a symlink is one path listed twice — removed
+        # and added, a different blob each time. platform 8b466abc74ee is
+        # CLAUDE.md doing exactly that. Reading it as the pagination shifting
+        # under the read left the pull request an error status on a required
+        # check, telling whoever looked to go and investigate pagination.
+        request, pages = self.snapshot_fixture(files=[
+            {"filename": "CLAUDE.md", "status": "removed", "sha": "a" * 40, "patch": "@@ -1 +0,0 @@\n-x"},
+            {"filename": "CLAUDE.md", "status": "added", "sha": "b" * 40, "patch": "@@ -0,0 +1 @@\n+docs/x"}])
+        with request, pages:
+            read = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertEqual([f["status"] for f in read["files"]], ["removed", "added"])
+        # Still drift when the same path arrives twice the same way.
+        request, pages = self.snapshot_fixture(files=[
+            {"filename": "a.rs", "status": "modified", "sha": "a" * 40, "patch": "@@ -1 +1 @@\n-a\n+b"},
+            {"filename": "a.rs", "status": "modified", "sha": "a" * 40, "patch": "@@ -1 +1 @@\n-a\n+b"}])
+        with request, pages:
+            with self.assertRaises(GitHubError):
+                self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+
     def test_who_the_pull_request_was_handed_to_is_read(self):
         # A hand-over is written down as an assignment, and whoever is holding
         # the pull request is who may say they have read it. Every route that
