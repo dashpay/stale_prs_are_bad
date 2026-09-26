@@ -378,10 +378,6 @@ class PolicyTests(unittest.TestCase):
         return ('<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n'
                 + ('<!-- review_stack_entry_start -->\n' + extra + '<!-- review_stack_entry_end -->\n'
                    if extra else '')
-                + '<!-- final_review_risk_start -->\n'
-                + '**Merge Risk:** Minimal\n'
-                + f'<!-- final_review_risk_coverage:{covered} -->\n'
-                + finding + '\n<!-- final_review_risk_end -->\n'
                 + f'<!-- recent_review_start -->\n{found}\n'
                 + f'<details><summary>⚙️ Run configuration</summary>\nRun ID: {run}\n</details>\n'
                 + '<!-- recent_review_end -->\n'
@@ -389,11 +385,17 @@ class PolicyTests(unittest.TestCase):
                 + '| Layer / File(s) | Summary |\n| :--- | :--- |\n'
                 + f'| `a.rs` | {summary} |\n'
                 + '<!-- walkthrough_end -->\n'
+                + '<!-- final_review_risk_start -->\n'
+                + '**Merge Risk:** Minimal\n'
+                + f'<!-- final_review_risk_coverage:{covered} -->\n'
+                + finding + '\n<!-- final_review_risk_end -->\n'
                 + '<!-- pre_merge_checks_walkthrough_start -->\n'
                 + f'<summary>🚥 Pre-merge checks | {checks}</summary>\n\n'
                 + '| Check name | Status | Explanation |\n| :---: | :--- | :--- |\n'
                 + ''.join(f'| {name} | {state} | {why} |\n' for name, state in (rows or [('Title check', checks)]))
-                + '<!-- pre_merge_checks_walkthrough_end -->\n<!-- tips -->\n')
+                + '<!-- pre_merge_checks_walkthrough_end -->\n'
+                + '<!-- tips_start -->\n<details><summary>🪧 Tips</summary>\nChat with CodeRabbit.\n</details>\n'
+                + '<!-- tips_end -->\n')
 
     def test_a_cosmetic_edit_is_not_the_bot_speaking_again(self):
         # tenderdash#1489, rust-dashcore#1048: the author attested, CodeRabbit
@@ -453,6 +455,50 @@ class PolicyTests(unittest.TestCase):
         flipped = {'id': 1, 'body': self.rabbit(rows=[('Title check', '❌ Failed'),
                                                       ('Docstring Coverage', '✅ Passed')])}
         self.assertNotEqual(receipt_print(first), receipt_print(flipped))
+
+    def test_a_marker_in_text_it_echoes_cannot_delete_the_report(self):
+        # It copies file paths into its walkthrough, and a path may contain
+        # anything. An opening marker there, paired with the real closing one
+        # far below, deleted the findings, the checks and everything between —
+        # and the print then held through any finding at all.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        planted = plain.replace('| `a.rs` |', '| `a<!-- tips_start -->b.rs` |')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': planted}),
+                            receipt_print({'id': 1, 'body': planted.replace('**Merge Risk:** Minimal',
+                                                                            '**Merge Risk:** Critical')}))
+
+    def test_what_it_is_doing_is_not_what_it_found(self):
+        # Its own capacity, a review it has not run yet, a tool of its own
+        # that would not run: each is written and rewritten while the report
+        # stands, and each says nothing about the code. Measured across 120
+        # recorded rewrites of these comments, they were nearly all of the
+        # movement — and every one of them asked an author to attest again.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        for what in ('rate limited', 'skip review', 'review in progress', 'all tool run failures'):
+            noisy = (f'<!-- This is an auto-generated comment: {what} by coderabbit.ai -->\n'
+                     f'> Next included review available in 27 minutes. Run ID: 9f1c.\n'
+                     f'<!-- end of auto-generated comment: {what} by coderabbit.ai -->\n') + plain
+            self.assertEqual(receipt_print({'id': 1, 'body': plain}),
+                             receipt_print({'id': 1, 'body': noisy}), what)
+
+    def test_a_box_a_person_ticks_is_not_the_bot_speaking(self):
+        from pr_review.policy import receipt_print
+        box = '- [ ] <!-- {"checkboxId":"585bb3f6"} --> Fix all pre-merge checks with AI\n'
+        body = self.rabbit() + box
+        self.assertEqual(receipt_print({'id': 1, 'body': body}),
+                         receipt_print({'id': 1, 'body': body.replace('- [ ]', '- [x]')}))
+
+    def test_a_finding_written_inside_a_fold_is_still_a_finding(self):
+        # Only the bookkeeping folds are dropped — which run, which commits,
+        # how many files. Everything it puts in a fold of its own is read.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        nitpicks = plain.replace('<!-- recent_review_end -->',
+                                 '<details><summary>🧹 Nitpick comments (2)</summary>\n'
+                                 'Unchecked index; the node aborts.\n</details>\n<!-- recent_review_end -->')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': plain}), receipt_print({'id': 1, 'body': nitpicks}))
 
     def test_what_it_found_is_read_and_which_run_found_it_is_not(self):
         # Everything it writes counts as what it said unless it is named as

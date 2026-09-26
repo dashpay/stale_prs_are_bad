@@ -266,10 +266,29 @@ RISK_BLOCK = re.compile(r'<!-- final_review_risk_start -->(.*?)<!-- final_review
 # adds tomorrow is then read by default, and the worst that costs is an
 # attestation asked for twice — where reading only what is named would have
 # left whatever it put there unread.
-VOLATILE = ('review_stack_entry', 'tips', 'finishing_touch_checkbox')
-# Its report of the run itself: which run, which commits it walked, how many
-# files. What it found in them is the line above this, and that is kept.
-RUN_DETAIL = re.compile(r'(<!-- recent_review_start -->.*?)<details>.*?(<!-- recent_review_end -->)', re.S)
+# Each one paired with its own end, and both at the start of a line, which
+# is how this producer writes them. An opening marker found in the middle of
+# a line is text — it echoes file paths into a table, and a path may contain
+# anything — and one that pairs with an end it did not open would delete
+# whatever lies between, findings included.
+VOLATILE = (('review_stack_entry', 'review_stack_entry'), ('tips', 'tips'),
+            ('finishing_touch_checkbox', 'finishing_touch_checkbox'))
+NOTICES = tuple(
+    # What it is doing, not what it found: its own capacity, a review it did
+    # not run, one it is still running, a tool of its own that would not run.
+    # Each says something about the reviewer and nothing about the code, and
+    # each is written and rewritten while the report stands unchanged.
+    (f'<!-- This is an auto-generated comment: {what} by coderabbit.ai -->',
+     f'<!-- end of auto-generated comment: {what} by coderabbit.ai -->')
+    for what in ('rate limited', 'skip review', 'review in progress', 'all tool run failures'))
+# Which run walked which commits and how many files it opened. What it found
+# in them is everything else, and stays — a finding written inside a fold is
+# still a finding.
+BOOKKEEPING = re.compile(
+    r'(?is)<details>\s*<summary>[^<]*(?:run configuration|commits|files selected|review info)'
+    r'[^<]*</summary>.*?</details>')
+# A box a person ticks, wherever it sits: ticking it is not the bot speaking.
+CHECKBOX = re.compile(r'(?m)^.*<!--\s*\{"checkboxId".*$')
 TABLE_ROW = re.compile(r'(?m)^(\|[^|\n]*\|[^|\n]*)\|.*$')
 TABLE = re.compile(r'(?m)(?:^\|.*\n?)+')
 SPACES = re.compile(r'\s+')
@@ -324,19 +343,21 @@ def receipt_print(comment):
     if not RISK_BLOCK.search(body):
         return None
     said = body
-    for name in VOLATILE:
-        # Gone, not marked: whether it added its banner at all is as much
-        # its own business as what the banner says.
-        said = re.sub(r'<!-- ' + name + r'_start -->.*?<!-- ' + name + r'_end -->',
-                      '', said, flags=re.S)
-    said = RUN_DETAIL.sub(r'\1\2', said)
+    # Gone, not marked: whether it wrote its banner at all is as much its own
+    # business as what the banner says.
+    for start, end in VOLATILE:
+        said = re.sub(r'(?ms)^<!-- ' + start + r'_start -->.*?^<!-- ' + end + r'_end -->', '', said)
+    for start, end in NOTICES:
+        said = re.sub(r'(?ms)^' + re.escape(start) + r'.*?^' + re.escape(end), '', said)
+    said = BOOKKEEPING.sub('', said)
+    said = CHECKBOX.sub('', said)
     said = TABLE_ROW.sub(r'\1|', said)
     # A table it reordered between two writes of the same report is not it
     # saying anything new, and it did that twice in four recorded versions of
     # one comment. Sorted as text: nothing is dropped, so a verdict that
     # changed, a check added or one removed all still read as changed.
     said = TABLE.sub(lambda block: ''.join(sorted(block.group(0).splitlines(keepends=True))), said)
-    said = SPACES.sub(' ', said)
+    said = SPACES.sub(' ', said).strip()
     # Per comment: two of them saying the same thing are still two reports.
     return hashlib.sha256(f'{comment.get("id")}\n{said}'.encode()).hexdigest()
 
