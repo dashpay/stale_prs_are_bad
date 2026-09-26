@@ -335,8 +335,12 @@ def checklist_block(result):
     # is the difference between a pull request that moves and one whose author
     # believes it already has.
     if attest['on_their_behalf'] and not attest['done'] and not attest['bot_author']:
+        # Say what to do about it: whoever posted it has read the diff, they
+        # are simply not holding the pull request yet. Assigning themselves
+        # makes what they already wrote count.
         who = ', '.join('@' + name for name in attest['on_their_behalf'])
-        lines[-1] += f' — {who} posted it, and it has to be the author'
+        lines[-1] += (f' — {who} posted it. If you have taken this pull request over, '
+                      'assign it to yourself and what you posted counts')
     slot = items['slot']
     line = f"- {box(slot['done'])} Within your {slot['limit']} open PRs"
     if not slot['done']:

@@ -414,6 +414,10 @@ class GitHub:
                 "author_is_bot": (raw.get("user") or {}).get("type") == "Bot",
                 "body": raw.get("body") or "",
                 "labels": [_text(label["name"], "label name") for label in raw.get("labels") or []],
+                # Who is holding this pull request now. Beside the labels, on
+                # the one route every read shares: a field one read can supply
+                # and another cannot is how three defects in a day began.
+                "assignees": [_login(user) for user in raw.get("assignees") or []],
                 "head": _text(raw["head"]["sha"], "head SHA"),
                 "base": _text(raw["base"]["ref"], "base branch"),
                 "base_sha": _text(raw["base"]["sha"], "base SHA"),

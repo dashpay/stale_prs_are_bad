@@ -377,7 +377,8 @@ class GitHubTests(unittest.TestCase):
         return {"number": 1, "user": {"login": "author"}, "head": {"sha": "a" * 40},
                 "base": {"sha": "b" * 40, "ref": "v4.2-dev"}, "created_at": "2026-09-01T00:00:00Z",
                 "draft": False, "state": "open", "html_url": "https://github.com/dashpay/platform/pull/1",
-                "title": "Example", "changed_files": 1, "requested_reviewers": [], "labels": []}
+                "title": "Example", "changed_files": 1, "requested_reviewers": [], "labels": [],
+                "assignees": [{"login": "romchornyi"}]}
 
     def graph(self, nodes=None, more=False, cursor=None, total=None):
         return {"data": {"repository": {"pullRequest": {"reviewThreads": {
@@ -764,6 +765,21 @@ class GitHubTests(unittest.TestCase):
         self.assertEqual(read["comments"][0].get("edited_by"), "github-actions")
         self.assertEqual(read["controller_diff"], diff)
         self.assertEqual(read["controller_diff"], reused["controller_diff"])
+
+    def test_who_the_pull_request_was_handed_to_is_read(self):
+        # A hand-over is written down as an assignment, and whoever is holding
+        # the pull request is who may say they have read it. Every route that
+        # reads a pull request carries it: a field one read supplies and
+        # another does not is how three defects in a day began, and the one
+        # that omitted it would report that nobody is holding anything.
+        request, pages = self.snapshot_fixture()
+        with request, pages:
+            read = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
+        self.assertEqual(read["assignees"], ["romchornyi"])
+        with patch.object(self.api, "request", return_value=self.pr()):
+            self.assertEqual(self.api.pull(1)["assignees"], ["romchornyi"])
+        with patch.object(self.api, "pages", return_value=[self.pr()]):
+            self.assertEqual(self.api.open_prs()[0]["assignees"], ["romchornyi"])
 
     def test_should_preserve_rename_source_and_reuse_access_until_told_otherwise(self):
         request, pages = self.snapshot_fixture(files=[{"filename": "new/a.rs", "previous_filename": "old/a.rs", "status": "renamed"}])
