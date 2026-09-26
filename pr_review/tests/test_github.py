@@ -796,7 +796,7 @@ class GitHubTests(unittest.TestCase):
             {"filename": "a.rs", "status": "modified", "sha": "a" * 40, "patch": "@@ -1 +1 @@\n-a\n+b"},
             {"filename": "a.rs", "status": "modified", "sha": "a" * 40, "patch": "@@ -1 +1 @@\n-a\n+b"}])
         with request, pages:
-            with self.assertRaises(GitHubError):
+            with self.assertRaisesRegex(GitHubError, "Duplicate"):
                 self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
 
     def test_who_the_pull_request_was_handed_to_is_read(self):

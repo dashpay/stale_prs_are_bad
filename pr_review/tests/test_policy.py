@@ -333,8 +333,14 @@ class PolicyTests(unittest.TestCase):
         added = {'files': [{'filename': 'golden.bin', 'status': 'added', 'content': 'c' * 40,
                             'shape': 'added'}]}
         self.assertIsNotNone(diff_print(added))
-        moved = {'files': [dict(added['files'][0], status='modified', shape=None)]}
-        self.assertIsNone(diff_print(moved), 'and the base having it starts over')
+        # What the shortcut rests on is that the base acquiring that path
+        # cannot pass in silence. With different content the entry comes back
+        # modified, carrying a patch of its own.
+        acquired = {'files': [dict(added['files'][0], status='modified', shape='f' * 64)]}
+        self.assertNotEqual(diff_print(added), diff_print(acquired))
+        # With the same content it stops being a difference at all and leaves
+        # the listing, which moves the print by the file being gone.
+        self.assertNotEqual(diff_print(added), diff_print({'files': []}))
         rewritten = {'files': [dict(added['files'][0], content='d' * 40)]}
         self.assertNotEqual(diff_print(added), diff_print(rewritten), 'a new blob is new work')
 
