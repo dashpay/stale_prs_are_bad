@@ -456,6 +456,43 @@ class PolicyTests(unittest.TestCase):
                                                       ('Docstring Coverage', '✅ Passed')])}
         self.assertNotEqual(receipt_print(first), receipt_print(flipped))
 
+    def test_a_fold_is_bookkeeping_only_when_it_is_named_as_such(self):
+        # Matching a word anywhere in the summary made any fold whose title
+        # mentioned commits a place to put a finding that nothing would read.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        for summary in ('📥 Commits with problems', '🧹 Nitpick comments (1)', 'Files selected and rejected'):
+            hidden = plain.replace('<!-- final_review_risk_start -->',
+                                   f'<details><summary>{summary}</summary>\nDo not merge.\n</details>\n'
+                                   '<!-- final_review_risk_start -->')
+            self.assertNotEqual(receipt_print({'id': 1, 'body': plain}),
+                                receipt_print({'id': 1, 'body': hidden}), summary)
+        # And the ones it really names stay dropped.
+        for summary in ('⚙️ Run configuration', '📥 Commits', '📒 Files selected for processing (17)'):
+            noise = plain.replace('<!-- final_review_risk_start -->',
+                                  f'<details><summary>{summary}</summary>\nRun ID: 9f1c\n</details>\n'
+                                  '<!-- final_review_risk_start -->')
+            self.assertEqual(receipt_print({'id': 1, 'body': plain}),
+                             receipt_print({'id': 1, 'body': noise}), summary)
+
+    def test_what_a_failed_check_asks_for_is_read_and_a_passing_one_is_not(self):
+        # Beside a verdict that passed, that column is prose it rewrites, and
+        # reading it asked authors to attest again for nothing. Beside one
+        # that failed, it is what the author has to do about it.
+        from pr_review.policy import receipt_print
+        passing = self.rabbit(checks='✅ Passed')
+        self.assertEqual(receipt_print({'id': 1, 'body': passing}),
+                         receipt_print({'id': 1, 'body': self.rabbit(checks='✅ Passed', why='Reads well enough.')}))
+        failed = self.rabbit(checks='❌ Failed', why='Out of scope changes.')
+        worse = self.rabbit(checks='❌ Failed', why='Remove the unchecked index before merging.')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': failed}), receipt_print({'id': 1, 'body': worse}))
+
+    def test_line_endings_are_not_what_it_said(self):
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        self.assertEqual(receipt_print({'id': 1, 'body': plain}),
+                         receipt_print({'id': 1, 'body': plain.replace('\n', '\r\n')}))
+
     def test_a_marker_in_text_it_echoes_cannot_delete_the_report(self):
         # It copies file paths into its walkthrough, and a path may contain
         # anything. An opening marker there, paired with the real closing one
@@ -464,6 +501,12 @@ class PolicyTests(unittest.TestCase):
         from pr_review.policy import receipt_print
         plain = self.rabbit()
         planted = plain.replace('| `a.rs` |', '| `a<!-- tips_start -->b.rs` |')
+        # And a second one on a line of its own, which a title or a body it
+        # echoes could carry: seen twice, neither is deleted.
+        twice = plain.replace('<!-- walkthrough_start -->', '<!-- walkthrough_start -->\n<!-- tips_start -->')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': twice}),
+                            receipt_print({'id': 1, 'body': twice.replace('**Merge Risk:** Minimal',
+                                                                          '**Merge Risk:** Critical')}))
         self.assertNotEqual(receipt_print({'id': 1, 'body': planted}),
                             receipt_print({'id': 1, 'body': planted.replace('**Merge Risk:** Minimal',
                                                                             '**Merge Risk:** Critical')}))

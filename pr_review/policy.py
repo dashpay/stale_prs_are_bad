@@ -284,12 +284,19 @@ NOTICES = tuple(
 # Which run walked which commits and how many files it opened. What it found
 # in them is everything else, and stays — a finding written inside a fold is
 # still a finding.
+# Named exactly, not by a word appearing somewhere in the summary: a fold
+# called "Commits with problems" is a report, and matching loosely made it
+# a place to put a finding where nothing would read it.
 BOOKKEEPING = re.compile(
-    r'(?is)<details>\s*<summary>[^<]*(?:run configuration|commits|files selected|review info)'
-    r'[^<]*</summary>.*?</details>')
+    r'(?is)<details>\s*<summary>[^\w<]*(?:run configuration|commits'
+    r'|files selected for processing|recent review info)\s*(?:\(\d+\))?\s*</summary>.*?</details>')
 # A box a person ticks, wherever it sits: ticking it is not the bot speaking.
 CHECKBOX = re.compile(r'(?m)^.*<!--\s*\{"checkboxId".*$')
-TABLE_ROW = re.compile(r'(?m)^(\|[^|\n]*\|[^|\n]*)\|.*$')
+# Beside a verdict that passed, the column is prose it rewrites — dropping
+# it is what stops an author being asked to attest again for nothing. Beside
+# one that failed, it is what the author has to do about it, and it is read.
+FAILED = re.compile(r'❌|⚠️|🚫')
+TABLE_ROW = re.compile(r'(?m)^(\|[^|\n]*\|([^|\n]*)\|).*$')
 TABLE = re.compile(r'(?m)(?:^\|.*\n?)+')
 SPACES = re.compile(r'\s+')
 # The phrase, however the author spells it. It is still the author writing it
@@ -342,16 +349,23 @@ def receipt_print(comment):
     body = comment['body']
     if not RISK_BLOCK.search(body):
         return None
-    said = body
+    # Line endings first: the markers below are matched line by line, and a
+    # body that arrives with carriage returns would keep every section this
+    # means to drop.
+    said = body.replace('\r\n', '\n')
     # Gone, not marked: whether it wrote its banner at all is as much its own
     # business as what the banner says.
-    for start, end in VOLATILE:
-        said = re.sub(r'(?ms)^<!-- ' + start + r'_start -->.*?^<!-- ' + end + r'_end -->', '', said)
-    for start, end in NOTICES:
-        said = re.sub(r'(?ms)^' + re.escape(start) + r'.*?^' + re.escape(end), '', said)
+    for start, end in [(f'<!-- {a}_start -->', f'<!-- {b}_end -->') for a, b in VOLATILE] + list(NOTICES):
+        # Its own marker, alone on its line, and only where it wrote that
+        # marker once. Seen twice, one of them is text it echoed back — a
+        # path, a title — and deleting from the first to the real end would
+        # take the findings with it, so nothing is deleted at all.
+        if len(re.findall(r'(?m)^' + re.escape(start) + r'[ \t]*$', said)) != 1:
+            continue
+        said = re.sub(r'(?ms)^' + re.escape(start) + r'[ \t]*$.*?^' + re.escape(end) + r'[ \t]*$', '', said)
     said = BOOKKEEPING.sub('', said)
     said = CHECKBOX.sub('', said)
-    said = TABLE_ROW.sub(r'\1|', said)
+    said = TABLE_ROW.sub(lambda row: row.group(0) if FAILED.search(row.group(2)) else row.group(1), said)
     # A table it reordered between two writes of the same report is not it
     # saying anything new, and it did that twice in four recorded versions of
     # one comment. Sorted as text: nothing is dropped, so a verdict that
