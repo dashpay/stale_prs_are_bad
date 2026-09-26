@@ -414,6 +414,10 @@ class GitHub:
                 "author_is_bot": (raw.get("user") or {}).get("type") == "Bot",
                 "body": raw.get("body") or "",
                 "labels": [_text(label["name"], "label name") for label in raw.get("labels") or []],
+                # Who is holding this pull request now. Beside the labels, on
+                # the one route every read shares: a field one read can supply
+                # and another cannot is how three defects in a day began.
+                "assignees": [_login(user) for user in raw.get("assignees") or []],
                 "head": _text(raw["head"]["sha"], "head SHA"),
                 "base": _text(raw["base"]["ref"], "base branch"),
                 "base_sha": _text(raw["base"]["sha"], "base SHA"),
@@ -763,7 +767,7 @@ class GitHub:
             # Who is holding this pull request now. A pull request handed to
             # somebody else is theirs to attest to, and this is how a hand-over
             # is written down.
-            result["assignees"] = [_login(user) for user in raw.get("assignees") or []]
+
             result["labels"] = [_text(label["name"], "label name") for label in raw["labels"]]
             state, comment_id = parse_controller_state(result["comments"])
             if state is not None and state["number"] != number:

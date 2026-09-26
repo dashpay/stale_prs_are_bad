@@ -17,7 +17,8 @@ def caller_workflow(engine_revision):
     return f'''name: PR Hygiene policy
 on:
   pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, closed, edited]
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, closed, edited,
+            assigned, unassigned]
   issue_comment:
     # CodeRabbit publishes its completion by editing the comment it posted when
     # the review began: on Platform every observed receipt arrived that way and

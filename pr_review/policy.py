@@ -435,6 +435,21 @@ def _rabbit_receipt(body, head):
 
 
 
+def holders(policy, pr):
+    """Whoever this pull request belongs to: the one who opened it, and anyone it was handed to.
+
+    One set, used everywhere the author was used alone. Taking only the
+    benefit of it — that a holder may attest — and not the burden would have
+    left the person holding a pull request able to attest to it and then
+    approve it as though they were somebody else, which turns two people into
+    one on the only gate there is. Machine accounts are not holders: nobody is
+    there to read anything.
+    """
+    named = {pr['author'].lower()} | {who.lower() for who in pr.get('assignees') or []}
+    machines = {handle.lower() for handle in policy.get('bot_authors', [])} | BOTS
+    return {who for who in named if who not in machines}
+
+
 def machine_author(policy, pr):
     """Whether this pull request was opened by something that cannot attest for itself.
 
@@ -668,6 +683,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             if first is None:
                 first = (state, list(reasons))
 
+        held_by = holders(policy, pr)
         required = set(policy.get('required_bots', REVIEW_BOTS))
         # A push that leaves this pull request's own diff untouched carries
         # the review of the commit before it: what the bots said still
@@ -829,15 +845,11 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         # handed to. Pull requests change hands here — a colleague picks one
         # up and finishes it — and the person finishing it is the one who can
         # say they read what is in it.
-        holding = {pr['author'].lower()} | {who.lower() for who in pr.get('assignees') or []}
+        holding = holders(policy, pr)
         attestations, on_their_behalf = [], []
         for comment in written:
-            if comment['user'].lower() not in holding:
-                if ATTESTATION.fullmatch(comment['body'].strip()) and comment['user'].lower() not in BOTS:
-                    on_their_behalf.append(comment['user'])
-                continue
             said = ATTESTATION.fullmatch(comment['body'].strip())
-            if not said:
+            if not said or comment['user'].lower() in BOTS:
                 continue
             if said['head'] and said['head'].lower() not in heads:
                 continue
@@ -847,8 +859,16 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 floor = max(floor_at, seen, key=_time)
             else:
                 continue
-            if _time(comment['at']) > _time(floor):
+            if _time(comment['at']) <= _time(floor):
+                continue
+            if comment['user'].lower() in holding:
                 attestations.append(comment['at'])
+            else:
+                # Everything but whose it is: telling them to take the pull
+                # request over is only true advice when taking it over would
+                # make what they wrote count, and it would not if they wrote
+                # it before the bots reported or about another commit.
+                on_their_behalf.append(comment['user'])
         if not attestations and machine_author(policy, pr):
             # An account that opens pull requests without a person behind it
             # cannot post an attestation. It never owns an area — the policy
@@ -876,22 +896,29 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             # that reviewer's objection. The author's own words are not one.
             for voice in thread.get('voices') or [dict(user=thread['author'], created_at=thread['created_at'])]:
                 user = voice['user'].lower()
-                if user in BOTS or user == pr['author'].lower() or not _may_object(permissions, user):
+                # A holder's own words in a thread are not an objection to
+                # their own pull request, whichever of them wrote them.
+                if user in BOTS or user in held_by or not _may_object(permissions, user):
                     continue
                 if user not in objectors:
                     objection_lines.append(f"{voice['user']} left a review thread unresolved")
                 objectors[user] = max(objectors.get(user, voice['created_at']), voice['created_at'], key=_time)
         if first is None:
             result['objections'] = objection_lines
-        author = pr['author'].lower()
         needed = set()
         approvals = []
         for area in touched.values():
-            if author in {x.lower() for x in area['owners']}:
+            # Owned by whoever is holding it: the rule is that you may merge
+            # your own work in your own area without a second person, and a
+            # pull request handed to its area's owner is that.
+            if held_by & {x.lower() for x in area['owners']}:
                 approvals.append({'area': area['id'], 'files': sorted(files_by_area.get(area['id'], ())),
                                   'approvers': [], 'approved_by': [], 'owned': True})
                 continue
-            eligible = {x.lower() for x in area['owners'] + area['reviewers']} - {author}
+            # Nobody approves what they are holding. Without this the same
+            # person could attest to a pull request and then approve it as
+            # though they were somebody else.
+            eligible = {x.lower() for x in area['owners'] + area['reviewers']} - held_by
             approved_by = sorted(people[u] for u in eligible
                                  if u in latest and latest[u]['state'].upper() == 'APPROVED'
                                  and (latest[u]['commit_id'] or '').lower() in heads)
@@ -911,7 +938,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         unanswered = {u for u, at in objectors.items() if self_time is None or _time(at) >= _time(self_time)}
         if self_time is not None and unanswered:
             gate('waiting-author', 'Author response is required after the latest human objection')
-        needed.update(u for u in objectors if u != author and _may_object(permissions, u) and u not in BOTS)
+        needed.update(u for u in objectors if u not in held_by and _may_object(permissions, u) and u not in BOTS)
         human = bool(needed or objectors)
         previous = pr.get('controller_state') or {}
         # Latching on the recorded state, not on ready_since: a pull request

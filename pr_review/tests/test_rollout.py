@@ -30,6 +30,16 @@ class CommentTriggerTests(unittest.TestCase):
         # contains() on a string is a case-insensitive substring match.
         return any(literal.lower() in body.lower() for literal in self.tested)
 
+    def test_a_hand_over_starts_a_run(self):
+        # Somebody is told to assign themselves and what they posted then
+        # counts — but nothing re-reads the pull request until the sweep
+        # rotates to it hours later, and the only way out they would find is
+        # posting the phrase a second time, which is what this avoids.
+        workflow = caller_workflow('a' * 40)
+        types = [l for l in workflow.splitlines() if 'types:' in l or 'assigned' in l]
+        self.assertTrue(any('assigned' in l for l in types), types)
+        self.assertTrue(any('unassigned' in l for l in types), types)
+
     def test_every_spelling_the_engine_accepts_also_starts_a_run(self):
         # The engine reads comments from the pull request, not from the event,
         # so a spelling the caller does not match is not lost — it waits for

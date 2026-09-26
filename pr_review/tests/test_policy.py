@@ -743,6 +743,52 @@ class PolicyTests(unittest.TestCase):
         items = {i['item']: i for i in result['checklist']}
         self.assertEqual(items['self_review']['on_their_behalf'], ['fallback'], 'and it says who')
 
+    def test_nobody_approves_what_they_are_holding(self):
+        # Taking only the benefit of a hand-over — that a holder may attest —
+        # would let one person attest to a pull request and then approve it
+        # as though they were somebody else, turning two people into one on
+        # the only gate there is.
+        p, pr = fixture()
+        pr.update(author='stranger', assignees=['reviewer'], permissions=dict(pr['permissions'], stranger='write'),
+                  comments=[dict(id=3, user='reviewer', body=f'/self-reviewed {HEAD}',
+                                 created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')],
+                  reviews=pr['reviews'] + [dict(id=9, user='reviewer', state='APPROVED', commit_id=HEAD,
+                                                submitted_at='2026-09-11T11:30:00Z', body='')])
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human', result['blockers'])
+        self.assertEqual(result['reviewers'], ['owner'], 'somebody who is not holding it')
+
+    def test_a_pull_request_handed_to_the_owner_of_what_it_touches_needs_nobody_else(self):
+        # The rule is that you may merge your own work in your own area
+        # without a second person; a pull request handed to that area's owner
+        # is that, and refusing it would leave one with nobody who may approve.
+        p, pr = fixture()
+        pr.update(author='stranger', assignees=['owner'], permissions=dict(pr['permissions'], stranger='write'),
+                  comments=[dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
+                                 created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')])
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+
+    def test_a_machine_account_holding_it_is_still_nobody(self):
+        p, pr = fixture()
+        p['bot_authors'] = ['infraclaw-dash']
+        pr.update(assignees=['infraclaw-dash'],
+                  comments=[dict(id=3, user='infraclaw-dash', body=f'/self-reviewed {HEAD}',
+                                 created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')])
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
+    def test_the_advice_to_take_it_over_is_only_given_where_it_is_true(self):
+        # Told to assign themselves, they do, and it still does not count
+        # because they wrote it before the bots reported — and the sentence
+        # disappears without explaining itself. Say nothing rather than that.
+        p, pr = fixture()
+        pr['comments'] = [dict(id=3, user='reviewer', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T09:00:00Z')]
+        items = {i['item']: i for i in evaluate(p, pr, NOW, NOW)['checklist']}
+        self.assertEqual(items['self_review']['on_their_behalf'], [], 'it was written before the bots reported')
+        pr['comments'][0] = dict(pr['comments'][0], created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')
+        items = {i['item']: i for i in evaluate(p, pr, NOW, NOW)['checklist']}
+        self.assertEqual(items['self_review']['on_their_behalf'], ['reviewer'])
+
     def test_taking_it_over_afterwards_makes_what_was_posted_count(self):
         # Somebody picks the work up, posts the phrase, and is told to assign
         # themselves. When they do, what they already wrote is what counts —
