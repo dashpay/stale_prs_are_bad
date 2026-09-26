@@ -475,6 +475,37 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual(receipt_print({'id': 1, 'body': plain}),
                              receipt_print({'id': 1, 'body': noise}), summary)
 
+    def test_a_verdict_that_is_not_passed_keeps_what_it_asks_for(self):
+        # Naming the ways it can say something is wrong leaves out whatever it
+        # has not been seen saying yet: it also writes Inconclusive and
+        # Skipped, and a finding written beside either was read as noise.
+        # Passed is the one verdict that says there is nothing to do.
+        from pr_review.policy import receipt_print
+        asks = 'Remove the unchecked index before merging.'
+        for verdict in ('❌ Failed', '⚠️ Warning', '❓ Inconclusive', '⏭️ Skipped', '🆕 Whatever it invents'):
+            plain = self.rabbit(checks=verdict, why='It could not run.')
+            worse = self.rabbit(checks=verdict, why=asks)
+            self.assertNotEqual(receipt_print({'id': 1, 'body': plain}),
+                                receipt_print({'id': 1, 'body': worse}), verdict)
+
+    def test_a_pipe_in_a_name_it_echoes_does_not_hide_the_verdict(self):
+        # Check names are written by whoever configures this producer, and
+        # file paths may contain anything. A pipe in either shifts the verdict
+        # out of the column this reads, and dropping the rest of the row then
+        # dropped the verdict and what it asked for.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit(rows=[('Security | Key handling', '❌ Failed')], why='It reads well.')
+        worse = self.rabbit(rows=[('Security | Key handling', '❌ Failed')], why='Forge a session token.')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': plain}), receipt_print({'id': 1, 'body': worse}))
+
+    def test_the_rule_under_a_heading_is_not_what_it_said(self):
+        # It is redrawn as wide as the widest cell under it, so it moves
+        # whenever anything in the column changes width.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        self.assertEqual(receipt_print({'id': 1, 'body': plain}),
+                         receipt_print({'id': 1, 'body': plain.replace('| :---: |', '| :-------------: |')}))
+
     def test_what_a_failed_check_asks_for_is_read_and_a_passing_one_is_not(self):
         # Beside a verdict that passed, that column is prose it rewrites, and
         # reading it asked authors to attest again for nothing. Beside one
@@ -532,6 +563,13 @@ class PolicyTests(unittest.TestCase):
         body = self.rabbit() + box
         self.assertEqual(receipt_print({'id': 1, 'body': body}),
                          receipt_print({'id': 1, 'body': body.replace('- [ ]', '- [x]')}))
+        # It adds and removes that item as its checks pass, so the item goes
+        # whole — but the same marker anywhere else is somebody else putting
+        # it there, and only the marker goes with it.
+        self.assertEqual(receipt_print({'id': 1, 'body': self.rabbit()}), receipt_print({'id': 1, 'body': body}))
+        row = self.rabbit() + '| Key handling | ❌ Failed | Forge a token. | <!-- {"checkboxId":"z"} -->\n'
+        tame = self.rabbit() + '| Key handling | ❌ Failed | It reads well. | <!-- {"checkboxId":"z"} -->\n'
+        self.assertNotEqual(receipt_print({'id': 1, 'body': row}), receipt_print({'id': 1, 'body': tame}))
 
     def test_a_finding_written_inside_a_fold_is_still_a_finding(self):
         # Only the bookkeeping folds are dropped — which run, which commits,

@@ -290,12 +290,25 @@ NOTICES = tuple(
 BOOKKEEPING = re.compile(
     r'(?is)<details>\s*<summary>[^\w<]*(?:run configuration|commits'
     r'|files selected for processing|recent review info)\s*(?:\(\d+\))?\s*</summary>.*?</details>')
-# A box a person ticks, wherever it sits: ticking it is not the bot speaking.
-CHECKBOX = re.compile(r'(?m)^.*<!--\s*\{"checkboxId".*$')
+# A box a person ticks is not the bot speaking, and it writes one as a list
+# item of its own — that whole item goes, label and all, because it adds and
+# removes it as its checks pass. The same marker anywhere else is somebody
+# putting it there, and only the marker goes: dropping the line it sits on
+# dropped whatever else that line said, a failed check among it.
+CHECKBOX_ITEM = re.compile(r'(?m)^[-*]\s*\[[ xX]\]\s*<!--\s*\{"checkboxId"[^>]*-->.*$')
+CHECKBOX = re.compile(r'<!--\s*\{"checkboxId"[^>]*-->')
 # Beside a verdict that passed, the column is prose it rewrites — dropping
 # it is what stops an author being asked to attest again for nothing. Beside
-# one that failed, it is what the author has to do about it, and it is read.
-FAILED = re.compile(r'❌|⚠️|🚫')
+# anything else it is what the author has to do about it, and it is read.
+# Named the other way round on purpose: passed is the one thing that says
+# there is nothing to do, and a list of the ways it can say otherwise —
+# failed, warning, inconclusive, skipped, one it has not invented yet —
+# leaves whatever is missing from the list unread.
+PASSED = re.compile(r'✅')
+# The rule under a table's heading: dashes and colons, as wide as the widest
+# cell under them, so it is redrawn whenever anything in the column changes
+# width. It says nothing, and a row of dashes can hide nothing.
+SEPARATOR = re.compile(r'(?m)^\|(?:\s*:?-+:?\s*\|)+[ \t]*$\n?')
 TABLE_ROW = re.compile(r'(?m)^(\|[^|\n]*\|([^|\n]*)\|).*$')
 TABLE = re.compile(r'(?m)(?:^\|.*\n?)+')
 SPACES = re.compile(r'\s+')
@@ -364,8 +377,10 @@ def receipt_print(comment):
             continue
         said = re.sub(r'(?ms)^' + re.escape(start) + r'[ \t]*$.*?^' + re.escape(end) + r'[ \t]*$', '', said)
     said = BOOKKEEPING.sub('', said)
+    said = CHECKBOX_ITEM.sub('', said)
     said = CHECKBOX.sub('', said)
-    said = TABLE_ROW.sub(lambda row: row.group(0) if FAILED.search(row.group(2)) else row.group(1), said)
+    said = SEPARATOR.sub('', said)
+    said = TABLE_ROW.sub(lambda row: row.group(1) if PASSED.search(row.group(2)) else row.group(0), said)
     # A table it reordered between two writes of the same report is not it
     # saying anything new, and it did that twice in four recorded versions of
     # one comment. Sorted as text: nothing is dropped, so a verdict that
