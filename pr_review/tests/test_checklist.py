@@ -263,6 +263,25 @@ class PublishTests(unittest.TestCase):
         self.assertTrue(body.startswith(f'{MOVE_MARKER} state=waiting-self-review sha={HEAD} -->'))
         self.assertIsNone(comment_id, 'a new comment: that is what notifies')
 
+    def test_what_the_bot_said_is_written_down_so_an_edit_can_be_told_from_a_report(self):
+        # Without it there is nothing to compare the next read against, and
+        # every rewrite of the bot's comment reads as a new report — which is
+        # what made two people post `/self-reviewed` twice.
+        import json as _json
+        covered = _json.dumps({'sourceCommitId': HEAD, 'coveredCommitId': HEAD, 'kind': 'reviewed'},
+                              separators=(',', ':'))
+        pr = copy.deepcopy(self.pr)
+        pr['comments'] = pr['comments'] + [dict(
+            id=21, user='coderabbitai[bot]', created_at=NOW, updated_at=NOW,
+            body='<!-- final_review_risk_start -->\n**Merge Risk:** Minimal\n'
+                 f'<!-- final_review_risk_coverage:{covered} -->\n<!-- final_review_risk_end -->')]
+        result = evaluate(self.policy, pr, NOW, LATER)
+        self.assertTrue(result['receipts'], 'the bot reported; what it said is known')
+        api = self.run_publish(pr, result)
+        api.upsert_state.assert_called_once()
+        written = api.upsert_state.call_args.args[4]
+        self.assertEqual(written['receipts'], result['receipts'])
+
     def test_the_diff_is_written_beside_the_record_not_inside_it(self):
         # The next run reads it to tell a push that only moved the base from
         # one that changed the work. It rides in its own marker because the

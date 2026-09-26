@@ -255,6 +255,78 @@ def _latest_reviews(reviews):
 # are shared rather than written twice: a marker that changed here and not
 # there would stop receipts waking the controller, and nothing would fail.
 RECEIPT_MARKER = 'final_review_risk_coverage'
+# What this producer says about a pull request, and where. The risk block
+# holds its findings and the marker for the commit they cover; its checks are
+# a table of verdicts and a heading that counts them. Everything else in the
+# comment is how it says it — a banner, the tips, a reworded explanation of a
+# check that still passes — and none of that is a report.
+RISK_BLOCK = re.compile(r'<!-- final_review_risk_start -->(.*?)<!-- final_review_risk_end -->', re.S)
+# Everything this producer writes is what it said, except these. Naming what
+# to ignore rather than what to read is the whole difference: a section it
+# adds tomorrow is then read by default, and the worst that costs is an
+# attestation asked for twice — where reading only what is named would have
+# left whatever it put there unread.
+# Each one paired with its own end, and both at the start of a line, which
+# is how this producer writes them. An opening marker found in the middle of
+# a line is text — it echoes file paths into a table, and a path may contain
+# anything — and one that pairs with an end it did not open would delete
+# whatever lies between, findings included.
+VOLATILE = (('review_stack_entry', 'review_stack_entry'), ('tips', 'tips'),
+            ('finishing_touch_checkbox', 'finishing_touch_checkbox'))
+NOTICES = tuple(
+    # When it can review and whether it did: its capacity, a review it did
+    # not run, one it is still running, one it paused, and an invitation to
+    # praise it. Nothing here is about the code.
+    #
+    # Its tool failures are not on this list, and were: a tool that would not
+    # run says which file and which line stopped it, which is a finding about
+    # the author's code — "File contains syntax errors that prevent linting:
+    # Line 126: Expected an array" — and dropping the notice dropped that.
+    # One it writes tomorrow is read like anything else, and the worst that
+    # costs is a print that moves once.
+    (f'<!-- This is an auto-generated comment: {what} by coderabbit.ai -->',
+     f'<!-- end of auto-generated comment: {what} by coderabbit.ai -->')
+    for what in ('rate limited', 'skip review', 'review in progress', 'review paused',
+                 'tweet message'))
+# Which run walked which commits and how many files it opened. What it found
+# in them is everything else, and stays — a finding written inside a fold is
+# still a finding.
+# Named exactly, not by a word appearing somewhere in the summary: a fold
+# called "Commits with problems" is a report, and matching loosely made it
+# a place to put a finding where nothing would read it.
+# The name has to start the summary, after whatever sign it puts in front of
+# it — and one of those signs, ℹ, is a letter, so a rule that skipped
+# anything but letters could never reach the name behind it. That fold has
+# never been dropped, and it carries the reviewer's own hourly allowance.
+BOOKKEEPING = re.compile(
+    r'(?is)<details>\s*<summary>[^A-Za-z<]*(?:run configuration|commits'
+    r'|files selected for processing|recent review info)\s*(?:\(\d+\))?\s*</summary>.*?</details>')
+# A box a person ticks is not the bot speaking, and it writes one as a list
+# item of its own — that whole item goes, label and all, because it adds and
+# removes it as its checks pass. The same marker anywhere else is somebody
+# putting it there, and only the marker goes: dropping the line it sits on
+# dropped whatever else that line said, a failed check among it.
+CHECKBOX_ITEM = re.compile(r'(?m)^[-*]\s*\[[ xX]\]\s*<!--\s*\{"checkboxId"[^>]*-->.*$')
+CHECKBOX = re.compile(r'<!--\s*\{"checkboxId"[^>]*-->')
+# Beside a verdict that passed, the column is prose it rewrites — dropping
+# it is what stops an author being asked to attest again for nothing. Beside
+# anything else it is what the author has to do about it, and it is read.
+# Named the other way round on purpose: passed is the one thing that says
+# there is nothing to do, and a list of the ways it can say otherwise —
+# failed, warning, inconclusive, skipped, one it has not invented yet —
+# leaves whatever is missing from the list unread.
+PASSED = re.compile(r'✅')
+# The rule under a table's heading: dashes and colons, as wide as the widest
+# cell under them, so it is redrawn whenever anything in the column changes
+# width. It says nothing, and a row of dashes can hide nothing.
+SEPARATOR = re.compile(r'(?m)^\|(?:\s*:?-+:?\s*\|)+[ \t]*$\n?')
+# Split where a cell really ends. A pipe the producer escaped is text — and
+# a check's name is written by whoever configures it, so one named
+# "Team sanity \\| ✅ ok" put a passed verdict in the column this reads and
+# hid the real verdict, its explanation and what it asked for.
+TABLE_ROW = re.compile(r'(?m)^(\|(?:\\.|[^|\n\\])*\|((?:\\.|[^|\n\\])*)\|).*$')
+TABLE = re.compile(r'(?m)(?:^\|.*\n?)+')
+SPACES = re.compile(r'\s+')
 # The phrase, however the author spells it. It is still the author writing it
 # in their own words, so the spelling weakens nothing — and `/self-review`
 # without the d has cost two people a merge already.
@@ -278,6 +350,74 @@ def _may_object(permissions, user):
     through, and a dropped objection is invisible to whoever raised it.
     """
     return permissions.get(user) in WRITE or permissions.get(user) is None
+
+
+def receipt_print(comment):
+    """What this producer said about the code, apart from how it said it.
+
+    It keeps one comment and rewrites it — for a banner, for a re-run that
+    found nothing, to reword the explanation of a check that still passes —
+    and the time it was last written says only that it was written. Two
+    authors were asked to attest a second time to reports that said nothing
+    new, and this is what tells the two apart.
+
+    The whole comment counts as what it said, less four things it rewrites
+    without meaning anything by it: its own banner and tips, the checkbox a
+    person ticks, the bookkeeping of which run walked which commits, and the
+    column of prose explaining a verdict — that last one is what it rewrote
+    on rust-dashcore#1048, beside a check that stayed passed, and an author
+    was asked to attest again to it. Whitespace is not what it said either.
+
+    Nothing is compared unless the findings themselves were readable: the
+    marker that makes this a receipt sits at the top of that block, so a
+    block this cannot read to the end — markup that changed, a comment
+    trimmed at GitHub's limit — would otherwise leave the findings invisible
+    while the rest of the comment still produced a print.
+    """
+    body = comment['body']
+    if not RISK_BLOCK.search(body):
+        return None
+    # Line endings first: the markers below are matched line by line, and a
+    # body that arrives with carriage returns would keep every section this
+    # means to drop.
+    said = body.replace('\r\n', '\n')
+    # Gone, not marked: whether it wrote its banner at all is as much its own
+    # business as what the banner says.
+    for start, end in [(f'<!-- {a}_start -->', f'<!-- {b}_end -->') for a, b in VOLATILE] + list(NOTICES):
+        # Its own marker, alone on its line, and only where it wrote that
+        # marker once. Seen twice, one of them is text it echoed back — a
+        # path, a title — and deleting from the first to the real end would
+        # take the findings with it, so nothing is deleted at all.
+        if len(re.findall(r'(?m)^' + re.escape(start) + r'[ \t]*$', said)) != 1:
+            continue
+        said = re.sub(r'(?ms)^' + re.escape(start) + r'[ \t]*$.*?^' + re.escape(end) + r'[ \t]*$', '', said)
+    said = BOOKKEEPING.sub('', said)
+    said = CHECKBOX_ITEM.sub('', said)
+    said = CHECKBOX.sub('', said)
+    said = SEPARATOR.sub('', said)
+    said = TABLE_ROW.sub(lambda row: row.group(1) if PASSED.search(row.group(2)) else row.group(0), said)
+    # A table it reordered between two writes of the same report is not it
+    # saying anything new, and it did that twice in four recorded versions of
+    # one comment. Sorted as text: nothing is dropped, so a verdict that
+    # changed, a check added or one removed all still read as changed.
+    said = TABLE.sub(lambda block: ''.join(sorted(block.group(0).splitlines(keepends=True))), said)
+    said = SPACES.sub(' ', said).strip()
+    # Per comment: two of them saying the same thing are still two reports.
+    return hashlib.sha256(f'{comment.get("id")}\n{said}'.encode()).hexdigest()
+
+
+def receipt_instant(pr, comment):
+    """When this producer first said this, for this head.
+
+    A block it has not changed is not a new report, however often the comment
+    around it is rewritten. Anything in the block — a finding, a risk level,
+    the commit it covers — makes it one.
+    """
+    said = receipt_print(comment)
+    known = ((pr.get('controller_diff') or {}).get('receipts') or {})
+    if said and isinstance(known.get(said), str):
+        return known[said]
+    return comment['updated_at']
 
 
 def _rabbit_receipt(body, head):
@@ -455,7 +595,8 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
     result.update(state='configuration-error', status='error', blockers=[], reviewers=[], areas=[],
                   ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None,
                   nudge=[], waived=[], approvals=[], objections=[], checklist=[],
-                  reviewed_heads=[pr.get('head')] if pr.get('head') else [], reviewed_since=pr.get('head_seen_at'))
+                  reviewed_heads=[pr.get('head')] if pr.get('head') else [], reviewed_since=pr.get('head_seen_at'),
+                  receipts=((pr.get('controller_diff') or {}).get('receipts') or {}))
     # Before anything can gate: a verdict that stops early must still record
     # what carries this diff, or one configuration error cuts the chain and
     # the pull request silently starts asking for its reviews again.
@@ -551,10 +692,16 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 pasta.append(review['submitted_at'])
             if user in {'coderabbitai','coderabbitai[bot]'} and state == 'APPROVED':
                 rabbit.append(review['submitted_at'])
+        seen_said = {}
         for comment in pr['comments']:
             if comment['user'].lower() in {'coderabbitai','coderabbitai[bot]'} and any(
                     _rabbit_receipt(comment['body'], h) for h in reviewed):
-                rabbit.append(comment['updated_at'])
+                instant = receipt_instant(pr, comment)
+                rabbit.append(instant)
+                said = receipt_print(comment)
+                if said:
+                    seen_said[said] = instant
+        result['receipts'] = seen_said
         # A bot that requested changes on an earlier head has not reported on
         # this one: that is the shape a nudge and a waiver exist for. An
         # objection raised against the current head is a report, and blocks.

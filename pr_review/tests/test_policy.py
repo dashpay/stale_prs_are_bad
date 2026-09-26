@@ -363,6 +363,341 @@ class PolicyTests(unittest.TestCase):
         pr['comments'] = []
         self.assertIn('coderabbitai', evaluate(p, pr, NOW, NOW)['nudge'])
 
+    def rabbit(self, finding='', head=None, extra='', checks='✅ Passed', why='It reads well.',
+               summary='Adds a field and its tests.', rows=None, found='No actionable comments were generated.',
+               run='d5a7d983'):
+        """CodeRabbit's comment as it writes it, in the shape it really writes.
+
+        The findings and the commit they cover are in one block; the checks are
+        a table somewhere else in the same comment, with a heading that counts
+        them and a column of prose it rewrites without changing a verdict.
+        """
+        import json as _json
+        covered = _json.dumps({'sourceCommitId': head or HEAD, 'coveredCommitId': head or HEAD,
+                               'kind': 'reviewed'}, separators=(',', ':'))
+        return ('<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n'
+                + ('<!-- review_stack_entry_start -->\n' + extra + '<!-- review_stack_entry_end -->\n'
+                   if extra else '')
+                + f'<!-- recent_review_start -->\n{found}\n'
+                + f'<details><summary>⚙️ Run configuration</summary>\nRun ID: {run}\n</details>\n'
+                + '<!-- recent_review_end -->\n'
+                + '<!-- walkthrough_start -->\n'
+                + '| Layer / File(s) | Summary |\n| :--- | :--- |\n'
+                + f'| `a.rs` | {summary} |\n'
+                + '<!-- walkthrough_end -->\n'
+                + '<!-- final_review_risk_start -->\n'
+                + '**Merge Risk:** Minimal\n'
+                + f'<!-- final_review_risk_coverage:{covered} -->\n'
+                + finding + '\n<!-- final_review_risk_end -->\n'
+                + '<!-- pre_merge_checks_walkthrough_start -->\n'
+                + f'<summary>🚥 Pre-merge checks | {checks}</summary>\n\n'
+                + '| Check name | Status | Explanation |\n| :---: | :--- | :--- |\n'
+                + ''.join(f'| {name} | {state} | {why} |\n' for name, state in (rows or [('Title check', checks)]))
+                + '<!-- pre_merge_checks_walkthrough_end -->\n'
+                + '<!-- tips_start -->\n<details><summary>🪧 Tips</summary>\nChat with CodeRabbit.\n</details>\n'
+                + '<!-- tips_end -->\n')
+
+    def test_a_cosmetic_edit_is_not_the_bot_speaking_again(self):
+        # tenderdash#1489, rust-dashcore#1048: the author attested, CodeRabbit
+        # rewrote its comment hours later to add a banner, and the attestation
+        # was thrown away — the author was asked for another that would read
+        # nothing new. Both of them posted it twice.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
+        pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
+                               created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T09:00:00Z'),
+                          dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        first = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(first['status'], 'success', first['blockers'])
+        # The banner it adds later, with the same words about the code.
+        pr['comments'][0] = dict(pr['comments'][0], updated_at='2026-09-11T13:00:00Z',
+                                 body=self.rabbit(extra='<a href="#">Review in Change Stack</a>\n'))
+        pr['controller_diff'] = {'number': 1, 'receipts': first['receipts']}
+        again = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(again['status'], 'success', again['blockers'])
+
+    def test_a_check_that_fails_is_the_bot_speaking_again(self):
+        # The checks are not in the block with the findings, and they are
+        # verdicts too: "Out of Scope Changes check ❌" is this producer
+        # saying something about the code, in prose, with no thread and no
+        # changes request — the shape that makes guessing unsafe.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
+        pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
+                               created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T09:00:00Z'),
+                          dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        first = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(first['status'], 'success', first['blockers'])
+        pr['controller_diff'] = {'number': 1, 'receipts': first['receipts']}
+        # Same words about the code; the explanation of a passing check is
+        # reworded. That is what it did on rust-dashcore#1048.
+        pr['comments'][0] = dict(pr['comments'][0], updated_at='2026-09-11T13:00:00Z',
+                                 body=self.rabbit(why='It identifies the change well.'))
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success', 'a reworded explanation')
+        # The verdict itself changes.
+        pr['comments'][0] = dict(pr['comments'][0], body=self.rabbit(checks='❌ Failed'))
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
+    def test_the_checks_are_read_as_a_set_and_their_explanations_not_at_all(self):
+        # It reorders its own table between two writes of the same report —
+        # that happened twice in the four recorded versions of the comment on
+        # rust-dashcore#1048 — and it rewords the column explaining a verdict
+        # while the verdict stands. Neither is it saying anything new.
+        from pr_review.policy import receipt_print
+        first = {'id': 1, 'body': self.rabbit(rows=[('Title check', '✅ Passed'),
+                                                    ('Docstring Coverage', '✅ Passed')])}
+        same = {'id': 1, 'body': self.rabbit(rows=[('Docstring Coverage', '✅ Passed'),
+                                                   ('Title check', '✅ Passed')],
+                                             why='It identifies the change well.')}
+        self.assertEqual(receipt_print(first), receipt_print(same))
+        flipped = {'id': 1, 'body': self.rabbit(rows=[('Title check', '❌ Failed'),
+                                                      ('Docstring Coverage', '✅ Passed')])}
+        self.assertNotEqual(receipt_print(first), receipt_print(flipped))
+
+    def test_a_fold_is_bookkeeping_only_when_it_is_named_as_such(self):
+        # Matching a word anywhere in the summary made any fold whose title
+        # mentioned commits a place to put a finding that nothing would read.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        for summary in ('📥 Commits with problems', '🧹 Nitpick comments (1)', 'Files selected and rejected'):
+            hidden = plain.replace('<!-- final_review_risk_start -->',
+                                   f'<details><summary>{summary}</summary>\nDo not merge.\n</details>\n'
+                                   '<!-- final_review_risk_start -->')
+            self.assertNotEqual(receipt_print({'id': 1, 'body': plain}),
+                                receipt_print({'id': 1, 'body': hidden}), summary)
+        # And the ones it really names stay dropped.
+        for summary in ('⚙️ Run configuration', '📥 Commits', '📒 Files selected for processing (17)'):
+            noise = plain.replace('<!-- final_review_risk_start -->',
+                                  f'<details><summary>{summary}</summary>\nRun ID: 9f1c\n</details>\n'
+                                  '<!-- final_review_risk_start -->')
+            self.assertEqual(receipt_print({'id': 1, 'body': plain}),
+                             receipt_print({'id': 1, 'body': noise}), summary)
+
+    def test_a_verdict_that_is_not_passed_keeps_what_it_asks_for(self):
+        # Naming the ways it can say something is wrong leaves out whatever it
+        # has not been seen saying yet: it also writes Inconclusive and
+        # Skipped, and a finding written beside either was read as noise.
+        # Passed is the one verdict that says there is nothing to do.
+        from pr_review.policy import receipt_print
+        asks = 'Remove the unchecked index before merging.'
+        for verdict in ('❌ Failed', '⚠️ Warning', '❓ Inconclusive', '⏭️ Skipped', '🆕 Whatever it invents'):
+            plain = self.rabbit(checks=verdict, why='It could not run.')
+            worse = self.rabbit(checks=verdict, why=asks)
+            self.assertNotEqual(receipt_print({'id': 1, 'body': plain}),
+                                receipt_print({'id': 1, 'body': worse}), verdict)
+
+    def test_a_pipe_in_a_name_it_echoes_does_not_hide_the_verdict(self):
+        # Check names are written by whoever configures this producer, and
+        # file paths may contain anything. A pipe in either shifts the verdict
+        # out of the column this reads, and dropping the rest of the row then
+        # dropped the verdict and what it asked for.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit(rows=[('Security | Key handling', '❌ Failed')], why='It reads well.')
+        worse = self.rabbit(rows=[('Security | Key handling', '❌ Failed')], why='Forge a session token.')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': plain}), receipt_print({'id': 1, 'body': worse}))
+
+    def test_the_rule_under_a_heading_is_not_what_it_said(self):
+        # It is redrawn as wide as the widest cell under it, so it moves
+        # whenever anything in the column changes width.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        self.assertEqual(receipt_print({'id': 1, 'body': plain}),
+                         receipt_print({'id': 1, 'body': plain.replace('| :---: |', '| :-------------: |')}))
+
+    def test_what_a_failed_check_asks_for_is_read_and_a_passing_one_is_not(self):
+        # Beside a verdict that passed, that column is prose it rewrites, and
+        # reading it asked authors to attest again for nothing. Beside one
+        # that failed, it is what the author has to do about it.
+        from pr_review.policy import receipt_print
+        passing = self.rabbit(checks='✅ Passed')
+        self.assertEqual(receipt_print({'id': 1, 'body': passing}),
+                         receipt_print({'id': 1, 'body': self.rabbit(checks='✅ Passed', why='Reads well enough.')}))
+        failed = self.rabbit(checks='❌ Failed', why='Out of scope changes.')
+        worse = self.rabbit(checks='❌ Failed', why='Remove the unchecked index before merging.')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': failed}), receipt_print({'id': 1, 'body': worse}))
+
+    def test_line_endings_are_not_what_it_said(self):
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        self.assertEqual(receipt_print({'id': 1, 'body': plain}),
+                         receipt_print({'id': 1, 'body': plain.replace('\n', '\r\n')}))
+
+    def test_a_marker_in_text_it_echoes_cannot_delete_the_report(self):
+        # It copies file paths into its walkthrough, and a path may contain
+        # anything. An opening marker there, paired with the real closing one
+        # far below, deleted the findings, the checks and everything between —
+        # and the print then held through any finding at all.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        planted = plain.replace('| `a.rs` |', '| `a<!-- tips_start -->b.rs` |')
+        # And a second one on a line of its own, which a title or a body it
+        # echoes could carry: seen twice, neither is deleted.
+        twice = plain.replace('<!-- walkthrough_start -->', '<!-- walkthrough_start -->\n<!-- tips_start -->')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': twice}),
+                            receipt_print({'id': 1, 'body': twice.replace('**Merge Risk:** Minimal',
+                                                                          '**Merge Risk:** Critical')}))
+        self.assertNotEqual(receipt_print({'id': 1, 'body': planted}),
+                            receipt_print({'id': 1, 'body': planted.replace('**Merge Risk:** Minimal',
+                                                                            '**Merge Risk:** Critical')}))
+
+    def test_what_it_is_doing_is_not_what_it_found(self):
+        # Its own capacity, a review it has not run yet, a tool of its own
+        # that would not run: each is written and rewritten while the report
+        # stands, and each says nothing about the code. Measured across 120
+        # recorded rewrites of these comments, they were nearly all of the
+        # movement — and every one of them asked an author to attest again.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        for what in ('rate limited', 'skip review', 'review in progress', 'review paused',
+                     'tweet message'):
+            noisy = (f'<!-- This is an auto-generated comment: {what} by coderabbit.ai -->\n'
+                     f'> Next included review available in 27 minutes. Run ID: 9f1c.\n'
+                     f'<!-- end of auto-generated comment: {what} by coderabbit.ai -->\n') + plain
+            self.assertEqual(receipt_print({'id': 1, 'body': plain}),
+                             receipt_print({'id': 1, 'body': noisy}), what)
+
+    def test_a_tool_of_its_own_that_would_not_run_says_why(self):
+        # It names the file and the line that stopped the tool — "File
+        # contains syntax errors that prevent linting: Line 126" — which is a
+        # finding about the author's code, in a receipt this controller
+        # stores. Dropping that notice dropped the finding with it; seen live
+        # on supabase/supabase#50931.
+        from pr_review.policy import receipt_print
+        notice = ('<!-- This is an auto-generated comment: all tool run failures by coderabbit.ai -->\n'
+                  '<details><summary>🔧 Biome</summary>\n{}\n</details>\n'
+                  '<!-- end of auto-generated comment: all tool run failures by coderabbit.ai -->\n')
+        a = self.rabbit() + notice.format('Line 126: Expected an array.')
+        b = self.rabbit() + notice.format('Line 203: Expected an array; plus 41 more in auth.ts.')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': a}), receipt_print({'id': 1, 'body': b}))
+
+    def test_the_fold_it_signs_with_a_letter_is_still_a_fold(self):
+        # ℹ is a letter, so a rule that skipped everything but letters could
+        # never reach the name behind it — and that fold carries the
+        # reviewer's own hourly allowance, which changes on its own.
+        from pr_review.policy import receipt_print
+        fold = ('<details><summary>ℹ️ Recent review info</summary>\n'
+                '**Included review availability:** {} remain after this review.\n</details>\n')
+        a = self.rabbit() + fold.format('0')
+        b = self.rabbit() + fold.format('1')
+        self.assertEqual(receipt_print({'id': 1, 'body': a}), receipt_print({'id': 1, 'body': b}))
+        self.assertEqual(receipt_print({'id': 1, 'body': self.rabbit()}), receipt_print({'id': 1, 'body': a}))
+
+    def test_a_pipe_it_escaped_is_text_not_the_end_of_a_cell(self):
+        # A check's name is written by whoever configures the producer, and a
+        # name carrying an escaped pipe and a passed mark put that mark in the
+        # column this reads — hiding the real verdict, its explanation and
+        # what it asked for.
+        from pr_review.policy import receipt_print
+        name = 'Team sanity \\| ✅ ok'
+        tame = self.rabbit(rows=[(name, '⚠️ Warning')], why='Coverage is fine.')
+        real = self.rabbit(rows=[(name, '⚠️ Warning')], why='Signs with a disabled key. Do not merge.')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': tame}), receipt_print({'id': 1, 'body': real}))
+
+    def test_a_box_a_person_ticks_is_not_the_bot_speaking(self):
+        from pr_review.policy import receipt_print
+        box = '- [ ] <!-- {"checkboxId":"585bb3f6"} --> Fix all pre-merge checks with AI\n'
+        body = self.rabbit() + box
+        self.assertEqual(receipt_print({'id': 1, 'body': body}),
+                         receipt_print({'id': 1, 'body': body.replace('- [ ]', '- [x]')}))
+        # It adds and removes that item as its checks pass, so the item goes
+        # whole — but the same marker anywhere else is somebody else putting
+        # it there, and only the marker goes with it.
+        self.assertEqual(receipt_print({'id': 1, 'body': self.rabbit()}), receipt_print({'id': 1, 'body': body}))
+        row = self.rabbit() + '| Key handling | ❌ Failed | Forge a token. | <!-- {"checkboxId":"z"} -->\n'
+        tame = self.rabbit() + '| Key handling | ❌ Failed | It reads well. | <!-- {"checkboxId":"z"} -->\n'
+        self.assertNotEqual(receipt_print({'id': 1, 'body': row}), receipt_print({'id': 1, 'body': tame}))
+
+    def test_a_finding_written_inside_a_fold_is_still_a_finding(self):
+        # Only the bookkeeping folds are dropped — which run, which commits,
+        # how many files. Everything it puts in a fold of its own is read.
+        from pr_review.policy import receipt_print
+        plain = self.rabbit()
+        nitpicks = plain.replace('<!-- recent_review_end -->',
+                                 '<details><summary>🧹 Nitpick comments (2)</summary>\n'
+                                 'Unchecked index; the node aborts.\n</details>\n<!-- recent_review_end -->')
+        self.assertNotEqual(receipt_print({'id': 1, 'body': plain}), receipt_print({'id': 1, 'body': nitpicks}))
+
+    def test_what_it_found_is_read_and_which_run_found_it_is_not(self):
+        # Everything it writes counts as what it said unless it is named as
+        # noise, so a section nobody thought about is read by default — the
+        # count of what this run turned up is not in the block with the
+        # findings, and reading only the parts named would have left it out.
+        from pr_review.policy import receipt_print
+        plain = {'id': 1, 'body': self.rabbit()}
+        again = {'id': 1, 'body': self.rabbit(run='a-different-run')}
+        self.assertEqual(receipt_print(plain), receipt_print(again), 'which run walked the code')
+        posted = {'id': 1, 'body': self.rabbit(found='Actionable comments posted: 2')}
+        self.assertNotEqual(receipt_print(plain), receipt_print(posted), 'what the run turned up')
+
+    def test_findings_this_cannot_read_are_not_read_as_nothing(self):
+        # The marker that makes a comment a receipt sits at the top of the
+        # findings block. A block with no end — markup that changed, a comment
+        # trimmed at GitHub's limit — would leave the findings invisible while
+        # the checks around them still produced a print, and a blocker written
+        # into them afterwards would never move the floor.
+        from pr_review.policy import receipt_print
+        whole = self.rabbit()
+        self.assertIsNotNone(receipt_print({'id': 1, 'body': whole}))
+        torn = whole.replace('<!-- final_review_risk_end -->', '<!-- final_review_risk_finished -->')
+        self.assertIsNone(receipt_print({'id': 1, 'body': torn}))
+        self.assertIsNone(receipt_print({'id': 1, 'body': torn + '\nCRITICAL: do not merge.'}))
+
+    def test_a_finding_shaped_like_a_table_row_is_not_a_table_row(self):
+        # The parts are kept apart, so text in one cannot be mistaken for the
+        # other and two different reports cannot print the same.
+        from pr_review.policy import receipt_print
+        start, end = '<!-- final_review_risk_start -->', '<!-- final_review_risk_end -->'
+        # The same words: in one they are the finding, in the other a check.
+        a = {'id': 1, 'body': f'{start}A{end}\n|B|✅|\n'}
+        b = {'id': 1, 'body': f'{start}A\nB|✅{end}\n'}
+        self.assertNotEqual(receipt_print(a), receipt_print(b))
+
+    def test_a_new_finding_is_the_bot_speaking_again(self):
+        # platform#4653: the blocker was in the prose of the receipt itself —
+        # "Add signer support or defer selecting these keys before merging" —
+        # with no thread and no changes request. An attestation written before
+        # it has not read it.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
+        pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
+                               created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T09:00:00Z'),
+                          dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        first = evaluate(p, pr, NOW, NOW)
+        pr['comments'][0] = dict(pr['comments'][0], updated_at='2026-09-11T13:00:00Z',
+                                 body=self.rabbit(finding='Add signer support before merging.'))
+        pr['controller_diff'] = {'number': 1, 'receipts': first['receipts']}
+        again = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(again['state'], 'waiting-self-review')
+
+    def test_what_two_comments_said_is_told_apart(self):
+        # Two reports are two reports even when they say the same thing, and
+        # one of them must not inherit the moment the other was first read.
+        from pr_review.policy import receipt_print
+        body = self.rabbit()
+        self.assertNotEqual(receipt_print({'id': 1, 'body': body}),
+                            receipt_print({'id': 2, 'body': body}))
+
+    def test_a_comment_that_states_nothing_has_nothing_to_compare(self):
+        # Then the time it was written stands, which is what it was before any
+        # of this — never a print that two unrelated comments would share.
+        from pr_review.policy import receipt_print
+        self.assertIsNone(receipt_print({'id': 1, 'body': 'thanks!'}))
+        self.assertIsNone(receipt_print({'id': 2, 'body': ''}))
+
+    def test_a_receipt_this_controller_has_not_seen_dates_from_the_comment(self):
+        # Nothing remembered yet, and nothing assumed: the comment's own time
+        # is the floor, which is what it was before any of this.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
+        pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
+                               created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T13:00:00Z'),
+                          dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
     def test_a_machine_author_does_not_spend_a_review_slot(self):
         # The five are a limit on one person's attention. An account that
         # opens pull requests on its own has none to ration, and what its pull

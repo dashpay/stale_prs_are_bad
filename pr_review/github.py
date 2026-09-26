@@ -185,21 +185,37 @@ def current_checklist(body):
 
 
 def _validate_diff(diff):
-    keys = {"number", "diff", "diff_heads", "diff_seen"}
-    if not isinstance(diff, dict) or set(diff) != keys:
+    # What is there is checked; what is not there is simply not read. A field
+    # added later must not make this refuse the whole marker, or every pull
+    # request loses what the controller remembered about it the moment one
+    # repository runs a newer engine than another.
+    if not isinstance(diff, dict) or "number" not in diff or set(diff) - {
+            "number", "diff", "diff_heads", "diff_seen", "receipts"}:
         raise GitHubError("Unknown or incomplete controller diff schema")
     if type(diff["number"]) is not int or diff["number"] < 1:
         raise GitHubError("Invalid controller diff PR number")
-    if not isinstance(diff["diff"], str) or not re.fullmatch(r"[0-9a-f]{64}", diff["diff"]):
+    if "diff" in diff and (not isinstance(diff["diff"], str)
+                           or not re.fullmatch(r"[0-9a-f]{64}", diff["diff"])):
         raise GitHubError("Invalid controller diff print")
-    heads = diff["diff_heads"]
+    # Present means at least one: an empty list was accepted once, and it
+    # handed whoever wrote it the instant an attestation is measured against.
+    heads = diff.get("diff_heads", ["0" * 40])
     if (not isinstance(heads, list) or not 1 <= len(heads) <= 20
             or any(not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{40}", h) for h in heads)):
         raise GitHubError("Invalid controller diff heads")
+    # What each producer said, and when it first said it: a print of its own
+    # words against the moment they were first read.
+    said = diff.get("receipts", {})
+    if (not isinstance(said, dict) or len(said) > 8
+            or any(not re.fullmatch(r"[0-9a-f]{64}", k)
+                   or not isinstance(v, str)
+                   or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", v)
+                   for k, v in said.items())):
+        raise GitHubError("Invalid controller receipt record")
     # A timestamp, checked as one: it is read back as a time, and a string
     # that is not one raised out of the verdict, which catches no such error,
     # and took the whole repository's run down with it.
-    if diff["diff_seen"] is not None and (
+    if diff.get("diff_seen") is not None and (
             not isinstance(diff["diff_seen"], str)
             or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", diff["diff_seen"])):
         raise GitHubError("Invalid controller diff timestamp")
