@@ -764,10 +764,6 @@ class GitHub:
             result["build"] = self.build_state(number, result["head"])
             result["ready_published"] = self.ready_published(result["head"])
             result["requested_reviewers"] = [_login(user) for user in raw["requested_reviewers"]]
-            # Who is holding this pull request now. A pull request handed to
-            # somebody else is theirs to attest to, and this is how a hand-over
-            # is written down.
-
             result["labels"] = [_text(label["name"], "label name") for label in raw["labels"]]
             state, comment_id = parse_controller_state(result["comments"])
             if state is not None and state["number"] != number:

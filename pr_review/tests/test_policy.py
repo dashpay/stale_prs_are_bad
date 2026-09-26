@@ -758,15 +758,68 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(result['state'], 'ready-for-human', result['blockers'])
         self.assertEqual(result['reviewers'], ['owner'], 'somebody who is not holding it')
 
-    def test_a_pull_request_handed_to_the_owner_of_what_it_touches_needs_nobody_else(self):
-        # The rule is that you may merge your own work in your own area
-        # without a second person; a pull request handed to that area's owner
-        # is that, and refusing it would leave one with nobody who may approve.
+    def test_handing_it_to_an_owner_is_not_the_owner_having_read_it(self):
+        # Anyone with triage access can assign anybody, so counting a
+        # hand-over as ownership put every human requirement one
+        # `gh pr edit --add-assignee` away from a green check — and on the
+        # repositories where an area has one owner and no reviewers, that is
+        # the whole of it.
         p, pr = fixture()
+        pr.update(author='stranger', assignees=['owner'], permissions=dict(pr['permissions'], stranger='write'),
+                  comments=[dict(id=3, user='stranger', body=f'/self-reviewed {HEAD}',
+                                 created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')])
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human', result['blockers'])
+        self.assertIn('owner', result['reviewers'], 'and they are who it asks')
+        # Being handed it does not stop them approving it: they did not attest.
+        pr['reviews'] = pr['reviews'] + [dict(id=9, user='owner', state='APPROVED', commit_id=HEAD,
+                                              submitted_at='2026-09-11T12:00:00Z', body='')]
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+
+    def test_whoever_is_holding_it_and_said_nothing_may_still_approve(self):
+        # Assigning the reviewer is how half of these are handed out. Two
+        # people are on it — one wrote it and said so, the other approved —
+        # and refusing the approval because they were assigned would leave a
+        # single-owner area with nobody at all.
+        p, pr = fixture()
+        pr.update(author='stranger', assignees=['reviewer'], permissions=dict(pr['permissions'], stranger='write'),
+                  comments=[dict(id=3, user='stranger', body=f'/self-reviewed {HEAD}',
+                                 created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')],
+                  reviews=pr['reviews'] + [dict(id=9, user='reviewer', state='APPROVED', commit_id=HEAD,
+                                                submitted_at='2026-09-11T11:30:00Z', body='')])
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+
+    def test_an_area_whose_only_approver_attested_is_not_an_area_needing_none(self):
+        # grovedb and dash-evo-tool are one area, one owner, no reviewers. The
+        # owner takes somebody else's pull request over and attests to it:
+        # nobody is left who may approve, and an empty ask read as a met one
+        # merges it with one person on both gates.
+        p, pr = fixture()
+        p['areas'] = [dict(id='drive', paths=['packages/drive/'], owners=['owner'], reviewers=[])]
         pr.update(author='stranger', assignees=['owner'], permissions=dict(pr['permissions'], stranger='write'),
                   comments=[dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
                                  created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')])
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['status'], 'pending')
+        self.assertTrue(any('Nobody may approve drive' in b for b in result['blockers']), result['blockers'])
+        # The way out is the one that keeps two people on it: whoever wrote it
+        # says they read it, and the owner approves.
+        pr['comments'][0] = dict(pr['comments'][0], user='stranger')
+        pr['reviews'] = pr['reviews'] + [dict(id=9, user='owner', state='APPROVED', commit_id=HEAD,
+                                              submitted_at='2026-09-11T12:00:00Z', body='')]
         self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')
+
+    def test_an_unresolved_thread_from_whoever_holds_it_is_still_an_objection(self):
+        # "Assign the owner, the owner leaves concerns in a thread" is the
+        # ordinary way one of these is reviewed. Reading those as the author's
+        # own words dropped the objection and turned the check green over it.
+        p, pr = fixture()
+        pr.update(assignees=['reviewer'],
+                  threads=[dict(id=9, author='reviewer', is_resolved=False, created_at='2026-09-11T12:00:00Z',
+                                voices=[dict(user='reviewer', created_at='2026-09-11T12:00:00Z')])])
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-author', result['blockers'])
+        self.assertEqual(result['objections'], ['reviewer left a review thread unresolved'])
 
     def test_a_machine_account_holding_it_is_still_nobody(self):
         p, pr = fixture()
@@ -775,6 +828,43 @@ class PolicyTests(unittest.TestCase):
                   comments=[dict(id=3, user='infraclaw-dash', body=f'/self-reviewed {HEAD}',
                                  created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')])
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
+    def test_an_objector_is_invited_back_whoever_is_holding_it(self):
+        # They were handed the pull request, they asked for changes, the
+        # author answered. The one who has to look again is the one who
+        # objected — and dropping them because they hold it left the pull
+        # request saying it was ready for a human and naming nobody.
+        p, pr = fixture()
+        pr.update(assignees=['reviewer'],
+                  reviews=pr['reviews'] + [dict(id=9, user='reviewer', state='CHANGES_REQUESTED', commit_id=HEAD,
+                                                submitted_at='2026-09-11T12:00:00Z', body='')],
+                  comments=[dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
+                                 created_at='2026-09-11T13:00:00Z', updated_at='2026-09-11T13:00:00Z')])
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human', result['blockers'])
+        self.assertEqual(result['reviewers'], ['reviewer'])
+
+    def test_a_bot_that_was_assigned_is_not_holding_anything(self):
+        # Dependabot and Copilot get assigned like people do, and an account
+        # with nobody behind it cannot say it read the diff.
+        p, pr = fixture()
+        pr.update(assignees=['dependabot[bot]'],
+                  comments=[dict(id=3, user='dependabot[bot]', body=f'/self-reviewed {HEAD}',
+                                 created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')])
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+
+    def test_the_advice_is_not_given_while_a_producer_is_still_to_report(self):
+        # Told to take it over, they do — and then the outstanding bot reports,
+        # the floor rises past what they wrote, and the credit for it goes away
+        # with no word said. Advice that stops being true is worse than none.
+        p, pr = fixture()
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'thepastaclaw']
+        pr['comments'] = [dict(id=3, user='fallback', body=f'/self-reviewed {HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-bots')
+        items = {i['item']: i for i in result['checklist']}
+        self.assertEqual(items['self_review']['on_their_behalf'], [], 'thepastaclaw has not reported yet')
 
     def test_the_advice_to_take_it_over_is_only_given_where_it_is_true(self):
         # Told to assign themselves, they do, and it still does not count
