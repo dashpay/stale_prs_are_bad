@@ -24,6 +24,10 @@ Contributor and QA sheet roles are not automatically promoted to owner or review
 
 Every governed repository, Platform included, calls the reusable workflow and pins both it and the engine to the same full commit SHA of this repository; the policy is read from this repository's protected default branch. Pull request code is not executed by the privileged controller.
 
+The engine SHA is the identity of the **executing reusable job**, supplied by `job.workflow_sha/ref`, not a pin looked up in the PR's base branch. Missing identity is an error, never a reason to skip verification. Live schema changes must remain compatible with deployed engines; the central compatibility gate validates proposed policies against discovered caller pins before merge.
+
+A configuration failure is not a repository-wide write scope. Single-PR error handling can invalidate only a freshly verified, governed, non-draft head not shared with another open PR. When no safe target exists, the workflow fails without changing statuses. In particular, a draft on a stale feature base cannot poison other PRs. Full recovery after a rollout is an explicit reconciliation that recomputes real verdicts; it never grants approvals or bypasses builds.
+
 An author has five active, non-draft admission slots per repository. Admission persists across ordinary updates; lifecycle events invalidate obsolete admission records. More PRs may exist, but excess PRs wait before human review. The controller reconciles affected PRs on events and rotates through small batches on the scheduled sweep.
 
 Before human review, both configured bots must finish on the current head, bot objections must be addressed, and the author must post an unedited `/self-reviewed FULL_HEAD_SHA` comment after those bot outcomes. This is an explicit author attestation, not an automated substitute for inspecting the diff. New commits invalidate the attestation and head-bound approvals.

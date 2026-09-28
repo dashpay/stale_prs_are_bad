@@ -53,7 +53,7 @@ class MultiRepositoryTests(unittest.TestCase):
                 main.run(['sync','--repo','dashpay/platform','--apply','--policy','/tmp/anything.json'])
             api.assert_not_called()
 
-    def test_unregistered_caller_with_writes_enabled_marks_its_own_heads_as_configuration_errors(self):
+    def test_unregistered_caller_fails_without_writing_any_statuses(self):
         api = Mock()
         api.open_prs.return_value = [{'number': 1, 'head': 'a' * 40}]
         environment = {'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'dashpay/unknown',
@@ -61,7 +61,8 @@ class MultiRepositoryTests(unittest.TestCase):
         with patch.dict(os.environ,environment), patch.object(main,'GitHub',return_value=api):
             with self.assertRaises(ValueError):
                 main.run(['sync','--repo','dashpay/unknown','--apply'])
-        self.assertEqual(api.post_status.call_args.args[1], 'error')
+        api.open_prs.assert_not_called()
+        api.post_status.assert_not_called()
 
     def test_cross_repository_writer_token_is_rejected_before_api_calls(self):
         environment = {'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'dashpay/platform',

@@ -29,7 +29,7 @@ The description of every governed pull request ends with this controller's check
 
 ## Shared implementation and repository-local rollout
 
-The evaluator is shared through `.github/workflows/pr-review-reusable.yml`. Repository callers pin a full commit SHA of this repository; the callee checks out that engine revision, a sparse checkout of `policies/` from this repository's protected `master`, and the caller's default branch (for path and CODEOWNERS checks only). Before reading any policy it verifies that the pinned engine commit is reachable from `master` (a merged, reviewed engine) and that `master` is governed by a ruleset requiring pull requests with one approval, code-owner review, no force-push and no deletion; otherwise it refuses to run. The caller's GITHUB_TOKEN can mutate only its own repository. Target repository code is not executed with the write token.
+The evaluator is shared through `.github/workflows/pr-review-reusable.yml`. Repository callers pin a full commit SHA of this repository; the callee checks out that engine revision, a sparse checkout of `policies/` from this repository's protected `master`, and the caller's default branch (for path and CODEOWNERS checks only). The engine revision comes from GitHub's `job.workflow_sha` and must match the full-SHA pin in `job.workflow_ref`. Empty or mismatched identity fails before checkout; the engine is never selected by re-reading a PR base branch or a moving caller branch. Before reading any policy it also verifies that the engine commit is reachable from `master` (a merged, reviewed engine) and that `master` is governed by a ruleset requiring pull requests with one approval, code-owner review, no force-push and no deletion; otherwise it refuses to run. The caller's GITHUB_TOKEN can mutate only its own repository. Target repository code is not executed with the write token.
 
 Policy schema changes must be engine-first and backward-compatible: callers pick up policy changes immediately but engine changes only when re-pinned. `version` stays at 1.
 
@@ -81,7 +81,26 @@ python3 -m pr_review.main validate --repo dashpay/REPOSITORY --repository-root D
 python3 -m pr_review.main codeowners --check --repo dashpay/REPOSITORY --repository-root DIR
 ```
 
-CI performs the path and packet checks against a fresh clone of every governed repository's default branch, and re-validates the proposed policies with every engine revision a caller still pins. A repository that calls the shared workflow without being registered here marks its own open heads as configuration errors once its writes are enabled.
+CI performs the path and packet checks against a fresh clone of every governed repository's default branch, and re-validates the proposed policies with every discovered engine revision. A malformed pin, failed discovery, or engine not merged to central `master` fails that compatibility check rather than silently skipping it. A separate read-only reusable test job verifies the actual GitHub `job.workflow_sha/ref` contexts; the unit tests execute the production bootstrap with mocked API reads.
+
+Invalid configuration fails the Actions job. It does **not** authorize listing all open heads and overwriting their statuses. An explicit `--pr` run may mark only its freshly verified, open, non-draft, in-scope head as an error, and only if no other open PR shares it. If the registry, repository or branch scope cannot be read, or no single PR was selected (including full and scheduled sweeps), no status is written. The failed job is the diagnostic, not a successful reconciliation; pre-existing green statuses are not proof that the new policy was evaluated. Ordinary healthy runs still record drafts and update author admission slots as before.
+
+### Recover the September 2026 configuration-error statuses
+
+The incident combined a current reusable workflow with an older engine selected from a stacked PR's base branch. That engine rejected the live `bot_authors` field and its exception handler wrote errors across the repository. Opening a draft exposed the incompatibility; its application changes were not the cause.
+
+1. Merge the central fix under existing review protection. Re-pin the affected repository callers to the **merged** central SHA. Merging this repository alone does not upgrade pinned callers. Confirm the read-only reusable identity test and regression tests pass, then verify a caller's job checks out exactly its executing reusable-workflow revision. No application builds or runner changes are required for this repair.
+2. Account for older policy-writer runs before recovery: an old run can overwrite repaired statuses. Drain or explicitly stop only obsolete PR Hygiene runs as part of the approved rollout; do not cancel unrelated CI/build jobs.
+3. Snapshot open PR numbers, current heads, bases and latest PR Hygiene statuses. Run one full reconciliation from the updated default-branch caller, not a historical failed run (which retains its old workflow):
+
+   ```sh
+   gh workflow run pr-review-policy.yml --repo dashpay/platform --ref v4.2-dev -f scope=all
+   ```
+
+4. Verify each current head on a governed branch received its actual verdict. Pending reviews, red builds and drafts must remain pending/blocked as appropriate; this is **not** a blanket success-status repair. Preserve unresolved API/read failures in the recovery report.
+5. Inventory PRs targeting feature branches outside `target_branches` separately. The full pass does not evaluate them, and GitHub commit statuses cannot be deleted. Do not infer approval from the old configuration error. Any separately authorized not-applicable status must follow a fresh check of the PR's head/base and prove that no governed open PR shares that head. Keep these residuals explicit until handled; never describe `scope=all` as clearing every open PR automatically.
+
+Do not disable the required status to hide the incident. Restore independently reviewed native approval/routing protection first if removing PR Hygiene is the chosen rollback.
 
 Edit seed ownership manifests and regenerate CODEOWNERS deliberately. An empty owner list is permitted only when the named area carries an explicit unresolved configuration blocker. It never grants owner powers to its reviewers.
 

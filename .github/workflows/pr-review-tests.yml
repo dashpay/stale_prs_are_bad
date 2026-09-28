@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 jobs:
+  workflow-context:
+    # A real reusable job proves the identity contexts are populated by GitHub;
+    # unit fixtures alone cannot catch a nonexistent context evaluating empty.
+    uses: ./.github/workflows/pr-review-context-test.yml
   test:
     runs-on: ubuntu-latest
     steps:
@@ -18,9 +22,8 @@ jobs:
         working-directory: proposed
         run: python3 -m unittest discover -s pr_review/tests -v
       - name: Clone the default branch of every governed repository
-        # Policies are read live by callers, and a policy naming a directory that
-        # does not exist in its repository turns that repository's whole queue
-        # into configuration errors. Check paths against the real trees here.
+        # Policies are read live by callers. Catch missing paths before rollout,
+        # instead of discovering them in a repository's reconciliation jobs.
         run: |
           set -euo pipefail
           for repo in $(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('proposed/policies/repositories.json'))['repositories']))"); do
@@ -46,13 +49,16 @@ jobs:
           git clone --quiet --bare https://github.com/dashpay/stale_prs_are_bad central.git
           repos=$(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('proposed/policies/repositories.json'))['repositories']))")
           declare -A pins=()
+          # Do not hide a discovery failure in process substitution: an empty
+          # pin list would incorrectly pass the policy compatibility gate.
+          python3 proposed/.github/scripts/repo_checks.py pins > caller-pins.txt
           while read -r repo sha; do
             if ! git -C central.git merge-base --is-ancestor "$sha" master 2>/dev/null; then
-              echo "::warning::$repo pins $sha, which is not reachable from master; re-pin it to a merge commit"
-              continue
+              echo "::error::$repo pins $sha, which is not reachable from master; policy compatibility cannot be verified"
+              exit 1
             fi
             pins["$sha"]="${pins[$sha]:-}$repo "
-          done < <(python3 proposed/.github/scripts/repo_checks.py pins)
+          done < caller-pins.txt
           for sha in "${!pins[@]}"; do
             echo "engine $sha is pinned by: ${pins[$sha]}"
             git clone --quiet --no-checkout https://github.com/dashpay/stale_prs_are_bad "engine-$sha"
@@ -66,7 +72,9 @@ jobs:
         run: |
           mkdir -p /tmp/actionlint-bin
           curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/03d0035246f3e81f36aed592ffb4bebf33a03106/scripts/download-actionlint.bash | bash -s 1.7.7 /tmp/actionlint-bin # v1.7.7
-          # actionlint 1.7.7 predates github.job_workflow_sha and concurrency.queue.
-          /tmp/actionlint-bin/actionlint -ignore 'property "job_workflow_sha" is not defined' \
+          # actionlint 1.7.7 predates job.workflow_sha/ref and concurrency.queue.
+          # The bootstrap tests verify these documented contexts and reject
+          # missing values; never suppress the nonexistent github.job_workflow_sha.
+          /tmp/actionlint-bin/actionlint -ignore 'property "workflow_(sha|ref)" is not defined' \
             -ignore 'unexpected key "queue" for "concurrency" section' proposed/.github/workflows/*.yml
           find packets -name '*.yml' -exec /tmp/actionlint-bin/actionlint {} +

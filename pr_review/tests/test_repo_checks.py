@@ -80,6 +80,11 @@ class RepoCheckTests(unittest.TestCase):
                 CALLER.format(reference=checks.REUSABLE, pin='c' * 40))
             self.assertEqual(list(checks.caller_pins(policies, trees)), [('dashpay/example', 'c' * 40)])
 
+    def test_policy_compatibility_cannot_accept_a_mutable_or_malformed_engine_pin(self):
+        for pin in ('master', 'a' * 7, '', 'a' * 40 + ';command'):
+            with self.subTest(pin=pin), self.assertRaisesRegex(ValueError, 'full commit SHA'):
+                checks.caller_pin(CALLER.format(reference=checks.REUSABLE, pin=pin))
+
 
 if __name__ == '__main__':
     unittest.main()
