@@ -7,6 +7,7 @@ Run from the workflow with `proposed/` (this repository) and `trees/<name>/`
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 
 import yaml
@@ -61,6 +62,8 @@ def caller_pin(workflow_text):
             pins.append(uses.partition('@')[2])
     if len(pins) != 1:
         raise ValueError(f'expected exactly one job calling the shared workflow, found {len(pins)}')
+    if not re.fullmatch(r'[0-9a-f]{40}', pins[0]):
+        raise ValueError('the caller must pin the shared workflow to a full commit SHA')
     return pins[0]
 
 

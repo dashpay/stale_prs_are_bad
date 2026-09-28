@@ -1,0 +1,27 @@
+name: PR Hygiene workflow identity test
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify reusable job identity independently of the caller
+        env:
+          JOB_REVISION: ${{ job.workflow_sha }}
+          JOB_REFERENCE: ${{ job.workflow_ref }}
+          CALLER_REFERENCE: ${{ github.workflow_ref }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+
+          revision = os.environ['JOB_REVISION']
+          job = os.environ['JOB_REFERENCE'].partition('@')[0]
+          caller = os.environ['CALLER_REFERENCE'].partition('@')[0]
+          assert re.fullmatch(r'[0-9a-f]{40}', revision), 'job.workflow_sha is missing or malformed'
+          assert job.endswith('/.github/workflows/pr-review-context-test.yml'), job
+          assert caller.endswith('/.github/workflows/pr-review-tests.yml'), caller
+          assert job != caller, 'The job identity must describe the reusable workflow, not the caller'
+          print('GitHub supplied a full revision and the correct reusable-job identity.')
+          PY

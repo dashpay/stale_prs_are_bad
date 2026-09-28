@@ -14,12 +14,12 @@ from pr_review.tests.test_policy import fixture, NOW
 
 
 @contextlib.contextmanager
-def broken_policies_root():
+def broken_policies_root(policy=None):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / 'repositories.json').write_text(json.dumps({'version': 1, 'repositories': [
             {'repository': 'dashpay/platform', 'policy': 'platform.json', 'mode': 'preview'}]}))
-        (root / 'platform.json').write_text('{broken json')
+        (root / 'platform.json').write_text(json.dumps(policy) if policy is not None else '{broken json')
         yield str(root)
 
 
@@ -431,14 +431,15 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(self.api.histories.call_count,1)
         self.assertEqual(sorted(self.api.histories.call_args.args[0]),[1,2,3])
 
-    def test_invalid_configuration_revokes_previous_success_in_authorized_apply(self):
+    def test_invalid_configuration_does_not_turn_a_sweep_into_repository_wide_error_writes(self):
         environment = {'GITHUB_ACTIONS':'true', 'GITHUB_REPOSITORY':'dashpay/platform',
                        'PR_REVIEW_AUTOMATION_ENABLED':'true'}
         with patch.dict(os.environ,environment), patch.object(main,'GitHub',return_value=self.api), \
                 broken_policies_root() as root:
             with self.assertRaises(ValueError):
                 main.run(['sync','--apply','--policies-root',root])
-        self.assertEqual(self.api.post_status.call_args.args[1],'error')
+        self.api.open_prs.assert_not_called()
+        self.api.post_status.assert_not_called()
 
     def test_invalid_configuration_preview_never_revokes_status(self):
         with patch.object(main,'GitHub',return_value=self.api), broken_policies_root() as root:

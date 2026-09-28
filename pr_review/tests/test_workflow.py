@@ -15,8 +15,7 @@ class TargetCheckoutTests(unittest.TestCase):
     """The clone of the governed repository and the engine's view of it must agree.
 
     Validating a policy against a tree that was never checked out fails on its
-    first area path, and the engine answers a failed policy validation by
-    marking every open head an error. So the events that clone the tree and the
+    first area path. So the events that clone the tree and the
     events that hand its path to the engine have to be the same set — not
     merely overlapping, which is what a widened gate on one side would leave.
     """

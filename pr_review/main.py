@@ -187,6 +187,39 @@ def _mark_unreadable(api, policy, pr):
         print(f"PR #{pr['number']}: unable to publish evidence error status", file=sys.stderr)
 
 
+def _mark_configuration_error(repository, policy, number):
+    """Invalidate only a verified event target, never infer a sweep from an error.
+
+    If even the repository/branch scope is unreadable, the failed Actions job
+    is the diagnostic. Drafts cannot merge, and commit-scoped statuses cannot
+    isolate a head shared with another PR: neither is a safe error-write target.
+    """
+    if (type(number) is not int or number < 1 or not isinstance(policy, dict)
+            or policy.get('repository') != repository):
+        return
+    branches = policy.get('target_branches')
+    if (not isinstance(branches, list) or not branches
+            or any(not isinstance(branch, str) or not branch.strip() for branch in branches)):
+        return
+    api = GitHub(repository)
+    try:
+        current = api.pull(number)
+        if current['state'] != 'open' or current['draft'] or current['base'] not in branches:
+            return
+        if any(pr['number'] != number and pr['head'] == current['head'] for pr in api.open_prs()):
+            print(f'PR #{number}: shared head; configuration error reported by the workflow only', file=sys.stderr)
+            return
+        confirmed = api.pull(number)
+        identity = ('head', 'base', 'state', 'draft')
+        if any(confirmed[key] != current[key] for key in identity):
+            return
+        run_id = os.environ.get('GITHUB_RUN_ID', '')
+        url = f'https://github.com/{repository}/actions/runs/{run_id}' if re.fullmatch(r'[0-9]+', run_id) else None
+        api.post_status(current['head'], 'error', 'Invalid policy configuration; inspect workflow log', target_url=url)
+    except GitHubError:
+        print(f'PR #{number}: unable to publish configuration error status', file=sys.stderr)
+
+
 def _was_ours(api, pr, apply):
     """Whether this controller's record comment is still on a pull request it no longer governs."""
     if not apply:
@@ -808,6 +841,7 @@ def run(argv=None):
                        or os.environ.get('PR_REVIEW_AUTOMATION_ENABLED') != 'true'):
         parser.error('apply is restricted to the enabled repository Actions workflow')
     repository_root = args.repository_root.resolve() if args.repository_root else None
+    policy = None
     try:
         registry = load_registry(args.policies_root)
         source = args.policy or policy_path(args.policies_root, entry_for(registry, args.repo))
@@ -824,19 +858,10 @@ def run(argv=None):
             raise ValueError('Repository must match the registered policy')
     except (ValueError, OSError):
         if args.apply:
-            # Broken configuration cannot identify its scope reliably. Revoke
-            # known open heads using the independently authorized repository.
-            api = GitHub(args.repo)
-            try:
-                known = api.open_prs()
-            except GitHubError:
-                known = []
-                print('Unable to discover heads for configuration error statuses', file=sys.stderr)
-            for pr in known:
-                try:
-                    api.post_status(pr['head'], 'error', 'Invalid policy configuration; inspect workflow log')
-                except GitHubError:
-                    print(f"PR #{pr['number']}: unable to publish configuration error status", file=sys.stderr)
+            # A PR event is not permission to turn a configuration failure into
+            # a repository-wide status sweep. Batch/full runs have no validated
+            # target set yet; fail the job without changing any PR status.
+            _mark_configuration_error(args.repo, policy, args.pr)
         raise
     if args.command == 'validate':
         print('Policy schema and paths are valid.' if repository_root else 'Policy schema is valid.')
