@@ -22,12 +22,12 @@
   },
   "areas": [
     {
-      "id": "tenderdash",
+      "id": "github",
       "paths": [
-        ""
+        ".github/"
       ],
       "owners": [
-        "lklimek"
+        "ktechmidas"
       ],
       "reviewers": [
         "shumkov"

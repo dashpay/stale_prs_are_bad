@@ -17,14 +17,16 @@
   },
   "areas": [
     {
-      "id": "grovedb",
+      "id": "github",
       "paths": [
-        ""
+        ".github/"
       ],
       "owners": [
-        "QuantumExplorer"
+        "ktechmidas"
       ],
-      "reviewers": []
+      "reviewers": [
+        "shumkov"
+      ]
     }
   ]
 }

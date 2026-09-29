@@ -26,7 +26,8 @@ def bartek():
                              updated_at='2026-09-11T10:00:00Z')],
               reviews=[dict(id=5, user='romchornyi', state='APPROVED', commit_id=HEAD, submitted_at='2026-09-11T10:30:00Z', body='')],
               threads=[], labels=[], requested_reviewers=[],
-              permissions={'llbartekll': 'write', 'romchornyi': 'write', 'QuantumExplorer': 'admin', 'shumkov': 'admin'})
+              permissions={'llbartekll': 'write', 'romchornyi': 'write', 'QuantumExplorer': 'admin', 'shumkov': 'admin',
+                           'ktechmidas': 'admin'})
     return policy, pr
 
 
@@ -51,8 +52,9 @@ class ChecklistTests(unittest.TestCase):
         self.assertIn('- [x] Build green', block)
         self.assertIn('- [ ] Self-review — post `/self-reviewed`', block)
         self.assertIn('  - [x] `swift-sdk` — you own it', block)
-        self.assertIn('  - [ ] files with no dedicated owner (`.editorconfig`, `.github/workflows/swift-sdk-build.yml`, '
-                      '`.github/workflows/tests.yml` and 1 more) — QuantumExplorer or shumkov', block)
+        self.assertIn('  - [ ] files with no dedicated owner (`.editorconfig`, `AGENTS.md`) — QuantumExplorer or shumkov', block)
+        self.assertIn('  - [ ] `github` (`.github/workflows/swift-sdk-build.yml`, `.github/workflows/tests.yml`) '
+                      '— ktechmidas or shumkov', block)
         self.assertIn('- [x] Within your 5 open PRs', block)
         self.assertTrue(first_unchecked(block).startswith('- [ ] Self-review'), 'the state is the first unchecked line')
         self.assertNotIn('@', block, 'a mention from this bot notifies')
@@ -67,7 +69,7 @@ class ChecklistTests(unittest.TestCase):
         block = main.checklist_block(result)
         self.assertIn('- [x] Self-review — posted; again after any push', block)
         self.assertTrue(first_unchecked(block).startswith('- [ ] files with no dedicated owner'))
-        self.assertEqual(main.move_text(result).splitlines()[1], 'Ready for review — needs QuantumExplorer or shumkov.')
+        self.assertEqual(main.move_text(result).splitlines()[1], 'Ready for review — needs QuantumExplorer or ktechmidas or shumkov.')
 
     def test_an_owner_sees_no_approvals_needed_and_a_red_build_named(self):
         policy, pr = fixture()
@@ -813,7 +815,7 @@ class SecondReviewTests(unittest.TestCase):
         # Only the author-directed move is withheld from a bot: "you can merge"
         # is for the humans, and it carries the record.
         pr = dict(self.pr, author_is_bot=True)
-        pr['reviews'].append(dict(id=6, user='QuantumExplorer', state='APPROVED', commit_id=HEAD, submitted_at=LATER, body=''))
+        pr['reviews'].append(dict(id=6, user='shumkov', state='APPROVED', commit_id=HEAD, submitted_at=LATER, body=''))
         result = evaluate(self.policy, pr, NOW, LATER)
         self.assertEqual(result['state'], 'ready-to-merge')
         api = self.publish(pr, result)

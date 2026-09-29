@@ -69,6 +69,18 @@
       "metadata": {
         "scope_note": "Only the visible crate column is mapped; cropped protocol column is unconfirmed."
       }
+    },
+    {
+      "id": "github",
+      "paths": [
+        ".github/"
+      ],
+      "owners": [
+        "ktechmidas"
+      ],
+      "reviewers": [
+        "shumkov"
+      ]
     }
   ]
 }
