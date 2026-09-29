@@ -44,6 +44,9 @@ class ChecklistTests(unittest.TestCase):
         block = main.checklist_block(result)
         self.assertEqual(result['state'], 'waiting-self-review')
         self.assertTrue(block.startswith(CHECKLIST_START) and block.endswith(CHECKLIST_END))
+        # A top-level heading: GitHub rules a line under it, which sets the
+        # checklist apart from the author's own description above it.
+        self.assertIn(f'\n# PR Hygiene · `{HEAD[:7]}`\n', block)
         self.assertIn('- [x] Bots — coderabbitai skipped by llbartekll · thepastaclaw skipped by llbartekll', block)
         self.assertIn('- [x] Build green', block)
         self.assertIn('- [ ] Self-review — post `/self-reviewed`', block)
