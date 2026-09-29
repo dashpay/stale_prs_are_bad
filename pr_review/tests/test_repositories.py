@@ -38,9 +38,10 @@ class RepositoryConfigurationTests(unittest.TestCase):
             with self.subTest(repository=name):
                 policy = self.policies['dashpay/' + name]
                 self.assertEqual(policy['target_branches'], [branch])
-                self.assertEqual(len(policy['areas']), 1)
-                area = policy['areas'][0]
-                self.assertEqual((area['paths'], area['owners'], area['reviewers']), ([''], owners, reviewers))
+                # The whole repository is the fallback's: a catch-all area would
+                # stop any directory being carved out of it, since areas cannot nest.
+                self.assertEqual([area['id'] for area in policy['areas']], ['github'])
+                self.assertEqual(policy['fallback'], {'owners': owners, 'reviewers': reviewers})
                 # Routing is the policy's, not CODEOWNERS'. A rule there would have
                 # GitHub request these people the moment a pull request opens.
                 self.assertEqual(rules(codeowners(policy)), [])
@@ -57,8 +58,10 @@ class RepositoryConfigurationTests(unittest.TestCase):
         # are the policy as agreed, and stay.
         self.assertEqual(policy['fallback'], {'owners': ['QuantumExplorer', 'xdustinface'], 'reviewers': ['ZocoLini']})
         areas = {area['id']: area for area in policy['areas']}
-        self.assertEqual(set(areas), {'dash-spv', 'key-wallet', 'key-wallet-manager'})
+        self.assertEqual(set(areas), {'dash-spv', 'key-wallet', 'key-wallet-manager', 'github'})
         for name, area in areas.items():
+            if name == 'github':
+                continue
             self.assertEqual(area['paths'], [name + '/'])
             self.assertEqual(area['owners'], policy['fallback']['owners'])
             self.assertEqual(area['reviewers'], ['ZocoLini'])
@@ -68,6 +71,27 @@ class RepositoryConfigurationTests(unittest.TestCase):
             pr['permissions'].update(QuantumExplorer='admin', xdustinface='admin', ZocoLini='write')
             result = evaluate(policy, pr, NOW, NOW)
             self.assertNotEqual(result['state'], 'configuration-error', name)
+    def test_github_directory_is_ktechmidas_everywhere_with_shumkov_as_backup(self):
+        # CI, release workflows and the PR Hygiene caller itself live under
+        # .github/, in every repository, so one person owns them all. A second
+        # person can approve, so a change to CI never waits on one account.
+        for name, policy in self.policies.items():
+            with self.subTest(repository=name):
+                areas = [area for area in policy['areas'] if area['id'] == 'github']
+                self.assertEqual(len(areas), 1)
+                self.assertEqual((areas[0]['paths'], areas[0]['owners'], areas[0]['reviewers']),
+                                 (['.github/'], ['ktechmidas'], ['shumkov']))
+                _, pr = fixture()
+                pr.update(base=policy['target_branches'][0], author='someone',
+                          files=[{'filename': '.github/workflows/ci.yml'}, {'filename': 'README.md'}], comments=[])
+                pr['permissions'].update({handle: 'admin' for handle in
+                                          ['ktechmidas', 'shumkov'] + policy['fallback']['owners'] + policy['fallback']['reviewers']})
+                result = evaluate(policy, pr, NOW, NOW)
+                self.assertNotEqual(result['state'], 'configuration-error', result)
+                # The workflow is ktechmidas's to approve; the rest of the
+                # repository is still whoever owned it before.
+                self.assertEqual(result['areas'], ['fallback', 'github'])
+
     def test_fallbacks_name_each_repository_owner_not_platform_leads(self):
         expected = {'platform': (['QuantumExplorer', 'shumkov'], []),
                     'rust-dashcore': (['QuantumExplorer', 'xdustinface'], ['ZocoLini']),

@@ -18,14 +18,16 @@
   },
   "areas": [
     {
-      "id": "dash-evo-tool",
+      "id": "github",
       "paths": [
-        ""
+        ".github/"
       ],
       "owners": [
-        "lklimek"
+        "ktechmidas"
       ],
-      "reviewers": []
+      "reviewers": [
+        "shumkov"
+      ]
     }
   ]
 }

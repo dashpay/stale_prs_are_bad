@@ -285,6 +285,18 @@
           "Andrei"
         ]
       }
+    },
+    {
+      "id": "github",
+      "paths": [
+        ".github/"
+      ],
+      "owners": [
+        "ktechmidas"
+      ],
+      "reviewers": [
+        "shumkov"
+      ]
     }
   ]
 }
