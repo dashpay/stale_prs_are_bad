@@ -347,7 +347,7 @@ def checklist_block(result):
     if not items:
         return None
     box = lambda done: '[x]' if done else '[ ]'
-    lines = [CHECKLIST_START, f"### PR Hygiene · `{result['head'][:7]}`"]
+    lines = [CHECKLIST_START, f"# PR Hygiene · `{result['head'][:7]}`"]
     bots = items['bots']
     line = f"- {box(bots['done'])} Bots — {' · '.join(bots['lines'])}"
     if bots['skippable']:
