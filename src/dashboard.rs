@@ -314,8 +314,8 @@ pub fn validate_lateness(cfg: &Config) -> anyhow::Result<()> {
         if !Stage::ALL.iter().any(|s| s.key() == key) {
             anyhow::bail!("lateness_hours: {key:?} is not a stage");
         }
-        if !(0.0 < *late && late <= very_late) {
-            anyhow::bail!("lateness_hours.{key}: expected 0 < late <= very late");
+        if !(late.is_finite() && very_late.is_finite() && 0.0 < *late && late <= very_late) {
+            anyhow::bail!("lateness_hours.{key}: expected finite hours, 0 < late <= very late");
         }
     }
     Ok(())
@@ -1136,6 +1136,15 @@ mod tests {
         cfg.lateness_hours.remove("self_review");
         cfg.lateness_hours.insert("review".into(), [72.0, 24.0]);
         assert!(validate_lateness(&cfg).is_err());
+        // An infinite threshold is never reached: the stage would never be late.
+        for hours in [
+            [24.0, f64::INFINITY],
+            [f64::INFINITY, f64::INFINITY],
+            [f64::NAN, 72.0],
+        ] {
+            cfg.lateness_hours.insert("review".into(), hours);
+            assert!(validate_lateness(&cfg).is_err(), "{hours:?}");
+        }
     }
 
     #[test]
