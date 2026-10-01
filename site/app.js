@@ -16,10 +16,12 @@ async function load() {
   let raw;
   try {
     const res = await fetch("dashboard.json", { cache: "no-cache" });
-    if (!res.ok) throw new Error(`dashboard.json could not be loaded (HTTP ${res.status}).`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     raw = await res.json();
   } catch (e) {
-    fail(e instanceof SyntaxError ? "dashboard.json is not valid JSON." : e.message);
+    fail(e instanceof SyntaxError
+      ? "dashboard.json is not valid JSON."
+      : `dashboard.json could not be loaded (${e.message}). The data is published beside this page; try again shortly.`);
     return;
   }
   try {
@@ -119,7 +121,8 @@ function draw() {
   let content;
   if (route.view === "team") {
     bar = filterBar(data, "/", f, {
-      show: ["repo", "stage", "who", "late", "q", "owner"], whoDefault: "human", onText: render, searchHint: "author, reviewer or title",
+      show: ["repo", "area", "stage", "who", "late", "q", "owner"], whoDefault: "people", onText: render,
+      searchHint: "author, reviewer or title",
     });
     content = teamView(data, f);
   } else if (route.view === "people") {

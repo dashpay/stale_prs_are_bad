@@ -1,44 +1,59 @@
 // Team view: whose move it is, how long each PR has sat in its stage, every
 // open PR, and the ones to close or revive.
 
-import { h, svg } from "./dom.js";
-import { DAY_MS, LATENESS, formatDuration, formatHours, shortRepo, closeOrRevive } from "./model.js";
+import { h, svg, openPr } from "./dom.js";
+import {
+  DAY_MS, LATENESS, PARKED, formatDuration, formatHours, shortRepo, closeOrRevive, idleWords,
+} from "./model.js";
 import { buildHash, setFilters } from "./state.js";
 import { filterPrs } from "./filters.js";
 import {
-  prLink, personLink, stageChip, timeCell, badges, flagCount, section, sortableTable, statusMark, asksList,
+  prLink, personLink, stageChip, timeCell, badges, flagCount, section, sortableTable, lateMark, asksList,
 } from "./ui.js";
 
 export function teamView(data, f) {
   const visible = filterPrs(data.prs, f);
   const forTiles = filterPrs(data.prs, f, { ignoreOwner: true });
+  const empty = emptyText(data, f);
   return [
     tiles(data, forTiles, f),
-    section("How long each PR has been in its stage", agingPlot(data, visible)),
-    section(`Open PRs (${visible.length})`, prTable(data, visible, f)),
+    section("How long each PR has been in its stage", agingPlot(data, visible, empty)),
+    section(`Open PRs (${visible.length})`, prTable(data, visible, f, empty)),
     reviveSection(data, visible),
   ];
 }
 
+/** Why a filtered list is empty. "Late only" can only ever find stages that record their start. */
+function emptyText(data, f) {
+  if (!f.late) return "No PRs match the filters.";
+  const timed = data.stages.filter((s) => s.entryRecorded && s.lateHours).map((s) => s.label);
+  return timed.length
+    ? `No late PRs match the filters. Only ${timed.join(", ")} records when a PR entered it, so only PRs there can be late.`
+    : "No stage records when a PR entered it yet, so no PR can be late.";
+}
+
 function tiles(data, prs, f) {
-  const who = f.who || "human";
-  const scope = who === "human" ? "PRs by humans" : who === "bot" ? "PRs by bots" : "PRs by humans and bots";
-  const toggle = who === "human"
-    ? h("a", { href: buildHash("/", { ...f, who: "all" }) }, "include bot PRs")
-    : h("a", { href: buildHash("/", { ...f, who: "" }) }, "only humans' PRs");
-  const list = h("ul", { class: "tiles" }, data.owners.map((o) => {
+  const who = f.who || "people";
+  const scope = who === "people"
+    ? "Open PRs waiting on people (humans' PRs, and bots' PRs waiting on reviewers or maintainers)"
+    : who === "bot" ? "Open PRs by bots" : "All open PRs, bots' own included";
+  const toggle = who === "people"
+    ? h("a", { href: buildHash("/", { ...f, who: "all" }) }, "include all bot PRs")
+    : h("a", { href: buildHash("/", { ...f, who: "" }) }, "only what waits on people");
+  const tile = (o) => {
     const items = prs.filter((p) => p.owner === o.key);
     const parts = data.stages
-      .filter((s) => s.owner === o.key)
+      .filter((s) => (o.key === PARKED ? !s.inFlow : s.inFlow && s.owner === o.key))
       .map((s) => [s, items.filter((p) => p.stage === s.key).length])
       .filter(([, n]) => n);
-    const late = items.filter((p) => p.lateRank >= 2).length;
+    const late = items.filter((p) => p.lateRank >= 2);
+    const worst = late.some((p) => p.lateness === "very-late") ? "very-late" : "late";
     const active = f.owner === o.key;
     return h("li", {},
       h("a", {
         href: buildHash("/", { ...f, owner: active ? "" : o.key }),
         id: `tile-${o.key}`,
-        class: `tile${items.length ? "" : " tile-zero"}${active ? " tile-active" : ""}`,
+        class: `tile${items.length ? "" : " tile-zero"}${active ? " tile-active" : ""}${o.key === PARKED ? " tile-parked" : ""}`,
         "aria-current": active ? "true" : null,
       },
       h("span", { class: "tile-label" }, o.label),
@@ -46,12 +61,22 @@ function tiles(data, prs, f) {
       h("span", { class: "tile-sub" }, parts.length
         ? parts.map(([s, n], i) => [i ? " · " : "", h("span", { class: s.key === "unknown" ? "hatched" : "" }, `${s.label} ${n}`)])
         : "none open"),
-      late ? h("span", { class: "tile-late" }, statusMark({ since_basis: "engine", lateness: "late" }), ` ${late} late`) : null));
-  }));
+      late.length
+        ? h("span", { class: "tile-late" }, lateMark(worst, `mark-${worst}`), ` ${late.length} late`,
+          worst === "very-late" ? ` (${late.filter((p) => p.lateness === "very-late").length} very late)` : "")
+        : null));
+  };
+  const flow = data.owners.filter((o) => o.key !== PARKED);
+  const parked = data.owners.find((o) => o.key === PARKED);
   return h("section", { class: "card" },
     h("h2", {}, "Whose move"),
-    h("p", { class: "sub" }, `Open ${scope}, by who has to act next (`, toggle, "). Select a tile to list only those."),
-    list);
+    h("p", { class: "sub" }, `${scope} (`, toggle, "), by who has to act next. Select a tile to list only those."),
+    h("ul", { class: "tiles" }, flow.map(tile)),
+    parked ? [
+      h("h3", { class: "tiles-heading" }, "Parked"),
+      h("p", { class: "sub" }, "Drafts, PRs off the governed branches and PRs with no engine verdict: nobody is asked to move them today."),
+      h("ul", { class: "tiles" }, tile(parked)),
+    ] : null);
 }
 
 // Deterministic vertical spread inside a stage's row, so dots do not stack
@@ -71,7 +96,14 @@ const TICKS = [
   [1 / 24, "1h"], [1, "1d"], [7, "1w"], [30, "1mo"], [90, "3mo"], [365, "1y"], [730, "2y"], [1095, "3y"],
 ];
 
-function agingPlot(data, prs) {
+/** The stages to draw, the review flow first and parked work below it. */
+function plotRows(data, prs) {
+  return data.stages
+    .filter((s) => prs.some((p) => p.stage === s.key))
+    .sort((a, b) => b.inFlow - a.inFlow || a.order - b.order);
+}
+
+function agingPlot(data, prs, emptyMessage) {
   const fig = h("figure", { class: "aging" });
   const plotted = prs.filter((p) => p.ageMs !== null);
   const missing = prs.length - plotted.length;
@@ -81,7 +113,7 @@ function agingPlot(data, prs) {
   const holder = h("div", { class: "plot-holder" });
   fig.append(agingLegend(data, plotted), holder, note);
   if (!plotted.length) {
-    holder.append(h("p", { class: "empty" }, "No PRs match the filters."));
+    holder.append(h("p", { class: "empty" }, emptyMessage));
     return fig;
   }
   if (!globalThis.Plot) {
@@ -89,8 +121,7 @@ function agingPlot(data, prs) {
     return fig;
   }
   // Reserve the chart's height up front so the page does not jump when it draws.
-  const rows = data.stages.filter((s) => plotted.some((p) => p.stage === s.key)).length;
-  holder.style.minHeight = `${plotHeight(rows, innerWidth < 560)}px`;
+  holder.style.minHeight = `${plotHeight(plotRows(data, plotted).length, innerWidth < 560)}px`;
   // Drawn once laid out and again when the width changes; a colour-scheme
   // change re-renders the page, which builds a new plot.
   let last = 0;
@@ -111,20 +142,23 @@ function agingPlot(data, prs) {
 }
 
 function plotHeight(rows, narrow) {
-  return rows * (narrow ? 40 : 46) + 40;
+  return rows * (narrow ? 40 : 46) + 46;
 }
+
+// Plot's symbol names for each lateness, matching the marks in tables and the legend.
+const SYMBOL = { ok: "circle", late: "triangle", "very-late": "diamond" };
 
 function renderPlot(data, prs, width) {
   const Plot = globalThis.Plot;
-  const present = data.stages.filter((s) => prs.some((p) => p.stage === s.key));
+  const present = plotRows(data, prs);
   const row = new Map(present.map((s, i) => [s.key, i]));
+  const firstParked = present.findIndex((s) => !s.inFlow);
   // x is log10(days), on a linear scale, so the page picks every tick and its
   // label; a log scale would drop labels it thinks are crowded.
   const points = prs.map((p) => ({
     p,
     x: Math.log10(Math.max(p.ageMs / DAY_MS, 1 / 24)),
     y: row.get(p.stage) + jitter(p.key),
-    fill: p.since_basis === "engine" ? (p.lateness ? `--late-${p.lateness}` : "--untimed") : null,
   }));
   const maxDays = Math.max(30, ...points.map((d) => 10 ** d.x)) * 1.3;
   const ticks = TICKS.filter(([t]) => t <= maxDays).map(([t, text]) => [Math.log10(t), text]);
@@ -133,21 +167,25 @@ function renderPlot(data, prs, width) {
   const tip = (d) => {
     const p = d.p;
     const since = p.since_basis === "engine" ? "in this stage" : "since opened; stage start not recorded yet";
-    const late = p.since_basis === "engine" && p.lateness ? ` · ${LATENESS[p.lateness].label}` : "";
-    return `${shortRepo(p.repo)}#${p.number} ${p.title ?? ""}\n${data.stage[p.stage].label} · ${formatDuration(p.ageMs)} ${since}${late}`;
+    const late = p.lateness ? ` · ${LATENESS[p.lateness].label}` : "";
+    return `${shortRepo(p.repo)}#${p.number} ${p.title}\n${data.stage[p.stage].label} · ${formatDuration(p.ageMs)} ${since}${late}`;
   };
   const narrow = width < 560;
+  const timed = (kind) => points.filter((d) => d.p.since_basis === "engine" && d.p.lateness === kind);
   const svgEl = Plot.plot({
     width,
     height: plotHeight(present.length, narrow),
     marginLeft: narrow ? 88 : 104,
     marginRight: 16,
     marginTop: 8,
-    marginBottom: 32,
+    marginBottom: 38,
     style: { background: "transparent", color: cssVar("--ink-2"), fontFamily: "inherit", fontSize: "12px" },
     x: {
       domain: [Math.log10(1 / 24), Math.log10(maxDays)], ticks: ticks.map(([t]) => t),
-      tickFormat: (t) => label.get(t) ?? "", label: "time in stage →", labelAnchor: "right", labelArrow: "none",
+      tickFormat: (t) => label.get(t) ?? "",
+      // Honest about what most dots measure: only some stages record their start.
+      label: narrow ? "time in stage, or since opened →" : "time in stage (since opened where the stage start isn't recorded) →",
+      labelAnchor: "right", labelArrow: "none",
     },
     y: {
       domain: [present.length - 0.5, -0.5], ticks: present.map((_, i) => i),
@@ -156,9 +194,14 @@ function renderPlot(data, prs, width) {
     marks: [
       Plot.gridX(ticks.map(([t]) => t), { stroke: cssVar("--grid"), strokeOpacity: 1 }),
       Plot.ruleY(present.slice(1).map((_, i) => i + 0.5), { stroke: cssVar("--grid") }),
+      // Parked work sits below a heavier rule.
+      ...(firstParked > 0 ? [Plot.ruleY([firstParked - 0.5], { stroke: cssVar("--axis"), strokeWidth: 2 })] : []),
       // Stage start unknown: hollow and neutral, never coloured as late or on time.
-      Plot.dot(points.filter((d) => !d.fill), { x: "x", y: "y", r: 4, fill: surface, stroke: cssVar("--neutral"), strokeWidth: 1.5 }),
-      Plot.dot(points.filter((d) => d.fill), { x: "x", y: "y", r: 5, fill: (d) => cssVar(d.fill), stroke: surface, strokeWidth: 2 }),
+      Plot.dot(points.filter((d) => d.p.since_basis !== "engine"), { x: "x", y: "y", r: 4, fill: surface, stroke: cssVar("--neutral"), strokeWidth: 1.5 }),
+      Plot.dot(points.filter((d) => d.p.since_basis === "engine" && !d.p.lateness), { x: "x", y: "y", r: 5, fill: cssVar("--untimed"), stroke: surface, strokeWidth: 2 }),
+      ...Object.entries(SYMBOL).map(([kind, symbol]) => Plot.dot(timed(kind), {
+        x: "x", y: "y", r: kind === "ok" ? 5 : 6.5, symbol, fill: cssVar(`--late-${kind}`), stroke: surface, strokeWidth: 1.5,
+      })),
       // One invisible layer over every dot drives the tooltip: the pointer
       // picks the nearest dot, so it need not land on an 8px mark.
       Plot.dot(points, { x: "x", y: "y", r: 5, fill: "transparent", stroke: "none", title: tip, tip: { fontSize: 12, lineWidth: 40 } }),
@@ -171,7 +214,7 @@ function renderPlot(data, prs, width) {
   });
   svgEl.addEventListener("click", () => {
     const url = svgEl.value?.p?.url;
-    if (url) open(url, "_blank", "noopener,noreferrer");
+    if (url) openPr(url);
   });
   // A picture to assistive technology; the table below is the keyboard and
   // screen-reader route to the same PRs.
@@ -182,68 +225,70 @@ function renderPlot(data, prs, width) {
 
 function agingLegend(data, prs) {
   const keys = [
-    ["--late-ok", "on time", "filled"],
-    ["--late-late", "late", "filled"],
-    ["--late-very-late", "very late", "filled"],
+    [lateMark("ok", "mark-ok"), "on time"],
+    [lateMark("late", "mark-late"), "late"],
+    [lateMark("very-late", "mark-very-late"), "very late"],
   ];
-  if (prs.some((p) => p.since_basis === "engine" && !p.lateness)) keys.push(["--untimed", "never late in this stage", "filled"]);
-  keys.push(["--neutral", "time since opened; stage start not recorded yet", "hollow"]);
+  if (prs.some((p) => p.since_basis === "engine" && !p.lateness)) keys.push([lateMark(null, "mark-untimed"), "never late in this stage"]);
+  keys.push([lateMark(null, "mark-opened"), "time since opened; stage start not recorded yet"]);
   const rules = data.stages
     .filter((s) => s.entryRecorded && s.lateHours)
     .map((s) => `${s.label}: late after ${formatHours(s.lateHours[0])}, very late after ${formatHours(s.lateHours[1])}`);
+  const parked = plotRows(data, prs).filter((s) => !s.inFlow).map((s) => s.label);
+  const anyFlow = prs.some((p) => p.inFlow);
   return h("div", {},
-    h("ul", { class: "legend", "aria-label": "Legend" }, keys.map(([v, text, kind]) =>
-      h("li", {},
-        svg("svg", { width: 14, height: 14, viewBox: "0 0 14 14", "aria-hidden": "true", class: `key key-${kind}`, style: `--key: var(${v})` },
-          svg("circle", { cx: 7, cy: 7, r: 5 })),
-        text))),
-    rules.length ? h("p", { class: "sub legend-rules" }, `${rules.join(" · ")}. Only these stages record when a PR entered them.`) : null);
+    h("ul", { class: "legend", "aria-label": "Legend" }, keys.map(([mark, text]) => h("li", {}, mark, text))),
+    rules.length ? h("p", { class: "sub legend-rules" }, `${rules.join(" · ")}. Only these stages record when a PR entered them.`) : null,
+    parked.length && anyFlow ? h("p", { class: "sub legend-rules" }, `Below the heavier line: parked work (${parked.join(", ")}).`) : null);
 }
 
-function prTable(data, prs, f) {
+function prTable(data, prs, f, empty) {
   const columns = [
-    { key: "repo", label: "Repo", className: "col-repo", sort: (p) => [String(p.repo), p.number], cell: (p) => shortRepo(p.repo) },
-    { key: "pr", label: "PR", sort: (p) => [String(p.title ?? "")], cell: (p) => prCell(p) },
-    { key: "author", label: "Author", sort: (p) => [String(p.author ?? "")], cell: (p) => personLink(p.author, p.isBot) },
+    { key: "repo", label: "Repo", className: "col-repo", sort: (p) => [p.repo, p.number ?? 0], cell: (p) => shortRepo(p.repo) },
+    { key: "pr", label: "PR", sort: (p) => [p.title], cell: (p) => prCell(p) },
+    { key: "author", label: "Author", sort: (p) => [p.author ?? ""], cell: (p) => personLink(p.author, p.isBot) },
     { key: "stage", label: "Stage", sort: (p) => [data.stage[p.stage].order, -(p.ageMs ?? -1)], cell: (p) => stageChip(data, p.stage) },
     {
-      key: "time", label: "Time in stage", firstDir: "desc", title: "Late first, then longest",
-      sort: (p) => [p.lateRank, p.ageMs ?? -1], cell: (p) => timeCell(p),
+      // The default order: the review flow before parked work, late first, then longest.
+      key: "time", label: "Time in stage", firstDir: "desc", title: "In-flow PRs first, late first, then longest",
+      sort: (p) => [Number(p.inFlow), p.lateRank, p.ageMs ?? -1], cell: (p) => timeCell(p),
     },
-    { key: "next", label: "Next action", sort: (p) => [String(p.next_action ?? "~")], cell: (p) => nextCell(p) },
-    { key: "flags", label: "Flags", firstDir: "desc", sort: (p) => [flagCount(p), Number(p.unresolved_comments) || 0], cell: (p) => badges(p) },
+    { key: "next", label: "Next action", sort: (p) => [p.next_action ?? "~"], cell: (p) => nextCell(p) },
+    { key: "flags", label: "Flags", firstDir: "desc", sort: (p) => [flagCount(p), p.unresolved_comments], cell: (p) => badges(p) },
   ];
   return sortableTable({
     id: "prs", columns, rows: prs, sort: f.sort || "time", dir: f.dir,
     onSort: (key, dir) => setFilters("/", f, { sort: key, dir }),
-    empty: "No PRs match the filters.", className: "pr-table",
+    empty, className: "pr-table",
   });
 }
 
 function nextCell(p) {
   const asks = asksList(p);
   if (!p.next_action && !asks) return h("span", { class: "muted" }, "—");
-  return h("div", { class: "next" }, p.next_action ? h("span", {}, String(p.next_action)) : null, asks);
+  return h("div", { class: "next" }, p.next_action ? h("span", {}, p.next_action) : null, asks);
 }
 
 function prCell(p) {
-  return h("span", { class: "pr-cell" }, prLink(p, { withTitle: false }), h("span", { class: "pr-title" }, String(p.title ?? "")),
-    p.tracked === false ? h("span", { class: "basis", title: "Known only from the review engine; the board's own filters left it out" }, "engine only") : null);
+  return h("span", { class: "pr-cell" }, prLink(p, { withTitle: false }), h("span", { class: "pr-title" }, p.title),
+    p.tracked ? null : h("span", { class: "basis", title: "Known only from the review engine; the board's own filters left it out" }, "engine only"));
 }
 
 function reviveSection(data, prs) {
   const rows = closeOrRevive(prs);
+  const idle = idleWords(data);
   const table = sortableTable({
     columns: [
       { key: "pr", label: "PR", cell: (r) => prCell(r.pr) },
       { key: "author", label: "Author", cell: (r) => personLink(r.pr.author, r.pr.isBot) },
       { key: "stage", label: "Stage", cell: (r) => stageChip(data, r.pr.stage) },
       { key: "updated", label: "Last update", numeric: true, cell: (r) => r.pr.updatedAgoMs === null ? "—" : `${formatDuration(r.pr.updatedAgoMs)} ago` },
-      { key: "why", label: "Why", cell: (r) => [r.idle ? "idle" : null, r.conflict ? "merge conflict" : null].filter(Boolean).join(" · ") },
+      { key: "why", label: "Why", cell: (r) => [r.idle ? idle : null, r.conflict ? "merge conflict" : null].filter(Boolean).join(" · ") },
     ],
     rows, empty: "Nothing idle or conflicting.",
   });
+  const period = data.idleDays ? `for ${data.idleDays} days or more` : "for the idle period";
   return section(`Close or revive (${rows.length})`,
-    h("p", { class: "sub" }, "Drafts and PRs off the governed branches that nobody has touched for the idle period, and PRs with a merge conflict."),
+    h("p", { class: "sub" }, `Drafts and PRs off the governed branches that nobody has touched ${period}, and PRs with a merge conflict.`),
     table);
 }

@@ -2,14 +2,15 @@
 // the page re-renders from it.
 
 import { h } from "./dom.js";
-import { ownerLabel, shortRepo } from "./model.js";
+import { areaLabel, ownerLabel, shortRepo } from "./model.js";
 import { buildHash, setFilters } from "./state.js";
 
-/** Which author kind a view shows when the URL does not say. */
+/** Which PRs or people a view shows when the URL does not say. */
 export function effectiveWho(f, fallback) {
   return f.who || fallback;
 }
 
+/** Title, author, PR key, and everyone the PR waits on: area approvers and objectors. */
 export function matchesText(pr, q) {
   const needle = q.trim().toLowerCase();
   if (!needle) return true;
@@ -17,17 +18,29 @@ export function matchesText(pr, q) {
   return hay.some((s) => s.includes(needle));
 }
 
-/** PRs left after the filters. `ignoreOwner` keeps the whose-move tiles counting every owner. */
+/**
+ * PRs left after the filters. By default the Team view keeps what people must
+ * act on: humans' PRs, and bots' PRs waiting on reviewers or maintainers.
+ * `ignoreOwner` keeps the whose-move tiles counting every owner.
+ */
 export function filterPrs(prs, f, { ignoreOwner = false } = {}) {
-  const who = effectiveWho(f, "human");
+  const who = effectiveWho(f, "people");
   return prs.filter((p) =>
     (!f.repo || p.repo === f.repo) &&
+    (!f.area || p.areas.includes(f.area)) &&
     (!f.stage || p.stage === f.stage) &&
     (ignoreOwner || !f.owner || p.owner === f.owner) &&
-    (who === "all" || (who === "bot") === p.isBot) &&
+    (who === "all" || (who === "bot" ? p.isBot : who === "human" ? !p.isBot : p.needsPeople)) &&
     (!f.late || p.lateRank >= 2) &&
     matchesText(p, f.q));
 }
+
+const WHO_OPTIONS = {
+  // Team: which PRs.
+  people: [["people", "Waiting on people"], ["all", "All PRs, with bots' own"], ["bot", "Only bots' PRs"]],
+  // People: which tables.
+  all: [["all", "Humans and bots"], ["human", "Humans"], ["bot", "Bots"]],
+};
 
 /**
  * The filter row. `path` is the view's route; `show` lists the controls that
@@ -42,16 +55,19 @@ export function filterBar(data, path, f, { show, whoDefault, onText, searchHint 
       [["", "All repositories"], ...[...data.repoSet].map((r) => [r, shortRepo(r)])],
       f.repo, (v) => go({ repo: v }))));
   }
+  if (show.includes("area") && data.areas.length) {
+    controls.push(field("Area", "f-area", select("f-area",
+      [["", "All areas"], ...data.areas.map((a) => [a, areaLabel(a)])],
+      f.area, (v) => go({ area: v }))));
+  }
   if (show.includes("stage")) {
     controls.push(field("Stage", "f-stage", select("f-stage",
-      [["", "All stages"], ...data.stages.map((s) => [s.key, s.label])],
+      [["", "All stages"], ...data.stages.map((s) => [s.key, s.inFlow ? s.label : `${s.label} (parked)`])],
       f.stage, (v) => go({ stage: v }))));
   }
   if (show.includes("who")) {
-    const opts = whoDefault === "human"
-      ? [["human", "PRs by humans"], ["all", "Include bot PRs"], ["bot", "Only bot PRs"]]
-      : [["all", "Humans and bots"], ["human", "Humans"], ["bot", "Bots"]];
-    controls.push(field("Authors", "f-who", select("f-who", opts, effectiveWho(f, whoDefault),
+    const label = whoDefault === "people" ? "Show" : "Authors";
+    controls.push(field(label, "f-who", select("f-who", WHO_OPTIONS[whoDefault], effectiveWho(f, whoDefault),
       (v) => go({ who: v === whoDefault ? "" : v }))));
   }
   if (show.includes("late")) {

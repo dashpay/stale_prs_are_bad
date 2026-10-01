@@ -1,20 +1,21 @@
 // What the data means: stage and owner names, links, durations, and the
-// indexes the views share. The producer decides stages, owners, lateness and
-// idleness; this file only names them and joins records.
+// indexes the views share. The producer decides stages, owners, lateness,
+// idleness and limits; this file only names them and joins records.
 
 export const SCHEMA_VERSION = 1;
-export const WIP_LIMIT = 5;
 export const STALE_HOURS = 12;
 export const DAY_MS = 86_400_000;
+// The review engine's own default, used only for a repository the data gives no limit for.
+const DEFAULT_SLOT_LIMIT = 5;
 
-// The page's wording for each stage the producer may send. Order, owner and
-// thresholds come from the data's own `stages` list.
+// The page's wording for each stage the producer may send. Order, owner,
+// thresholds and whether it is in the review flow come from the data.
 const STAGE_WORDS = {
   draft: ["Draft"],
   bots: ["Bots"],
   "self-review": ["Self-review"],
   ci: ["CI running"],
-  queued: ["Queued", `over ${WIP_LIMIT} open PRs; waits for the author's other PRs`],
+  queued: ["Queued", "over the repository's review-slot limit; waits for the author's other PRs"],
   review: ["Review"],
   mergeable: ["Mergeable"],
   blocked: ["Blocked", "configuration error"],
@@ -23,14 +24,20 @@ const STAGE_WORDS = {
 };
 
 // The page's names for the owners the producer sends, in tile order. An owner
-// it does not know yet still gets a tile, named by its key.
+// it does not know yet still gets a tile, named by its key. Work outside the
+// review flow is "parked", whoever owns its stage.
 const OWNER_WORDS = {
   author: "Author",
   reviewers: "Reviewers",
   bots: "Bots",
   maintainers: "Maintainers",
   nobody: "Nobody in particular",
+  parked: "Parked",
 };
+export const PARKED = "parked";
+// Stages whose owner is a person other than the author: a bot's PR there
+// still waits on people.
+const PEOPLE_MOVES = new Set(["reviewers", "maintainers"]);
 const OWNER_KEY_RE = /^[a-z][a-z-]{0,30}$/;
 
 export function ownerLabel(key) {
@@ -113,14 +120,18 @@ function readStages(rawStages) {
       ? s.late_hours : null;
     stages.push({
       key, label, note: note || null,
-      owner: typeof s.owner === "string" && OWNER_KEY_RE.test(s.owner) ? s.owner : "nobody",
+      owner: typeof s.owner === "string" && OWNER_KEY_RE.test(s.owner) && s.owner !== PARKED ? s.owner : "nobody",
       lateHours: late,
       entryRecorded: s.entry_recorded === true,
+      inFlow: s.in_flow !== false,
       order: stages.length,
     });
   }
   if (!stages.some((s) => s.key === "unknown")) {
-    stages.push({ key: "unknown", label: "Unknown", note: STAGE_WORDS.unknown[1], owner: "nobody", lateHours: null, entryRecorded: false, order: stages.length });
+    stages.push({
+      key: "unknown", label: "Unknown", note: STAGE_WORDS.unknown[1], owner: "nobody",
+      lateHours: null, entryRecorded: false, inFlow: false, order: stages.length,
+    });
   }
   return stages;
 }
@@ -151,20 +162,31 @@ export function prepare(raw) {
     repo: str(r.repo),
     fetch_error: optStr(r.fetch_error),
     engine_state_available: r.engine_state_available !== false,
+    slotLimit: Number.isSafeInteger(r.slot_limit) && r.slot_limit > 0 ? r.slot_limit : DEFAULT_SLOT_LIMIT,
   }));
   const repoSet = new Set(repos.map((r) => r.repo).filter(Boolean));
+  const slotLimits = new Map(repos.map((r) => [r.repo, r.slotLimit]));
   const stages = readStages(raw.stages);
-  const commit = optStr(raw.commit);
   const known = Object.keys(OWNER_WORDS);
-  const owners = [...new Set(stages.map((s) => s.owner))]
+  // Whose-move groups: owners of stages in the flow, then parked work.
+  const owners = [...new Set(stages.filter((s) => s.inFlow).map((s) => s.owner))]
     .sort((a, b) => (known.indexOf(a) + 1 || 99) - (known.indexOf(b) + 1 || 99))
     .map((key) => ({ key, label: ownerLabel(key) }));
-  const data = { asOf, commit, repoSet, repos, stages, owners, stage: Object.fromEntries(stages.map((s) => [s.key, s])) };
+  if (stages.some((s) => !s.inFlow)) owners.push({ key: PARKED, label: ownerLabel(PARKED) });
+  const data = {
+    asOf,
+    commit: optStr(raw.commit),
+    idleDays: Number.isSafeInteger(raw.idle_days) && raw.idle_days > 0 ? raw.idle_days : null,
+    repoSet, repos, stages, owners,
+    stage: Object.fromEntries(stages.map((s) => [s.key, s])),
+    slotLimit: (repo) => slotLimits.get(repo) ?? DEFAULT_SLOT_LIMIT,
+  };
 
   data.prs = raw.prs.filter(isObj).map((p) => {
     const since = time(p.since);
     const updated = time(p.updated_at);
     const stage = has(data.stage, p.stage) ? p.stage : "unknown";
+    const info = data.stage[stage];
     const sinceBasis = p.since_basis === "engine" || p.since_basis === "opened" ? p.since_basis : null;
     // Only a recorded stage start can make a PR late; an age never does.
     const lateness = sinceBasis === "engine" && has(LATENESS, p.lateness) ? p.lateness : null;
@@ -172,15 +194,19 @@ export function prepare(raw) {
     const objectors = strs(p.objectors);
     const repo = str(p.repo);
     const number = Number.isSafeInteger(p.number) ? p.number : null;
+    const isBot = p.author_kind === "bot";
     return {
       key: str(p.key),
       repo,
       number,
       title: str(p.title),
       author: optStr(p.author),
-      isBot: p.author_kind === "bot",
+      isBot,
       stage,
-      owner: data.stage[stage].owner,
+      inFlow: info.inFlow,
+      owner: info.inFlow ? info.owner : PARKED,
+      // A bot's PR still waits on people when reviewers or maintainers must act.
+      needsPeople: !isBot || (info.inFlow && PEOPLE_MOVES.has(info.owner)),
       next_action: optStr(p.next_action),
       blockers: strs(p.blockers),
       since_basis: sinceBasis,
@@ -189,6 +215,8 @@ export function prepare(raw) {
       lateness,
       lateRank: lateness ? LATENESS[lateness].rank : 0,
       asks,
+      objectors,
+      areas: strs(p.areas),
       reviewers: [...new Set([...asks.flatMap((a) => a.approvers), ...objectors])],
       unresolved_comments: count(p.unresolved_comments),
       ci_failing: p.ci_failing === true,
@@ -200,6 +228,8 @@ export function prepare(raw) {
     };
   });
   data.prByKey = new Map(data.prs.map((p) => [p.key, p]));
+  data.areas = [...new Set(data.prs.flatMap((p) => p.areas))]
+    .sort((a, b) => (a === "fallback") - (b === "fallback") || a.localeCompare(b));
 
   data.people = raw.people.filter(isObj).map((person) => {
     const owes = list(person.owes).filter(isObj).map((o) => ({
@@ -252,7 +282,12 @@ export function findPerson(data, login) {
 /** Idle drafts and idle PRs off the governed branches, and PRs with a merge conflict. */
 export function closeOrRevive(prs) {
   return prs
-    .map((p) => ({ pr: p, idle: p.idle && (p.stage === "draft" || p.stage === "not-governed"), conflict: p.merge_conflict === true }))
+    .map((p) => ({ pr: p, idle: p.idle && (p.stage === "draft" || p.stage === "not-governed"), conflict: p.merge_conflict }))
     .filter((r) => r.idle || r.conflict)
     .sort((a, b) => (b.pr.updatedAgoMs ?? -1) - (a.pr.updatedAgoMs ?? -1));
+}
+
+/** "idle for 14+ days" when the data says how long idle is, else "idle". */
+export function idleWords(data) {
+  return data.idleDays ? `idle ${data.idleDays}+ days` : "idle";
 }

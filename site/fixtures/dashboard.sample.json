@@ -6,25 +6,30 @@
   {
    "repo": "example/alpha",
    "engine_state_available": true,
-   "fetch_error": null
+   "fetch_error": null,
+   "slot_limit": 5
   },
   {
    "repo": "example/beta",
    "engine_state_available": true,
-   "fetch_error": "<img src=x onerror=alert('fetch')> HTTP 502"
+   "fetch_error": "<img src=x onerror=alert('fetch')> HTTP 502",
+   "slot_limit": 5
   },
   {
    "repo": "example/gamma",
    "engine_state_available": false,
-   "fetch_error": null
+   "fetch_error": null,
+   "slot_limit": 3
   }
  ],
+ "idle_days": 14,
  "stages": [
   {
    "stage": "draft",
    "owner": "author",
    "late_hours": null,
-   "entry_recorded": false
+   "entry_recorded": false,
+   "in_flow": false
   },
   {
    "stage": "bots",
@@ -33,7 +38,8 @@
     24.0,
     48.0
    ],
-   "entry_recorded": false
+   "entry_recorded": false,
+   "in_flow": true
   },
   {
    "stage": "self-review",
@@ -42,7 +48,8 @@
     72.0,
     168.0
    ],
-   "entry_recorded": false
+   "entry_recorded": false,
+   "in_flow": true
   },
   {
    "stage": "ci",
@@ -51,13 +58,15 @@
     6.0,
     24.0
    ],
-   "entry_recorded": false
+   "entry_recorded": false,
+   "in_flow": true
   },
   {
    "stage": "queued",
    "owner": "nobody",
    "late_hours": null,
-   "entry_recorded": false
+   "entry_recorded": false,
+   "in_flow": true
   },
   {
    "stage": "review",
@@ -66,7 +75,8 @@
     24.0,
     72.0
    ],
-   "entry_recorded": true
+   "entry_recorded": true,
+   "in_flow": true
   },
   {
    "stage": "mergeable",
@@ -75,7 +85,8 @@
     24.0,
     72.0
    ],
-   "entry_recorded": false
+   "entry_recorded": false,
+   "in_flow": true
   },
   {
    "stage": "blocked",
@@ -84,19 +95,22 @@
     24.0,
     72.0
    ],
-   "entry_recorded": false
+   "entry_recorded": false,
+   "in_flow": true
   },
   {
    "stage": "not-governed",
    "owner": "author",
    "late_hours": null,
-   "entry_recorded": false
+   "entry_recorded": false,
+   "in_flow": false
   },
   {
    "stage": "unknown",
    "owner": "nobody",
    "late_hours": null,
-   "entry_recorded": false
+   "entry_recorded": false,
+   "in_flow": false
   }
  ],
  "prs": [
@@ -538,12 +552,87 @@
    "asks": [],
    "objectors": [],
    "areas": [
-    "core"
+    "core",
+    "generated-protocol-bindings-for-every-supported-platform-sdk"
    ],
    "unresolved_comments": 0,
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": true,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#115",
+   "repo": "example/alpha",
+   "number": 115,
+   "title": "fix: settle the cache key format",
+   "author": "carol",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-08-31T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "review",
+   "engine_state": "ready-for-human",
+   "next_action": "Human approval or objection resolution is required",
+   "blockers": [
+    "Human approval or objection resolution is required"
+   ],
+   "since": "2026-09-29T00:00:00Z",
+   "since_basis": "engine",
+   "lateness": "late",
+   "asks": [],
+   "objectors": [
+    "dave"
+   ],
+   "areas": [
+    "core",
+    "generated-protocol-bindings-for-every-supported-platform-sdk"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#116",
+   "repo": "example/alpha",
+   "number": 116,
+   "title": "chore: regenerate bindings",
+   "author": "helperbot",
+   "author_kind": "bot",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-08-31T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "review",
+   "engine_state": "ready-for-human",
+   "next_action": "Human approval or objection resolution is required",
+   "blockers": [
+    "Human approval or objection resolution is required"
+   ],
+   "since": "2026-09-26T12:00:00Z",
+   "since_basis": "engine",
+   "lateness": "very-late",
+   "asks": [
+    {
+     "area": "generated-protocol-bindings-for-every-supported-platform-sdk",
+     "approvers": [
+      "grace"
+     ]
+    }
+   ],
+   "objectors": [],
+   "areas": [
+    "generated-protocol-bindings-for-every-supported-platform-sdk"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
    "tracked": true
   },
   {
@@ -819,10 +908,11 @@
     }
    ],
    "authored": [
-    "example/alpha#113"
+    "example/alpha#113",
+    "example/alpha#115"
    ],
    "wip": {
-    "example/alpha": 1
+    "example/alpha": 2
    },
    "areas": {
     "example/alpha": [
@@ -844,6 +934,11 @@
       }
      ],
      "rereview": false
+    },
+    {
+     "pr": "example/alpha#115",
+     "areas": [],
+     "rereview": true
     }
    ],
    "authored": [],
@@ -858,12 +953,24 @@
    "login": "grace",
    "kind": "human",
    "roles": [],
-   "owes": [],
+   "owes": [
+    {
+     "pr": "example/alpha#116",
+     "areas": [
+      {
+       "area": "generated-protocol-bindings-for-every-supported-platform-sdk",
+       "others": []
+      }
+     ],
+     "rereview": false
+    }
+   ],
    "authored": [],
    "wip": {},
    "areas": {
     "example/alpha": [
-     "docs"
+     "docs",
+     "generated-protocol-bindings-for-every-supported-platform-sdk"
     ]
    }
   },
@@ -924,10 +1031,11 @@
    "owes": [],
    "authored": [
     "example/alpha#103",
-    "example/alpha#107"
+    "example/alpha#107",
+    "example/alpha#116"
    ],
    "wip": {
-    "example/alpha": 2
+    "example/alpha": 3
    },
    "areas": {}
   },

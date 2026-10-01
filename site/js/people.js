@@ -2,7 +2,7 @@
 // describe current state; lateness colour stays on PRs and never ranks people.
 
 import { h } from "./dom.js";
-import { WIP_LIMIT, LOGIN_RE, has, findPerson, formatDuration, shortRepo } from "./model.js";
+import { LOGIN_RE, has, findPerson, formatDuration, shortRepo } from "./model.js";
 import { setFilters } from "./state.js";
 import { effectiveWho } from "./filters.js";
 import {
@@ -14,7 +14,7 @@ const ME_KEY = "pr-hygiene:dashboard:me";
 const ROLE_LABEL = { "author-bot": "opens PRs", "review-bot": "reviews PRs" };
 
 /** One person's numbers, limited to a repository when the filter names one. */
-function summarize(person, repo) {
+function summarize(data, person, repo) {
   const inRepo = (r) => !repo || r === repo;
   const owes = person.owesList.filter((o) => inRepo(o.prData ? o.prData.repo : o.pr.split("#")[0]));
   // The longest wait among owed PRs, and whether that is a recorded wait or
@@ -24,7 +24,8 @@ function summarize(person, repo) {
     .filter((p) => p && p.ageMs !== null)
     .reduce((a, p) => (!a || p.ageMs > a.ageMs ? p : a), null);
   const prs = person.authoredPrs.filter((p) => inRepo(p.repo));
-  const wip = person.wip.filter(([r]) => inRepo(r));
+  // [repo, open PRs, that repository's slot limit]
+  const wip = person.wip.filter(([r]) => inRepo(r)).map(([r, n]) => [r, n, data.slotLimit(r)]);
   return {
     person,
     owes,
@@ -42,7 +43,7 @@ export function peopleView(data, f) {
   const q = f.q.trim().toLowerCase();
   const rows = data.people
     .filter((p) => !q || String(p.login).toLowerCase().includes(q))
-    .map((p) => summarize(p, f.repo));
+    .map((p) => summarize(data, p, f.repo));
   const maxPrs = Math.max(1, ...rows.map((r) => r.prs.length));
   const out = [];
   if (who !== "bot") {
@@ -55,7 +56,7 @@ export function peopleView(data, f) {
   }
   out.push(h("p", { class: "sub" },
     "Reviews owed: PRs ready for review that wait on the person, with how long the oldest has waited. ",
-    `WIP: open, non-draft PRs on governed branches; the review engine allows ${WIP_LIMIT} per repository.`));
+    "WIP: open, non-draft PRs on governed branches per repository, against that repository's review-slot limit; ▲ marks one over it."));
   return out;
 }
 
@@ -75,7 +76,7 @@ function peopleTable(data, rows, f, maxPrs, bots) {
         : h("span", { class: "muted" }, "0"),
     },
     { key: "prs", label: "Own PRs by stage", firstDir: "desc", sort: (r) => [r.prs.length], cell: (r) => stageBar(data, r.prs, maxPrs) },
-    { key: "wip", label: `WIP per repo (limit ${WIP_LIMIT})`, firstDir: "desc", sort: (r) => [r.wipMax], cell: (r) => wipChips(r.wip) },
+    { key: "wip", label: "WIP per repo", firstDir: "desc", sort: (r) => [r.wipMax], cell: (r) => wipChips(r.wip) },
     { key: "unresolved", label: "Unresolved comments", numeric: true, firstDir: "desc", sort: (r) => [r.unresolved], cell: (r) => String(r.unresolved) },
   ].filter(Boolean);
   return sortableTable({
@@ -108,9 +109,9 @@ function stageBar(data, prs, max) {
 
 function wipChips(wip) {
   if (!wip.length) return h("span", { class: "muted" }, "—");
-  return h("span", { class: "chips" }, wip.map(([repo, n]) =>
-    h("span", { class: `chip${n > WIP_LIMIT ? " chip-over" : ""}`, title: n > WIP_LIMIT ? `over the limit of ${WIP_LIMIT}` : null },
-      `${shortRepo(repo)} ${n}${n > WIP_LIMIT ? " ▲" : ""}`)));
+  return h("span", { class: "chips" }, wip.map(([repo, n, limit]) =>
+    h("span", { class: `chip${n > limit ? " chip-over" : ""}`, title: `${n} of ${limit} review slots${n > limit ? ", over the limit" : ""}` },
+      `${shortRepo(repo)} ${n}${n > limit ? " ▲" : ""}`)));
 }
 
 export function personView(data, login, { isMe = false, onChange } = {}) {
@@ -119,7 +120,7 @@ export function personView(data, login, { isMe = false, onChange } = {}) {
     return [section("Person not found",
       h("p", {}, "Nobody with that login is in this data. ", h("a", { href: "#/people" }, "See everyone"), "."))];
   }
-  const s = summarize(person, "");
+  const s = summarize(data, person, "");
   const header = h("section", { class: "card person-head" },
     h("div", { class: "person-title" }, avatar(person.login),
       h("h2", { id: "person-name", tabindex: "-1" }, person.login),
@@ -145,10 +146,11 @@ function areasList(person, isMe) {
         ids.map((a, i) => [i ? ", " : "", areaName(a)])))));
 }
 
+/** The engine's own "your part" wording: "`dpp` (you or bob or carol)", or the area alone when no one else may. */
 function yourPart(o, login, isMe) {
   const you = isMe ? "you" : login;
   const items = o.areas.map((a) => h("li", {}, areaName(a.area),
-    a.others.length ? ` (${you} or ${a.others.join(", ")})` : ` (only ${you})`));
+    a.others.length ? ` (${[you, ...a.others].join(" or ")})` : null));
   if (o.rereview) items.push(h("li", {}, `re-review or resolve ${isMe ? "your" : "their"} objection`));
   if (!items.length) items.push(h("li", { class: "muted" }, "listed as a reviewer; no open area"));
   return h("ul", { class: "part" }, items);
@@ -193,14 +195,14 @@ function nextAndBlockers(p) {
 
 function wipList(wip) {
   if (!wip.length) return h("p", { class: "muted" }, "No open PRs on governed branches.");
-  return h("ul", { class: "wip" }, wip.map(([repo, n]) => {
+  return h("ul", { class: "wip" }, wip.map(([repo, n, limit]) => {
     const meter = h("span", { class: "meter", "aria-hidden": "true" });
     // Capped so a huge count cannot widen the page; the text says the number.
-    for (let i = 0; i < Math.min(Math.max(WIP_LIMIT, n), WIP_LIMIT * 3); i++) {
-      meter.append(h("span", { class: `slot${i < n ? " slot-used" : ""}${i >= WIP_LIMIT ? " slot-over" : ""}` }));
+    for (let i = 0; i < Math.min(Math.max(limit, n), limit + 10); i++) {
+      meter.append(h("span", { class: `slot${i < n ? " slot-used" : ""}${i >= limit ? " slot-over" : ""}` }));
     }
-    const text = n > WIP_LIMIT ? `${n} of ${WIP_LIMIT}, over the limit` : `${n} of ${WIP_LIMIT}`;
-    return h("li", {}, h("span", { class: "wip-repo" }, shortRepo(repo)), meter, h("span", { class: n > WIP_LIMIT ? "over" : "" }, text));
+    const text = n > limit ? `${n} of ${limit}, over the limit` : `${n} of ${limit}`;
+    return h("li", {}, h("span", { class: "wip-repo" }, shortRepo(repo)), meter, h("span", { class: n > limit ? "over" : "" }, text));
   }));
 }
 
@@ -257,16 +259,32 @@ export function meView(data, rerender, picked) {
   const people = data.people
     .filter((p) => findPerson(data, p.login) === p)
     .sort((a, b) => a.isBot - b.isBot || String(a.login).localeCompare(String(b.login)));
-  const fill = () => {
+  const pick = (p) => {
+    rememberMe(p);
+    rerender(p);
+  };
+  const matching = () => {
     const q = input.value.trim().toLowerCase();
-    const shown = people.filter((p) => !q || String(p.login).toLowerCase().includes(q));
+    return people.filter((p) => !q || p.login.toLowerCase().includes(q));
+  };
+  const fill = () => {
+    const shown = matching();
     list.replaceChildren(...shown.map((p) => h("li", {}, h("button", {
-      type: "button", class: "pick",
-      on: { click: () => { rememberMe(p); rerender(p); } },
-    }, avatar(p.login), String(p.login), p.isBot ? [" ", botMark()] : null))));
+      type: "button", class: "pick", on: { click: () => pick(p) },
+    }, avatar(p.login), p.login, p.isBot ? [" ", botMark()] : null))));
     if (!shown.length) list.append(h("li", { class: "muted" }, "No one by that name."));
   };
   input.addEventListener("input", fill);
+  // Enter picks the only match, or an exact one.
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const shown = matching();
+    const exact = shown.find((p) => p.login.toLowerCase() === input.value.trim().toLowerCase());
+    if (shown.length === 1 || exact) {
+      e.preventDefault();
+      pick(exact || shown[0]);
+    }
+  });
   fill();
   return [h("section", { class: "card" },
     h("h2", {}, "Who are you?"),

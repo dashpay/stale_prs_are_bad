@@ -12,7 +12,7 @@ export function prLink(pr, { withTitle = true } = {}) {
     ? h("a", { href: pr.url, rel: "noopener noreferrer", target: "_blank" }, label)
     : h("span", { class: "nolink" }, label);
   if (!withTitle) return ref;
-  return h("span", { class: "pr" }, ref, " ", h("span", { class: "pr-title" }, pr.title ?? ""));
+  return h("span", { class: "pr" }, ref, " ", h("span", { class: "pr-title" }, pr.title));
 }
 
 export function avatar(login) {
@@ -44,19 +44,36 @@ export function areaName(area) {
   return area === "fallback" ? h("span", {}, areaLabel(area)) : h("code", {}, String(area));
 }
 
-/** Who may still approve each waiting area; an area nobody may approve says so. */
+/**
+ * What review the PR still waits for, in the engine's own words: each area
+ * nobody has approved with who may (an area nobody may approve says so), then
+ * the people whose objection is still open.
+ */
 export function asksList(pr) {
-  if (!pr.asks.length) return null;
-  return h("ul", { class: "asks" }, pr.asks.map((a) => h("li", {}, areaName(a.area), ": ",
-    a.approvers.length ? a.approvers.map(String).join(" or ") : h("strong", {}, "nobody may approve"))));
+  const items = pr.asks.map((a) => h("li", {}, areaName(a.area), ": ",
+    a.approvers.length ? a.approvers.join(" or ") : h("strong", {}, "nobody may approve")));
+  if (pr.objectors.length) items.push(h("li", {}, "re-review or resolve: ", pr.objectors.join(", ")));
+  return items.length ? h("ul", { class: "asks" }, items) : null;
 }
 
-/** The status mark for one PR: filled in its lateness colour, hollow when the stage start is not recorded. */
+// Lateness is a shape as well as a colour, so it reads without colour vision:
+// on time a circle, late a triangle, very late a diamond.
+const SHAPES = {
+  ok: () => svg("circle", { cx: 6, cy: 6, r: 4.5 }),
+  late: () => svg("polygon", { points: "6,0.8 11.4,10.6 0.6,10.6" }),
+  "very-late": () => svg("polygon", { points: "6,0.3 11.7,6 6,11.7 0.3,6" }),
+};
+
+/** The mark for a lateness key ("ok", "late", "very-late"), or a neutral circle. */
+export function lateMark(kind, extraClass = "") {
+  const shape = has(SHAPES, kind) ? SHAPES[kind]() : svg("circle", { cx: 6, cy: 6, r: 4.5 });
+  return svg("svg", { class: `mark ${extraClass}`.trim(), width: 12, height: 12, viewBox: "0 0 12 12", "aria-hidden": "true" }, shape);
+}
+
+/** The status mark for one PR: its lateness shape and colour, hollow when the stage start is not recorded. */
 export function statusMark(pr) {
-  let cls = "mark-opened";
-  if (pr.since_basis === "engine") cls = pr.lateness ? `mark-${pr.lateness}` : "mark-untimed";
-  return svg("svg", { class: `mark ${cls}`, width: 12, height: 12, viewBox: "0 0 12 12", "aria-hidden": "true" },
-    svg("circle", { cx: 6, cy: 6, r: 4.5 }));
+  if (pr.since_basis !== "engine") return lateMark(null, "mark-opened");
+  return pr.lateness ? lateMark(pr.lateness, `mark-${pr.lateness}`) : lateMark(null, "mark-untimed");
 }
 
 /** Time in the current stage with what it is measured from and, when known, its lateness. */
