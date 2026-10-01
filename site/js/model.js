@@ -161,6 +161,7 @@ export function prepare(raw) {
   const repos = raw.repos.filter(isObj).map((r) => ({
     repo: str(r.repo),
     fetch_error: optStr(r.fetch_error),
+    stage_times_error: optStr(r.stage_times_error),
     engine_state_available: r.engine_state_available !== false,
     slotLimit: Number.isSafeInteger(r.slot_limit) && r.slot_limit > 0 ? r.slot_limit : DEFAULT_SLOT_LIMIT,
   }));

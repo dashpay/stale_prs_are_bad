@@ -7,18 +7,21 @@
    "repo": "example/alpha",
    "engine_state_available": true,
    "fetch_error": null,
+   "stage_times_error": "1 of 3 PRs could not be read: #7: <script>alert('stage')</script>",
    "slot_limit": 5
   },
   {
    "repo": "example/beta",
    "engine_state_available": true,
    "fetch_error": "<img src=x onerror=alert('fetch')> HTTP 502",
+   "stage_times_error": null,
    "slot_limit": 5
   },
   {
    "repo": "example/gamma",
    "engine_state_available": false,
    "fetch_error": null,
+   "stage_times_error": null,
    "slot_limit": 3
   }
  ],
