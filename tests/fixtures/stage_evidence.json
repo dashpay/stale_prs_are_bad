@@ -1,0 +1,95 @@
+{
+  "evidence": {
+    "data": {
+      "nodes": [
+        {
+          "number": 7000,
+          "createdAt": "2026-05-10T00:00:00Z",
+          "isDraft": false,
+          "baseRefName": "master",
+          "timelineItems": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] },
+          "comments": {
+            "pageInfo": { "hasPreviousPage": false },
+            "nodes": [
+              { "id": "IC_7000_human", "createdAt": "2026-05-15T00:00:00Z", "author": { "login": "carol", "__typename": "User" } },
+              { "id": "IC_7000_record", "createdAt": "2026-05-16T00:00:00Z", "author": { "login": "github-actions", "__typename": "Bot" } },
+              { "id": "IC_7000_nudge", "createdAt": "2026-05-17T01:00:00Z", "author": { "login": "github-actions", "__typename": "Bot" } }
+            ]
+          }
+        },
+        {
+          "number": 1234,
+          "createdAt": "2026-04-01T10:00:00Z",
+          "isDraft": false,
+          "baseRefName": "master",
+          "timelineItems": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] },
+          "comments": {
+            "pageInfo": { "hasPreviousPage": false },
+            "nodes": [
+              { "id": "IC_1234_forged", "createdAt": "2026-05-18T00:00:00Z", "author": { "login": "alice", "__typename": "User" } }
+            ]
+          }
+        },
+        {
+          "number": 6000,
+          "createdAt": "2026-04-20T00:00:00Z",
+          "isDraft": true,
+          "baseRefName": "master",
+          "timelineItems": {
+            "pageInfo": { "hasPreviousPage": false },
+            "nodes": [
+              { "__typename": "ReadyForReviewEvent", "createdAt": "2026-04-21T00:00:00Z" },
+              { "__typename": "ConvertToDraftEvent", "createdAt": "2026-05-02T00:00:00Z" }
+            ]
+          },
+          "comments": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] }
+        },
+        {
+          "number": 2988,
+          "createdAt": "2026-03-20T00:00:00Z",
+          "isDraft": false,
+          "baseRefName": "v3.0",
+          "timelineItems": {
+            "pageInfo": { "hasPreviousPage": false },
+            "nodes": [
+              { "__typename": "BaseRefChangedEvent", "createdAt": "2026-04-10T00:00:00Z", "previousRefName": "master" }
+            ]
+          },
+          "comments": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] }
+        }
+      ]
+    }
+  },
+  "histories": {
+    "data": {
+      "nodes": [
+        {
+          "createdAt": "2026-05-16T00:00:00Z",
+          "author": { "login": "github-actions", "__typename": "Bot" },
+          "body": "<!-- platform-pr-review-state-v1 {\"number\":7000,\"state\":\"waiting-bots\"} -->\nPR Hygiene: the checklist is in the description.",
+          "userContentEdits": {
+            "pageInfo": { "hasNextPage": false },
+            "nodes": [
+              {
+                "editedAt": "2026-05-18T00:00:00Z",
+                "editor": { "login": "github-actions", "__typename": "Bot" },
+                "diff": "<!-- platform-pr-review-state-v1 {\"number\":7000,\"state\":\"waiting-bots\"} -->\nPR Hygiene: the checklist is in the description."
+              },
+              {
+                "editedAt": "2026-05-16T00:00:00Z",
+                "editor": { "login": "github-actions", "__typename": "Bot" },
+                "diff": "<!-- platform-pr-review-state-v1 {\"number\":7000,\"state\":\"waiting-author\"} -->\n<!-- pr-hygiene:move state=waiting-self-review sha=a -->\nYour move: answer the review."
+              }
+            ]
+          }
+        },
+        {
+          "createdAt": "2026-05-17T01:00:00Z",
+          "author": { "login": "github-actions", "__typename": "Bot" },
+          "body": "<!-- pr-hygiene-nudge v1 bot=coderabbitai sha=a -->\n@coderabbitai review",
+          "userContentEdits": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+        }
+      ]
+    }
+  }
+}
