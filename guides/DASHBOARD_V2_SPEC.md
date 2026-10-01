@@ -160,8 +160,8 @@ late only.
   plot shows the same grouping plus time.
 - **People**: humans table, then bots; current-state columns (owed count,
   oldest owed, own PRs per stage, WIP, unresolved comments). Default sort:
-  name. Lateness colour is on PRs, not people. No speed columns: speed is
-  private (3.8).
+  name. Lateness colour is on PRs, not people. Speed columns (phase C) are
+  public in v1 with n beside each median.
 - **Timeline** (phase C): Gantt of PRs, coloured stage segments, review ticks;
   for filtered sets (one person, one area, late only) — not all 500 at once.
 
@@ -197,9 +197,8 @@ late only.
 - "Me" in `localStorage` under a namespaced key; stored and URL logins
   validated against `^[A-Za-z0-9-]{1,39}$` and the people list; no tokens
   ever (shared origin). This is also why sign-in is not done.
-- `<meta name="robots" content="noindex">`. Per-person speed metrics are never
-  written to `dashboard.json` or the `data` branch (both public); team
-  metrics are aggregates only.
+- `<meta name="robots" content="noindex">`. Per-person speed metrics are
+  public in v1 (owner's decision); medians always carry n.
 - `data` branch ruleset: no force-push, no deletion (admin action).
 
 ### 3.8 Identity and private speed
@@ -302,13 +301,16 @@ custom auth code.
 ## 8. Decisions
 
 Owner, 2026-10-01: engine fix for review bots approved (merge as admin);
-no "operated by" on bot rows; per-person speed visible only to the person
-as a month/year trend; start with the security fix, then phase A; the
-Author stage is called Self-review.
+no "operated by" on bot rows; start with the security fix, then phase A;
+the Author stage is called Self-review. Later the same day: **v1 shows
+everyone's speed and counts publicly, no login** (private delivery, 3.8, is
+deferred); platform's `target_branches` use the same pattern as its branch
+rules (`v*-dev`, dashpay/stale_prs_are_bad#65); start phase B.
 
-Open:
+Done: #62 review bots that open PRs are machine authors; #63 report
+escaping; #64 per-area asks on every surface; platform#5242 `/prs` skill;
+`data` branch ruleset. Engine changes reach a repository only when its
+caller re-pins the engine revision.
 
-1. Private speed delivery: P1 Slack DM, P2 Cloudflare Access, or both
-   (3.8) — needed before phase C.
-2. Lateness defaults in 3.4 OK? Retire the Markdown report when phase B
-   ships?
+Open: lateness defaults in 3.4 (proceeding with them); retire the Markdown
+report when phase B ships (proceeding).
