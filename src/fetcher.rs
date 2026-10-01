@@ -415,8 +415,29 @@ impl Fetcher {
                 bail!("HTTP {status}: {text}");
             }
 
-            let value: Value = serde_json::from_str(&text)
-                .with_context(|| format!("parsing JSON response: {text}"))?;
+            // A success status with a body cut short — large pages are several
+            // MB — is the same transient failure as a body that could not be
+            // read at all, and is retried the same way.
+            let value: Value = match serde_json::from_str(&text) {
+                Ok(v) => v,
+                Err(e) if attempt <= MAX_RETRIES => {
+                    let sleep_secs = backoff_secs(attempt);
+                    tracing::warn!(
+                        attempt,
+                        sleep_secs,
+                        bytes = text.len(),
+                        "unparsable response body: {e}; retrying"
+                    );
+                    tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
+                    continue;
+                }
+                Err(e) => {
+                    return Err(anyhow!(e).context(format!(
+                        "parsing JSON response of {} bytes (final attempt)",
+                        text.len()
+                    )))
+                }
+            };
             if let Some(errors) = value.get("errors").and_then(|v| v.as_array()) {
                 if !errors.is_empty() {
                     let is_rate = errors
