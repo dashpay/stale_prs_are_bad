@@ -119,6 +119,9 @@ pub struct PrOut {
     pub draft: bool,
     pub base: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
+    /// Last activity of any kind; drives "close or revive" for idle drafts
+    /// and PRs off the governed branches.
+    pub updated_at: Option<DateTime<Utc>>,
     pub stage: Stage,
     pub engine_state: Option<String>,
     /// What unblocks it, in the engine's words: its first blocker.
@@ -243,6 +246,7 @@ fn tracked_pr(s: &ScoredPr, inp: &Inputs<'_>) -> PrOut {
         draft: raw.is_draft,
         base: Some(raw.base_ref.clone()),
         created_at: Some(raw.created_at),
+        updated_at: Some(raw.updated_at),
         stage,
         engine_state: state.map(|p| p.state.clone()),
         next_action: state.and_then(|p| p.blockers.first().cloned()),
@@ -281,6 +285,7 @@ fn engine_only_pr(repo: &str, number: u64, state: &PolicyState, inp: &Inputs<'_>
         draft,
         base: None,
         created_at: None,
+        updated_at: None,
         stage,
         engine_state: Some(state.state.clone()),
         next_action: state.blockers.first().cloned(),
