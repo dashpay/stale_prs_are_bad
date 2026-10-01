@@ -141,7 +141,7 @@ fn end_to_end_pipeline_matches_snapshot() {
     // stale) all survive.
     let mut analyzed = analyzer::analyze(platform_raw, &cfg, Some("master"), now);
     let numbers: Vec<u64> = analyzed.iter().map(|p| p.raw.number).collect();
-    // #3001 by thepastaclaw will get merged into PastaPastaPasta's row via alias.
+    // #3001 is thepastaclaw's own: a bot, never folded into PastaPastaPasta.
     // #7000 is CI-failing, #8000 is changes-requested (both by carol).
     assert_eq!(
         numbers,
@@ -307,26 +307,22 @@ fn end_to_end_pipeline_matches_snapshot() {
 
     // PR #2988 targets v3.0 → stale. Touches wasm-sdk/ → routes to shumkov.
     // But it's stale, so it should NOT enter shumkov's "To review" queue.
-    // PR #3001 by thepastaclaw should merge into PastaPastaPasta's row via alias.
+    // PR #3001 is thepastaclaw's, a bot: it keeps its own row and is never
+    // counted as PastaPastaPasta's.
     let pasta = authors
         .iter()
         .find(|a| a.login == "PastaPastaPasta")
         .unwrap();
     assert_eq!(pasta.stale_prs, 1, "their own PR #2988 is stale");
     assert_eq!(pasta.dirty_prs, 0, "no dirty PRs of their own");
-    assert_eq!(pasta.aliases.len(), 1);
-    assert_eq!(pasta.aliases[0].login, "thepastaclaw");
-    assert_eq!(
-        pasta.aliases[0].clean_prs, 1,
-        "thepastaclaw's #3001 is clean"
-    );
-    assert_eq!(
-        pasta.aliases[0].ready_for_human_prs, 1,
-        "thepastaclaw's #3001 is ready-to-merge"
-    );
-    assert_eq!(pasta.combined_total_open_prs(), 2); // #2988 + #3001
-                                                    // No standalone thepastaclaw row in the output — it was absorbed.
-    assert!(!authors.iter().any(|a| a.login == "thepastaclaw"));
+    assert!(pasta.aliases.is_empty());
+    assert_eq!(pasta.combined_total_open_prs(), 1, "#2988 only");
+    let claw = authors
+        .iter()
+        .find(|a| a.login == "thepastaclaw")
+        .expect("thepastaclaw has its own row");
+    assert_eq!(claw.clean_prs, 1, "thepastaclaw's #3001 is clean");
+    assert_eq!(claw.ready_for_human_prs, 1, "#3001 is ready-to-merge");
     assert!(
         !authors.iter().any(|a| a.login == "shumkov"),
         "shumkov should NOT be added — the only routable PR is stale"
