@@ -85,7 +85,7 @@ class PublicationTests(unittest.TestCase):
                    approvals=[{'area': 'core', 'files': [], 'approvers': ['alice', 'carol'], 'approved_by': [],
                                'owned': False}])
         text = main.render_report([row], '2026-09-11T00:00:00Z', user='alice')
-        self.assertIn('needs `core`: alice or carol; your part: `core` (or carol)', text)
+        self.assertIn('needs `core`: alice or carol; your part: `core` (you or carol)', text)
 
     def test_foreign_controller_history_is_rejected(self):
         state = {'number':2, 'admitted_at':NOW}

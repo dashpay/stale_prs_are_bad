@@ -143,8 +143,8 @@ class NotificationsTests(unittest.TestCase):
         channel, alice = str(plan['messages'][0]), str(plan['messages'][1])
         self.assertIn('Needs: dpp: Alice or ALICE2 or Carol', channel)
         self.assertNotIn('drive', channel, 'an approved area asks nobody')
-        # Both logins are one person: they are not "shared with" themselves.
-        self.assertIn('Your part: dpp (or Carol)', alice)
+        # Both logins are one person, so only Carol is offered as the alternative.
+        self.assertIn('Your part: dpp (you or Carol)', alice)
 
     def test_preview_reviews_are_described_as_computed_not_requested(self):
         plan = n.build_delivery_plan(snapshot(), self.config())

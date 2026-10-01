@@ -3,7 +3,10 @@
 import copy
 import io
 import json
+import os
 import re
+import subprocess
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
@@ -69,8 +72,8 @@ class ChecklistTests(unittest.TestCase):
         block = main.checklist_block(result)
         self.assertIn('- [x] Self-review — posted; again after any push', block)
         self.assertTrue(first_unchecked(block).startswith('- [ ] files with no dedicated owner'))
-        # Area by area, and only what is still missing: romchornyi's approval
-        # already covers swift-sdk, so nobody is asked for it.
+        # Area by area, and only what is still missing: the author co-owns
+        # swift-sdk, so nobody is asked for it.
         self.assertEqual(main.move_text(result).splitlines()[1],
                          'Ready for review — files with no dedicated owner: QuantumExplorer or shumkov · '
                          '`github`: ktechmidas or shumkov.')
@@ -83,11 +86,40 @@ class ChecklistTests(unittest.TestCase):
                                    updated_at='2026-09-11T11:00:00Z'))
         result = evaluate(policy, pr, NOW, LATER)
         self.assertEqual(main.your_part(result, ['shumkov']),
-                         'files with no dedicated owner (or QuantumExplorer), `github` (or ktechmidas)')
-        self.assertEqual(main.your_part(result, ['KTECHMIDAS']), '`github` (or shumkov)')
-        self.assertEqual(main.your_part(result, ['romchornyi']), '', 'their approval already covers their area')
+                         'files with no dedicated owner (you or QuantumExplorer) · `github` (you or ktechmidas)')
+        self.assertEqual(main.your_part(result, ['KTECHMIDAS']), '`github` (you or shumkov)')
+        self.assertEqual(main.your_part(result, ['romchornyi']), '', 'swift-sdk is owned by the author; nothing is asked')
         self.assertEqual(main.your_part(result, ['shumkov'], code=False),
-                         'files with no dedicated owner (or QuantumExplorer), github (or ktechmidas)')
+                         'files with no dedicated owner (you or QuantumExplorer) · github (you or ktechmidas)')
+        # An approval on the current head takes the area off everyone's list.
+        pr['reviews'].append(dict(id=6, user='ktechmidas', state='APPROVED', commit_id=HEAD,
+                                  submitted_at='2026-09-11T11:30:00Z', body=''))
+        result = evaluate(policy, pr, NOW, LATER)
+        self.assertEqual(main.your_part(result, ['ktechmidas']), '')
+        self.assertEqual(main.your_part(result, ['shumkov']), 'files with no dedicated owner (you or QuantumExplorer)')
+        self.assertEqual(main.move_text(result).splitlines()[1],
+                         'Ready for review — files with no dedicated owner: QuantumExplorer or shumkov.')
+
+    def test_the_ask_reads_the_same_on_every_run(self):
+        # The move comment is compared with the one already posted. A file
+        # renamed from one area into another used to be read through a set,
+        # whose order follows the per-process string hash: the areas came out
+        # in a different order on alternate runs and the comment was rewritten
+        # each time.
+        script = ("import json\n"
+                  "from pr_review import main\n"
+                  "from pr_review.policy import evaluate\n"
+                  "from pr_review.tests.test_checklist import bartek, NOW, LATER\n"
+                  "policy, pr = bartek()\n"
+                  "pr['files'].insert(0, {'filename': 'AGENTS.md', 'previous_filename': '.github/old.yml'})\n"
+                  "pr['comments'].append(dict(id=2, user='llbartekll', body='/self-reviewed',"
+                  " created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z'))\n"
+                  "result = evaluate(policy, pr, NOW, LATER)\n"
+                  "print(main.move_text(result))\n"
+                  "print(json.dumps([a['area'] for a in result['approvals']]))\n")
+        outputs = {subprocess.run([sys.executable, '-c', script], env=dict(os.environ, PYTHONHASHSEED=str(seed)),
+                                  capture_output=True, text=True, check=True).stdout for seed in range(8)}
+        self.assertEqual(len(outputs), 1, outputs)
 
     def test_an_objector_is_asked_to_re_review_by_name(self):
         policy, pr = fixture()
@@ -97,8 +129,9 @@ class ChecklistTests(unittest.TestCase):
         result = evaluate(policy, pr, NOW, NOW)
         self.assertEqual(result['state'], 'ready-for-human')
         self.assertEqual(result['objectors'], ['owner'])
-        self.assertIn(' · re-review: owner.', main.move_text(result))
-        self.assertTrue(main.your_part(result, ['Owner']).endswith('re-review'))
+        self.assertIn(' · re-review or resolve: owner.', main.move_text(result))
+        self.assertTrue(main.your_part(result, ['Owner']).endswith('re-review or resolve your objection'))
+        self.assertNotIn('re-review', main.your_part(result, ['stranger']), 'only the objector owes it')
 
     def test_an_area_nobody_may_approve_is_said_so(self):
         # Everyone who could approve it attested instead. An empty ask must not

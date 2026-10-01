@@ -31,7 +31,7 @@ def pr_text(pr, now, blockers=False, logins=None):
     elif part:
         text += 'Your part: ' + part + '\n'
     else:
-        text += 'Needs: ' + ('; '.join(asks(pr, code=False)) or ', '.join(pr.get('reviewers', []))) + '\n'
+        text += 'Needs: ' + (' · '.join(asks(pr, code=False)) or 'an owner') + '\n'
     return text + pr.get('url', '')
 
 

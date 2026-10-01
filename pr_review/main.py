@@ -426,7 +426,7 @@ def asks(result, code=True):
         if not area.get('owned') and not area['approved_by']:
             parts.append(f"{area_name(area['area'], code)}: {' or '.join(area['approvers']) or 'nobody may approve'}")
     if result.get('objectors'):
-        parts.append('re-review: ' + ', '.join(result['objectors']))
+        parts.append('re-review or resolve: ' + ', '.join(result['objectors']))
     return parts
 
 
@@ -438,15 +438,15 @@ def your_part(result, logins, code=True):
         if area.get('owned') or area['approved_by'] or not mine & {a.lower() for a in area['approvers']}:
             continue
         others = [a for a in area['approvers'] if a.lower() not in mine]
-        parts.append(area_name(area['area'], code) + (f" (or {' or '.join(others)})" if others else ''))
+        parts.append(area_name(area['area'], code) + (f" (you or {' or '.join(others)})" if others else ''))
     if mine & {o.lower() for o in result.get('objectors') or []}:
-        parts.append('re-review')
-    return ', '.join(parts)
+        parts.append('re-review or resolve your objection')
+    return ' · '.join(parts)
 
 
 def review_text(row, user=None):
     """The review half of a report's next action: what is needed, and the user's own part of it."""
-    text = 'needs ' + (' · '.join(asks(row)) or ', '.join(row.get('reviewers') or []) or 'an owner')
+    text = 'needs ' + (' · '.join(asks(row)) or 'an owner')
     part = your_part(row, [user]) if user else ''
     return text + (f'; your part: {part}' if part else '')
 

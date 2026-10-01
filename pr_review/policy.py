@@ -658,7 +658,11 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             return stop('configuration-error', 'No changed-file evidence', status='error')
         touched, files_by_area = {}, {}
         for file in pr['files']:
-            for path in {file['filename'], file.get('previous_filename', file['filename'])}:
+            # In a fixed order, not a set's: the order areas are first touched
+            # in is the order every surface lists them, and a wording that
+            # changed with the process's string hash rewrote the move comment
+            # on alternate runs.
+            for path in dict.fromkeys((file['filename'], file.get('previous_filename', file['filename']))):
                 if not isinstance(path, str) or path.startswith('/') or any(x in {'.','..',''} for x in path.split('/')):
                     raise ValueError('Invalid changed path')
                 area = next((a for a in policy['areas'] if any(path.startswith(p) for p in a['paths'])), None)
