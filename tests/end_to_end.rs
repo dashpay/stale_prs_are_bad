@@ -9,7 +9,7 @@ use chrono::{TimeZone, Utc};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use pr_hygiene::{analyzer, config::Config, fetcher, policy, renderer, scorer};
+use pr_hygiene::{analyzer, config::Config, dashboard, fetcher, policy, renderer, scorer};
 
 const PLATFORM: &str = "dashpay/platform";
 const DASHCORE: &str = "dashpay/rust-dashcore";
@@ -86,8 +86,21 @@ impl Scratch {
             state.join("platform.json"),
             r#"{"generated_at": "2026-05-19T05:00:00Z", "pull_requests": [
                 {"repository": "dashpay/platform", "number": 3000, "author": "carol", "state": "ready-for-human",
-                 "status": "pending", "blockers": ["Human approval or objection resolution is required"],
-                 "reviewers": ["alice"], "areas": ["fallback"]},
+                 "title": "feat: shared area", "status": "pending",
+                 "blockers": ["Human approval or objection resolution is required"],
+                 "reviewers": ["QuantumExplorer", "alice"], "objectors": ["alice"],
+                 "areas": ["wasm-sdk", "drive", "fallback", "dpp"], "ready_since": "2026-05-17T06:00:00Z",
+                 "approvals": [
+                   {"area": "wasm-sdk", "files": ["packages/wasm-sdk/a"], "approvers": [], "approved_by": [], "owned": true},
+                   {"area": "drive", "files": ["packages/rs-drive/a"], "approvers": [], "approved_by": [], "owned": false},
+                   {"area": "fallback", "files": ["README.md"], "approvers": ["QuantumExplorer", "alice"], "approved_by": [], "owned": false},
+                   {"area": "dpp", "files": ["packages/rs-dpp/a"], "approvers": ["QuantumExplorer"], "approved_by": ["QuantumExplorer"], "owned": false}],
+                 "checklist": [{"item": "build", "done": true, "state": "green", "latched": true}]},
+                {"repository": "dashpay/platform", "number": 9100, "author": "newcomer", "state": "ready-for-human",
+                 "title": "fix: a new contributor's first PR", "status": "pending",
+                 "blockers": ["Human approval or objection resolution is required"],
+                 "reviewers": ["QuantumExplorer"], "objectors": [], "areas": ["fallback"], "ready_since": null,
+                 "approvals": [{"area": "fallback", "files": ["README.md"], "approvers": ["QuantumExplorer"], "approved_by": [], "owned": false}]},
                 {"repository": "dashpay/platform", "number": 3001, "author": "thepastaclaw", "state": "ready-to-merge",
                  "status": "success", "blockers": [], "reviewers": [], "areas": ["fallback"]},
                 {"repository": "dashpay/platform", "number": 7000, "author": "carol", "state": "waiting-bots",
@@ -355,4 +368,29 @@ fn end_to_end_pipeline_matches_snapshot() {
     let md = renderer::render(&scored, &authors, &ctx);
 
     insta::assert_snapshot!(md);
+
+    // The interactive dashboard's data, from the same inputs.
+    let board = dashboard::build(&dashboard::Inputs {
+        scored: &scored,
+        engine: &engine_states,
+        policies: &policies,
+        repos: &repos,
+        cfg: &cfg,
+        now,
+        commit: Some("abc1234"),
+    });
+    let qe = board
+        .people
+        .iter()
+        .find(|p| p.login == "QuantumExplorer")
+        .unwrap();
+    let owed: Vec<&str> = qe.owes.iter().map(|o| o.pr.as_str()).collect();
+    assert_eq!(
+        owed,
+        vec!["dashpay/platform#3000", "dashpay/platform#9100"],
+        "the engine's queue, including a PR the board itself does not track"
+    );
+    let alice = board.people.iter().find(|p| p.login == "alice").unwrap();
+    assert!(alice.owes[0].rereview, "alice's own objection waits on her");
+    insta::assert_json_snapshot!("dashboard", board);
 }

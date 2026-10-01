@@ -22,13 +22,14 @@ pub struct Config {
     pub weights: Weights,
     pub age_multiplier: AgeMultiplier,
     pub history_retention_days: i64,
-    /// Merge one author's row into another's in the scoreboard. Map keys are
-    /// "alias" logins (e.g. AI-assistant accounts); values are the human "principal"
-    /// who's actually accountable. The principal's row is displayed as
-    /// "@principal + (@alias)" with cells like "X+(Y)". Aliases also count as
-    /// the principal for self-review detection.
+    /// Folds one account's rows into another's in the Markdown scoreboard.
+    /// Empty by default and in the shipped config: bots are not people. Read
+    /// only by the Markdown report, and removed with it.
     #[serde(default)]
     pub author_aliases: std::collections::HashMap<String, String>,
+    /// Days without any update after which a draft, or a PR off the governed
+    /// branches, is listed to close or revive.
+    pub idle_days: i64,
     /// Hours a PR may sit in a stage before it is late, then very late,
     /// keyed by stage (`review`, `self-review`, `bots`, `mergeable`, `ci`,
     /// `blocked`). A stage not listed is never late.
@@ -75,6 +76,7 @@ impl Default for Config {
             age_multiplier: AgeMultiplier::Ln,
             history_retention_days: 90,
             author_aliases: std::collections::HashMap::new(),
+            idle_days: 14,
             lateness_hours: [
                 ("review", [24.0, 72.0]),
                 ("self-review", [72.0, 168.0]),

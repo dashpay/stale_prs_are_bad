@@ -6,7 +6,7 @@
         "nodes": [
           {
             "id": "PR_kw_1234",
-            "number": 1234,
+            "number": 1234, "baseRefName": "master",
             "title": "Add foo support",
             "url": "https://github.com/dashpay/platform/pull/1234",
             "isDraft": false,
@@ -122,7 +122,7 @@
           },
           {
             "id": "PR_kw_1240",
-            "number": 1240,
+            "number": 1240, "baseRefName": "master",
             "title": "Refactor scheduler",
             "url": "https://github.com/dashpay/platform/pull/1240",
             "isDraft": false,
@@ -265,7 +265,7 @@
           },
           {
             "id": "PR_kw_2001",
-            "number": 2001,
+            "number": 2001, "baseRefName": "master",
             "title": "Bump grpc-tonic to 0.12",
             "url": "https://github.com/dashpay/platform/pull/2001",
             "isDraft": false,
@@ -308,7 +308,7 @@
           },
           {
             "id": "PR_kw_3000",
-            "number": 3000,
+            "number": 3000, "baseRefName": "master",
             "title": "Docs: clarify mempool ordering",
             "url": "https://github.com/dashpay/platform/pull/3000",
             "files": { "totalCount": 1, "nodes": [{ "path": "docs/mempool.md" }] },
@@ -341,7 +341,7 @@
           },
           {
             "id": "PR_kw_5000",
-            "number": 5000,
+            "number": 5000, "baseRefName": "master",
             "title": "Postpone wallet migration",
             "url": "https://github.com/dashpay/platform/pull/5000",
             "isDraft": false,
@@ -384,7 +384,7 @@
           },
           {
             "id": "PR_kw_9999",
-            "number": 9999,
+            "number": 9999, "baseRefName": "master",
             "title": "WIP: experiment branch",
             "url": "https://github.com/dashpay/platform/pull/9999",
             "isDraft": false,
@@ -411,7 +411,7 @@
           },
           {
             "id": "PR_kw_6000",
-            "number": 6000,
+            "number": 6000, "baseRefName": "master",
             "title": "Draft: rework cache layer",
             "url": "https://github.com/dashpay/platform/pull/6000",
             "isDraft": true,
@@ -473,7 +473,7 @@
           },
           {
             "id": "PR_kw_4001",
-            "number": 4001,
+            "number": 4001, "baseRefName": "master",
             "title": "Bump serde to 1.0.220",
             "url": "https://github.com/dashpay/platform/pull/4001",
             "isDraft": false,

@@ -25,8 +25,33 @@ pub struct Dashboard {
     pub generated_at: DateTime<Utc>,
     pub commit: Option<String>,
     pub repos: Vec<RepoOut>,
+    /// Every stage in display order, with whose move it is and when it is
+    /// late, so the page never has to know either.
+    pub stages: Vec<StageOut>,
     pub prs: Vec<PrOut>,
     pub people: Vec<PersonOut>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StageOut {
+    pub stage: Stage,
+    pub owner: Owner,
+    /// Hours to late and to very late; absent for a stage that is never late.
+    pub late_hours: Option<[f64; 2]>,
+    /// Whether the time a PR entered this stage is recorded. Where it is not,
+    /// a PR shows its age instead and is never called late.
+    pub entry_recorded: bool,
+}
+
+/// Whose move a stage waits on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Owner {
+    Author,
+    Reviewers,
+    Bots,
+    Maintainers,
+    Nobody,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,7 +78,42 @@ pub enum Stage {
 }
 
 impl Stage {
-    fn key(self) -> &'static str {
+    /// Display order: earliest in a PR's life first, then the stages that
+    /// leave the flow.
+    pub const ALL: [Stage; 10] = [
+        Stage::Draft,
+        Stage::Bots,
+        Stage::SelfReview,
+        Stage::Ci,
+        Stage::Queued,
+        Stage::Review,
+        Stage::Mergeable,
+        Stage::Blocked,
+        Stage::NotGoverned,
+        Stage::Unknown,
+    ];
+
+    pub fn owner(self) -> Owner {
+        match self {
+            Stage::Draft | Stage::SelfReview | Stage::Mergeable | Stage::NotGoverned => {
+                Owner::Author
+            }
+            Stage::Review => Owner::Reviewers,
+            Stage::Bots => Owner::Bots,
+            Stage::Blocked => Owner::Maintainers,
+            // Queued waits for the author's other PRs to merge, which is
+            // their reviewers' move as much as anyone's; CI and Unknown wait
+            // on nobody in particular.
+            Stage::Ci | Stage::Queued | Stage::Unknown => Owner::Nobody,
+        }
+    }
+
+    /// Whether the engine records when a PR entered this stage.
+    fn entry_recorded(self) -> bool {
+        self == Stage::Review
+    }
+
+    pub fn key(self) -> &'static str {
         match self {
             Stage::Draft => "draft",
             Stage::NotGoverned => "not-governed",
@@ -122,6 +182,8 @@ pub struct PrOut {
     /// Last activity of any kind; drives "close or revive" for idle drafts
     /// and PRs off the governed branches.
     pub updated_at: Option<DateTime<Utc>>,
+    /// Untouched for `idle_days`: a candidate to close or revive.
+    pub idle: bool,
     pub stage: Stage,
     pub engine_state: Option<String>,
     /// What unblocks it, in the engine's words: its first blocker.
@@ -130,6 +192,8 @@ pub struct PrOut {
     pub since: Option<DateTime<Utc>>,
     pub since_basis: Option<SinceBasis>,
     pub lateness: Option<Lateness>,
+    /// Only while the PR waits on review: earlier the engine's approvals
+    /// describe areas nobody has been asked about yet.
     pub asks: Vec<Ask>,
     pub objectors: Vec<String>,
     pub areas: Vec<String>,
@@ -165,9 +229,13 @@ pub struct PersonOut {
     pub roles: Vec<Role>,
     pub owes: Vec<Owed>,
     pub authored: Vec<String>,
-    /// Open, non-draft PRs on governed branches per repository — the five
-    /// review slots are per repository.
+    /// Open, non-draft PRs on governed branches per repository, whether or
+    /// not the board itself tracks them — the engine's five review slots are
+    /// counted that way, per repository.
     pub wip: BTreeMap<String, u32>,
+    /// Areas this person owns or reviews per repository, from the policies;
+    /// `fallback` is the files no area claims.
+    pub areas: BTreeMap<String, Vec<String>>,
 }
 
 pub struct Inputs<'a> {
@@ -207,9 +275,32 @@ pub fn build(inp: &Inputs<'_>) -> Dashboard {
                 fetch_error: r.fetch_error.clone(),
             })
             .collect(),
+        stages: Stage::ALL
+            .iter()
+            .map(|&stage| StageOut {
+                stage,
+                owner: stage.owner(),
+                late_hours: inp.cfg.lateness_hours.get(stage.key()).copied(),
+                entry_recorded: stage.entry_recorded(),
+            })
+            .collect(),
         prs,
         people,
     }
+}
+
+/// Refuse a `lateness_hours` key that names no stage, or thresholds out of
+/// order: a typo would otherwise leave a stage silently never late.
+pub fn validate_lateness(cfg: &Config) -> anyhow::Result<()> {
+    for (key, [late, very_late]) in &cfg.lateness_hours {
+        if !Stage::ALL.iter().any(|s| s.key() == key) {
+            anyhow::bail!("lateness_hours: {key:?} is not a stage");
+        }
+        if !(0.0 < *late && late <= very_late) {
+            anyhow::bail!("lateness_hours.{key}: expected 0 < late <= very late");
+        }
+    }
+    Ok(())
 }
 
 fn engine_available(inp: &Inputs<'_>, repo: &str) -> bool {
@@ -247,6 +338,7 @@ fn tracked_pr(s: &ScoredPr, inp: &Inputs<'_>) -> PrOut {
         base: Some(raw.base_ref.clone()),
         created_at: Some(raw.created_at),
         updated_at: Some(raw.updated_at),
+        idle: (inp.now - raw.updated_at).num_days() >= inp.cfg.idle_days,
         stage,
         engine_state: state.map(|p| p.state.clone()),
         next_action: state.and_then(|p| p.blockers.first().cloned()),
@@ -254,7 +346,10 @@ fn tracked_pr(s: &ScoredPr, inp: &Inputs<'_>) -> PrOut {
         since,
         since_basis,
         lateness: lateness(stage, since, since_basis, inp),
-        asks: state.map(asks).unwrap_or_default(),
+        asks: state
+            .filter(|_| stage == Stage::Review)
+            .map(asks)
+            .unwrap_or_default(),
         objectors: state.map(|p| p.objectors.clone()).unwrap_or_default(),
         areas: s.areas.clone(),
         unresolved_comments: s.unresolved_total,
@@ -286,6 +381,7 @@ fn engine_only_pr(repo: &str, number: u64, state: &PolicyState, inp: &Inputs<'_>
         base: None,
         created_at: None,
         updated_at: None,
+        idle: false,
         stage,
         engine_state: Some(state.state.clone()),
         next_action: state.blockers.first().cloned(),
@@ -293,9 +389,13 @@ fn engine_only_pr(repo: &str, number: u64, state: &PolicyState, inp: &Inputs<'_>
         since,
         since_basis,
         lateness: lateness(stage, since, since_basis, inp),
-        asks: asks(state),
+        asks: if stage == Stage::Review {
+            asks(state)
+        } else {
+            vec![]
+        },
         objectors: state.objectors.clone(),
-        areas: state.approvals.iter().map(|a| a.area.clone()).collect(),
+        areas: state.areas.clone(),
         unresolved_comments: 0,
         ci_failing: false,
         merge_conflict: false,
@@ -337,8 +437,8 @@ pub fn stage(
     }
 }
 
-/// When the current stage started, where the engine records it. Today that is
-/// the review cycle's `ready_since`.
+/// When the current stage started, where the engine records it: the review
+/// cycle's `ready_since`.
 fn engine_since(stage: Stage, state: Option<&PolicyState>) -> Option<DateTime<Utc>> {
     if stage != Stage::Review {
         return None;
@@ -446,9 +546,31 @@ fn people(prs: &[PrOut], inp: &Inputs<'_>) -> Vec<PersonOut> {
             owes: vec![],
             authored: vec![],
             wip: BTreeMap::new(),
+            areas: BTreeMap::new(),
         });
         key
     };
+    // Everyone a policy names is a person on the board, with their areas,
+    // even with nothing owed or open today.
+    let mut rostered: Vec<(String, String, String)> = vec![];
+    for (repo, policy) in inp.policies {
+        let rosters = std::iter::once((
+            "fallback",
+            &policy.fallback.owners,
+            &policy.fallback.reviewers,
+        ))
+        .chain(
+            policy
+                .areas
+                .iter()
+                .map(|a| (a.id.as_str(), &a.owners, &a.reviewers)),
+        );
+        for (area, owners, reviewers) in rosters {
+            for login in owners.iter().chain(reviewers) {
+                rostered.push((entry(login), repo.clone(), area.to_string()));
+            }
+        }
+    }
     let mut authored: Vec<(String, &PrOut)> = vec![];
     for p in prs {
         if let Some(author) = &p.author {
@@ -475,9 +597,19 @@ fn people(prs: &[PrOut], inp: &Inputs<'_>) -> Vec<PersonOut> {
     for (key, p) in authored {
         let person = by_login.get_mut(&key).expect("just inserted");
         person.authored.push(p.key.clone());
-        let governed = !matches!(p.stage, Stage::NotGoverned | Stage::Draft);
-        if p.tracked && governed {
+        if !matches!(p.stage, Stage::NotGoverned | Stage::Draft) {
             *person.wip.entry(p.repo.clone()).or_default() += 1;
+        }
+    }
+    for (key, repo, area) in rostered {
+        let areas = by_login
+            .get_mut(&key)
+            .expect("just inserted")
+            .areas
+            .entry(repo)
+            .or_default();
+        if !areas.contains(&area) {
+            areas.push(area);
         }
     }
     for (key, o) in owed {
@@ -671,9 +803,9 @@ mod tests {
         );
     }
 
-    /// The board's old queue dropped every PR its buckets called stale — and
-    /// every platform PR on a development branch other than the default was.
-    /// The engine's own reviewer list is the queue now.
+    /// What a reviewer owes is the engine's own reviewer list, whatever bucket
+    /// the board puts the PR in — a PR on a development branch other than
+    /// the default is "stale" to the board and still waiting for review.
     #[test]
     fn a_reviewer_owes_what_the_engine_asks_of_them_with_their_areas() {
         let state = ready(
@@ -821,5 +953,172 @@ mod tests {
             "self-review"
         );
         assert_eq!(serde_json::to_value(Role::ReviewBot).unwrap(), "review-bot");
+    }
+
+    #[test]
+    fn only_areas_still_waiting_are_asked_and_a_stranded_one_is_shown() {
+        let mut owned = area("swift-sdk", &["alice"], &[]);
+        owned.owned = true;
+        let state = ready(
+            &["bob"],
+            vec![
+                owned,
+                area("dpp", &["bob"], &["bob"]),
+                area("drive", &[], &[]),
+                area("fallback", &["bob"], &[]),
+            ],
+            "2026-09-30T12:00:00Z",
+        );
+        let scored = vec![scored(1, "alice", "v5.0-dev", Some(state.clone()))];
+        let engine = HashMap::from([(REPO.to_string(), HashMap::from([(1, state)]))]);
+        let d = board(&scored, &engine);
+        let asked: Vec<&str> = d.prs[0].asks.iter().map(|a| a.area.as_str()).collect();
+        // The author owns swift-sdk and dpp is approved: neither asks anyone.
+        // Nobody may approve drive, which must show rather than read as met.
+        assert_eq!(asked, vec!["drive", "fallback"]);
+        assert!(d.prs[0].asks[0].approvers.is_empty());
+        let bob = &person(&d, "bob").owes[0];
+        assert_eq!(bob.areas.len(), 1, "bob is asked for fallback only");
+        assert_eq!(bob.areas[0].area, "fallback");
+    }
+
+    #[test]
+    fn nothing_is_owed_or_asked_before_the_pr_is_ready_for_review() {
+        // The engine fills approvals from the self-review gate on; listing them
+        // earlier would ask reviewers for something not theirs to do yet.
+        let mut state = ready(
+            &["bob"],
+            vec![area("dpp", &["bob"], &[])],
+            "2026-09-30T12:00:00Z",
+        );
+        state.state = "waiting-build".into();
+        let scored = vec![scored(1, "alice", "v5.0-dev", Some(state.clone()))];
+        let engine = HashMap::from([(REPO.to_string(), HashMap::from([(1, state)]))]);
+        let d = board(&scored, &engine);
+        assert!(d.prs[0].asks.is_empty());
+        assert!(d.people.iter().all(|p| p.owes.is_empty()));
+    }
+
+    #[test]
+    fn wip_counts_every_governed_pr_the_engine_counts() {
+        // The board leaves out skip-labelled PRs and new contributors' PRs;
+        // the engine's five slots count them, so the warning must too.
+        let mut untracked = engine_state("too-many-open-prs");
+        untracked.author = "alice".into();
+        let mut draft = engine_state("draft");
+        draft.author = "alice".into();
+        let engine = HashMap::from([(
+            REPO.to_string(),
+            HashMap::from([(9, untracked), (10, draft)]),
+        )]);
+        let d = board(&[], &engine);
+        assert_eq!(person(&d, "alice").wip.get(REPO), Some(&1));
+    }
+
+    #[test]
+    fn late_starts_at_the_threshold() {
+        let day = ready(&["bob"], vec![], "2026-09-30T12:00:00Z");
+        let three_days = ready(&["bob"], vec![], "2026-09-28T12:00:00Z");
+        let scored = vec![
+            scored(1, "alice", "v5.0-dev", Some(day.clone())),
+            scored(2, "alice", "v5.0-dev", Some(three_days.clone())),
+        ];
+        let engine =
+            HashMap::from([(REPO.to_string(), HashMap::from([(1, day), (2, three_days)]))]);
+        let d = board(&scored, &engine);
+        assert_eq!(d.prs[0].lateness, Some(Lateness::Late));
+        assert_eq!(d.prs[1].lateness, Some(Lateness::VeryLate));
+    }
+
+    #[test]
+    fn a_policy_names_its_bots_in_any_case() {
+        assert_eq!(kind("claudius-maginificent", &policies()), Kind::Bot);
+    }
+
+    /// Mirrors the engine's own list; a review bot added there and not here
+    /// would show as a person.
+    #[test]
+    fn engine_review_bots_match_the_engine() {
+        let engine =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/pr_review/policy.py"))
+                .unwrap();
+        let line = engine
+            .lines()
+            .find(|l| l.starts_with("BOTS = {"))
+            .expect("BOTS in pr_review/policy.py");
+        let mut theirs: Vec<&str> = line.split('\'').skip(1).step_by(2).collect();
+        theirs.sort();
+        let mut ours = ENGINE_REVIEW_BOTS.to_vec();
+        ours.sort();
+        assert_eq!(theirs, ours);
+    }
+
+    #[test]
+    fn everyone_a_policy_names_is_on_the_board_with_their_areas() {
+        let mut policies = policies();
+        let p = policies.get_mut(REPO).unwrap();
+        p.fallback.owners = vec!["QuantumExplorer".into()];
+        p.areas = vec![crate::policy::Area {
+            id: "dpp".into(),
+            owners: vec!["quantumexplorer".into()],
+            reviewers: vec!["shumkov".into()],
+            ..Default::default()
+        }];
+        let cfg = Config::default();
+        let d = build(&Inputs {
+            scored: &[],
+            engine: &HashMap::new(),
+            policies: &policies,
+            repos: &[],
+            cfg: &cfg,
+            now: now(),
+            commit: None,
+        });
+        let qe = person(&d, "QuantumExplorer");
+        assert_eq!(
+            qe.areas.get(REPO),
+            Some(&vec!["fallback".to_string(), "dpp".to_string()])
+        );
+        assert_eq!(
+            person(&d, "shumkov").areas.get(REPO),
+            Some(&vec!["dpp".to_string()])
+        );
+    }
+
+    #[test]
+    fn the_stage_legend_says_whose_move_and_what_is_measurable() {
+        let d = board(&[], &HashMap::new());
+        assert_eq!(d.stages.len(), Stage::ALL.len());
+        let review = d.stages.iter().find(|s| s.stage == Stage::Review).unwrap();
+        assert_eq!(review.owner, Owner::Reviewers);
+        assert_eq!(review.late_hours, Some([24.0, 72.0]));
+        assert!(review.entry_recorded);
+        let queued = d.stages.iter().find(|s| s.stage == Stage::Queued).unwrap();
+        assert_eq!(queued.late_hours, None, "queued is never late per PR");
+        assert!(d.stages.iter().filter(|s| s.entry_recorded).count() == 1);
+    }
+
+    #[test]
+    fn a_misspelled_or_inverted_threshold_is_refused() {
+        let mut cfg = Config::default();
+        assert!(validate_lateness(&cfg).is_ok());
+        cfg.lateness_hours
+            .insert("self_review".into(), [72.0, 168.0]);
+        assert!(validate_lateness(&cfg).is_err());
+        cfg.lateness_hours.remove("self_review");
+        cfg.lateness_hours.insert("review".into(), [72.0, 24.0]);
+        assert!(validate_lateness(&cfg).is_err());
+    }
+
+    #[test]
+    fn a_null_in_the_engine_export_reads_as_empty() {
+        let state: PolicyState = serde_json::from_value(serde_json::json!({
+            "state": "ready-for-human", "title": null, "author": null, "areas": null,
+            "approvals": [{"area": "dpp", "approvers": null, "approved_by": null}],
+            "objectors": null, "ready_since": null, "checklist": null
+        }))
+        .unwrap();
+        assert_eq!(state.title, "");
+        assert!(state.approvals[0].approvers.is_empty());
     }
 }
