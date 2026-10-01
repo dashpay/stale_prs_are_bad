@@ -93,11 +93,11 @@ async fn main() -> Result<()> {
     // rendered as unavailable and the run still exits non-zero at the end.
     let mut fetch_errors: HashMap<String, String> = HashMap::new();
     // Only the dashboard data times stages; the report has no use for it.
-    let mut evidence: HashMap<String, HashMap<u64, stages::Evidence>> = HashMap::new();
+    let mut evidence: HashMap<String, stages::RepoEvidence> = HashMap::new();
     for repo in &repo_names {
         match fetch_repo(&fetcher, repo, args.json_out.is_some()).await {
             Ok((raw_prs, default_branch, repo_evidence)) => {
-                evidence.insert(repo.clone(), repo_evidence);
+                evidence.extend(repo_evidence.map(|e| (repo.clone(), e)));
                 analyzed.extend(analyzer::analyze(
                     raw_prs,
                     &cfg,
@@ -222,7 +222,7 @@ async fn main() -> Result<()> {
 type Fetched = (
     Vec<pr_hygiene::model::RawPr>,
     Option<String>,
-    HashMap<u64, stages::Evidence>,
+    Option<stages::RepoEvidence>,
 );
 
 async fn fetch_repo(
@@ -247,17 +247,15 @@ async fn fetch_repo(
     tracing::info!(%repo, "fetched {} open PRs", raw_prs.len());
     // Every open PR, those the board's own filters drop included: the
     // engine's queue still shows them. A PR without evidence shows its age,
-    // which is no reason to fail the repository.
+    // which is no reason to fail the repository; the page says which.
     let evidence = if with_evidence {
-        match fetcher.fetch_stage_evidence(&node_ids).await {
-            Ok(evidence) => evidence,
-            Err(e) => {
-                tracing::warn!(%repo, "stage entry times unavailable: {e:#}");
-                HashMap::new()
-            }
+        let evidence = fetcher.fetch_stage_evidence(&node_ids).await;
+        if let Some(error) = &evidence.error {
+            tracing::warn!(%repo, "stage entry times incomplete: {error}");
         }
+        Some(evidence)
     } else {
-        HashMap::new()
+        None
     };
     Ok((raw_prs, default_branch, evidence))
 }

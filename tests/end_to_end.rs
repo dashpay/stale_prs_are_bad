@@ -370,8 +370,16 @@ fn end_to_end_pipeline_matches_snapshot() {
     insta::assert_snapshot!(md);
 
     // The interactive dashboard's data, from the same inputs and what GitHub
-    // and the engine recorded about four platform PRs' stage changes.
-    let evidence = HashMap::from([(PLATFORM.to_string(), stage_evidence())]);
+    // and the engine recorded about four platform PRs' stage changes. Reading
+    // rust-dashcore's failed, which its PRs and the page must say.
+    let unread = pr_hygiene::stages::RepoEvidence {
+        prs: HashMap::new(),
+        error: Some("2 of 2 PRs could not be read: #101: HTTP 502".into()),
+    };
+    let evidence = HashMap::from([
+        (PLATFORM.to_string(), stage_evidence()),
+        (DASHCORE.to_string(), unread),
+    ]);
     let board = dashboard::build(&dashboard::Inputs {
         scored: &scored,
         engine: &engine_states,
@@ -427,25 +435,35 @@ fn end_to_end_pipeline_matches_snapshot() {
     insta::assert_json_snapshot!("dashboard", board);
 }
 
-/// Stage evidence as the two follow-up queries return it for four platform
-/// PRs, joined as the fetcher joins it.
-fn stage_evidence() -> HashMap<u64, pr_hygiene::stages::Evidence> {
+/// Stage evidence for four platform PRs as the three follow-up reads return
+/// it, assembled as the fetcher assembles it.
+fn stage_evidence() -> pr_hygiene::stages::RepoEvidence {
     let fixture = load_fixture("stage_evidence.json");
+    let nodes = |read: &str| -> Vec<fetcher::NodeRead> {
+        fixture[read]["data"]["nodes"]
+            .as_array()
+            .expect(read)
+            .iter()
+            .cloned()
+            .map(Ok)
+            .collect()
+    };
     let asked: Vec<(String, u64)> = [7000, 1234, 6000, 2988]
         .into_iter()
         .map(|n| (format!("PR_kw_{n}"), n))
         .collect();
-    let mut out = HashMap::new();
-    let histories =
-        fetcher::add_evidence_page(&mut out, &asked, &fixture["evidence"]).expect("evidence");
+    let mut reads = fetcher::StageReads::default();
+    reads.prs(&asked, nodes("evidence"));
     // A person's comment is never read further, whatever it says.
     assert_eq!(
-        histories,
-        vec![
-            ("IC_7000_record".to_string(), 7000),
-            ("IC_7000_nudge".to_string(), 7000)
-        ]
+        reads.engine_comment_ids(),
+        vec!["IC_7000_record", "IC_7000_nudge"]
     );
-    fetcher::add_history_page(&mut out, &histories, &fixture["histories"]).expect("histories");
-    out
+    reads.comments(nodes("comments"));
+    // The nudge is no record; only the edited record has revisions to read.
+    assert_eq!(reads.edited_comment_ids(), vec!["IC_7000_record"]);
+    reads.histories(nodes("histories"));
+    let evidence = reads.finish();
+    assert_eq!(evidence.error, None);
+    evidence
 }
