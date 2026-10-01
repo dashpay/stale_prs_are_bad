@@ -369,10 +369,13 @@ fn end_to_end_pipeline_matches_snapshot() {
 
     insta::assert_snapshot!(md);
 
-    // The interactive dashboard's data, from the same inputs.
+    // The interactive dashboard's data, from the same inputs and what GitHub
+    // and the engine recorded about four platform PRs' stage changes.
+    let evidence = HashMap::from([(PLATFORM.to_string(), stage_evidence())]);
     let board = dashboard::build(&dashboard::Inputs {
         scored: &scored,
         engine: &engine_states,
+        evidence: &evidence,
         policies: &policies,
         repos: &repos,
         cfg: &cfg,
@@ -392,5 +395,57 @@ fn end_to_end_pipeline_matches_snapshot() {
     );
     let alice = board.people.iter().find(|p| p.login == "alice").unwrap();
     assert!(alice.owes[0].rereview, "alice's own objection waits on her");
+
+    let pr = |number: u64| {
+        board
+            .prs
+            .iter()
+            .find(|p| p.repo == PLATFORM && p.number == number)
+            .unwrap_or_else(|| panic!("#{number} missing"))
+    };
+    let at = |s: &str| Some(s.parse::<chrono::DateTime<Utc>>().unwrap());
+    // Waiting on the bots since the engine recorded it, after the author's
+    // turn: thirty hours, past the one-day mark.
+    assert_eq!(pr(7000).stage, dashboard::Stage::Bots);
+    assert_eq!(pr(7000).since, at("2026-05-18T00:00:00Z"));
+    assert_eq!(pr(7000).since_basis, Some(dashboard::SinceBasis::Engine));
+    assert_eq!(pr(7000).lateness, Some(dashboard::Lateness::Late));
+    // The engine never wrote a record here; a person's comment is no record.
+    assert_eq!(pr(1234).since_basis, Some(dashboard::SinceBasis::Opened));
+    assert_eq!(
+        pr(6000).since,
+        at("2026-05-02T00:00:00Z"),
+        "made a draft again"
+    );
+    assert_eq!(
+        pr(2988).since,
+        at("2026-04-10T00:00:00Z"),
+        "moved off master"
+    );
+    // No evidence read for it: the review cycle's own start, as before.
+    assert_eq!(pr(3000).since, at("2026-05-17T06:00:00Z"));
     insta::assert_json_snapshot!("dashboard", board);
+}
+
+/// Stage evidence as the two follow-up queries return it for four platform
+/// PRs, joined as the fetcher joins it.
+fn stage_evidence() -> HashMap<u64, pr_hygiene::stages::Evidence> {
+    let fixture = load_fixture("stage_evidence.json");
+    let asked: Vec<(String, u64)> = [7000, 1234, 6000, 2988]
+        .into_iter()
+        .map(|n| (format!("PR_kw_{n}"), n))
+        .collect();
+    let mut out = HashMap::new();
+    let histories =
+        fetcher::add_evidence_page(&mut out, &asked, &fixture["evidence"]).expect("evidence");
+    // A person's comment is never read further, whatever it says.
+    assert_eq!(
+        histories,
+        vec![
+            ("IC_7000_record".to_string(), 7000),
+            ("IC_7000_nudge".to_string(), 7000)
+        ]
+    );
+    fetcher::add_history_page(&mut out, &histories, &fixture["histories"]).expect("histories");
+    out
 }
