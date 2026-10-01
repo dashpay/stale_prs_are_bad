@@ -7,3 +7,4 @@ pub mod model;
 pub mod policy;
 pub mod renderer;
 pub mod scorer;
+pub mod stages;
