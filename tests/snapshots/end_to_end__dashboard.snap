@@ -10,20 +10,24 @@ expression: board
     {
       "repo": "dashpay/platform",
       "engine_state_available": true,
-      "fetch_error": null
+      "fetch_error": null,
+      "slot_limit": 5
     },
     {
       "repo": "dashpay/rust-dashcore",
       "engine_state_available": false,
-      "fetch_error": null
+      "fetch_error": null,
+      "slot_limit": 5
     }
   ],
+  "idle_days": 14,
   "stages": [
     {
       "stage": "draft",
       "owner": "author",
       "late_hours": null,
-      "entry_recorded": false
+      "entry_recorded": false,
+      "in_flow": false
     },
     {
       "stage": "bots",
@@ -32,7 +36,8 @@ expression: board
         24.0,
         48.0
       ],
-      "entry_recorded": false
+      "entry_recorded": false,
+      "in_flow": true
     },
     {
       "stage": "self-review",
@@ -41,7 +46,8 @@ expression: board
         72.0,
         168.0
       ],
-      "entry_recorded": false
+      "entry_recorded": false,
+      "in_flow": true
     },
     {
       "stage": "ci",
@@ -50,13 +56,15 @@ expression: board
         6.0,
         24.0
       ],
-      "entry_recorded": false
+      "entry_recorded": false,
+      "in_flow": true
     },
     {
       "stage": "queued",
       "owner": "nobody",
       "late_hours": null,
-      "entry_recorded": false
+      "entry_recorded": false,
+      "in_flow": true
     },
     {
       "stage": "review",
@@ -65,7 +73,8 @@ expression: board
         24.0,
         72.0
       ],
-      "entry_recorded": true
+      "entry_recorded": true,
+      "in_flow": true
     },
     {
       "stage": "mergeable",
@@ -74,7 +83,8 @@ expression: board
         24.0,
         72.0
       ],
-      "entry_recorded": false
+      "entry_recorded": false,
+      "in_flow": true
     },
     {
       "stage": "blocked",
@@ -83,19 +93,22 @@ expression: board
         24.0,
         72.0
       ],
-      "entry_recorded": false
+      "entry_recorded": false,
+      "in_flow": true
     },
     {
       "stage": "not-governed",
       "owner": "author",
       "late_hours": null,
-      "entry_recorded": false
+      "entry_recorded": false,
+      "in_flow": false
     },
     {
       "stage": "unknown",
       "owner": "nobody",
       "late_hours": null,
-      "entry_recorded": false
+      "entry_recorded": false,
+      "in_flow": false
     }
   ],
   "prs": [

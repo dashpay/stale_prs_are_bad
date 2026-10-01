@@ -39,6 +39,13 @@ pub struct Policy {
     /// Accounts that open PRs with no person behind them.
     #[serde(default)]
     pub bot_authors: Vec<String>,
+    /// Open PRs per author that hold a review slot.
+    #[serde(default = "default_max_active_prs")]
+    pub max_active_prs: u32,
+}
+
+fn default_max_active_prs() -> u32 {
+    5
 }
 
 impl Policy {

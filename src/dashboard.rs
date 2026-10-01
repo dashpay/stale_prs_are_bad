@@ -15,6 +15,9 @@ use crate::renderer::RepoStatus;
 /// Bumped on any change a page built for the previous shape would misread.
 pub const SCHEMA_VERSION: u32 = 1;
 
+/// The engine's limit when a policy predates `max_active_prs` (it requires 5).
+const DEFAULT_SLOT_LIMIT: u32 = 5;
+
 /// The review engine's own review bots (`pr_review.policy.BOTS`). They
 /// review PRs and may open their own; a policy may not name them at all.
 const ENGINE_REVIEW_BOTS: &[&str] = &["thepastaclaw", "coderabbitai", "coderabbitai[bot]"];
@@ -25,6 +28,8 @@ pub struct Dashboard {
     pub generated_at: DateTime<Utc>,
     pub commit: Option<String>,
     pub repos: Vec<RepoOut>,
+    /// Days without an update after which a PR counts as `idle`.
+    pub idle_days: i64,
     /// Every stage in display order, with whose move it is and when it is
     /// late, so the page never has to know either.
     pub stages: Vec<StageOut>,
@@ -41,6 +46,10 @@ pub struct StageOut {
     /// Whether the time a PR entered this stage is recorded. Where it is not,
     /// a PR shows its age instead and is never called late.
     pub entry_recorded: bool,
+    /// False for work parked outside the review flow — drafts, PRs off the
+    /// governed branches, PRs with no verdict — which no one is asked to move
+    /// today; counting them as "the author's move" would bury the real asks.
+    pub in_flow: bool,
 }
 
 /// Whose move a stage waits on.
@@ -59,6 +68,9 @@ pub struct RepoOut {
     pub repo: String,
     pub engine_state_available: bool,
     pub fetch_error: Option<String>,
+    /// Open review slots per author in this repository (the policy's
+    /// `max_active_prs`); `wip` above it is over the limit.
+    pub slot_limit: u32,
 }
 
 /// Whose move a PR is waiting on.
@@ -273,8 +285,13 @@ pub fn build(inp: &Inputs<'_>) -> Dashboard {
                 repo: r.repo.clone(),
                 engine_state_available: r.engine_state_available,
                 fetch_error: r.fetch_error.clone(),
+                slot_limit: inp
+                    .policies
+                    .get(&r.repo)
+                    .map_or(DEFAULT_SLOT_LIMIT, |p| p.max_active_prs),
             })
             .collect(),
+        idle_days: inp.cfg.idle_days,
         stages: Stage::ALL
             .iter()
             .map(|&stage| StageOut {
@@ -282,6 +299,7 @@ pub fn build(inp: &Inputs<'_>) -> Dashboard {
                 owner: stage.owner(),
                 late_hours: inp.cfg.lateness_hours.get(stage.key()).copied(),
                 entry_recorded: stage.entry_recorded(),
+                in_flow: !matches!(stage, Stage::Draft | Stage::NotGoverned | Stage::Unknown),
             })
             .collect(),
         prs,
@@ -1096,6 +1114,16 @@ mod tests {
         let queued = d.stages.iter().find(|s| s.stage == Stage::Queued).unwrap();
         assert_eq!(queued.late_hours, None, "queued is never late per PR");
         assert!(d.stages.iter().filter(|s| s.entry_recorded).count() == 1);
+        let parked: Vec<Stage> = d
+            .stages
+            .iter()
+            .filter(|s| !s.in_flow)
+            .map(|s| s.stage)
+            .collect();
+        assert_eq!(
+            parked,
+            vec![Stage::Draft, Stage::NotGoverned, Stage::Unknown]
+        );
     }
 
     #[test]
