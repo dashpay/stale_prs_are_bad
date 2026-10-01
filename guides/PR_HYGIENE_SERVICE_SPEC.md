@@ -1,7 +1,8 @@
 # Spec: PR Hygiene as one service with an API
 
-Status: draft revision 2, 2026-10-02 — after simplicity, reliability/migration
-and security reviews. Replaces the delivery parts of `DASHBOARD_V2_SPEC.md`
+Status: draft revision 3, 2026-10-02 — after simplicity, reliability/migration
+and security reviews, and the owner's decisions: **Rust**, a **public API**,
+and **GitHub sign-in open to anyone** that personalises the page. Replaces the delivery parts of `DASHBOARD_V2_SPEC.md`
 (static site, `data` branch); its product parts — stages, "your part",
 humans vs bots, lateness — carry over unchanged.
 
@@ -29,9 +30,9 @@ accept any source.
 
 ## 2. Target
 
-One Python service, installed as a **new, private GitHub App** on the five
-repositories, owning the loop: GitHub events → the unchanged engine → GitHub
-writes; every evaluation recorded in **SQLite**; one **read API** behind the
+One **Rust** service, installed as a **new, private GitHub App** on the five
+repositories, owning the loop: GitHub events → the engine → GitHub writes;
+every evaluation recorded in **SQLite**; one **public read API** behind the
 web UI, the `/prs` skill, the Slack digest and any other tool.
 
 ```
@@ -47,12 +48,23 @@ GitHub ───▶ │ webhook receiver ─▶ durable queue (SQLite) │ ◀�
             └────────────────────────────────────────────┘
 ```
 
-- **Engine unchanged.** `policy.evaluate()` is already a function of
-  evidence. v1 keeps the engine's memory where it is — record comments and
-  commit statuses — so the service changes *where* the engine runs, not what
-  it decides. Moving the memory into the DB is an optional v2 (≈450 lines of
-  `main.py`/`github.py`; `policy.py` reads it through four keys, so an
-  adapter goes there).
+- **Engine ported to Rust, verdict for verdict.** Rust is the team's
+  language, and the dashboard's Rust (GitHub client, stage derivation, the
+  data contract, history backfill) becomes the service's base instead of
+  being retired. The engine (`policy.py` evaluate, `main.py`
+  orchestration, `github.py` evidence: ≈3 000 lines, ≈410 tests) is the
+  risk, handled by a **conformance corpus**: the Python engine dumps, for
+  every open PR, the exact evidence it evaluates and its verdict (state,
+  blockers, reviewers, approvals, checklist, labels, move text, record),
+  plus every fixture from its tests; the Rust engine must reproduce each
+  verdict byte for byte with the same fixed clock. The Python tests are
+  ported as Rust tests. Until a repo is cut over its Python engine keeps
+  running in Actions, so shadow mode is a live diff between the two engines
+  per (PR, head). During the port, engine rule changes land in both or wait.
+- **Memory unchanged in v1.** The Rust engine reads and writes the same
+  record comments and commit statuses, in the same format, so either engine
+  can continue the other's state and rollback is a switch. Moving the
+  memory into the DB is an optional v2.
 - **Store.** Every evaluation is appended (`repo, pr, head, state,
   reviewers, approvals, objectors, blockers, evaluated_at, engine_commit`);
   stage transitions, timelines, speed and admission order are queries. One
@@ -73,34 +85,39 @@ GitHub ───▶ │ webhook receiver ─▶ durable queue (SQLite) │ ◀�
   `check_run` and `status` events replace the build scan, via a head-SHA →
   PR index (fork PRs arrive without a PR list). Events caused by the App's
   own writes are filtered by sender.
-- **API** (`/api/v1`, JSON): `GET /prs` (filters: repo, area, stage, author,
-  reviewer, late), `GET /prs/{owner}/{repo}/{n}` (with stage history),
-  `GET /people`, `GET /people/{login}` (what one owes and holds — never
-  speed), `GET /me` (the caller's queue **and speed**; `?format=text` is the
-  Slack/skill digest).
-- **Identity** — a separate **sign-in App with no repository permissions**:
-  - web: GitHub sign-in with `state` bound to a pre-login cookie and PKCE;
-    session in a `__Host-` cookie (Secure, HttpOnly, SameSite=Lax) on the
-    service's own subdomain; the GitHub token is used once for `/user` and
-    discarded. If infra already runs an SSO proxy limited to the org, use it
-    instead and write no sign-in code.
-  - skill and scripts: device flow on the sign-in App; the service checks
-    the token was issued to its App and returns its own short-lived token.
-    The developer's `gh auth token` (usually full `repo` scope) is never
-    accepted.
-  - Actions: GitHub OIDC with the service as audience, checked against
-    `repository_id` and `job_workflow_ref`.
-- **Privacy.** Speed is served only by `/me`. No per-person speed elsewhere;
-  no team or area aggregate under 5 people. "Only to you" governs display:
-  review timestamps are public on GitHub. Retention for metrics, backups and
-  logs is fixed up front; `Authorization` is never logged. Team/people
-  views: public or org-only (owner).
-- **Web UI.** The page from #67 (Team, People, Me) served from the service's
-  origin, reading the API; CSP sent as a header with `frame-ancestors
-  'none'`, Trusted Types and `site/check.sh` kept.
-- **Language.** Python only. From the Rust analyzer the stage mapping,
-  lateness, the people/"your part" contract and unresolved-thread counts are
-  ported; the thread-severity score and scoreboard are dropped.
+- **API** (`/api/v1`, JSON, **public, no sign-in**): `GET /prs` (filters:
+  repo, area, stage, author, reviewer, late), `GET /prs/{owner}/{repo}/{n}`
+  (with stage history), `GET /people`, `GET /people/{login}` (what one owes
+  — with their areas — and holds; `?format=text` is the digest the skill and
+  Slack show). Speed is the one non-public resource: `GET /me/speed`, signed
+  in only. Public reads are cached and rate-limited per client; everything
+  they return is already public on GitHub.
+- **Identity — only to personalise, open to anyone with a GitHub account.**
+  A separate **sign-in App with no repository permissions**. The web page
+  offers "Sign in with GitHub": `state` bound to a pre-login cookie, PKCE,
+  the GitHub token used once for `/user` and discarded, a session in a
+  `__Host-` cookie (Secure, HttpOnly, SameSite=Lax) on the service's own
+  subdomain. Signing in only tells the page who you are; it unlocks nothing
+  but your own speed. Scripts and Actions need no identity: the API they
+  read is public. The developer's `gh auth token` is never sent anywhere.
+- **Privacy.** Speed is served only by `/me/speed`, to its owner. No
+  per-person speed elsewhere; no team or area aggregate under 5 people.
+  "Only to you" governs display: review timestamps are public on GitHub.
+  Retention for metrics, backups and logs is fixed up front; cookies and
+  tokens are never logged.
+- **Web UI.** The page from #67 served from the service's origin, reading
+  the API. **Team** and **People** are public. **Me** replaces the "Who are
+  you?" picker with "Sign in with GitHub": signed in, it is your queue with
+  your areas, your PRs and your speed (monthly, a year back); signed out,
+  it invites you to sign in, and anyone's public queue stays one click away
+  on People. CSP sent as a header with `frame-ancestors 'none'`; Trusted
+  Types and `site/check.sh` kept.
+- **`/prs` skill.** Reads `GET /people/{login}?format=text` with the login
+  from `gh api user`: no clone, no Python, no token, the same answer as the
+  page and Slack.
+- **Language.** Rust only, one workspace: the engine, the service (HTTP,
+  queue, worker, scheduler), the store. The Python engine and the
+  thread-severity score and Markdown scoreboard are retired.
 
 ## 3. Security of the merge path
 
@@ -144,12 +161,15 @@ their last status and cannot turn green.
    - Engine: accept both `github-actions[bot]` and a configured App identity
      everywhere it reads its own memory (12 places, statuses included), so
      either writer can continue the other's state.
-1. **Service, shadow.** Receiver + worker running the engine read-only on
-   GitHub; store; API; UI; `/prs` skill and Slack digest switch to the API.
-   Backfill history once from record comments and GitHub events (#68's
-   logic). Compare per (PR, head) when Actions posts its status, same engine
-   commit on both sides, differences sorted into categories defined up
-   front (clock-dependent timeouts, telemetry, admission time).
+1. **Port + shadow.** The Python engine gains a corpus export (evidence +
+   verdict per PR, fixed clock); the Rust engine is ported until the corpus
+   and the ported tests pass. Receiver + worker run it read-only on GitHub;
+   store; public API; UI with sign-in; `/prs` skill and Slack digest switch
+   to the API. Backfill history once from record comments and GitHub events
+   (#68's logic). Live diff per (PR, head) against the Python engine's
+   status, differences sorted into categories defined up front
+   (clock-dependent timeouts, telemetry, admission time); any other
+   difference is a bug in the port.
 2. **Cut over writes, one repo at a time** (grovedb → dash-evo-tool →
    tenderdash → rust-dashcore → platform): turn Actions writes off with the
    repo variable (instant, every branch — deleting the caller would leave
@@ -157,25 +177,27 @@ their last status and cannot turn green.
    once the App has posted the check, make it the required source. The
    service keeps writing the record marker in the same format, so
    **rollback** is the variable back on — no PR through a broken check.
-3. **Retire** the callers, the reusable workflow, the Rust analyzer, the
-   `data` branch and Pages; drop trust in `github-actions[bot]`.
+3. **Retire** the callers, the reusable workflow, the Python engine, the
+   Markdown board, the `data` branch and Pages; drop trust in
+   `github-actions[bot]`.
 4. **Optional v2:** engine memory in the DB, behind an adapter.
 
 Fallback if infra will not host anything merge-critical: stop after step 1
-(engine stays in Actions on `@master`; the service is a read-only API).
+(the Python engine stays in Actions on `@master`; the Rust service is the
+public API, the page and the history, read-only on GitHub).
 
 ## 6. Open PRs
 
 - #65: merge (step 0).
 - #66: ship its three live-bug fixes alone (bot accounts named `[bot]`, bots
   not merged into people, retry on a truncated response); close the rest.
-- #67, #68: pause; the page, the product rules and the backfill logic move
-  into the service.
+- #67, #68: pause; the page, the product rules, the GitHub client and the
+  backfill logic become the service's starting code.
 - platform#5242 (`/prs` skill wording): fine now; the skill moves to the API
   in step 1.
 
-## 7. Decisions for the owner
+## 7. Decisions
 
-1. This roadmap, starting with step 0 now?
-2. Team/People views public, or dashpay org members only?
-3. Hosting (infra team): §4.
+Owner, 2026-10-02: Rust; public API; public site; GitHub sign-in for anyone,
+used to personalise Me and show one's own speed. Open: this roadmap starting
+with step 0; hosting (infra team, §4).
