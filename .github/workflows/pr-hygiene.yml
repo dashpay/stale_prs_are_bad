@@ -135,6 +135,7 @@ jobs:
             dry-run-index.md
             dashboard.json
           retention-days: 7
+          if-no-files-found: error
 
       - name: Commit changes
         if: ${{ !inputs.dry_run }}
