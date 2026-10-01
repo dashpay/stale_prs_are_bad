@@ -67,7 +67,7 @@ def render_report(snapshot, user=None):
     for row in main.selected_rows(snapshot['pull_requests'], user):
         action = '; '.join(row.get('blockers', []))
         if row['state'] == 'ready-for-human':
-            action += '; reviewers: ' + ', '.join(row.get('reviewers', []))
+            action += '; ' + main.review_text(row, user)
         link = f"[{row['repository']}#{row['number']}]({row.get('url', '')})"
         lines.append('| ' + ' | '.join([link, main.cell(row['author']), main.cell(row['state']),
                                        main.age(row.get('ready_since'), snapshot['generated_at']), main.cell(action)]) + ' |')

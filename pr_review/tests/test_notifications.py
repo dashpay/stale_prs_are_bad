@@ -134,6 +134,18 @@ class NotificationsTests(unittest.TestCase):
                 self.assertTrue(plan['errors'])
                 self.assertEqual(plan['messages'], [])
 
+    def test_a_reviewer_is_told_their_part_and_the_channel_each_area(self):
+        snap = snapshot()
+        snap['pull_requests'][0].update(reviewers=['Alice', 'ALICE2', 'Carol'], approvals=[
+            {'area': 'dpp', 'files': [], 'approvers': ['Alice', 'ALICE2', 'Carol'], 'approved_by': [], 'owned': False},
+            {'area': 'drive', 'files': [], 'approvers': ['Dave'], 'approved_by': ['Dave'], 'owned': False}])
+        plan = n.build_delivery_plan(snap, self.config())
+        channel, alice = str(plan['messages'][0]), str(plan['messages'][1])
+        self.assertIn('Needs: dpp: Alice or ALICE2 or Carol', channel)
+        self.assertNotIn('drive', channel, 'an approved area asks nobody')
+        # Both logins are one person: they are not "shared with" themselves.
+        self.assertIn('Your part: dpp (or Carol)', alice)
+
     def test_preview_reviews_are_described_as_computed_not_requested(self):
         plan = n.build_delivery_plan(snapshot(), self.config())
         text = str(plan['messages'][1])
