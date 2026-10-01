@@ -85,6 +85,10 @@ def validate_policy(policy, root: Path | None = None):
     branches = policy['target_branches']
     if not isinstance(branches, list) or not branches or any(not isinstance(x, str) or not x.strip() for x in branches) or len(set(branches)) != len(branches):
         raise ValueError('Invalid target branches')
+    # `*` is the only pattern `governs` understands; anything else GitHub's
+    # rules accept would be read literally and match no branch at all.
+    if any(re.search(r'[?\[\]{}\\]|\*\*', x) for x in branches):
+        raise ValueError('Target branch patterns support only `*`')
     _fields(policy['fallback'], {'owners', 'reviewers'}, {'owners', 'reviewers'})
     _handles(policy['fallback']['owners'], True)
     _handles(policy['fallback']['reviewers'])
@@ -461,8 +465,8 @@ def governs(policy, branch):
     own branch rules use — `*` matches any run of characters except `/` — so
     a release that renames its development branches stays covered.
     """
-    return any(re.fullmatch('[^/]*'.join(map(re.escape, target.split('*'))), branch or '')
-               for target in policy['target_branches'])
+    return bool(branch) and any(re.fullmatch('[^/]*'.join(map(re.escape, target.split('*'))), branch)
+                                for target in policy['target_branches'])
 
 
 def machine_author(policy, pr):

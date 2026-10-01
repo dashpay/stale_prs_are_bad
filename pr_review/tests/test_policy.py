@@ -198,6 +198,20 @@ class PolicyTests(unittest.TestCase):
         p['target_branches'] = ['develop']
         self.assertTrue(governs(p, 'develop'))
         self.assertFalse(governs(p, 'developer'))
+        # A pull request with no known base is never governed, whatever the pattern.
+        p['target_branches'] = ['*']
+        self.assertFalse(governs(p, None))
+        self.assertFalse(governs(p, ''))
+
+    def test_only_the_star_is_a_pattern(self):
+        # GitHub's rules also know `?`, `[...]` and `**`; read literally here
+        # they would match nothing and quietly take a branch out of the policy,
+        # so a policy using them is refused rather than half-honoured.
+        p, _ = fixture()
+        for target in ('v?-dev', 'v[45]-dev', 'release/**', 'v{4,5}-dev', 'v\\-dev'):
+            p['target_branches'] = [target]
+            with self.assertRaises(ValueError, msg=target):
+                validate_policy(p)
 
     def test_a_review_bot_that_opens_a_pull_request_is_not_asked_to_attest(self):
         # thepastaclaw reviews pull requests and opens its own. It is an
