@@ -81,6 +81,12 @@ function banners() {
       out.push(h("div", { class: "banner banner-warn", role: "status" },
         `⚠ ${r.repo} could not be fetched: `, h("span", { class: "err" }, r.fetch_error), ". Its PRs may be missing."));
     }
+    if (r.stage_times_error) {
+      out.push(h("div", { class: "banner banner-warn", role: "status" },
+        `⚠ For some ${r.repo} PRs, the time they entered their stage could not be read (`,
+        h("span", { class: "err" }, r.stage_times_error),
+        "). Those show their age instead and are not marked late, except a review, which keeps the review engine's own start."));
+    }
     if (!r.engine_state_available) {
       out.push(h("div", { class: "banner banner-warn", role: "status" },
         `⚠ No review-engine verdicts for ${r.repo}: its governed PRs show as Unknown, and its reviews owed are missing.`));
