@@ -177,6 +177,27 @@ class PolicyTests(unittest.TestCase):
         pr['reviews'].append(dict(id=4, user='owner', state='APPROVED', commit_id=HEAD, submitted_at=NOW, body=''))
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
 
+    def test_a_review_bot_that_opens_a_pull_request_is_not_asked_to_attest(self):
+        # thepastaclaw reviews pull requests and opens its own. It is an
+        # ordinary GitHub user, and the policy may not name it under
+        # `bot_authors` — review bots are refused as handles — so nothing
+        # marked it a machine: its pull request waited for an attestation the
+        # engine ignores from it, and spent one of five slots it has no
+        # attention to ration.
+        p, pr = fixture()
+        pr.update(author='thepastaclaw', comments=[])
+        result = evaluate(p, pr, None, NOW)
+        self.assertEqual(result['state'], 'ready-for-human')
+        self.assertTrue(result['reviewers'], 'a human is asked, not an attestation')
+        # The checklist says so too, and the waiting time starts now rather
+        # than at an admission a machine never gets.
+        items = {i['item']: i for i in result['checklist']}
+        self.assertTrue(items['self_review']['bot_author'])
+        self.assertTrue(items['slot']['done'])
+        self.assertEqual(result['ready_since'], NOW)
+        pr['reviews'].append(dict(id=4, user='owner', state='APPROVED', commit_id=HEAD, submitted_at=NOW, body=''))
+        self.assertEqual(evaluate(p, pr, None, NOW)['state'], 'ready-to-merge')
+
     def test_a_machine_author_is_a_github_handle_like_any_other(self):
         p, _ = fixture()
         p['bot_authors'] = ['infraclaw-dash']
