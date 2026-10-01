@@ -3,3 +3,4 @@
 /.pr-hygiene/
 __pycache__/
 /policy-state/
+/dashboard.json
