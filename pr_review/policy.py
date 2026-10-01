@@ -614,7 +614,7 @@ def _checklist(**items):
 
 def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
     result = {k: pr.get(k) for k in ('number', 'head', 'author', 'title', 'url')}
-    result.update(state='configuration-error', status='error', blockers=[], reviewers=[], areas=[],
+    result.update(state='configuration-error', status='error', blockers=[], reviewers=[], objectors=[], areas=[],
                   ready_since=None, admitted_at=admitted_at, bot_completed_at=None, self_reviewed_at=None,
                   nudge=[], waived=[], approvals=[], objections=[], checklist=[],
                   reviewed_heads=[pr.get('head')] if pr.get('head') else [], reviewed_since=pr.get('head_seen_at'),
@@ -658,7 +658,11 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             return stop('configuration-error', 'No changed-file evidence', status='error')
         touched, files_by_area = {}, {}
         for file in pr['files']:
-            for path in {file['filename'], file.get('previous_filename', file['filename'])}:
+            # In a fixed order, not a set's: the order areas are first touched
+            # in is the order every surface lists them, and a wording that
+            # changed with the process's string hash rewrote the move comment
+            # on alternate runs.
+            for path in dict.fromkeys((file['filename'], file.get('previous_filename', file['filename']))):
                 if not isinstance(path, str) or path.startswith('/') or any(x in {'.','..',''} for x in path.split('/')):
                     raise ValueError('Invalid changed path')
                 area = next((a for a in policy['areas'] if any(path.startswith(p) for p in a['paths'])), None)
@@ -995,6 +999,9 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                      else 'Waiting for the build to finish')
             if first is None:
                 result['reviewers'] = sorted(people.get(u,u) for u in needed)
+                # Who among them is asked because of their own objection, so
+                # every surface can say "re-review" rather than an area.
+                result['objectors'] = sorted(people.get(u,u) for u in objectors if u in needed)
                 if was_ready and previous.get('ready_since'):
                     _time(previous['ready_since'])
                     result['ready_since'] = previous['ready_since']

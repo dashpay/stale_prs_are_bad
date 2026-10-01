@@ -7,7 +7,7 @@ import re
 import urllib.error
 import urllib.request
 
-from .main import age
+from .main import age, asks, your_part
 
 
 def payload(title, sections):
@@ -21,13 +21,17 @@ def payload(title, sections):
     return {'text': title, 'blocks': blocks, 'parse': 'none', 'unfurl_links': False, 'unfurl_media': False}
 
 
-def pr_text(pr, now, blockers=False):
+def pr_text(pr, now, blockers=False, logins=None):
+    """One PR for Slack: the author's blockers, the reviewer's own part, or every area still needed."""
     text = (f"{pr['repository']}#{pr['number']} {pr.get('title', '')[:300]}\n"
             f"State: {pr['state']} · waiting: {age(pr.get('ready_since'), now)}\n")
+    part = your_part(pr, logins, code=False) if logins else ''
     if blockers:
         text += '; '.join(pr.get('blockers', [])) + '\n'
+    elif part:
+        text += 'Your part: ' + part + '\n'
     else:
-        text += 'Reviewers: ' + ', '.join(pr.get('reviewers', [])) + '\n'
+        text += 'Needs: ' + (' · '.join(asks(pr, code=False)) or 'an owner') + '\n'
     return text + pr.get('url', '')
 
 
@@ -96,7 +100,7 @@ def build_delivery_plan(snapshot, config):
             continue
         sections = [mode_note, *unavailable]
         if reviews:
-            sections += ['Reviews awaiting you (computed policy)', *[pr_text(r, now) for r in reviews]]
+            sections += ['Reviews awaiting you (computed policy)', *[pr_text(r, now, logins=logins) for r in reviews]]
         if own:
             sections += ['Your PR blockers', *[pr_text(r, now, True) for r in own]]
         messages.append({'kind': 'personal', 'destination': None if identity.startswith('unenrolled:') else identity,

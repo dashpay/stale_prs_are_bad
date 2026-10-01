@@ -393,19 +393,62 @@ def checklist_block(result):
         # beside its children and the bar would read double.
         lines.append('- Approvals')
         for area in areas:
-            name = 'files with no dedicated owner' if area['area'] == 'fallback' else f"`{area['area']}`"
+            name = area_name(area['area'])
             if area.get('owned'):
                 lines.append(f'  - [x] {name} — you own it')
             elif area['approved_by']:
                 lines.append(f"  - [x] {name} ({_files(area['files'])}) — approved by {', '.join(area['approved_by'])}")
             else:
-                lines.append(f"  - [ ] {name} ({_files(area['files'])}) — {' or '.join(area['approvers'])}")
+                who = ' or '.join(area['approvers']) or 'nobody may approve: everyone who could attested to it'
+                lines.append(f"  - [ ] {name} ({_files(area['files'])}) — {who}")
         for objection in approvals['awaiting']:
             lines.append(f'  - [ ] {objection} — waiting for them to re-review or dismiss')
     lines.append('')
     lines.append('When every box is checked the `PR Hygiene` check passes and this can merge.')
     lines.append(CHECKLIST_END)
     return '\n'.join(lines)
+
+
+def area_name(area, code=True):
+    if area == 'fallback':
+        return 'files with no dedicated owner'
+    return f'`{area}`' if code else area
+
+
+def asks(result, code=True):
+    """What review a pull request still waits for: each area nobody has approved, then the objectors.
+
+    An area lists everyone who may approve it — any one of them is enough —
+    and one nobody may approve says so, so an empty ask never reads as a met one.
+    """
+    parts = []
+    for area in result.get('approvals') or []:
+        if not area.get('owned') and not area['approved_by']:
+            parts.append(f"{area_name(area['area'], code)}: {' or '.join(area['approvers']) or 'nobody may approve'}")
+    if result.get('objectors'):
+        parts.append('re-review or resolve: ' + ', '.join(result['objectors']))
+    return parts
+
+
+def your_part(result, logins, code=True):
+    """The areas one person (all of their logins) may approve and nobody has, and any re-review they owe."""
+    mine = {login.lower() for login in logins}
+    parts = []
+    for area in result.get('approvals') or []:
+        if area.get('owned') or area['approved_by'] or not mine & {a.lower() for a in area['approvers']}:
+            continue
+        others = [a for a in area['approvers'] if a.lower() not in mine]
+        parts.append(area_name(area['area'], code) + (f" (you or {' or '.join(others)})" if others else ''))
+    if mine & {o.lower() for o in result.get('objectors') or []}:
+        parts.append('re-review or resolve your objection')
+    return ' · '.join(parts)
+
+
+def review_text(row, user=None):
+    """The review half of a report's next action: what is needed, and the user's own part of it."""
+    text = 'needs ' + (' · '.join(asks(row)) or 'an owner')
+    part = your_part(row, [user]) if user else ''
+    return text + (f'; your part: {part}' if part else '')
 
 
 def move_text(result):
@@ -430,7 +473,7 @@ def move_text(result):
             what = '; '.join(reasons) or 'answer the review'
             line = f'Your move: {what}.'
     elif move == 'ready-for-human':
-        line = f"Ready for review — needs {' or '.join(result.get('reviewers') or []) or 'an owner'}."
+        line = f"Ready for review — {' · '.join(asks(result)) or 'needs an owner'}."
     else:
         line = 'Policy satisfied — this can merge.'
     return f"{MOVE_MARKER} state={move} sha={result['head']} -->\n{line}\nFull checklist in the description."
@@ -761,8 +804,8 @@ def render_report(rows, now, user=None):
              '| --- | --- | --- | --- | --- | --- |']
     for r in selected_rows(rows, user):
         next_action = '; '.join(r.get('blockers', [])) or 'Policy satisfied; check remaining GitHub gates'
-        if r.get('reviewers'):
-            next_action += '; reviewers: ' + ', '.join(r['reviewers'])
+        if r['state'] == 'ready-for-human':
+            next_action += '; ' + review_text(r, user)
         link = f"[#{r['number']}: {cell(r.get('title', ''))}]({r.get('url', '')})"
         lines.append('| ' + ' | '.join([link, cell(r['author']), cell(', '.join(r.get('areas', []))),
                                       cell(r['state']), age(r.get('ready_since'), now), cell(next_action)]) + ' |')
@@ -799,7 +842,7 @@ def evaluate_snapshots(policy, context, candidates, snapshots, now, payload=None
     for pr in snapshots:
         result = evaluate(policy, pr, admissions.get(pr['number']), now, states.get(pr['number']))
         if head_counts[pr['head']] > 1:
-            result.update(state='configuration-error', status='error', reviewers=[], ready_since=None)
+            result.update(state='configuration-error', status='error', reviewers=[], objectors=[], ready_since=None)
             result['blockers'].append('Another open PR shares this head; commit-scoped status is ambiguous')
         result['repository'] = policy['repository']
         rows.append(result)

@@ -79,6 +79,14 @@ class PublicationTests(unittest.TestCase):
         self.assertIn('Review PR', text)
         self.assertIn('waiting-bots', text)
 
+    def test_user_report_names_the_areas_the_user_is_asked_for(self):
+        row = dict(self.result, number=2, author='bob', state='ready-for-human', reviewers=['alice', 'carol'],
+                   title='Review PR', url='v',
+                   approvals=[{'area': 'core', 'files': [], 'approvers': ['alice', 'carol'], 'approved_by': [],
+                               'owned': False}])
+        text = main.render_report([row], '2026-09-11T00:00:00Z', user='alice')
+        self.assertIn('needs `core`: alice or carol; your part: `core` (you or carol)', text)
+
     def test_foreign_controller_history_is_rejected(self):
         state = {'number':2, 'admitted_at':NOW}
         with patch.object(main, 'parse_controller_state', return_value=(state,7)):

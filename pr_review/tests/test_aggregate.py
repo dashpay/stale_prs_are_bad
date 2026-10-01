@@ -31,6 +31,20 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(data['roster'], ['Alice'])
         self.assertFalse(data['repositories'][2]['complete'])
 
+    def test_the_cross_repository_report_names_the_users_part(self):
+        # The platform `/prs` skill reads this report; a flat reviewer list
+        # leaves the reader guessing which files are theirs.
+        row = {'repository': 'dashpay/a', 'number': 7, 'author': 'Bob', 'state': 'ready-for-human',
+               'url': 'u', 'blockers': ['Human approval or objection resolution is required'],
+               'reviewers': ['Alice', 'Carol'], 'objectors': [],
+               'approvals': [{'area': 'dpp', 'files': [], 'approvers': ['Alice', 'Carol'], 'approved_by': [],
+                              'owned': False}]}
+        snapshot = {'generated_at': '2026-09-11T00:00:00Z', 'complete': True, 'pull_requests': [row],
+                    'repositories': [{'repository': 'dashpay/a', 'mode': 'preview', 'complete': True}],
+                    'workload': []}
+        text = a.render_report(snapshot, user='alice')
+        self.assertIn('needs `dpp`: Alice or Carol; your part: `dpp` (you or Carol)', text)
+
     def test_policy_source_is_the_registered_file_regardless_of_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
