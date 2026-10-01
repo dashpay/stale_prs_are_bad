@@ -1,0 +1,10 @@
+# Vendored libraries: loaded from this directory, never from a CDN at runtime.
+# Each file is the package's own dist build, byte-identical to the npm tarball.
+# To update: download the new dist file from
+#   https://cdn.jsdelivr.net/npm/<package>@<version>/dist/<file>
+# compare its sha256 with the same file inside the npm tarball, then replace
+# the line below. Plot's UMD build expects d3 as a global, so d3 loads first.
+#
+# file              package              version  license  sha256
+d3.min.js           d3                   7.9.0    ISC      f2094bbf6141b359722c4fe454eb6c4b0f0e42cc10cc7af921fc158fceb86539
+plot.umd.min.js     @observablehq/plot   0.6.17   ISC      4358086467740777dd788d6b27a95cebdbaefdd50c730a3060117073bd7134cb
