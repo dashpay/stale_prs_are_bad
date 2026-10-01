@@ -33,6 +33,38 @@ pub struct Policy {
     pub fallback: Roster,
     #[serde(default)]
     pub areas: Vec<Area>,
+    /// Branch names or patterns (`v*-dev`) whose PRs the engine governs.
+    #[serde(default)]
+    pub target_branches: Vec<String>,
+    /// Accounts that open PRs with no person behind them.
+    #[serde(default)]
+    pub bot_authors: Vec<String>,
+}
+
+impl Policy {
+    /// Whether PRs into `branch` are under this policy. Same rule as the
+    /// engine's `governs`: a target is a name or a pattern in the form GitHub
+    /// branch rules use, where `*` matches any run of characters except `/`.
+    pub fn governs(&self, branch: &str) -> bool {
+        self.target_branches
+            .iter()
+            .any(|t| branch_pattern_matches(t, branch))
+    }
+}
+
+fn branch_pattern_matches(pattern: &str, branch: &str) -> bool {
+    let Some((head, rest)) = pattern.split_once('*') else {
+        return pattern == branch;
+    };
+    let Some(tail) = branch.strip_prefix(head) else {
+        return false;
+    };
+    let limit = tail.find('/').unwrap_or(tail.len());
+    tail.char_indices()
+        .map(|(i, _)| i)
+        .chain(std::iter::once(tail.len()))
+        .take_while(|&i| i <= limit)
+        .any(|i| branch_pattern_matches(rest, &tail[i..]))
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -375,11 +407,32 @@ mod tests {
                 ),
                 area("sdk", &["packages/rs-sdk/"], &["shumkov"], &["qe"]),
             ],
+            ..Policy::default()
         }
     }
 
     fn ids(routing: &Routing) -> Vec<&str> {
         routing.areas.iter().map(|a| a.id.as_str()).collect()
+    }
+
+    #[test]
+    fn target_branches_match_like_github_branch_rules() {
+        let p = Policy {
+            target_branches: vec!["v*-dev".into(), "develop".into()],
+            ..Policy::default()
+        };
+        for b in ["v4.2-dev", "v5.1-dev", "v6.0-dev", "develop"] {
+            assert!(p.governs(b), "{b}");
+        }
+        for b in [
+            "master",
+            "feat/v5-dev",
+            "v5/x-dev",
+            "v5.1-dev-old",
+            "developer",
+        ] {
+            assert!(!p.governs(b), "{b}");
+        }
     }
 
     #[test]

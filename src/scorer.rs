@@ -475,6 +475,7 @@ mod tests {
                     reviewers: vec!["QuantumExplorer".into()],
                     unresolved: vec![],
                 }],
+                ..Policy::default()
             },
         )])
     }
@@ -865,8 +866,7 @@ mod tests {
             PolicyState {
                 state: "ready-to-merge".into(),
                 status: "success".into(),
-                blockers: vec![],
-                reviewers: vec![],
+                ..PolicyState::default()
             },
         )]);
         attach_engine_state(&mut scored, REPO, &state);

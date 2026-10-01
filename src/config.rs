@@ -29,6 +29,10 @@ pub struct Config {
     /// the principal for self-review detection.
     #[serde(default)]
     pub author_aliases: std::collections::HashMap<String, String>,
+    /// Hours a PR may sit in a stage before it is late, then very late,
+    /// keyed by stage (`review`, `self-review`, `bots`, `mergeable`, `ci`,
+    /// `blocked`). A stage not listed is never late.
+    pub lateness_hours: std::collections::BTreeMap<String, [f64; 2]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +75,17 @@ impl Default for Config {
             age_multiplier: AgeMultiplier::Ln,
             history_retention_days: 90,
             author_aliases: std::collections::HashMap::new(),
+            lateness_hours: [
+                ("review", [24.0, 72.0]),
+                ("self-review", [72.0, 168.0]),
+                ("bots", [24.0, 48.0]),
+                ("mergeable", [24.0, 72.0]),
+                ("ci", [6.0, 24.0]),
+                ("blocked", [24.0, 72.0]),
+            ]
+            .into_iter()
+            .map(|(stage, hours)| (stage.to_string(), hours))
+            .collect(),
         }
     }
 }
