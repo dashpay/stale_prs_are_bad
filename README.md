@@ -24,8 +24,12 @@ most open PRs with unresolved review feedback — CodeRabbit and human reviewers
 both — so social pressure replaces 1:1 nagging, and shows the shared review
 engine's verdict for each PR next to it.
 
-The deliverable is a GitHub Pages site built from the generated `index.md` on
-the `data` branch, regenerated and re-deployed every 6 hours. URL pattern:
+The deliverable is an interactive GitHub Pages site — the static page in
+`site/` reading `dashboard.json`, which the analyzer writes with `--json-out` —
+regenerated and re-deployed every 6 hours. It shows where each PR is late and
+whose move it is (Team), what every person and bot owes and holds (People),
+and one person's own queue with the areas they are asked to review (Me). URL
+pattern:
 
 ```
 https://<owner>.github.io/<repo>/
@@ -83,6 +87,7 @@ Useful flags:
 - `--policy-state ./policy-state` — directory of review-engine exports (`<name>.json` per repository)
 - `--config ./alt.yml` — alternate config path
 - `--out docs/index.md` — output path
+- `--json-out dashboard.json` — also write the dashboard page's data (written even with `--dry-run`)
 - `--dry-run` — skip writing files; print the report to stdout
 
 `GITHUB_TOKEN` can also be supplied via the `--token` flag, or any other env var
@@ -106,10 +111,12 @@ runs every 6 hours (00:00 / 06:00 / 12:00 / 18:00 UTC) and on `workflow_dispatch
    output), builds the analyzer, exports the review engine's state for each
    registered repository with the read-only GitHub App token (skipped when
    `PR_REVIEW_APP_ID` is unset — the board then says "engine state unavailable"),
-   runs the analyzer from inside the `data` checkout, and pushes `index.md` +
-   `.pr-hygiene/` to `data`.
-2. **`publish`** — copies `data/index.md` into `docs/`, builds the `docs/` folder
-   with Jekyll, and deploys to GitHub Pages.
+   runs the analyzer from inside the `data` checkout, pushes `index.md` +
+   `.pr-hygiene/` to `data`, and hands `dashboard.json` to the next job as an
+   artifact (it is published, never committed).
+2. **`publish`** — runs `site/check.sh`, assembles the page from `site/` (no
+   fixtures, no check script) with `dashboard.json` beside it, and deploys it to
+   GitHub Pages as plain files, without Jekyll.
 
 `master` holds only code and configuration and never receives bot commits, so it
 can be branch-protected. The `data` branch is written only by the workflow; do
@@ -159,13 +166,12 @@ Unknown keys are rejected with an error, so typos surface immediately.
 
 ## What gets committed each run
 
-- `index.md` — the report, committed to the `data` branch (only when changed).
-  The Jekyll theme config lives in `docs/_config.yml` on `master`.
+- `index.md` — the Markdown report, still committed to the `data` branch (only
+  when changed) but no longer published; it goes away with its renderer.
 - `.pr-hygiene/history/YYYY-MM-DD.json` — full snapshot for week-over-week deltas
 - `.pr-hygiene/authors.json` — per-author "first seen" cache for grace periods
 
-Old snapshots beyond `history_retention_days` are deleted in the same run. The
-Pages publish job then redeploys whatever `docs/` looks like after the commit.
+Old snapshots beyond `history_retention_days` are deleted in the same run.
 
 ## Local development
 
@@ -202,9 +208,11 @@ tests/
   end_to_end.rs
   fixtures/sample_prs.json
   fixtures/sample_prs_rust_dashcore.json
-docs/
-  _config.yml  — Jekyll theme + title for the Pages site
-  index.md     — generated each run
+site/
+  index.html, app.js, js/, style.css — the dashboard page (no build step)
+  vendor/      — pinned d3 and Observable Plot, checksums in VERSIONS
+  check.sh     — refuses HTML-from-string APIs and checksum drift (CI)
+  fixtures/    — synthetic data, hostile strings included, for local checks
 .github/workflows/pr-hygiene.yml
 .github/workflows/rust.yml
 .pr-hygiene.yml

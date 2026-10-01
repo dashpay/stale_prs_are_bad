@@ -20,3 +20,5 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --locked
+      - name: Dashboard page renders data as text only
+        run: bash site/check.sh
