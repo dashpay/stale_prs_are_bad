@@ -459,12 +459,15 @@ def machine_author(policy, pr):
 
     GitHub marks Copilot and dependabot as bots; the accounts a team runs its
     own automation from are ordinary users by every API, so the policy names
-    them. Either way nobody is there to read the diff and say so, and the
-    eligible approval such a pull request needs anyway stands in for it.
+    them. The review bots are machines wherever they appear, and a policy may
+    not name them at all. Either way nobody is there to read the diff and say
+    so, and the eligible approval such a pull request needs anyway stands in
+    for it.
     """
     if pr.get('author_is_bot'):
         return True
-    return (pr.get('author') or '').lower() in {h.lower() for h in policy.get('bot_authors', [])}
+    author = (pr.get('author') or '').lower()
+    return author in BOTS or author in {h.lower() for h in policy.get('bot_authors', [])}
 
 
 def _hours(stamp, nowISO):
