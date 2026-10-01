@@ -46,9 +46,11 @@ impl Policy {
     /// engine's `governs`: a target is a name or a pattern in the form GitHub
     /// branch rules use, where `*` matches any run of characters except `/`.
     pub fn governs(&self, branch: &str) -> bool {
-        self.target_branches
-            .iter()
-            .any(|t| branch_pattern_matches(t, branch))
+        !branch.is_empty()
+            && self
+                .target_branches
+                .iter()
+                .any(|t| branch_pattern_matches(t, branch))
     }
 }
 
@@ -433,6 +435,14 @@ mod tests {
         ] {
             assert!(!p.governs(b), "{b}");
         }
+        let any = Policy {
+            target_branches: vec!["*".into()],
+            ..Policy::default()
+        };
+        assert!(
+            !any.governs(""),
+            "a PR with no known base is never governed"
+        );
     }
 
     #[test]
