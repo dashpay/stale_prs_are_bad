@@ -3,9 +3,9 @@
 
 import { LOGIN_RE } from "./model.js";
 
-const WHO = new Set(["human", "all", "bot"]);
+const WHO = new Set(["people", "human", "all", "bot"]);
 const DIRS = new Set(["asc", "desc"]);
-const FILTER_KEYS = ["repo", "stage", "owner", "who", "late", "q"];
+const FILTER_KEYS = ["repo", "area", "stage", "owner", "who", "late", "q"];
 
 export function parseHash(hash, data) {
   const raw = hash.replace(/^#/, "");
@@ -29,6 +29,7 @@ export function parseHash(hash, data) {
   const get = (k) => q.get(k) ?? "";
   const f = {
     repo: data.repoSet.has(get("repo")) ? get("repo") : "",
+    area: data.areas.includes(get("area")) ? get("area") : "",
     stage: Object.hasOwn(data.stage, get("stage")) ? get("stage") : "",
     owner: data.owners.some((o) => o.key === get("owner")) ? get("owner") : "",
     who: WHO.has(get("who")) ? get("who") : "",

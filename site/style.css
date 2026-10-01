@@ -1,6 +1,8 @@
-/* Colour roles. Status colours (lateness) are fixed across modes; stage
-   colours are the eight categorical slots in a fixed order, each mode its own
-   validated step. */
+/* Colour roles. Lateness is blue (on time), amber (late) and crimson (very
+   late), stepped per mode so every mark clears 3:1 on its surface and the
+   three stay apart under protanopia and deuteranopia; a shape (circle,
+   triangle, diamond) always rides with the colour. Stage colours are the
+   eight categorical slots in a fixed order, each mode its own validated step. */
 :root {
   color-scheme: light;
   --page: #f9f9f7;
@@ -15,9 +17,9 @@
   --link: #1c5cab;
   --hatch: rgba(11, 11, 11, 0.12);
 
-  --late-ok: #0ca30c;
-  --late-late: #fab219;
-  --late-very-late: #d03b3b;
+  --late-ok: #2a78d6;
+  --late-late: #b57600;
+  --late-very-late: #a3214f;
   --untimed: #52514e;
   --over: #b42828;
   --warn-bg: #fff4d6;
@@ -50,6 +52,9 @@
     --wash: rgba(255, 255, 255, 0.05);
     --link: #86b6ef;
     --hatch: rgba(255, 255, 255, 0.14);
+    --late-ok: #3987e5;
+    --late-late: #fab219;
+    --late-very-late: #e66767;
     --untimed: #c3c2b7;
     --over: #f08a8a;
     --warn-bg: #3a2f10;
@@ -93,6 +98,10 @@ code {
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0 4px;
+  /* Long area ids wrap inside their cell instead of widening the table. */
+  overflow-wrap: anywhere;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .page {
@@ -160,6 +169,8 @@ select, input[type="search"] {
   max-width: 100%;
 }
 input[type="search"] { width: 220px; }
+/* A long area or repository name must not stretch its menu across the row. */
+.filters select { max-width: 15em; }
 input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
 
 /* Cards */
@@ -201,6 +212,9 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
 .tile-value { font-size: 28px; font-weight: 600; line-height: 1.1; }
 .tile-sub { font-size: 12px; color: var(--ink-2); }
 .tile-late { font-size: 12px; display: inline-flex; align-items: center; gap: 2px; }
+.tiles-heading { font-size: 14px; margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--grid); }
+.tiles-heading + .sub { margin-bottom: 0; }
+.tile-parked { background: var(--wash); }
 .hatched {
   background-image: repeating-linear-gradient(45deg, var(--hatch) 0 1px, transparent 1px 7px);
 }
@@ -217,15 +231,13 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
   font-size: 12px;
 }
 .legend li { display: inline-flex; align-items: center; gap: 6px; }
-.key-filled circle { fill: var(--key); stroke: none; }
-.key-hollow circle { fill: var(--surface); stroke: var(--key); stroke-width: 1.5; }
-.mark { flex: none; vertical-align: -1px; }
-.mark circle { stroke-width: 1.5; }
-.mark-opened circle { fill: none; stroke: var(--neutral); }
-.mark-ok circle { fill: var(--late-ok); stroke: none; }
-.mark-late circle { fill: var(--late-late); stroke: none; }
-.mark-very-late circle { fill: var(--late-very-late); stroke: none; }
-.mark-untimed circle { fill: var(--untimed); stroke: none; }
+.mark { flex: none; vertical-align: -1px; overflow: visible; }
+.mark > * { stroke: none; }
+.mark-opened > * { fill: var(--surface); stroke: var(--neutral); stroke-width: 1.5; }
+.mark-ok > * { fill: var(--late-ok); }
+.mark-late > * { fill: var(--late-late); }
+.mark-very-late > * { fill: var(--late-very-late); }
+.mark-untimed > * { fill: var(--untimed); }
 
 /* Aging plot */
 .aging { margin: 0; }
@@ -253,7 +265,9 @@ button.sort {
 button.sort:hover { color: var(--ink); text-decoration: underline; }
 th[aria-sort] { color: var(--ink); }
 
-.col-repo { white-space: nowrap; }
+/* Wide enough for a repository name on one line; anything longer wraps
+   rather than widening the table. */
+.col-repo { min-width: 8.5em; overflow-wrap: anywhere; }
 .pr-cell, .pr { display: flex; flex-direction: column; gap: 1px; min-width: 200px; max-width: 460px; }
 .pr-title { color: var(--ink); overflow-wrap: anywhere; }
 /* Text from the data is isolated, so a direction override inside a title or
@@ -265,7 +279,8 @@ th[aria-sort] { color: var(--ink); }
 .asks { margin: 4px 0 0; padding-left: 16px; color: var(--ink); }
 .asks li, .blockers li { overflow-wrap: anywhere; }
 .legend-rules { margin: 0 0 8px; font-size: 12px; }
-.person { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.person { display: inline-flex; align-items: center; gap: 6px; }
+.person > a, .person > span:not(.avatar):not(.bot) { overflow-wrap: anywhere; min-width: 0; }
 .bot { font-size: 13px; }
 .avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; background: var(--wash); }
 .avatar-none { display: inline-block; }
@@ -320,7 +335,7 @@ th[aria-sort] { color: var(--ink); }
 .areas h3 { font-size: 13px; margin: 12px 0 4px; color: var(--ink-2); font-weight: 600; }
 .areas ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .areas li { overflow-wrap: anywhere; }
-.part { margin: 0; padding-left: 16px; min-width: 200px; }
+.part { margin: 0; padding-left: 16px; min-width: 160px; }
 .part li { overflow-wrap: anywhere; }
 .wip { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 .wip li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
@@ -373,7 +388,7 @@ button.linkish {
   input[type="search"] { width: 100%; }
   .filters .field { flex: 1 1 140px; }
   .filters .field-check { flex: 0 0 auto; }
-  .filters select { width: 100%; }
+  .filters select { width: 100%; max-width: 100%; }
   /* Rows become cards: each cell carries its column name, so nothing hides
      behind a sideways scroll. Sortable headers stay as a row of buttons. */
   .table-scroll table, .table-scroll tbody, .table-scroll tr { display: block; width: 100%; }
@@ -392,5 +407,5 @@ button.linkish {
 }
 
 @media (forced-colors: active) {
-  .seg, .slot-used, .mark circle { forced-color-adjust: none; }
+  .seg, .slot-used, .mark > * { forced-color-adjust: none; }
 }

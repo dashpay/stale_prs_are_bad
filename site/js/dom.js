@@ -23,7 +23,7 @@ function setAttr(el, name, value) {
   } else if (!SAFE_ATTRS.has(name) && !/^(aria|data)-[a-z-]+$/.test(name)) {
     throw new Error(`attribute not allowed: ${name}`);
   }
-  el.setAttribute(name, v);
+  el.setAttribute(name, v); // vetted-sink: name allowlisted, href/src validated above
 }
 
 function append(el, child) {
@@ -55,21 +55,25 @@ export function h(tag, attrs, ...children) {
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+const SVG_TAGS = new Set(["svg", "circle", "polygon"]);
+const SVG_ATTRS = new Set(["class", "width", "height", "viewBox", "aria-hidden", "cx", "cy", "r", "points"]);
 
-/** A small SVG element for legend keys and inline marks; numeric/known attributes only. */
+/** A small SVG element for legend keys and inline marks: known shapes and geometry only. */
 export function svg(tag, attrs, ...children) {
+  if (!SVG_TAGS.has(tag)) throw new Error(`svg element not allowed: ${tag}`);
   const el = document.createElementNS(SVG_NS, tag);
   for (const [name, value] of Object.entries(attrs || {})) {
-    if (!/^[a-zA-Z][a-zA-Z-]*$/.test(name) || name.toLowerCase().startsWith("on") || name === "href") {
-      throw new Error(`svg attribute not allowed: ${name}`);
-    }
-    el.setAttribute(name, String(value));
+    if (!SVG_ATTRS.has(name)) throw new Error(`svg attribute not allowed: ${name}`);
+    el.setAttribute(name, String(value)); // vetted-sink: name allowlisted above
   }
   for (const c of children) el.appendChild(c);
   return el;
 }
 
-export function clear(el) {
-  el.replaceChildren();
-  return el;
+const PR_URL = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/;
+
+/** Open a PR's GitHub page in a new tab; nothing but a PR link this page built. */
+export function openPr(url) {
+  if (!PR_URL.test(url)) throw new Error("refusing to open a link this page did not build");
+  window.open(url, "_blank", "noopener,noreferrer"); // vetted-sink: URL validated above
 }
