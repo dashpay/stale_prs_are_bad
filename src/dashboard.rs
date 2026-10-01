@@ -11,7 +11,7 @@ use crate::config::Config;
 use crate::model::{PolicyState, ScoredPr};
 use crate::policy::Policy;
 use crate::renderer::RepoStatus;
-use crate::stages::{self, Evidence, Recorded, Standing};
+use crate::stages::{self, Recorded, RepoEvidence, Standing};
 
 /// Bumped on any change a page built for the previous shape would misread.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -71,6 +71,11 @@ pub struct RepoOut {
     pub repo: String,
     pub engine_state_available: bool,
     pub fetch_error: Option<String>,
+    /// Why some PRs' entry into their stage could not be read. Those show their
+    /// age instead and are not called late, except a review, which keeps the
+    /// engine's own start; what GitHub's timeline says still stands. `null`
+    /// when nothing failed.
+    pub stage_times_error: Option<String>,
     /// Open review slots per author in this repository (the policy's
     /// `max_active_prs`); `wip` above it is over the limit.
     pub slot_limit: u32,
@@ -264,7 +269,7 @@ pub struct Inputs<'a> {
     pub engine: &'a HashMap<String, HashMap<u64, PolicyState>>,
     /// What GitHub and the engine record about each PR's stage changes, per
     /// repository and number; a PR missing here shows its age.
-    pub evidence: &'a HashMap<String, HashMap<u64, Evidence>>,
+    pub evidence: &'a HashMap<String, RepoEvidence>,
     pub policies: &'a HashMap<String, Policy>,
     pub repos: &'a [RepoStatus],
     pub cfg: &'a Config,
@@ -297,6 +302,7 @@ pub fn build(inp: &Inputs<'_>) -> Dashboard {
                 repo: r.repo.clone(),
                 engine_state_available: r.engine_state_available,
                 fetch_error: r.fetch_error.clone(),
+                stage_times_error: inp.evidence.get(&r.repo).and_then(|e| e.error.clone()),
                 slot_limit: inp
                     .policies
                     .get(&r.repo)
@@ -484,7 +490,7 @@ fn entered(
     if !stage.entry_recorded() {
         return None;
     }
-    let evidence = inp.evidence.get(repo).and_then(|prs| prs.get(&number));
+    let evidence = inp.evidence.get(repo).and_then(|e| e.prs.get(&number));
     let policy = inp.policies.get(repo);
     let governs = |base: &str| policy.is_some_and(|p| p.governs(base));
     let standing = match stage {
@@ -702,6 +708,7 @@ mod tests {
     use crate::model::{
         AnalyzedPr, AreaApproval, BySeverity, BySource, ChecklistItem, Mergeable, RawPr,
     };
+    use crate::stages::Evidence;
     use chrono::TimeZone;
 
     const REPO: &str = "dashpay/platform";
@@ -812,7 +819,10 @@ mod tests {
         let policies = policies();
         let evidence = HashMap::from([(
             REPO.to_string(),
-            evidence.into_iter().map(|e| (e.number, e)).collect(),
+            RepoEvidence {
+                prs: evidence.into_iter().map(|e| (e.number, e)).collect(),
+                error: None,
+            },
         )]);
         build(&Inputs {
             scored,
@@ -1235,13 +1245,14 @@ mod tests {
                         editor: Some(stages::ENGINE_LOGIN.into()),
                         body: Some(format!(
                             "<!-- platform-pr-review-state-v1 \
-                             {{\"number\":{number},\"state\":\"{state}\"}} -->\nYour move."
+                             {{\"head\":\"h\",\"number\":{number},\"state\":\"{state}\"}} -->\n\
+                             Your move."
                         )),
                     })
                     .collect(),
                 complete: true,
             }],
-            comments_complete: true,
+            comments_read: stages::Coverage::All,
         }
     }
 
@@ -1307,7 +1318,7 @@ mod tests {
         let scored = vec![scored(1, "alice", "v5.0-dev", Some(state.clone()))];
         let engine = HashMap::from([(REPO.to_string(), HashMap::from([(1, state)]))]);
         let mut unread = recorded(1, &[(48, "ready-for-human")]);
-        unread.comments_complete = false;
+        unread.comments_read = stages::Coverage::Partial;
         let d = board_with(&scored, &engine, vec![unread]);
         assert_eq!(d.prs[0].since_basis, Some(SinceBasis::Engine));
         assert_eq!(d.prs[0].since, Some(now() - chrono::Duration::days(2)));
@@ -1381,6 +1392,7 @@ mod tests {
         off_evidence.events = vec![stages::PrEvent::BaseChanged {
             at: at(20),
             from: "v5.0-dev".into(),
+            to: "feat/x".into(),
         }];
         // GitHub's timeline says this one is a draft; the PR list said it was
         // not. One of the two reads is stale: no entry is shown.

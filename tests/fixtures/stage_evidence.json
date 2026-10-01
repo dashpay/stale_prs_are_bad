@@ -52,10 +52,28 @@
           "timelineItems": {
             "pageInfo": { "hasPreviousPage": false },
             "nodes": [
-              { "__typename": "BaseRefChangedEvent", "createdAt": "2026-04-10T00:00:00Z", "previousRefName": "master" }
+              { "__typename": "BaseRefChangedEvent", "createdAt": "2026-04-10T00:00:00Z", "previousRefName": "master", "currentRefName": "v3.0" }
             ]
           },
           "comments": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] }
+        }
+      ]
+    }
+  },
+  "comments": {
+    "data": {
+      "nodes": [
+        {
+          "createdAt": "2026-05-16T00:00:00Z",
+          "lastEditedAt": "2026-05-18T00:00:00Z",
+          "author": { "login": "github-actions", "__typename": "Bot" },
+          "body": "<!-- platform-pr-review-state-v1 {\"head\":\"b\",\"number\":7000,\"state\":\"waiting-bots\"} -->\n<!-- pr-hygiene-diff-v1 {\"diff_heads\":[\"b\"],\"number\":7000} -->\nPR Hygiene: the checklist is in the description."
+        },
+        {
+          "createdAt": "2026-05-17T01:00:00Z",
+          "lastEditedAt": null,
+          "author": { "login": "github-actions", "__typename": "Bot" },
+          "body": "<!-- pr-hygiene-nudge v1 bot=coderabbitai sha=a -->\n@coderabbitai review"
         }
       ]
     }
@@ -64,30 +82,21 @@
     "data": {
       "nodes": [
         {
-          "createdAt": "2026-05-16T00:00:00Z",
-          "author": { "login": "github-actions", "__typename": "Bot" },
-          "body": "<!-- platform-pr-review-state-v1 {\"number\":7000,\"state\":\"waiting-bots\"} -->\nPR Hygiene: the checklist is in the description.",
           "userContentEdits": {
             "pageInfo": { "hasNextPage": false },
             "nodes": [
               {
                 "editedAt": "2026-05-18T00:00:00Z",
                 "editor": { "login": "github-actions", "__typename": "Bot" },
-                "diff": "<!-- platform-pr-review-state-v1 {\"number\":7000,\"state\":\"waiting-bots\"} -->\nPR Hygiene: the checklist is in the description."
+                "diff": "<!-- platform-pr-review-state-v1 {\"head\":\"b\",\"number\":7000,\"state\":\"waiting-bots\"} -->\n<!-- pr-hygiene-diff-v1 {\"diff_heads\":[\"b\"],\"number\":7000} -->\nPR Hygiene: the checklist is in the description."
               },
               {
                 "editedAt": "2026-05-16T00:00:00Z",
                 "editor": { "login": "github-actions", "__typename": "Bot" },
-                "diff": "<!-- platform-pr-review-state-v1 {\"number\":7000,\"state\":\"waiting-author\"} -->\n<!-- pr-hygiene:move state=waiting-self-review sha=a -->\nYour move: answer the review."
+                "diff": "<!-- platform-pr-review-state-v1 {\"head\":\"a\",\"number\":7000,\"state\":\"waiting-author\"} -->\n<!-- pr-hygiene-diff-v1 {\"diff_heads\":[\"a\"],\"number\":7000} -->\n<!-- pr-hygiene:move state=waiting-self-review sha=a -->\nYour move: answer the review."
               }
             ]
           }
-        },
-        {
-          "createdAt": "2026-05-17T01:00:00Z",
-          "author": { "login": "github-actions", "__typename": "Bot" },
-          "body": "<!-- pr-hygiene-nudge v1 bot=coderabbitai sha=a -->\n@coderabbitai review",
-          "userContentEdits": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
         }
       ]
     }

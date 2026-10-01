@@ -11,12 +11,14 @@ expression: board
       "repo": "dashpay/platform",
       "engine_state_available": true,
       "fetch_error": null,
+      "stage_times_error": null,
       "slot_limit": 5
     },
     {
       "repo": "dashpay/rust-dashcore",
       "engine_state_available": false,
       "fetch_error": null,
+      "stage_times_error": "2 of 2 PRs could not be read: #101: HTTP 502",
       "slot_limit": 5
     }
   ],
