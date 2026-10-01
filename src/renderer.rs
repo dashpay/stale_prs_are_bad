@@ -593,7 +593,11 @@ fn write_pr_bullet(
         if s.pr.stale_reasons.is_empty() {
             detail_bits.push("🐢 stale".into());
         } else {
-            detail_bits.push(format!("🐢 {}", s.pr.stale_reasons.join(", ")));
+            // Reasons name the base branch, whose name is not ours to trust.
+            detail_bits.push(format!(
+                "🐢 {}",
+                sanitize_inline(&s.pr.stale_reasons.join(", "))
+            ));
         }
     }
     if !s.areas.is_empty() {
@@ -712,11 +716,26 @@ fn write_methodology(out: &mut String, ctx: &RenderContext<'_>) {
     }
 }
 
+/// Render untrusted text (titles, comment excerpts, engine blockers) as plain
+/// text on a Jekyll page. Newlines would break the bullet; `|` a table;
+/// `<`/`>`/`&` would be raw HTML to kramdown; `{`/`}` would be Liquid tags,
+/// which Jekyll evaluates before Markdown; `[`/`]` would form a Markdown link
+/// or image with any URL, `javascript:` included; a backtick would open a
+/// code span that swallows the bullet's own link. `\` and `&` go first so the
+/// escapes added after them are not escaped twice — an unescaped `\` before
+/// `]` would turn `\]` back into a closing bracket.
 fn sanitize_inline(s: &str) -> String {
-    // Strip newlines and escape '|' and ']' so markdown tables / links don't break.
     s.replace(['\n', '\r'], " ")
+        .replace('\\', "\\\\")
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('{', "&#123;")
+        .replace('}', "&#125;")
         .replace('|', "\\|")
+        .replace('[', "\\[")
         .replace(']', "\\]")
+        .replace('`', "\\`")
 }
 
 #[cfg(test)]
@@ -1035,5 +1054,58 @@ mod tests {
         )];
         let out = render(&scored, &rollup_data, &ctx(false));
         assert!(out.contains("add \\| pipe in title"));
+    }
+
+    /// Titles, thread excerpts and engine blockers are written by anyone who
+    /// can open a PR or leave a review comment, and the report is served by
+    /// Jekyll: Liquid runs over the page first, then kramdown passes raw HTML
+    /// and any Markdown link through. None of that may survive as markup.
+    #[test]
+    fn untrusted_text_cannot_inject_html_liquid_or_links() {
+        let rollup_data = vec![rollup("alice", 1, 0, 1, 1, 1, 0, 1, 5.0, 1.0, None)];
+        // A backslash before `]` turns a naive `\]` escape into `\\]`: an
+        // escaped backslash followed by a bracket that closes the link.
+        let mut p = pr(
+            1,
+            "alice",
+            r"<img src=x onerror=alert(1)> {{ site.github }} {% include x %} x\](javascript:alert(1))",
+            vec![thread(
+                Severity::High,
+                ThreadSource::Human,
+                1,
+                r"[click\](javascript:alert(1)) & <script> `x`",
+            )],
+            true,
+            false,
+        );
+        p.policy_state = Some(crate::model::PolicyState {
+            state: "waiting-author".into(),
+            blockers: vec!["<b>bold</b> {{ x }}".into()],
+            ..Default::default()
+        });
+        let out = render(&[p], &rollup_data, &ctx(false));
+        for forbidden in ["<img", "<script", "<b>", "{{", "{%"] {
+            assert!(!out.contains(forbidden), "{forbidden:?} survived:\n{out}");
+        }
+        // Every `](` that Markdown would read as closing a link — preceded by
+        // an even number of backslashes — must be one the renderer wrote.
+        let ours = [
+            "https://example.com/pr/",
+            "#",
+            "https://github.com/dashpay/stale_prs_are_bad)",
+            ".pr-hygiene.yml)",
+        ];
+        for (i, _) in out.match_indices("](") {
+            let backslashes = out[..i].bytes().rev().take_while(|&b| b == b'\\').count();
+            let target = &out[i + 2..];
+            assert!(
+                backslashes % 2 == 1 || ours.iter().any(|t| target.starts_with(t)),
+                "untrusted text closed a link to {:?}:\n{out}",
+                &target[..target.len().min(40)]
+            );
+        }
+        assert!(out.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(out.contains(r"x\\\](javascript:alert(1))"));
+        assert!(out.contains(r"\[click\\\](javascript:alert(1)) &amp; &lt;script&gt; \`x\`"));
     }
 }
