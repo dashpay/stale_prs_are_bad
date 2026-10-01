@@ -1,5 +1,6 @@
 pub mod analyzer;
 pub mod config;
+pub mod dashboard;
 pub mod fetcher;
 pub mod history;
 pub mod model;

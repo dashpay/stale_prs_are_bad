@@ -189,12 +189,61 @@ pub struct PolicyState {
     pub blockers: Vec<String>,
     #[serde(default)]
     pub reviewers: Vec<String>,
+    /// The row describes its PR on its own, so a PR the dashboard filtered out
+    /// of its own analysis can still be shown in its reviewers' queues.
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub author: String,
+    /// When the current review cycle started; ISO 8601, kept as text and
+    /// parsed leniently so one odd value cannot drop the whole export.
+    #[serde(default)]
+    pub ready_since: Option<String>,
+    /// Every touched area: who may approve it and who has, on the current head.
+    #[serde(default)]
+    pub approvals: Vec<AreaApproval>,
+    /// Reviewers asked because of their own open objection.
+    #[serde(default)]
+    pub objectors: Vec<String>,
+    #[serde(default)]
+    pub checklist: Vec<ChecklistItem>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AreaApproval {
+    pub area: String,
+    #[serde(default)]
+    pub approvers: Vec<String>,
+    #[serde(default)]
+    pub approved_by: Vec<String>,
+    /// The author owns the area, so nobody's approval is needed for it.
+    #[serde(default)]
+    pub owned: bool,
+}
+
+/// One line of the engine's checklist. Only the build line's `state`
+/// (`green`, `running`, `failed`) is read; other fields are ignored.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChecklistItem {
+    #[serde(default)]
+    pub item: String,
+    #[serde(default)]
+    pub state: Option<serde_json::Value>,
 }
 
 impl PolicyState {
     /// True when the engine says the PR only waits on a human reviewer or merge.
     pub fn is_ready_for_human(&self) -> bool {
         matches!(self.state.as_str(), "ready-for-human" | "ready-to-merge")
+    }
+
+    /// The head's build as the engine saw it, when its checklist says.
+    pub fn build(&self) -> Option<&str> {
+        self.checklist
+            .iter()
+            .find(|i| i.item == "build")
+            .and_then(|i| i.state.as_ref())
+            .and_then(|v| v.as_str())
     }
 }
 
