@@ -31,7 +31,7 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
         id number title url isDraft mergeable createdAt updatedAt
         baseRefName
         files(first: 50) { totalCount pageInfo { endCursor hasNextPage } nodes { path } }
-        author { login }
+        author { login __typename }
         labels(first: 20) { nodes { name } }
         commits(last: 1) {
           nodes { commit {
@@ -40,7 +40,7 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
           } }
         }
         reviews(first: 50) {
-          nodes { state author { login } submittedAt }
+          nodes { state author { login __typename } submittedAt }
         }
         reviewRequests(first: 20) {
           nodes {
@@ -56,7 +56,7 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
             id isResolved isOutdated
             comments(first: $comments) {
               pageInfo { hasNextPage }
-              nodes { author { login } createdAt body }
+              nodes { author { login __typename } createdAt body }
             }
           }
         }
@@ -77,7 +77,7 @@ query PrHygieneThreads($id: ID!, $cursor: String, $comments: Int!) {
           id isResolved isOutdated
           comments(first: $comments) {
             pageInfo { hasNextPage }
-            nodes { author { login } createdAt body }
+            nodes { author { login __typename } createdAt body }
           }
         }
       }
@@ -523,11 +523,7 @@ pub fn parse_pr_node(node: &Value, repo: &str) -> Result<ParsedPr> {
     let mergeable = parse_mergeable(node.get("mergeable"));
     let created_at = parse_datetime(node, "createdAt")?;
     let updated_at = parse_datetime(node, "updatedAt")?;
-    let author = node
-        .get("author")
-        .and_then(|a| a.get("login"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let author = author_login(node);
 
     let labels = node
         .pointer("/labels/nodes")
@@ -685,12 +681,23 @@ fn parse_thread(node: &Value) -> Result<RawThread> {
     })
 }
 
+/// The login of a node's `author`. A GitHub App account is named as REST, the
+/// engine and the config name it (`dependabot[bot]`), not by the bare slug
+/// GraphQL returns — on PRs, reviews and comments alike, so a bot's own
+/// replies on its own PR still read as the author's.
+fn author_login(node: &Value) -> Option<String> {
+    let author = node.get("author")?;
+    let login = author.get("login")?.as_str()?;
+    let is_bot = author.get("__typename").and_then(|v| v.as_str()) == Some("Bot");
+    Some(if is_bot && !login.ends_with("[bot]") {
+        format!("{login}[bot]")
+    } else {
+        login.to_string()
+    })
+}
+
 fn parse_comment(node: &Value) -> Result<RawComment> {
-    let author = node
-        .get("author")
-        .and_then(|a| a.get("login"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let author = author_login(node);
     let created_at = parse_datetime(node, "createdAt")?;
     let body = string_field(node, "body").unwrap_or_default();
     Ok(RawComment {
@@ -706,11 +713,7 @@ fn parse_review(node: &Value) -> Result<Review> {
         .and_then(|v| v.as_str())
         .map(parse_review_state)
         .unwrap_or(ReviewState::Commented);
-    let author = node
-        .get("author")
-        .and_then(|a| a.get("login"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let author = author_login(node);
     let submitted_at = node
         .get("submittedAt")
         .and_then(|v| v.as_str())
@@ -937,5 +940,49 @@ mod tests {
             pr.last_commit.as_ref().unwrap().status_state,
             Some(StatusState::Failure)
         );
+    }
+
+    /// GraphQL names a GitHub App account by its bare slug (`dependabot`),
+    /// while the REST API, the review engine and `excluded_authors` all say
+    /// `dependabot[bot]`. Read bare, the exclusion never matched and the
+    /// account could not be told apart from a person of the same name.
+    #[test]
+    fn a_bot_account_author_is_named_as_rest_names_it() {
+        let mut node = json!({
+            "id": "PR_2", "number": 7, "title": "Bump", "url": "u", "isDraft": false,
+            "mergeable": "MERGEABLE",
+            "createdAt": "2026-04-01T00:00:00Z", "updatedAt": "2026-05-01T00:00:00Z",
+            "author": { "login": "dependabot", "__typename": "Bot" },
+            "reviewThreads": { "pageInfo": { "endCursor": null, "hasNextPage": false }, "nodes": [] }
+        });
+        let parsed = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert_eq!(parsed.pr.author.as_deref(), Some("dependabot[bot]"));
+        node["author"] = json!({ "login": "thepastaclaw", "__typename": "User" });
+        let parsed = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert_eq!(parsed.pr.author.as_deref(), Some("thepastaclaw"));
+        assert!(PR_LIST_QUERY.contains("author { login __typename }"));
+    }
+
+    /// A bot's own replies on its own PR must read as the author's, or they
+    /// count as reviewer activity and as unresolved review threads.
+    #[test]
+    fn review_and_comment_authors_are_named_like_the_pr_author() {
+        let bot = json!({ "login": "dependabot", "__typename": "Bot" });
+        let comment = parse_comment(&json!({
+            "author": bot, "createdAt": "2026-04-01T00:00:00Z", "body": "x"
+        }))
+        .unwrap();
+        assert_eq!(comment.author.as_deref(), Some("dependabot[bot]"));
+        let review = parse_review(&json!({
+            "state": "COMMENTED", "author": bot, "submittedAt": "2026-04-01T00:00:00Z"
+        }))
+        .unwrap();
+        assert_eq!(review.author.as_deref(), Some("dependabot[bot]"));
+        for query in [PR_LIST_QUERY, PR_THREADS_QUERY] {
+            assert!(
+                !query.contains("author { login }"),
+                "every author asks for its type"
+            );
+        }
     }
 }
