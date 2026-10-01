@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from pr_review.policy import codeowners, evaluate, validate_policy
+from pr_review.policy import codeowners, evaluate, governs, validate_policy
 from pr_review.registry import POLICIES, load_registry
 from pr_review.tests.test_policy import fixture, NOW
 
@@ -29,6 +29,19 @@ class RepositoryConfigurationTests(unittest.TestCase):
             self.assertEqual(entry['mode'], 'preview')
             self.assertEqual(self.policies[entry['repository']]['repository'], entry['repository'])
             validate_policy(self.policies[entry['repository']])
+
+    def test_platform_governs_every_development_branch_by_pattern(self):
+        # The pattern its own branch protection uses, so a release that renames
+        # the branches cannot take pull requests out of the policy.
+        policy = self.policies['dashpay/platform']
+        self.assertIn('v*-dev', policy['target_branches'])
+        # A caller pinned to an engine that compares names exactly reads this
+        # same live policy and would govern nothing from a pattern alone —
+        # and strip its marks from every pull request. The current names stay
+        # listed beside it, and must be ones the pattern covers anyway.
+        names = [b for b in policy['target_branches'] if '*' not in b]
+        self.assertTrue(names)
+        self.assertTrue(all(governs(policy, name) for name in names), names)
 
     def test_external_whole_repository_roles_do_not_promote_contributors(self):
         expected = {'tenderdash': ('v1.8-dev', ['lklimek'], ['shumkov']),

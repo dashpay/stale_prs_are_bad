@@ -8,9 +8,10 @@
     "waive_after_hours": 16
   },
   "target_branches": [
-    "v4.2-dev",
-    "v4.3-dev",
-    "v5.0-dev"
+    "v5.0-dev",
+    "v5.1-dev",
+    "v6.0-dev",
+    "v*-dev"
   ],
   "fallback": {
     "owners": [
