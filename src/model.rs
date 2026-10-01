@@ -174,45 +174,59 @@ pub struct ScoredPr {
     pub policy_state: Option<PolicyState>,
 }
 
+/// A `null` reads as the field's default. One odd value in the engine's
+/// export must not drop that repository's every verdict.
+fn null_as_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
+
 /// One PR's verdict as exported by the shared review engine. `state` is
 /// rendered verbatim; the dashboard only interprets the ready-for-human and
 /// ready-to-merge values.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolicyState {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub state: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub status: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub blockers: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub reviewers: Vec<String>,
     /// The row describes its PR on its own, so a PR the dashboard filtered out
     /// of its own analysis can still be shown in its reviewers' queues.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub title: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub author: String,
+    /// Every area the PR touches, known even before any approval is asked.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub areas: Vec<String>,
     /// When the current review cycle started; ISO 8601, kept as text and
     /// parsed leniently so one odd value cannot drop the whole export.
     #[serde(default)]
     pub ready_since: Option<String>,
     /// Every touched area: who may approve it and who has, on the current head.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub approvals: Vec<AreaApproval>,
     /// Reviewers asked because of their own open objection.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub objectors: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub checklist: Vec<ChecklistItem>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AreaApproval {
+    #[serde(default, deserialize_with = "null_as_default")]
     pub area: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub approvers: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub approved_by: Vec<String>,
     /// The author owns the area, so nobody's approval is needed for it.
     #[serde(default)]
@@ -223,7 +237,7 @@ pub struct AreaApproval {
 /// (`green`, `running`, `failed`) is read; other fields are ignored.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChecklistItem {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub item: String,
     #[serde(default)]
     pub state: Option<serde_json::Value>,

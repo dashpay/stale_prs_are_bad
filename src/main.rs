@@ -64,6 +64,14 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let cfg = config::Config::load_or_default(&args.config)?;
+    dashboard::validate_lateness(&cfg)?;
+    // Bots are not people: no account is folded into another's rows.
+    if !cfg.author_aliases.is_empty() {
+        anyhow::bail!(
+            "{}: author_aliases is no longer supported — bots keep their own rows",
+            args.config.display()
+        );
+    }
     let mut registry = policy::load_registry(&args.policies_root)?;
     if let Some(only) = &args.repo {
         registry.retain(|(repo, _)| repo == only);
