@@ -10,8 +10,6 @@ pub struct RawPr {
     pub url: String,
     pub author: Option<String>,
     pub created_at: DateTime<Utc>,
-    /// Kept for ordering / future incremental fetch; not currently consumed.
-    #[allow(dead_code)]
     pub updated_at: DateTime<Utc>,
     pub is_draft: bool,
     pub mergeable: Mergeable,
