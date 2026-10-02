@@ -236,6 +236,17 @@ class BuildVerdictTests(unittest.TestCase):
         with patch.object(api, "request", side_effect=pages):
             self.assertEqual(api.build_state(1, "a" * 40), "failed")
 
+    def test_a_check_cursor_that_comes_back_is_refused_not_followed_for_ever(self):
+        # A cursor seen before leads only to pages already read. Followed, it
+        # keeps the run asking for ever; in Actions until the job times out,
+        # in a service until somebody notices.
+        api = GitHub("dashpay/platform")
+        pages = [self.checks(nodes=[check(name, "SUCCESS", "1")], more=True, cursor=cursor)
+                 for name, cursor in [("a", "c1"), ("b", "c2"), ("c", "c1"), ("d", "c2"), ("e", "c1"), ("f", "c2")]]
+        with patch.object(api, "request", side_effect=pages):
+            with self.assertRaises(GitHubError):
+                api.build_state(1, "a" * 40)
+
     def test_a_partial_answer_is_never_read_as_no_checks(self):
         # statusCheckRollup is nullable, so a rate-limited or timed-out read
         # nulls it and reports the error beside it. Reading that as "this
@@ -982,6 +993,8 @@ class GitHubTests(unittest.TestCase):
                 ({None: first, "c1": no_page_info}, 'a page without its page information'),
                 ({None: first, "c1": page(everything[100:149], cursor="c2", endCursor=None)}, 'more and no cursor'),
                 ({None: first, "c1": page(cursor="c1")}, 'a cursor that does not move'),
+                ({None: first, "c1": page(everything[100:110], cursor="c2"),
+                  "c2": page(everything[110:120], cursor="c1")}, 'a cursor that comes back'),
                 ({None: first, "c1": page([], cursor="c2"), "c2": page()}, 'an empty page with more to come'),
                 ({None: page(everything[:100], cursor="c1", hasNextPage="yes"), "c1": page()}, 'more, not said plainly'),
                 ({None: first, "c1": dict(page(), errors=[{"type": "RATE_LIMITED"}])}, 'an error not a deletion')]:
