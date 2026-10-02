@@ -38,6 +38,7 @@ GitHub's public token-signing keys from
 | `PR_HYGIENE_OIDC_AUDIENCE` | — (required) | The audience the post job asks GitHub for: the service's public URL, e.g. `https://pr-hygiene.dash.org`, character for character the repository variable `PR_HYGIENE_SERVICE_URL` (a trailing slash in one and not the other is a mismatch). |
 | `PR_HYGIENE_BIND` | `0.0.0.0:8080` | Listen address. |
 | `PR_HYGIENE_DB` | `/data/pr-hygiene.sqlite3` | Database file. |
+| `PR_HYGIENE_SITE_DIR` | `/srv/site` in the image | The page's files, served at `/` with its security headers (CSP incl. `frame-ancestors 'none'`, `nosniff`, `no-referrer`); the page reads `/dashboard.json`. Unset: API only. |
 | `PR_HYGIENE_REPOSITORY_ID` | `1242761300` | Numeric id of the repository allowed to post (`dashpay/stale_prs_are_bad`). |
 | `PR_HYGIENE_REPOSITORY_OWNER_ID` | `11511719` | Numeric id of its owner (`dashpay`). |
 | `PR_HYGIENE_REF` | `refs/heads/master` | The only branch a posting run may run on. |

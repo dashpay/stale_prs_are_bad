@@ -25,8 +25,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=build /out/pr-hygiene-service /usr/local/bin/pr-hygiene-service
 COPY --from=build --chown=65532:65532 /out/data /data
+# The page: its own files only — no fixtures, no check script.
+COPY site/index.html site/app.js site/style.css /srv/site/
+COPY site/js /srv/site/js
+COPY site/vendor/d3.min.js site/vendor/plot.umd.min.js /srv/site/vendor/
 ENV PR_HYGIENE_BIND=0.0.0.0:8080 \
-    PR_HYGIENE_DB=/data/pr-hygiene.sqlite3
+    PR_HYGIENE_DB=/data/pr-hygiene.sqlite3 \
+    PR_HYGIENE_SITE_DIR=/srv/site
 # The database lives here: a local volume, not a network file system.
 VOLUME ["/data"]
 EXPOSE 8080

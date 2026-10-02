@@ -26,6 +26,10 @@ pub struct ServeConfig {
     )]
     pub db: PathBuf,
 
+    /// Directory of the page's files; when set, they are served at `/`.
+    #[arg(long, env = "PR_HYGIENE_SITE_DIR")]
+    pub site_dir: Option<PathBuf>,
+
     #[command(flatten)]
     pub ingest: IngestConfig,
 }

@@ -69,7 +69,11 @@ async fn serve(cfg: ServeConfig) -> anyhow::Result<()> {
         .await
         .with_context(|| format!("binding {}", cfg.bind))?;
     tracing::info!(addr = %cfg.bind, db = %cfg.db.display(), "listening");
-    axum::serve(listener, app::router(state))
+    let mut router = app::router(state);
+    if let Some(dir) = cfg.site_dir {
+        router = router.fallback_service(app::site(dir));
+    }
+    axum::serve(listener, router)
         .with_graceful_shutdown(shutdown())
         .await?;
     Ok(())

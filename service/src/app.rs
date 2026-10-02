@@ -16,8 +16,11 @@ use axum::{Json, Router};
 use chrono::Utc;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use serde_json::json;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::{Duration, Instant};
+use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::timeout::TimeoutLayer;
 
 /// Longest any request may take, the body upload included.
@@ -102,6 +105,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/repos", get(api::repos).options(api::preflight))
         .route("/api/v1/stages", get(api::stages).options(api::preflight))
+        .route(
+            "/dashboard.json",
+            get(api::dashboard).options(api::preflight),
+        )
         .layer(middleware::map_response(api::public_headers));
     Router::new()
         .merge(public)
@@ -114,6 +121,32 @@ pub fn router(state: Arc<AppState>) -> Router {
             REQUEST_TIMEOUT,
         ))
         .with_state(state)
+}
+
+/// The page's security policy, sent as a header: the same as its meta tag,
+/// plus `frame-ancestors`, which only a header can set.
+const PAGE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+img-src 'self' https://avatars.githubusercontent.com; connect-src 'self'; base-uri 'none'; \
+object-src 'none'; form-action 'none'; frame-ancestors 'none'; \
+require-trusted-types-for 'script'; trusted-types 'none'";
+
+/// The page's files from `dir`, with its security headers. Paths cannot
+/// leave `dir`.
+pub fn site(dir: PathBuf) -> Router {
+    Router::new()
+        .fallback_service(ServeDir::new(dir).append_index_html_on_directories(true))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(PAGE_CSP),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("no-referrer"),
+        ))
 }
 
 /// An error as the API returns it: a status and a JSON reason.

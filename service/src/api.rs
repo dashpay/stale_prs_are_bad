@@ -337,6 +337,31 @@ pub async fn repos(
     ))
 }
 
+/// `GET /dashboard.json`: the whole merged view in the analyzer's own
+/// contract, which is what the page reads — the same page that ran on GitHub
+/// Pages runs here unchanged.
+pub async fn dashboard(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    q: Result<Query<NoParams>, QueryRejection>,
+) -> Result<Response, ApiError> {
+    query(q)?;
+    let view = state.view().await?;
+    Ok(json_response(
+        &headers,
+        &json!({
+            "schema_version": pr_hygiene::dashboard::SCHEMA_VERSION,
+            "generated_at": view.generated_at,
+            "commit": view.commit,
+            "repos": view.repos,
+            "idle_days": view.idle_days,
+            "stages": view.stages,
+            "prs": view.prs,
+            "people": view.people,
+        }),
+    ))
+}
+
 /// `GET /api/v1/stages`: every stage in display order, whose move it is and
 /// when it is late.
 pub async fn stages(
