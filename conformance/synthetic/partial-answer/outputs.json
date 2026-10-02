@@ -1,0 +1,23 @@
+[
+ {
+  "number": 2,
+  "head": "cccccccccccccccccccccccccccccccccccccccc",
+  "status": {
+   "state": "pending",
+   "context": "PR Hygiene",
+   "description": "ready-for-human"
+  },
+  "labels": [
+   "ready-for-human"
+  ],
+  "checklist": "<!-- pr-hygiene:start -->\n# PR Hygiene · `ccccccc`\n- [x] Bots — coderabbitai ✓ · thepastaclaw ✓\n- [x] Self-review — posted; again after any push\n- [x] Within your 5 open PRs\n- [x] Build green\n- Approvals\n  - [ ] `drive` (`packages/drive/2.rs`) — owner\n\nWhen every box is checked the `PR Hygiene` check passes and this can merge.\n<!-- pr-hygiene:end -->",
+  "move": "<!-- pr-hygiene:move state=ready-for-human sha=cccccccccccccccccccccccccccccccccccccccc -->\nReady for review — `drive`: owner.\nFull checklist in the description.",
+  "record": "{\"admitted_at\":\"2026-09-12T10:00:00Z\",\"context\":\"5bc0ade402d91a549e6528346db22d7e443a0b35eae0194553c5f877a6bded2b\",\"evidence\":\"b583fa490d165edbcc7a34416231e85f97f9d1255937ff3588736e3efd4360bc\",\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"number\":2,\"ready_since\":null,\"state\":\"ready-for-human\",\"version\":1}",
+  "diff": "{\"diff\":\"097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb\",\"diff_heads\":[\"cccccccccccccccccccccccccccccccccccccccc\"],\"diff_seen\":null,\"number\":2,\"receipts\":{}}",
+  "markers": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-12T10:00:00Z\",\"context\":\"5bc0ade402d91a549e6528346db22d7e443a0b35eae0194553c5f877a6bded2b\",\"evidence\":\"b583fa490d165edbcc7a34416231e85f97f9d1255937ff3588736e3efd4360bc\",\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"number\":2,\"ready_since\":null,\"state\":\"ready-for-human\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb\",\"diff_heads\":[\"cccccccccccccccccccccccccccccccccccccccc\"],\"diff_seen\":null,\"number\":2,\"receipts\":{}} -->",
+  "comment": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-12T10:00:00Z\",\"context\":\"5bc0ade402d91a549e6528346db22d7e443a0b35eae0194553c5f877a6bded2b\",\"evidence\":\"b583fa490d165edbcc7a34416231e85f97f9d1255937ff3588736e3efd4360bc\",\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"number\":2,\"ready_since\":null,\"state\":\"ready-for-human\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb\",\"diff_heads\":[\"cccccccccccccccccccccccccccccccccccccccc\"],\"diff_seen\":null,\"number\":2,\"receipts\":{}} -->\n\n<!-- pr-hygiene:move state=ready-for-human sha=cccccccccccccccccccccccccccccccccccccccc -->\nReady for review — `drive`: owner.\nFull checklist in the description.",
+  "comment_refused": null,
+  "diff_print": "097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb",
+  "receipt_prints": {}
+ }
+]

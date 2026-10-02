@@ -7,6 +7,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -540,6 +541,41 @@ class RedactionTests(RecordingCase):
             with self.assertRaises(conformance.RecordingError):
                 conformance.redact(source, Path(self.scratch.name, 'refused'))
         self.assertFalse(Path(self.scratch.name, 'refused').exists())
+
+
+class SyntheticRecordingTests(unittest.TestCase):
+    """The recordings `conformance/synthetic/generate.py` writes, which another engine rebuilds its reads from."""
+
+    HERE = Path(__file__).resolve().parents[2] / 'conformance' / 'synthetic'
+
+    def recordings(self):
+        return sorted(path for path in self.HERE.iterdir() if (path / 'recording.json').is_file())
+
+    def test_every_committed_synthetic_recording_replays(self):
+        paths = self.recordings()
+        self.assertGreaterEqual(len(paths), 7, 'the synthetic recordings are committed')
+        for path in paths:
+            with self.subTest(recording=path.name), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(conformance.replay_recording(path)[1], [])
+
+    @unittest.skipUnless(sys.version_info[:2] == (3, 12), 'the recordings are made on Python 3.12 only')
+    def test_the_committed_synthetic_recordings_are_what_the_generator_writes(self):
+        # A change to the engine that changes what it reads, or how, has to
+        # carry the regenerated recordings with it, or another engine is held
+        # to reads this one no longer makes.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('synthetic_generate', self.HERE / 'generate.py')
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        with tempfile.TemporaryDirectory() as root:
+            generator.generate(Path(root))
+            fresh = sorted(path for path in Path(root).iterdir())
+            self.assertEqual([path.name for path in fresh], [path.name for path in self.recordings()])
+            for path in fresh:
+                for file in generator.FILES:
+                    with self.subTest(recording=path.name, file=file):
+                        self.assertEqual((path / file).read_text(), (self.HERE / path.name / file).read_text(),
+                                         'stale: run conformance/synthetic/generate.py and commit the result')
 
 
 class EvaluateCaseTests(unittest.TestCase):

@@ -5,11 +5,12 @@ implementation of it can be held to the same answers, verdict for verdict and
 write for write. The code is `pr_review/conformance.py`; its tests are
 `pr_review/tests/test_conformance.py`.
 
-There are three artifacts.
+There are five artifacts.
 
 | Artifact | Where | Committed | What it pins |
 |---|---|---|---|
 | Boundary recordings | `conformance/live/` | **no** (`.gitignore`) | a whole run against real pull requests: every GitHub call and its answer, the verdicts, the ordered writes, the exact text written |
+| Synthetic recordings | `conformance/synthetic/` | yes | the same, recorded offline over the recorder's test fake, shaped to walk read paths a live run may not show |
 | Evaluate cases | `conformance/evaluate/` | yes | every `policy.evaluate` call the engine's own test suite makes: inputs and result |
 | Function cases | `conformance/functions/<function>/` | yes | every call the test suite makes of the pure functions `main.py` relies on: inputs and output, byte for byte |
 | Python behaviour goldens | `conformance/pycompat/` | yes | what Python 3.12 itself does with the text, JSON, patterns and timestamps the engine handles |
@@ -215,6 +216,31 @@ what `fromisoformat` accepts changed between them.
 A recording is `format` 2. Format 1 is the same without `clock_reads`; it
 still replays, every comparison but that one made, and its summary line says
 so. Any other format is refused.
+
+### Synthetic recordings
+
+```sh
+uv run -q --python 3.12 --no-project --with pyyaml python conformance/synthetic/generate.py
+```
+
+Recordings made by the same recorder, offline, with the recorder's own test
+fake (`FakeGh` in `pr_review/tests/test_conformance.py`) standing where `gh`
+does. Each is shaped to walk a read path a live recording may never show: a
+conversation longer than the batched window, a record a person edited, a
+GraphQL answer that fails with data, a transient failure and its retry, a
+call that ran out of Python's own time. `generate.py` says which recording
+covers what. They hold nothing private and are committed; the generator
+writes the same bytes on every run, and a test fails when the committed ones
+are not what it writes, so a change to what the engine reads carries the
+regenerated recordings with it. Python 3.12 only, as the corpus is.
+
+The Rust engine's `tests/evidence` rebuilds, from each recording's reads
+alone, every snapshot Python's `evaluate` was given (`evaluations.jsonl`),
+key for key and in its order. It asks each read as `gh api` with the exact
+arguments and stdin Python sent, so a request written one byte differently
+is one the recording does not hold. The same test runs over `conformance/live`
+when asked (`cargo test -p pr-hygiene-engine --test evidence -- --ignored`),
+and refuses a recording that was not redacted.
 
 ## Evaluate cases
 

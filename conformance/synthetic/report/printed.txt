@@ -1,0 +1,8 @@
+# PR Hygiene — 2026-09-12T10:00:00Z
+
+Read-only snapshot. Waiting time is for the current actionable review cycle.
+
+| PR | Author | Areas | State | Awaiting review | Next action |
+| --- | --- | --- | --- | --- | --- |
+| [#2: PR 2](https://x/2) | reviewer | drive | ready-for-human | not recorded | Human approval or objection resolution is required; needs `drive`: owner |
+| [#1: PR 1](https://x/1) | owner | drive | ready-to-merge | not recorded | All policy requirements are satisfied |

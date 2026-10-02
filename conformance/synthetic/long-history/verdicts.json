@@ -1,0 +1,94 @@
+[
+ {
+  "number": 2,
+  "head": "cccccccccccccccccccccccccccccccccccccccc",
+  "author": "reviewer",
+  "title": "PR 2",
+  "url": "https://x/2",
+  "state": "ready-for-human",
+  "status": "pending",
+  "blockers": [
+   "Human approval or objection resolution is required"
+  ],
+  "reviewers": [
+   "owner"
+  ],
+  "objectors": [],
+  "areas": [
+   "drive"
+  ],
+  "ready_since": "2026-09-12T10:00:00Z",
+  "admitted_at": "2026-09-11T09:00:00Z",
+  "bot_completed_at": "2026-09-11T10:00:00Z",
+  "self_reviewed_at": "2026-09-11T11:00:00Z",
+  "nudge": [],
+  "waived": [],
+  "approvals": [
+   {
+    "area": "drive",
+    "files": [
+     "packages/drive/2.rs"
+    ],
+    "approvers": [
+     "owner"
+    ],
+    "approved_by": [],
+    "owned": false
+   }
+  ],
+  "objections": [],
+  "checklist": [
+   {
+    "item": "bots",
+    "done": true,
+    "lines": [
+     "coderabbitai ✓",
+     "thepastaclaw ✓"
+    ],
+    "skippable": false
+   },
+   {
+    "item": "self_review",
+    "done": true,
+    "bot_author": false,
+    "on_their_behalf": [],
+    "address": []
+   },
+   {
+    "item": "slot",
+    "done": true,
+    "limit": 5
+   },
+   {
+    "item": "build",
+    "done": true,
+    "state": "green",
+    "latched": false
+   },
+   {
+    "item": "approvals",
+    "done": false,
+    "areas": [
+     {
+      "area": "drive",
+      "files": [
+       "packages/drive/2.rs"
+      ],
+      "approvers": [
+       "owner"
+      ],
+      "approved_by": [],
+      "owned": false
+     }
+    ],
+    "awaiting": []
+   }
+  ],
+  "reviewed_heads": [
+   "cccccccccccccccccccccccccccccccccccccccc"
+  ],
+  "reviewed_since": null,
+  "receipts": {},
+  "repository": "dashpay/platform"
+ }
+]

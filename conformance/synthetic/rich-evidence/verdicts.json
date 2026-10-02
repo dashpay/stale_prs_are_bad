@@ -1,0 +1,102 @@
+[
+ {
+  "number": 2,
+  "head": "cccccccccccccccccccccccccccccccccccccccc",
+  "author": "reviewer",
+  "title": "Make the drive faster ⚡",
+  "url": "https://x/2",
+  "state": "ready-for-human",
+  "status": "pending",
+  "blockers": [
+   "Human approval or objection resolution is required"
+  ],
+  "reviewers": [
+   "owner"
+  ],
+  "objectors": [],
+  "areas": [
+   "drive"
+  ],
+  "ready_since": "2026-09-12T10:00:00Z",
+  "admitted_at": "2026-09-08T00:00:00Z",
+  "bot_completed_at": "2026-09-11T10:00:00Z",
+  "self_reviewed_at": "2026-09-11T11:00:00Z",
+  "nudge": [],
+  "waived": [],
+  "approvals": [
+   {
+    "area": "drive",
+    "files": [
+     "packages/drive/CLAUDE.md",
+     "packages/drive/a.rs",
+     "packages/drive/b.rs",
+     "packages/drive/golden.bin",
+     "packages/drive/résumé.md"
+    ],
+    "approvers": [
+     "owner"
+    ],
+    "approved_by": [],
+    "owned": false
+   }
+  ],
+  "objections": [],
+  "checklist": [
+   {
+    "item": "bots",
+    "done": true,
+    "lines": [
+     "coderabbitai ✓",
+     "thepastaclaw ✓"
+    ],
+    "skippable": false
+   },
+   {
+    "item": "self_review",
+    "done": true,
+    "bot_author": false,
+    "on_their_behalf": [],
+    "address": []
+   },
+   {
+    "item": "slot",
+    "done": true,
+    "limit": 5
+   },
+   {
+    "item": "build",
+    "done": true,
+    "state": "green",
+    "latched": true
+   },
+   {
+    "item": "approvals",
+    "done": false,
+    "areas": [
+     {
+      "area": "drive",
+      "files": [
+       "packages/drive/CLAUDE.md",
+       "packages/drive/a.rs",
+       "packages/drive/b.rs",
+       "packages/drive/golden.bin",
+       "packages/drive/résumé.md"
+      ],
+      "approvers": [
+       "owner"
+      ],
+      "approved_by": [],
+      "owned": false
+     }
+    ],
+    "awaiting": []
+   }
+  ],
+  "reviewed_heads": [
+   "cccccccccccccccccccccccccccccccccccccccc"
+  ],
+  "reviewed_since": "2026-09-11T09:00:00Z",
+  "receipts": {},
+  "repository": "dashpay/platform"
+ }
+]

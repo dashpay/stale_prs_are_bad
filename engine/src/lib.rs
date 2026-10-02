@@ -7,4 +7,5 @@
 //! values, Python's JSON reader and writer, its string methods, its regular
 //! expression classes, its `datetime` and the ties of `max` and `min`.
 
+pub mod evidence;
 pub mod pycompat;

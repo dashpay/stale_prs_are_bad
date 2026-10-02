@@ -1,0 +1,67 @@
+{
+ "format": 2,
+ "repository": "dashpay/platform",
+ "argv": [
+  "sync",
+  "--repo",
+  "dashpay/platform",
+  "--pr",
+  "2",
+  "--format",
+  "markdown"
+ ],
+ "clock": "2026-09-12T10:00:00Z",
+ "clock_reads": [
+  {
+   "site": "collect",
+   "after": 2
+  },
+  {
+   "site": "run",
+   "after": 13
+  },
+  {
+   "site": "finish",
+   "after": 53
+  }
+ ],
+ "policy": {
+  "version": 1,
+  "repository": "dashpay/platform",
+  "max_active_prs": 5,
+  "target_branches": [
+   "v4.2-dev"
+  ],
+  "fallback": {
+   "owners": [
+    "fallback"
+   ],
+   "reviewers": []
+  },
+  "areas": [
+   {
+    "id": "drive",
+    "paths": [
+     "packages/drive/"
+    ],
+    "owners": [
+     "owner"
+    ],
+    "reviewers": [
+     "reviewer"
+    ]
+   }
+  ]
+ },
+ "telemetry": null,
+ "telemetry_reads": 0,
+ "outcome": {
+  "returned": 0
+ },
+ "environment": {
+  "GITHUB_RUN_ID": null
+ },
+ "python": "3.12",
+ "engine_commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+ "redacted": null
+}
