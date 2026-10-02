@@ -80,9 +80,44 @@ class RepoCheckTests(unittest.TestCase):
                 CALLER.format(reference=checks.REUSABLE, pin='c' * 40))
             self.assertEqual(list(checks.caller_pins(policies, trees)), [('dashpay/example', 'c' * 40)])
 
-    def test_policy_compatibility_cannot_accept_a_mutable_or_malformed_engine_pin(self):
-        for pin in ('master', 'a' * 7, '', 'a' * 40 + ';command'):
-            with self.subTest(pin=pin), self.assertRaisesRegex(ValueError, 'full commit SHA'):
+    def test_every_governed_branch_has_its_caller_pin_checked(self):
+        # A pull request into a branch runs the caller of that branch. Reading
+        # only the default branch let v5.1-dev and v6.0-dev keep running an
+        # engine the compatibility gate no longer validated once the default
+        # branch moved to master.
+        import base64
+        sha, old = 'a' * 40, 'b' * 40
+        files = {'main': CALLER.format(reference=checks.REUSABLE, pin='master'),
+                 'v5.1-dev': CALLER.format(reference=checks.REUSABLE, pin=old),
+                 'v6.0-dev': CALLER.format(reference=checks.REUSABLE, pin=sha)}
+        answers = {'repos/dashpay/example/branches': [{'name': n} for n in ('main', 'v5.1-dev', 'v6.0-dev',
+                                                                             'v7.0-dev', 'feature')]}
+        for branch, text in files.items():
+            answers[f'repos/dashpay/example/contents/{checks.CALLER}?ref={branch}'] = {
+                'content': base64.b64encode(text.encode()).decode()}
+
+        def api(path):
+            if path not in answers:
+                raise checks.NotFound(path)
+            return answers[path]
+
+        with tempfile.TemporaryDirectory() as directory:
+            policies, _, _ = layout(directory)
+            policy = json.loads((policies / 'example.json').read_text())
+            policy['target_branches'] = ['main', 'v*-dev']
+            (policies / 'example.json').write_text(json.dumps(policy))
+            pins = sorted(checks.branch_pins(policies, api))
+        # v7.0-dev has no caller yet and `feature` is not governed: neither is read as a pin.
+        self.assertEqual(pins, [('dashpay/example@main', 'master'), ('dashpay/example@v5.1-dev', old),
+                                ('dashpay/example@v6.0-dev', sha)])
+
+    def test_policy_compatibility_accepts_a_full_sha_or_master_and_nothing_else(self):
+        # `master` is the protected branch the policies are read from; a caller
+        # tracking it runs whatever the proposed change merges, so that is the
+        # engine its policies are checked against.
+        self.assertEqual(checks.caller_pin(CALLER.format(reference=checks.REUSABLE, pin='master')), 'master')
+        for pin in ('main', 'refs/heads/master', 'v1', 'a' * 7, '', 'a' * 40 + ';command'):
+            with self.subTest(pin=pin), self.assertRaisesRegex(ValueError, 'full commit SHA or master'):
                 checks.caller_pin(CALLER.format(reference=checks.REUSABLE, pin=pin))
 
 

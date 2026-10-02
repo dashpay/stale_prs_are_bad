@@ -66,7 +66,7 @@ class BootstrapTests(unittest.TestCase):
             with self.subTest(revision=revision):
                 self.calls.clear()
                 self.environment['WORKFLOW_REVISION'] = revision
-                with self.assertRaisesRegex(SystemExit, 'full pinned commit'):
+                with self.assertRaisesRegex(SystemExit, 'full commit SHA or by master'):
                     self.run_bootstrap()
                 self.assertEqual(self.calls, [])
 
@@ -75,8 +75,27 @@ class BootstrapTests(unittest.TestCase):
                           f'{CENTRAL}/.github/workflows/pr-review-reusable.yml@master', ''):
             with self.subTest(reference=reference):
                 self.environment['WORKFLOW_REFERENCE'] = reference
-                with self.assertRaisesRegex(SystemExit, 'full pinned commit'):
+                with self.assertRaisesRegex(SystemExit, 'full commit SHA or by master'):
                     self.run_bootstrap()
+
+    def test_a_caller_tracking_master_runs_the_commit_github_resolved(self):
+        # One engine everywhere, at once: a fix merged here reaches every
+        # repository on its next run instead of after a re-pin in each. GitHub
+        # names the branch as a ref and still reports the commit it runs.
+        self.environment['WORKFLOW_REFERENCE'] = f'{CENTRAL}/.github/workflows/pr-review-reusable.yml@refs/heads/master'
+        self.responses[f'repos/{CENTRAL}/compare/master...{PIN}'] = {'status': 'identical'}
+        self.assertEqual(self.run_bootstrap(), {'branch': 'v4.2-dev', 'engine': PIN})
+
+    def test_master_is_the_only_branch_and_must_be_the_merged_master(self):
+        for reference in ('refs/heads/feature', 'refs/heads/master-old', 'refs/tags/v1', PIN[:7]):
+            with self.subTest(reference=reference):
+                self.environment['WORKFLOW_REFERENCE'] = f'{CENTRAL}/.github/workflows/pr-review-reusable.yml@{reference}'
+                with self.assertRaisesRegex(SystemExit, 'full commit SHA or by master'):
+                    self.run_bootstrap()
+        self.environment['WORKFLOW_REFERENCE'] = f'{CENTRAL}/.github/workflows/pr-review-reusable.yml@refs/heads/master'
+        self.responses[f'repos/{CENTRAL}/compare/master...{PIN}'] = {'status': 'ahead'}
+        with self.assertRaisesRegex(SystemExit, 'not a commit merged'):
+            self.run_bootstrap()
 
     def test_an_unexpected_caller_is_rejected(self):
         self.environment['CALLER_REFERENCE'] = 'dashpay/other/.github/workflows/pr-review-policy.yml@refs/heads/main'

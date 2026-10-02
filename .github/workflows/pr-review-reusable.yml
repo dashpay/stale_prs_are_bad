@@ -60,9 +60,16 @@ jobs:
           repo = os.environ['TARGET_REPOSITORY']
           engine = os.environ.get('WORKFLOW_REVISION', '')
           reference, _, pin = os.environ.get('WORKFLOW_REFERENCE', '').partition('@')
+          # A caller names the engine by a full commit SHA, or by master: the
+          # protected branch its policies are already read from live. Either
+          # way `engine` is the commit GitHub is running. For a pinned SHA the
+          # check below holds it to master; for a caller on master that check
+          # runs inside the commit it checks, and what protects the branch is
+          # its rulesets — including the one that forbids a `master` tag, which
+          # GitHub would resolve before the branch.
           if (not re.fullmatch(r'[0-9a-f]{40}', engine)
-                  or reference.casefold() != REUSABLE or pin != engine):
-              raise SystemExit('The running reusable workflow must identify its full pinned commit SHA')
+                  or reference.casefold() != REUSABLE or pin not in {engine, 'refs/heads/master'}):
+              raise SystemExit('The running reusable workflow must be named by its full commit SHA or by master')
           caller, _, _ = os.environ.get('CALLER_REFERENCE', '').partition('@')
           if caller.casefold() != f'{repo}/{CALLER}'.casefold():
               raise SystemExit('Unexpected caller workflow path')
@@ -71,9 +78,9 @@ jobs:
           if not REF.fullmatch(default_branch):
               raise SystemExit('Unsupported branch name')
 
-          # Never infer executable code from the PR's base or a moving branch.
-          # A stacked PR can target an old feature branch with a stale caller;
-          # the engine must still be the revision of the job GitHub is running.
+          # Never infer executable code from the PR's base branch. A stacked PR
+          # can target an old feature branch with a stale caller; the engine
+          # must still be the revision of the job GitHub is running.
 
           # Only a reviewed, merged engine may run with a caller's write token.
           comparison = api(f'repos/{CENTRAL}/compare/master...{engine}')

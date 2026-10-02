@@ -41,9 +41,15 @@ jobs:
         run: python3 proposed/.github/scripts/repo_checks.py bots
 
       - name: Validate proposed policies with every engine revision a caller pins
-        # Callers pick up policy changes immediately but engine changes only when
-        # re-pinned. Each caller's pin is read from its own default branch, so a
-        # policy change cannot break a caller that nobody remembered to record.
+        # Callers pick up policy changes immediately; a caller pinned to a SHA
+        # picks up engine changes only when re-pinned, a caller on master with
+        # the merge itself. So a caller on master is checked against both the
+        # proposed engine and today's master: runs that started before the
+        # merge keep the engine they resolved but read the merged policies.
+        # Every governed branch's caller is read, since a pull request runs
+        # the caller of the branch it targets.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git clone --quiet --bare https://github.com/dashpay/stale_prs_are_bad central.git
@@ -53,6 +59,10 @@ jobs:
           # pin list would incorrectly pass the policy compatibility gate.
           python3 proposed/.github/scripts/repo_checks.py pins > caller-pins.txt
           while read -r repo sha; do
+            if [ "$sha" = master ]; then
+              pins[master]="${pins[master]:-}$repo "
+              continue
+            fi
             if ! git -C central.git merge-base --is-ancestor "$sha" master 2>/dev/null; then
               echo "::error::$repo pins $sha, which is not reachable from master; policy compatibility cannot be verified"
               exit 1
@@ -61,11 +71,21 @@ jobs:
           done < caller-pins.txt
           for sha in "${!pins[@]}"; do
             echo "engine $sha is pinned by: ${pins[$sha]}"
-            git clone --quiet --no-checkout https://github.com/dashpay/stale_prs_are_bad "engine-$sha"
-            git -C "engine-$sha" checkout --quiet "$sha"
-            for repo in $repos; do
-              (cd "engine-$sha" && python3 -m pr_review.main validate --repo "$repo" \
-                 --policies-root "$GITHUB_WORKSPACE/proposed/policies" --repository-root "$GITHUB_WORKSPACE/trees/${repo#*/}")
+            if [ "$sha" = master ]; then
+              current=$(git -C central.git rev-parse master)
+              git clone --quiet --no-checkout https://github.com/dashpay/stale_prs_are_bad engine-master
+              git -C engine-master checkout --quiet "$current"
+              engines="$GITHUB_WORKSPACE/proposed engine-master"
+            else
+              git clone --quiet --no-checkout https://github.com/dashpay/stale_prs_are_bad "engine-$sha"
+              git -C "engine-$sha" checkout --quiet "$sha"
+              engines="engine-$sha"
+            fi
+            for engine in $engines; do
+              for repo in $repos; do
+                (cd "$engine" && python3 -m pr_review.main validate --repo "$repo" \
+                   --policies-root "$GITHUB_WORKSPACE/proposed/policies" --repository-root "$GITHUB_WORKSPACE/trees/${repo#*/}")
+              done
             done
           done
       - name: Lint workflows and generated caller workflows
