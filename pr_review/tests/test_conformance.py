@@ -647,6 +647,13 @@ class FunctionCaseTests(unittest.TestCase):
         named = {test for path in self.CASES.rglob('*.json') for test in json.loads(path.read_text())['tests']}
         self.assertEqual({test for test in named if test.startswith('test_workflow.')}, set())
 
+    def test_no_case_comes_from_a_module_the_harvest_does_not_run(self):
+        # The live-policy tests hand the engine whatever policies/ says today;
+        # a case of theirs would turn every policy edit into a corpus change.
+        paths = [*(self.CASES.parent / 'evaluate').glob('*.json'), *self.CASES.glob('*/*.json')]
+        named = {test.split('.')[0] for path in paths for test in json.loads(path.read_text())['tests']}
+        self.assertEqual(named & set(conformance.NOT_HARVESTED), set())
+
     def test_a_call_made_after_the_suite_is_neither_kept_nor_counted(self):
         watching, kept = [True], []
         counts = {'calls': 0, 'not_serialisable': 0, 'raised': 0}

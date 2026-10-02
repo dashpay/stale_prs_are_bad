@@ -828,6 +828,16 @@ HARVEST_CLOCK = '2026-10-01T00:00:00Z'
 # and a case made on another one would pin that Python's answer instead.
 HARVEST_PYTHON = (3, 12)
 CASE_FILE = re.compile(r'[a-z-]+-[0-9a-f]{12}\.json')
+# Test modules a harvest does not run, every other one under pr_review/tests
+# being the engine's own tests:
+# - test_conformance replays the cases a harvest writes, so it would only feed
+#   the corpus back into itself;
+# - test_repositories and test_roster check the live policies under policies/
+#   — who owns what, which branches are governed, today — so what they hand
+#   the engine changes with every policy edit, and a policy change must land
+#   without re-harvesting the corpus. Tests that only need a realistic policy
+#   read the frozen copy in pr_review/tests/fixtures/ instead.
+NOT_HARVESTED = ('test_conformance', 'test_repositories', 'test_roster')
 
 
 def case_name(case):
@@ -1001,10 +1011,8 @@ def harvest(destination, functions, start='pr_review/tests'):
         # clock. Fixed here, those cases are the same on every harvest.
         from . import main as engine
         swap(engine, 'clock', lambda: _instant(HARVEST_CLOCK))
-        # The engine's own tests. This module's tests replay the cases a harvest
-        # writes, so they would only feed the corpus back into itself.
         suite = unittest.TestSuite(test for test in tests(unittest.TestLoader().discover(start))
-                                   if not test.id().startswith('test_conformance.'))
+                                   if test.id().split('.')[0] not in NOT_HARVESTED)
         report = io.StringIO()
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             outcome = unittest.TextTestRunner(resultclass=Tracking, stream=report).run(suite)

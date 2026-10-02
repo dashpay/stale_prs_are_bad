@@ -2,7 +2,6 @@
 
 import copy
 import io
-import json
 import os
 import re
 import subprocess
@@ -13,14 +12,14 @@ from unittest.mock import Mock, patch
 from pr_review import main
 from pr_review.github import GitHub, current_checklist
 from pr_review.policy import CHECKLIST_END, CHECKLIST_START, MOVE_MARKER, evaluate
-from pr_review.tests.test_policy import HEAD, NOW, fixture
+from pr_review.tests.test_policy import HEAD, NOW, fixture, platform_policy
 
 LATER = '2026-09-11T14:00:00Z'
 
 
 def bartek():
     """dashpay/platform#4818: an approval in hand that covered nothing it needed."""
-    policy = json.load(open('policies/platform.json'))
+    policy = platform_policy()
     _, pr = fixture()
     pr.update(author='llbartekll', base='v4.2-dev', build='green', head_seen_at='2026-09-11T09:00:00Z', body='',
               files=[{'filename': 'packages/swift-sdk/Sources/a.swift'}] + [{'filename': f} for f in (

@@ -221,8 +221,8 @@ so. Any other format is refused.
 python -m pr_review.conformance harvest      # rewrites conformance/evaluate and conformance/functions
 ```
 
-Runs the engine's test suite (all but `test_conformance`) with `policy.evaluate`
-observed, and writes one file per distinct call:
+Runs the engine's test suite with `policy.evaluate` observed, and writes one
+file per distinct call:
 `{policy, pr, admitted_at, now, telemetry_states, result, tests,
 python_exception_text, python}`. `tests` names the tests that made it; `python`
 is the minor version that made it (only the minor: CI's patch release need not
@@ -234,9 +234,16 @@ if it replays from its JSON exactly. Re-harvest whenever `evaluate` or its
 tests change, and commit the difference: CI harvests into a scratch directory
 and fails on any difference from what is committed.
 
+Three test modules are not run (`NOT_HARVESTED` in `conformance.py`):
+`test_conformance`, which replays the corpus, and `test_repositories` and
+`test_roster`, which check the live policies under `policies/`. No case
+depends on a live policy, so editing one leaves the corpus as it is and lands
+without a re-harvest; tests that need a realistic policy read the frozen copy
+in `pr_review/tests/fixtures/`.
+
 `evaluate` is replaced before the engine or any test is imported, so every
 name it is bound to is the observing one and the engine carries no hook for
-it; an independent count of calls agrees (329). Evidence built from mocks
+it; an independent count of calls agrees (321). Evidence built from mocks
 would not survive JSON and is not kept; the harvest reports how many calls
 that was (none, today). The one test that evaluates in child processes, to
 vary the hash seed, is not seen; other cases cover the renames it uses.

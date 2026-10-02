@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 from pr_review import main
 from pr_review.github import GitHubError
 from pr_review.policy import NUDGE_MARKER, nudged_at
-from pr_review.tests.test_policy import fixture, NOW
+from pr_review.tests.test_policy import fixture, NOW, platform_policy
 
 
 @contextlib.contextmanager
@@ -348,8 +348,8 @@ class PublicationTests(unittest.TestCase):
         # change landed, over a directory someone legitimately removed.
         import tempfile
         from pr_review.policy import missing_paths
-        policy = json.loads(Path('policies/platform.json').read_text())
-        with tempfile.TemporaryDirectory() as root:
+        policy = platform_policy()
+        with tempfile.TemporaryDirectory() as root, broken_policies_root(policy) as policies:
             root = Path(root)
             for area in policy['areas'][1:]:
                 for prefix in area['paths']:
@@ -359,11 +359,13 @@ class PublicationTests(unittest.TestCase):
             with patch('sys.stderr', new_callable=io.StringIO) as err:
                 with patch.object(main, 'collect', return_value=([], [], [])) as collect:
                     with patch.object(main, 'GitHub'):
-                        main.run(['report', '--repo', 'dashpay/platform', '--repository-root', str(root)])
+                        main.run(['report', '--repo', 'dashpay/platform', '--policies-root', policies,
+                                  '--repository-root', str(root)])
             self.assertIn(gone[0], err.getvalue(), 'said, not fatal')
             self.assertTrue(collect.called, 'the reconcile went ahead')
             with self.assertRaises(ValueError):
-                main.run(['validate', '--repo', 'dashpay/platform', '--repository-root', str(root)])
+                main.run(['validate', '--repo', 'dashpay/platform', '--policies-root', policies,
+                          '--repository-root', str(root)])
 
     def test_labels_read_like_the_status(self):
         # One state label at a time, the waiver beside it, unrelated labels

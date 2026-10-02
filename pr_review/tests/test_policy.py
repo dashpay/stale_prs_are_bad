@@ -1,4 +1,6 @@
 import copy
+import json
+from pathlib import Path
 import unittest
 
 from pr_review.policy import admit, codeowners, evaluate, fingerprint, governs, validate_policy
@@ -6,6 +8,16 @@ from pr_review.policy import admit, codeowners, evaluate, fingerprint, governs, 
 
 HEAD = 'a' * 40
 NOW = '2026-09-11T12:00:00Z'
+
+
+def platform_policy():
+    """dashpay/platform's policy as it stood when the tests that use it were written.
+
+    A realistic policy, frozen: what those tests hand the engine must not move
+    when the live one under policies/ is edited. Tests of the live policies
+    read policies/ themselves.
+    """
+    return json.loads((Path(__file__).resolve().parent / 'fixtures' / 'platform.json').read_text())
 
 
 def rules(text):
