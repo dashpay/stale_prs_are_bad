@@ -27,6 +27,10 @@ STATE_PATTERN = re.compile(r"<!-- platform-pr-review-state-v1 (\{[^\r\n]*\}) -->
 DIFF_MARKER = "<!-- pr-hygiene-diff-v1"
 DIFF_PATTERN = re.compile(r"<!-- pr-hygiene-diff-v1 (\{[^\r\n]*\}) -->")
 BOT_LOGINS = {"coderabbitai[bot]", "coderabbitai", "thepastaclaw"} | ENGINE_LOGINS
+# The editor of a comment read from the REST listing, which names none. Not
+# None, which says nobody edited it, and nothing a login can spell, so no
+# account is ever taken for it.
+EDITOR_UNKNOWN = "(editor unknown)"
 
 
 def _validate_state(state):
@@ -222,12 +226,29 @@ def _validate_diff(diff):
         raise GitHubError("Invalid controller diff timestamp")
 
 
+def _engine_words(comment):
+    """Whether a comment this controller posted still says only what it wrote.
+
+    An edit is what GitHub records as one — a time it was edited, and the
+    editor when GitHub can name them — not a moved update time, which GitHub
+    also moves when a comment is hidden. An edited comment is this
+    controller's own only if GitHub names it as the editor, by the `[bot]`
+    login a person cannot register; an edit by an account GitHub can no
+    longer name, deleted or suspended, is nobody's it trusts. A comment read
+    from a route that names no editor is never its own.
+    """
+    editor = comment.get("edited_by")
+    if comment.get("edited_at") is None and editor is None:
+        return True
+    return is_engine(editor)
+
+
 def parse_controller_diff(comments, number):
     """The newest recorded diff for this pull request, or None.
 
     Read beside the record, and never fatal: without it a push is read as new
     work, which is what happened before this was written down at all. Only
-    this controller's own unedited words are read.
+    this controller's own words are read: unedited, or edited by it alone.
     """
     found = []
     for comment in comments:
@@ -236,14 +257,9 @@ def parse_controller_diff(comments, number):
         # Anyone with write access can edit anyone's comment, and this one
         # says which commits a review still covers — forge it and a stale
         # approval, the only human gate left, counts for code nobody read.
-        # Unedited it is this controller's own words; edited, only if this
-        # controller is who edited it. Where that cannot be known the pull
-        # request starts over, which is what it did before this existed.
-        edited = comment.get("updated_at") or comment["created_at"]
-        # The editor is read with its type, so this controller's own hand
-        # comes back as `name[bot]` like its author; the bare name is one a
-        # person can register, and counts for nothing.
-        if edited != comment["created_at"] and not is_engine(comment.get("edited_by")):
+        # Where it is not this controller's own words the pull request starts
+        # over, which is what it did before this existed.
+        if not _engine_words(comment):
             continue
         # In a comment of this controller's own, beside its record for this
         # same pull request. Any workflow can post as the Actions app, and one
@@ -267,19 +283,34 @@ def parse_controller_diff(comments, number):
             continue
         if diff["number"] != number:
             continue
-        found.append((_text(comment.get("updated_at") or comment["created_at"], "comment update time"),
-                      comment["id"], diff))
+        # By the same clock as the record beside it.
+        found.append((_text(_written_at(comment), "comment write time"), comment["id"], diff))
     return max(found, key=lambda item: item[:2])[2] if found else None
 
 
 def parse_controller_state(comments):
-    """Ignore copied receipts; the newest record wins; refuse corrupt history."""
+    """Ignore copied receipts; the newest record decides, and decides nothing if somebody else edited it;
+    refuse corrupt history, and comments read without who last edited them."""
     found = []
     for comment in comments:
+        # Read without its editor, an edited record cannot be told from one
+        # nobody edited, and a forged one would be believed.
+        if comment.get("edited_by") == EDITOR_UNKNOWN:
+            raise GitHubError("Controller state read without who last edited it")
         if not is_engine(comment["user"]):
             continue
         body = comment["body"]
         if STATE_MARKER not in body:
+            continue
+        # Anyone with write access can edit anyone's comment, and this one
+        # holds the author's place in the review queue and whether this head
+        # was ever ready for a human — forge it and a pull request jumps the
+        # queue, or skips the green build asked for before a human is. Edited
+        # by anyone but this controller, nothing in it is read. Not refused:
+        # that would put any pull request into a configuration error, one
+        # edit away.
+        if not _engine_words(comment):
+            found.append((_text(_written_at(comment), "comment write time"), comment["id"], None))
             continue
         matches = list(STATE_PATTERN.finditer(body))
         if len(matches) != 1 or body.count(STATE_MARKER) != 1:
@@ -289,17 +320,28 @@ def parse_controller_state(comments):
         except (ValueError, TypeError) as error:
             raise GitHubError("Malformed controller state JSON") from error
         _validate_state(state)
-        found.append((_text(comment.get("updated_at") or comment["created_at"], "comment update time"),
-                      comment["id"], state))
+        found.append((_text(_written_at(comment), "comment write time"), comment["id"], state))
     if not found:
         return (None, None)
     # The record most recently written is the current one: a refresh edits
-    # the newest holder in place and every edit bumps updated_at, so whichever
-    # comment was written last carries the truth. Admission is carried forward
-    # unchanged from record to record, which is what keeps the author's slots
-    # stable. GitHub reports whole seconds, so the id breaks a tie.
+    # the newest holder in place, so whichever comment was written last
+    # carries the truth. Admission is carried forward unchanged from record
+    # to record, which is what keeps the author's slots stable — and is why
+    # a newest record somebody else edited decides that nothing is known,
+    # rather than letting an older one speak: that would hand back whatever
+    # admission the older one held. GitHub reports whole seconds, so the id
+    # breaks a tie.
     written_at, comment_id, state = max(found, key=lambda record: record[:2])
-    return state, comment_id
+    return (state, comment_id) if state is not None else (None, None)
+
+
+def _written_at(comment):
+    """When a comment was last written: its last recorded edit, or its posting.
+
+    Not its update time, which GitHub also moves when a comment is hidden;
+    ordered by that, hiding an older record would make it the current one.
+    """
+    return comment.get("edited_at") or comment.get("created_at")
 
 
 def _text(value, label):
@@ -320,6 +362,29 @@ def _graphql_login(author):
     if author.get("__typename") == "Bot" and not login.endswith("[bot]"):
         return login + "[bot]"
     return login
+
+
+def _graphql_comment(comment):
+    """A comment as GraphQL answers it, in the shape every comment reader shares.
+
+    Who last wrote it, not only when: a comment edited by somebody other than
+    its author is that person speaking. Whether it was edited at all is the
+    edit time GitHub records, not the update time, which also moves when a
+    comment is hidden; the field is required, so a query that stopped asking
+    for it fails rather than reading every comment as unedited. A comment
+    whose author GitHub answers as nobody — a deleted account — is the
+    `ghost` user's, as the listing names it, rather than a failure of the
+    whole history read for every pull request beside it.
+    """
+    edited_at = comment["lastEditedAt"]
+    author = comment["author"]
+    return {"id": comment["databaseId"],
+            "user": _graphql_login(author) if author is not None else "ghost",
+            "body": comment["body"],
+            "created_at": _text(comment["createdAt"], "comment creation time"),
+            "updated_at": _text(comment["updatedAt"], "comment update time"),
+            "edited_at": _text(edited_at, "comment edit time") if edited_at is not None else None,
+            "edited_by": _graphql_login(comment["editor"]) if comment.get("editor") else None}
 
 
 def _login(user):
@@ -439,15 +504,18 @@ class GitHub:
 
     def comments(self, number):
         try:
-            # This route carries no editor, so who rewrote an edited comment
-            # is unknown here and the reader treats it as unknown — which
-            # costs only CodeRabbit's rate-limit waiver, never a merge. The
-            # evidence print must not carry it either, or a pull request read
-            # by both routes would look changed between the read and the
-            # write on every run and never be written to again.
+            # This route carries no editor, and says so: who rewrote an
+            # edited comment is unknown here. CodeRabbit's rate-limit waiver
+            # is not granted, a diff this controller refreshed is not read,
+            # and the record reader refuses these outright, since a forged
+            # record would pass for one nobody edited. The evidence print
+            # must not carry it either, or a pull request read by both routes
+            # would look changed between the read and the write on every run
+            # and never be written to again.
             result = [{"id": raw["id"], "user": _login(raw["user"]),
                        "body": raw["body"], "created_at": _text(raw["created_at"], "comment creation time"),
-                       "updated_at": _text(raw["updated_at"], "comment update time"), "edited_by": None}
+                       "updated_at": _text(raw["updated_at"], "comment update time"),
+                       "edited_by": EDITOR_UNKNOWN}
                       for raw in self.pages(f"{self.root}/issues/{number}/comments")]
             if any(not isinstance(item["body"], str) or type(item["id"]) is not int for item in result):
                 raise GitHubError("Invalid comment identity or body")
@@ -490,7 +558,7 @@ class GitHub:
           number
           comments(last:100) {
             totalCount
-            nodes { databaseId body createdAt updatedAt author { login __typename }
+            nodes { databaseId body createdAt updatedAt lastEditedAt author { login __typename }
                     editor { login __typename } }
           }
           timelineItems(last:1, itemTypes:[CLOSED_EVENT, CONVERT_TO_DRAFT_EVENT]) {
@@ -526,21 +594,17 @@ class GitHub:
                 if type(total) is not int or not isinstance(nodes, list):
                     raise GitHubError("Incomplete comment connection")
                 if total > len(nodes):
-                    # Older than the window we asked for: read it the slow way
-                    # rather than miss this controller's own record.
-                    comments = self.comments(number)
-                else:
-                    # Who last wrote it, not only when: a comment edited by
-                    # somebody other than its author is that person speaking.
-                    comments = [{"id": comment["databaseId"], "user": _graphql_login(comment["author"]),
-                                 "body": comment["body"],
-                                 "created_at": _text(comment["createdAt"], "comment creation time"),
-                                 "updated_at": _text(comment["updatedAt"], "comment update time"),
-                                 "edited_by": _graphql_login(comment["editor"]) if comment.get("editor") else None}
-                                for comment in nodes]
-                    if any(not isinstance(item["body"], str) or type(item["id"]) is not int for item in comments):
-                        raise GitHubError("Invalid comment identity or body")
-                    comments = _unique(comments, "id", "comment")
+                    # Older than the window we asked for: read all of it rather
+                    # than miss this controller's own record, and still with
+                    # who last edited each comment, without which a forged
+                    # record cannot be told from this controller's own.
+                    nodes = self._comment_pages(number)
+                    if nodes is None:
+                        continue
+                comments = [_graphql_comment(comment) for comment in nodes]
+                if any(not isinstance(item["body"], str) or type(item["id"]) is not int for item in comments):
+                    raise GitHubError("Invalid comment identity or body")
+                comments = _unique(comments, "id", "comment")
                 events = node["timelineItems"]["nodes"]
                 if not isinstance(events, list):
                     raise GitHubError("Incomplete pull request timeline")
@@ -549,6 +613,64 @@ class GitHub:
                 raise GitHubError("Incomplete pull request history") from error
             histories[number] = {"comments": comments, "lifecycle_at": lifecycle}
         return histories
+
+    def _comment_pages(self, number):
+        """Every comment on one pull request, a page at a time, each with its editor.
+
+        None when the pull request no longer resolves, as the batched query
+        treats one. The pages must hold the whole conversation: a comment
+        posted during the read lands on the last page and is counted by that
+        page's total, so the last total is what they are held to. One deleted
+        from a page already read leaves more comments read than that — a
+        superset, with nothing missing — and is kept. Fewer than the total
+        means part of the conversation was not read, and the read is refused
+        rather than decided from. Hidden comments, spam included, are both
+        returned and counted, so they never make the pages fall short.
+        """
+        query = """query($owner:String!, $repo:String!, $number:Int!, $after:String) {
+          repository(owner:$owner, name:$repo) {
+            pullRequest(number:$number) {
+              comments(first:100, after:$after) {
+                totalCount
+                pageInfo { hasNextPage endCursor }
+                nodes { databaseId body createdAt updatedAt lastEditedAt author { login __typename }
+                        editor { login __typename } }
+              }
+            }
+          }
+        }"""
+        owner, repo = self.repo.split("/")
+        nodes, after = [], None
+        while True:
+            response = self.request("POST", "graphql", {"query": query, "variables": {
+                "owner": owner, "repo": repo, "number": number, "after": after}})
+            if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
+                raise GitHubError("GraphQL comment query failed")
+            errors = response.get("errors") or []
+            if not isinstance(errors, list) or any(not isinstance(error, dict)
+                                                   or error.get("type") != "NOT_FOUND" for error in errors):
+                raise GitHubError("GraphQL comment query failed")
+            try:
+                pull = response["data"]["repository"]["pullRequest"]
+                if pull is None:
+                    return None
+                connection = pull["comments"]
+                total, page = connection["totalCount"], connection["nodes"]
+                more, cursor = connection["pageInfo"]["hasNextPage"], connection["pageInfo"]["endCursor"]
+            except (KeyError, TypeError) as error:
+                raise GitHubError("Incomplete comment page") from error
+            # More to read must come with somewhere new to read it from, or
+            # the same page could be asked for again for ever.
+            if (type(total) is not int or not isinstance(page, list) or type(more) is not bool
+                    or (more and (not page or not isinstance(cursor, str) or not cursor or cursor == after))):
+                raise GitHubError("Incomplete comment page")
+            nodes.extend(page)
+            if not more:
+                break
+            after = cursor
+        if len(nodes) < total:
+            raise GitHubError("Comment pages hold fewer comments than the conversation")
+        return nodes
 
     def threads(self, number):
         query = """query($owner:String!, $repo:String!, $number:Int!, $cursor:String) {

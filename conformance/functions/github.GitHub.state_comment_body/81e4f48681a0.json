@@ -1,0 +1,28 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "version": 1,
+   "number": 7,
+   "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "admitted_at": null,
+   "ready_since": null,
+   "state": "waiting-bots",
+   "evidence": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "context": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "body": "text",
+  "diff": {
+   "number": 7,
+   "diff": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "diff_heads": [
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+   ]
+  }
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":null,\"context\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"evidence\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"head\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"number\":7,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"diff_heads\":[\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"],\"number\":7} -->\n\ntext",
+ "tests": [
+  "test_github.BuildVerdictTests.test_an_older_diff_hidden_since_is_not_taken_for_the_newest"
+ ],
+ "python": "3.12"
+}

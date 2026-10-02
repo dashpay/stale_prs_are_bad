@@ -301,7 +301,10 @@ def _set_aside_record(api, pr):
     Returns whether the pull request may lose its marks now.
     """
     try:
-        comments = api.comments(pr['number'])
+        # Read where each comment's editor is known: without it a forged
+        # record cannot be told from this controller's own, and the record
+        # reader refuses what the comments listing read.
+        comments = api.histories([pr['number']]).get(pr['number'], {'comments': []})['comments']
         state, comment_id = parse_controller_state(comments)
     except GitHubError as error:
         print(f"PR #{pr['number']}: could not read the record comment: {error}", file=sys.stderr)

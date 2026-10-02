@@ -324,9 +324,14 @@ class PolicyTests(unittest.TestCase):
         # something changed, and it is in the print.
         _, pr = fixture()
         pr['comments'] = [dict(pr['comments'][0], updated_at='2026-09-11T11:30:00Z')]
-        graphql = dict(pr, comments=[dict(pr['comments'][0], edited_by='coderabbitai')])
-        rest = dict(pr, comments=[dict(pr['comments'][0], edited_by=None)])
+        graphql = dict(pr, comments=[dict(pr['comments'][0], edited_by='coderabbitai',
+                                          edited_at='2026-09-11T11:30:00Z')])
+        from pr_review.github import EDITOR_UNKNOWN
+        rest = dict(pr, comments=[dict(pr['comments'][0], edited_by=EDITOR_UNKNOWN)])
         self.assertEqual(fingerprint(graphql), fingerprint(rest))
+        # Nor does knowing who edited it, or when, move the print from what it
+        # was before either was read: every record's evidence would change.
+        self.assertEqual(fingerprint(graphql), fingerprint(pr))
         later = dict(pr, comments=[dict(pr['comments'][0], updated_at='2026-09-11T12:00:00Z')])
         self.assertNotEqual(fingerprint(pr), fingerprint(later), 'an edit is still noticed')
 

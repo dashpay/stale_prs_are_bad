@@ -351,6 +351,15 @@
     "body": "/skip-bots",
     "created_at": "2026-09-11T10:00:00Z",
     "updated_at": "2026-09-11T10:00:00Z"
+   },
+   {
+    "id": 50,
+    "user": "github-actions[bot]",
+    "created_at": "2026-09-11T12:00:00Z",
+    "updated_at": "2026-09-11T13:00:00Z",
+    "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2020-01-01T00:00:00Z\",\"context\":\"ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-self-review\",\"version\":1} -->\n\n<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nBots are done — your move: post `/self-reviewed`.\nFull checklist in the description.",
+    "edited_at": "2026-09-11T13:00:00Z",
+    "edited_by": "llbartekll"
    }
   ],
   "threads": [],
@@ -363,11 +372,16 @@
    "ktechmidas": "admin"
   },
   "controller_state": null,
-  "labels": [],
+  "labels": [
+   "waiting-self-review",
+   "bot-review-skipped"
+  ],
   "complete": true,
   "build": "green",
   "head_seen_at": "2026-09-11T09:00:00Z",
-  "body": ""
+  "body": "text\n\n<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai skipped by llbartekll · thepastaclaw skipped by llbartekll\n- [ ] Self-review — post `/self-reviewed`\n- [x] Within your 5 open PRs\n- [x] Build green\n- Approvals\n  - [x] `swift-sdk` — you own it\n  - [ ] files with no dedicated owner (`.editorconfig`, `AGENTS.md`) — QuantumExplorer or shumkov\n  - [ ] `github` (`.github/workflows/swift-sdk-build.yml`, `.github/workflows/tests.yml`) — ktechmidas or shumkov\n\nWhen every box is checked the `PR Hygiene` check passes and this can merge.\n<!-- pr-hygiene:end -->",
+  "controller_comment_id": null,
+  "controller_diff": null
  },
  "admitted_at": "2026-09-11T12:00:00Z",
  "now": "2026-09-11T14:00:00Z",
@@ -482,26 +496,7 @@
   "skipped_by": "llbartekll"
  },
  "tests": [
-  "test_checklist.ChecklistTests.test_every_requirement_is_shown_and_the_first_unchecked_is_the_state",
-  "test_checklist.PublishTests.test_a_bot_reporting_with_nothing_to_answer_is_not_announced_again",
-  "test_checklist.PublishTests.test_a_description_too_long_is_a_warning_not_an_error",
-  "test_checklist.PublishTests.test_a_hand_ticked_box_or_a_wiped_block_is_repaired",
-  "test_checklist.PublishTests.test_a_move_is_announced_once_with_the_record_and_the_block_written",
-  "test_checklist.PublishTests.test_a_new_head_is_announced_afresh_so_the_author_is_told_again",
-  "test_checklist.PublishTests.test_a_record_line_somebody_truncated_does_not_wedge_the_pull_request",
-  "test_checklist.PublishTests.test_nothing_is_rewritten_when_description_labels_and_comment_already_agree",
-  "test_checklist.PublishTests.test_the_old_standing_comment_points_at_the_description_then_goes",
-  "test_checklist.PublishTests.test_the_same_move_on_the_same_head_is_kept_current_in_place",
-  "test_checklist.PublishTests.test_words_that_cannot_be_written_back_are_replaced_not_refused",
-  "test_checklist.RecordTests.test_a_description_with_no_room_is_left_alone_on_the_fast_path",
-  "test_checklist.RecordTests.test_a_forged_newest_record_is_written_over_once_and_then_read",
-  "test_checklist.RecordTests.test_a_state_change_that_is_not_a_move_refreshes_the_record_silently",
-  "test_checklist.RecordTests.test_an_evidence_only_change_refreshes_the_record_in_place_and_posts_nothing",
-  "test_checklist.RecordTests.test_ready_since_does_not_drift_between_announcements",
-  "test_checklist.SecondReviewTests.test_a_foreign_bot_comment_quoting_the_marker_is_left_alone",
-  "test_checklist.SecondReviewTests.test_a_pull_request_back_in_draft_loses_the_stale_block",
-  "test_checklist.SecondReviewTests.test_the_holder_is_the_comment_the_record_was_read_from",
-  "test_checklist.SecondReviewTests.test_the_move_coming_back_to_the_author_is_announced_again"
+  "test_checklist.RecordTests.test_a_forged_newest_record_is_written_over_once_and_then_read"
  ],
  "python_exception_text": false,
  "python": "3.12"

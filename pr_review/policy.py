@@ -247,9 +247,12 @@ def fingerprint(pr):
     # would make writing one look like the world changed underneath the write.
     # Who last edited a comment is not how a change is noticed — the time it
     # was edited is, and that is here. Keeping it would only make the print
-    # depend on which route read the comment.
+    # depend on which route read the comment. The edit time GraphQL reports
+    # goes for the same reason: the listing has none, and the update time
+    # already moves with every edit.
     for comment in relevant.get('comments', []):
         comment.pop('edited_by', None)
+        comment.pop('edited_at', None)
     relevant['comments'] = [x for x in relevant.get('comments', []) if not (
         is_engine(x.get('user')) and
         (x.get('body', '').startswith(f'<!-- {STATE_MARKER}')

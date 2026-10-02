@@ -1,0 +1,28 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "version": 1,
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-01T10:00:00Z",
+   "ready_since": null,
+   "state": "waiting-bots",
+   "evidence": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "context": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "body": "text",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-01T10:00:00Z\",\"context\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"evidence\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n\ntext",
+ "tests": [
+  "test_github.GitHubTests.test_a_comment_by_a_deleted_account_does_not_fail_the_history_read",
+  "test_github.GitHubTests.test_a_conversation_one_past_the_window_is_paged_and_one_within_it_is_not",
+  "test_github.GitHubTests.test_a_forged_record_on_a_later_page_is_the_newest_and_nothing_is_read",
+  "test_github.GitHubTests.test_a_long_conversation_is_read_page_by_page_with_its_editors",
+  "test_github.GitHubTests.test_a_long_conversation_read_short_or_malformed_is_refused",
+  "test_github.GitHubTests.test_a_long_conversation_that_changed_while_it_was_read_is_still_whole",
+  "test_github.GitHubTests.test_both_comment_queries_ask_who_edited_and_when"
+ ],
+ "python": "3.12"
+}

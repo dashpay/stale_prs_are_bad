@@ -42,22 +42,115 @@ class BuildVerdictTests(unittest.TestCase):
         made = dict(id=1, user='github-actions[bot]', body=body,
                     created_at='2026-09-11T10:00:00Z', updated_at='2026-09-11T10:00:00Z')
         self.assertEqual(parse_controller_diff([made], 7), diff)
+        edited = dict(made, updated_at='2026-09-11T12:00:00Z', edited_at='2026-09-11T12:00:00Z')
+        # Edited by a person, or by an account GitHub can no longer name.
         for editor in ('llbartekll', None):
-            touched = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by=editor)
-            self.assertIsNone(parse_controller_diff([touched], 7), repr(editor))
+            self.assertIsNone(parse_controller_diff([dict(edited, edited_by=editor)], 7), repr(editor))
+        # A moved update time with no edit recorded is no edit: GitHub moves
+        # it when a comment is hidden. The record is read by the same rule.
+        self.assertEqual(parse_controller_diff([dict(made, updated_at='2026-09-11T12:00:00Z')], 7), diff)
         # This controller's own hand: the editor is read with its type, so it
         # comes back as `github-actions[bot]`. Refusing it refused every record
         # the controller had refreshed — every record after its first write.
         # The bare name is one a person can register, and counts for nothing.
-        kept = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by='github-actions[bot]')
-        self.assertEqual(parse_controller_diff([kept], 7), diff)
-        posing = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by='github-actions')
-        self.assertIsNone(parse_controller_diff([posing], 7))
+        self.assertEqual(parse_controller_diff([dict(edited, edited_by='github-actions[bot]')], 7), diff)
+        self.assertIsNone(parse_controller_diff([dict(edited, edited_by='github-actions')], 7))
         # And only beside this controller's record for this same pull request:
         # any workflow can post as the Actions app.
         alone = dict(made, id=2, body='<!-- pr-hygiene-diff-v1 ' + json.dumps(diff) + ' -->')
         self.assertIsNone(parse_controller_diff([alone], 7))
         self.assertIsNone(parse_controller_diff([made], 8), 'another pull request')
+
+    def record(self, updated_at, edited_by=None, **state):
+        record = {'version': 1, 'number': 7, 'head': 'b' * 40, 'admitted_at': '2026-09-11T10:00:00Z',
+                  'ready_since': None, 'state': 'waiting-bots', 'evidence': 'c' * 64, 'context': 'd' * 64}
+        return dict(id=1, user='github-actions[bot]', body=GitHub.state_comment_body(dict(record, **state), 'text'),
+                    created_at='2026-09-11T10:00:00Z', updated_at=updated_at, edited_by=edited_by,
+                    edited_at=updated_at if edited_by else None)
+
+    def test_a_record_whose_admission_a_collaborator_edited_is_not_trusted(self):
+        # The record says when this pull request took one of its author's
+        # review slots, and whether it was ever ready for a human on this
+        # head. Anyone with write access can edit anyone's comment: an earlier
+        # admission moves the pull request ahead of the author's own queue, and
+        # `ready-for-human` on the current head is remembered as having passed
+        # the green build that is asked for before a human is.
+        forged = self.record('2026-09-11T12:00:00Z', 'llbartekll',
+                             admitted_at='2026-01-01T00:00:00Z', state='ready-for-human')
+        self.assertEqual(parse_controller_state([forged]), (None, None))
+        # The bare name is one a person can register.
+        self.assertEqual(parse_controller_state([dict(forged, edited_by='github-actions')]), (None, None))
+        # An edit GitHub records but cannot say by whom, as for a deleted or
+        # suspended account, is nobody this controller trusts.
+        self.assertEqual(parse_controller_state([dict(forged, edited_by=None)]), (None, None))
+        # Ignored, not refused: refusing it would hand anyone with write
+        # access a configuration error on any pull request, one edit away.
+        broken = dict(forged, body=forged['body'].replace('"version":1', '"version":2'))
+        self.assertEqual(parse_controller_state([broken]), (None, None))
+        # The newest record decides even forged: nothing older stands in for
+        # it, or editing the newest would bring back what an older one held.
+        kept = self.record('2026-09-11T10:00:00Z', None)
+        self.assertEqual(parse_controller_state([kept, dict(forged, id=2)]), (None, None))
+
+    def test_editing_the_newest_record_does_not_bring_back_an_older_admission(self):
+        # An older announcement still carries the admission of its day; the
+        # newest record, set aside when the pull request left the policy,
+        # carries none. Were a forged newest record merely skipped, the older
+        # one would be read in its place, and one edit would hand back the
+        # place in the queue the pull request gave up.
+        from pr_review.policy import effective_admission
+        old = dict(self.record('2026-01-01T00:00:00Z', None, admitted_at='2026-01-01T00:00:00Z'),
+                   id=1, created_at='2026-01-01T00:00:00Z')
+        aside = dict(self.record('2026-09-12T00:00:00Z', 'github-actions[bot]', admitted_at=None, state='not-governed'),
+                     id=2, created_at='2026-09-01T00:00:00Z')
+        self.assertEqual(parse_controller_state([old, aside])[1], 2)
+        forged = dict(aside, edited_by='mallory', edited_at='2026-09-13T00:00:00Z', updated_at='2026-09-13T00:00:00Z')
+        state, comment_id = parse_controller_state([old, forged])
+        self.assertEqual((state, comment_id), (None, None))
+        self.assertIsNone(effective_admission({'controller_state': state, 'lifecycle_at': None}))
+
+    def test_an_older_record_hidden_since_is_not_taken_for_the_newest(self):
+        # Hiding a comment moves its update time and records no edit. The
+        # current record is the one this controller wrote last, whatever was
+        # done to an older one afterwards.
+        old = dict(self.record('2026-09-14T00:00:00Z', None, admitted_at='2026-01-01T00:00:00Z'),
+                   id=1, created_at='2026-01-01T00:00:00Z')
+        newer = dict(self.record('2026-09-12T00:00:00Z', 'github-actions[bot]', admitted_at=None, state='not-governed'),
+                     id=2, created_at='2026-09-01T00:00:00Z')
+        self.assertEqual(parse_controller_state([old, newer])[1], 2)
+
+    def test_an_older_diff_hidden_since_is_not_taken_for_the_newest(self):
+        # The diff is read by the same clock as the record beside it, or the
+        # two could come from different comments.
+        from pr_review.github import parse_controller_diff
+        record = {'version': 1, 'number': 7, 'head': 'b' * 40, 'admitted_at': None, 'ready_since': None,
+                  'state': 'waiting-bots', 'evidence': 'c' * 64, 'context': 'd' * 64}
+        older_diff = {'number': 7, 'diff': 'a' * 64, 'diff_heads': ['b' * 40]}
+        newer_diff = {'number': 7, 'diff': 'e' * 64, 'diff_heads': ['b' * 40]}
+        old = dict(id=1, user='github-actions[bot]', body=GitHub.state_comment_body(record, 'text', older_diff),
+                   created_at='2026-09-01T00:00:00Z', updated_at='2026-09-14T00:00:00Z', edited_at=None, edited_by=None)
+        newer = dict(id=2, user='github-actions[bot]', body=GitHub.state_comment_body(record, 'text', newer_diff),
+                     created_at='2026-09-10T00:00:00Z', updated_at='2026-09-12T00:00:00Z',
+                     edited_at='2026-09-12T00:00:00Z', edited_by='github-actions[bot]')
+        self.assertEqual(parse_controller_diff([old, newer], 7), newer_diff)
+
+    def test_a_record_this_controller_refreshed_is_still_read(self):
+        # Every run that changes the record rewrites it in place, so all but
+        # a new record have been edited — by this controller. Refusing those
+        # would give up every pull request's slot and review clock each run.
+        refreshed = self.record('2026-09-11T12:00:00Z', 'github-actions[bot]', state='ready-for-human')
+        state, comment_id = parse_controller_state([refreshed])
+        self.assertEqual((comment_id, state['state']), (1, 'ready-for-human'))
+
+    def test_a_record_nobody_edited_is_read_though_its_update_time_moved(self):
+        # GitHub moves a comment's update time for changes that are not
+        # edits, and names no editor for them. Who edited the record decides,
+        # not when it was last touched: a record nobody edited is this
+        # controller's own words, and ignoring it gives up the pull request's
+        # slot and review clock for nothing.
+        touched = self.record('2026-09-11T12:00:00Z', None, state='ready-for-human')
+        state, comment_id = parse_controller_state([touched])
+        self.assertEqual((comment_id, state['state']), (1, 'ready-for-human'))
 
     def test_a_diff_timestamp_that_is_not_one_is_refused(self):
         # It is read back as a time. A string that is not one raised out of
@@ -403,6 +496,7 @@ class GitHubTests(unittest.TestCase):
                         "comments": {"totalCount": len(comments or []), "nodes": [
                             {"databaseId": c["id"], "body": c["body"],
                              "createdAt": c["created_at"], "updatedAt": c["updated_at"],
+                             "lastEditedAt": c.get("edited_at", c["updated_at"] if c.get("edited_by") else None),
                              "author": {"login": (c["user"]["login"] if isinstance(c["user"], dict) else c["user"]).removesuffix("[bot]"),
                                         "__typename": "Bot"},
                              "editor": ({"login": c["edited_by"].removesuffix("[bot]"),
@@ -465,7 +559,7 @@ class GitHubTests(unittest.TestCase):
         ready pull request reports that its evidence changed, for ever.
         """
         raw = {"databaseId": 11, "body": "receipt", "createdAt": "2026-09-01T00:00:00Z",
-               "updatedAt": "2026-09-01T00:05:00Z"}
+               "updatedAt": "2026-09-01T00:05:00Z", "lastEditedAt": "2026-09-01T00:05:00Z"}
         graph = {"data": {"repository": {"pr1": {
             "number": 1,
             "comments": {"totalCount": 1, "nodes": [dict(raw, author={"login": "coderabbitai",
@@ -477,7 +571,28 @@ class GitHubTests(unittest.TestCase):
                       "created_at": "2026-09-01T00:00:00Z", "updated_at": "2026-09-01T00:05:00Z"}]
         with patch.object(self.api, "pages", side_effect=lambda path: rest_page):
             per_pr = self.api.comments(1)
-        self.assertEqual(batched, per_pr)
+        # Who last edited a comment, and when, are what the listing cannot
+        # say, and it says so. The print leaves both out, so both still agree.
+        editless = lambda comments: [{k: v for k, v in c.items() if k not in ("edited_by", "edited_at")}
+                                     for c in comments]
+        self.assertEqual(editless(per_pr), editless(batched))
+        from pr_review.policy import fingerprint
+        self.assertEqual(fingerprint({"comments": batched}), fingerprint({"comments": per_pr}))
+
+    def test_comments_read_without_their_editors_are_refused_by_the_record_reader(self):
+        # The comments listing names no editor. Read from there, a record a
+        # collaborator edited looks like one nobody edited, and their
+        # admission or their `ready-for-human` would be believed; so the
+        # record reader refuses what this route read rather than guess.
+        body = GitHub.state_comment_body(
+            {"version": 1, "number": 1, "head": "a" * 40, "admitted_at": "2026-01-01T00:00:00Z",
+             "ready_since": None, "state": "ready-for-human", "evidence": "c" * 64, "context": "d" * 64}, "text")
+        listing = [{"id": 1, "user": {"login": "github-actions[bot]"}, "body": body,
+                    "created_at": "2026-09-11T10:00:00Z", "updated_at": "2026-09-11T12:00:00Z"}]
+        with patch.object(self.api, "pages", return_value=listing):
+            rest = self.api.comments(1)
+        with self.assertRaises(GitHubError):
+            parse_controller_state(rest)
 
     def test_should_refuse_truncated_changed_files(self):
         request, pages = self.snapshot_fixture(files=[])
@@ -677,7 +792,7 @@ class GitHubTests(unittest.TestCase):
 
     def history_response(self, **overrides):
         comment = {"databaseId": 7, "body": "hello", "createdAt": "2026-09-11T10:00:00Z",
-                   "updatedAt": "2026-09-11T10:00:00Z",
+                   "updatedAt": "2026-09-11T10:00:00Z", "lastEditedAt": None,
                    "author": {"login": "github-actions", "__typename": "Bot"}}
         node = {"number": 1, "comments": {"totalCount": 1, "nodes": [comment]},
                 "timelineItems": {"nodes": [{"createdAt": "2026-09-04T00:00:00Z"}]}}
@@ -706,15 +821,210 @@ class GitHubTests(unittest.TestCase):
         with patch.object(self.api, "request", return_value=response), self.assertRaises(GitHubError):
             self.api.histories([1])
 
-    def test_batched_history_reads_a_long_conversation_the_slow_way(self):
-        # The controller's own record can be older than the window we ask for.
-        truncated = self.history_response(comments={"totalCount": 250, "nodes": []})
-        with patch.object(self.api, "request", return_value=truncated):
-            with patch.object(self.api, "comments", return_value=[{"id": 1, "user": "u", "body": "b",
-                                                                   "created_at": "x", "updated_at": "x"}]) as rest:
-                history = self.api.histories([1])
-        rest.assert_called_once_with(1)
-        self.assertEqual(history[1]["comments"][0]["id"], 1)
+    @staticmethod
+    def record_node(number, editor, edited_at="2026-09-11T10:00:00Z", **state):
+        """This controller's record as GraphQL answers it, last edited by `editor`."""
+        record = {"version": 1, "number": 1, "head": "a" * 40, "admitted_at": "2026-09-01T10:00:00Z",
+                  "ready_since": None, "state": "waiting-bots", "evidence": "c" * 64, "context": "d" * 64}
+        return {"databaseId": number, "body": GitHub.state_comment_body(dict(record, **state), "text"),
+                "createdAt": "2026-09-01T10:00:00Z", "updatedAt": edited_at or "2026-09-01T10:00:00Z",
+                "lastEditedAt": edited_at, "author": {"login": "github-actions", "__typename": "Bot"},
+                "editor": editor}
+
+    @classmethod
+    def long_comment(cls, number):
+        # The first comment is this controller's record, since refreshed by it.
+        if number == 1:
+            return cls.record_node(1, {"login": "github-actions", "__typename": "Bot"})
+        return {"databaseId": number, "body": f"comment {number}", "createdAt": "2026-09-02T00:00:00Z",
+                "updatedAt": "2026-09-02T00:00:00Z", "lastEditedAt": None,
+                "author": {"login": "someone", "__typename": "User"}, "editor": None}
+
+    @staticmethod
+    def comment_page(nodes, total, cursor=None):
+        return {"data": {"repository": {"pullRequest": {"comments": {
+            "totalCount": total, "pageInfo": {"hasNextPage": cursor is not None, "endCursor": cursor},
+            "nodes": nodes}}}}}
+
+    def read_long(self, pages, total=150):
+        """The history of a pull request whose comments outgrow the batched window.
+
+        `pages` answers each cursor; the comments listing answers the same
+        comments as GitHub's REST route does, naming no editor.
+        """
+        everything = [self.long_comment(n) for n in range(1, total + 1)]
+        window = self.history_response(comments={"totalCount": total, "nodes": everything[-100:]})
+        listing = [{"id": c["databaseId"], "body": c["body"], "created_at": c["createdAt"], "updated_at": c["updatedAt"],
+                    "user": {"login": c["author"]["login"] + ("[bot]" if c["author"]["__typename"] == "Bot" else "")}}
+                   for c in everything]
+
+        def answer(method, path, payload=None):
+            return window if "fragment history" in payload["query"] else pages[payload["variables"]["after"]]
+        with patch.object(self.api, "request", side_effect=answer), \
+                patch.object(self.api, "pages", return_value=listing):
+            return self.api.histories([1])
+
+    def test_both_comment_queries_ask_who_edited_and_when(self):
+        # Whether a comment is still this controller's own words is decided
+        # by whether GitHub records an edit and whom it names as the editor.
+        # A query that stopped asking would read every forged record as one
+        # nobody touched.
+        everything = [self.long_comment(n) for n in range(1, 151)]
+        window = self.history_response(comments={"totalCount": 150, "nodes": everything[-100:]})
+        pages = {None: self.comment_page(everything[:100], 150, "c1"), "c1": self.comment_page(everything[100:], 150)}
+        asked = []
+
+        def answer(method, path, payload=None):
+            asked.append(" ".join(payload["query"].split()))
+            return window if "fragment history" in payload["query"] else pages[payload["variables"]["after"]]
+        with patch.object(self.api, "request", side_effect=answer):
+            self.api.histories([1])
+        self.assertEqual(len(asked), 3, "the batched query and both pages")
+        for query in asked:
+            self.assertIn("lastEditedAt", query)
+            self.assertIn("editor { login __typename }", query)
+
+    def test_a_forged_record_on_a_later_page_is_the_newest_and_nothing_is_read(self):
+        # The editor of a comment on the second page is read as surely as on
+        # the first, and the forged record there, being the newest, decides:
+        # the genuine one on the first page does not stand in for it.
+        everything = [self.long_comment(n) for n in range(1, 151)]
+        everything[119] = self.record_node(120, {"login": "llbartekll", "__typename": "User"}, "2026-09-12T00:00:00Z",
+                                           admitted_at="2020-01-01T00:00:00Z", state="ready-for-human")
+        comments = self.read_long({None: self.comment_page(everything[:100], 150, "c1"),
+                                   "c1": self.comment_page(everything[100:], 150)})[1]["comments"]
+        self.assertEqual(comments[119]["edited_by"], "llbartekll")
+        self.assertEqual(parse_controller_state(comments), (None, None))
+
+    def test_a_record_somebody_else_edited_is_not_trusted_through_the_batched_query(self):
+        # A person's edit names them. A deleted or suspended account's edit is
+        # still recorded, but its editor answers null, beside a NOT_FOUND
+        # error the history read tolerates; read as never edited, a forged
+        # admission would stand.
+        for editor in ({"login": "llbartekll", "__typename": "User"}, None):
+            node = self.record_node(7, editor, "2026-09-12T00:00:00Z",
+                                    admitted_at="2020-01-01T00:00:00Z", state="ready-for-human")
+            response = self.history_response(comments={"totalCount": 1, "nodes": [node]})
+            response["errors"] = [{"type": "NOT_FOUND", "path": ["repository", "pr1", "comments", "nodes", 0, "editor"]}]
+            with patch.object(self.api, "request", return_value=response):
+                comments = self.api.histories([1])[1]["comments"]
+            self.assertEqual(parse_controller_state(comments), (None, None), repr(editor))
+
+    def test_a_long_conversation_is_read_page_by_page_with_its_editors(self):
+        # The controller's own record can be older than the window the batched
+        # query asks for, and it is rewritten in place, so it is believed only
+        # once its editor is known. The comments listing names no editor:
+        # read from there, a record this controller refreshed is ignored and
+        # the pull request loses its slot, and a hundred comments would hide
+        # anybody's edit of it.
+        everything = [self.long_comment(n) for n in range(1, 151)]
+        history = self.read_long({None: self.comment_page(everything[:100], 150, "c1"),
+                                  "c1": self.comment_page(everything[100:], 150)})
+        comments = history[1]["comments"]
+        self.assertEqual([c["id"] for c in comments], list(range(1, 151)))
+        self.assertEqual(comments[0]["edited_by"], "github-actions[bot]")
+        state, comment_id = parse_controller_state(comments)
+        self.assertEqual((comment_id, state["admitted_at"]), (1, "2026-09-01T10:00:00Z"))
+
+    def test_a_long_conversation_that_changed_while_it_was_read_is_still_whole(self):
+        everything = [self.long_comment(n) for n in range(1, 152)]
+        first = self.comment_page(everything[:100], 150, "c1")
+        # A comment posted during the read lands on the last page and is
+        # counted by its total.
+        added = self.read_long({None: first, "c1": self.comment_page(everything[100:], 151)})
+        self.assertEqual(len(added[1]["comments"]), 151)
+        # One deleted from a page already read leaves more comments read than
+        # the last total counts: a superset of the conversation, nothing
+        # missing from it. Refusing it failed the history read for every pull
+        # request in the batch, other authors' included.
+        window = {"data": {"repository": {
+            "pr1": {"number": 1, "comments": {"totalCount": 150, "nodes": everything[50:150]},
+                    "timelineItems": {"nodes": []}},
+            "pr2": {"number": 2, "comments": {"totalCount": 1, "nodes": [self.long_comment(999)]},
+                    "timelineItems": {"nodes": []}}}}}
+        pages = {None: first, "c1": self.comment_page(everything[100:150], 149)}
+        with patch.object(self.api, "request", side_effect=lambda method, path, payload=None:
+                          window if "fragment history" in payload["query"] else pages[payload["variables"]["after"]]):
+            history = self.api.histories([1, 2])
+        self.assertEqual((len(history[1]["comments"]), len(history[2]["comments"])), (150, 1))
+        # The pull request itself deleted during the read: gone, as the
+        # batched query treats it.
+        gone = {"data": {"repository": {"pullRequest": None}}, "errors": [{"type": "NOT_FOUND"}]}
+        self.assertEqual(self.read_long({None: first, "c1": gone}), {})
+
+    def test_a_long_conversation_read_short_or_malformed_is_refused(self):
+        # Fewer comments than the conversation holds, or pages that do not say
+        # how to go on, are not the whole conversation, and the record may be
+        # the part missing.
+        class Limited(dict):
+            # A reader that asks for the same page again and again fails
+            # here, instead of hanging the suite.
+            asked = 0
+
+            def __getitem__(self, cursor):
+                Limited.asked += 1
+                if Limited.asked > 10:
+                    raise AssertionError("the same page was asked for again and again")
+                return dict.__getitem__(self, cursor)
+        everything = [self.long_comment(n) for n in range(1, 151)]
+        first = self.comment_page(everything[:100], 150, "c1")
+
+        def page(nodes=everything[100:], total=150, cursor=None, **change):
+            answer = self.comment_page(nodes, total, cursor)
+            answer["data"]["repository"]["pullRequest"]["comments"]["pageInfo"].update(change)
+            return answer
+        no_page_info = page()
+        del no_page_info["data"]["repository"]["pullRequest"]["comments"]["pageInfo"]
+        # Each answers every page a reader that let the fault through would
+        # go on to ask for, so only the fault itself can refuse the read.
+        for pages, label in [
+                ({None: first, "c1": page(everything[100:149])}, 'the last page short of the total'),
+                ({None: first, "c1": no_page_info}, 'a page without its page information'),
+                ({None: first, "c1": page(everything[100:149], cursor="c2", endCursor=None)}, 'more and no cursor'),
+                ({None: first, "c1": page(cursor="c1")}, 'a cursor that does not move'),
+                ({None: first, "c1": page([], cursor="c2"), "c2": page()}, 'an empty page with more to come'),
+                ({None: page(everything[:100], cursor="c1", hasNextPage="yes"), "c1": page()}, 'more, not said plainly'),
+                ({None: first, "c1": dict(page(), errors=[{"type": "RATE_LIMITED"}])}, 'an error not a deletion')]:
+            Limited.asked = 0
+            with self.assertRaises(GitHubError, msg=label):
+                self.read_long(Limited(pages))
+
+    def test_a_comment_by_a_deleted_account_does_not_fail_the_history_read(self):
+        # GitHub can answer a deleted account's comment with no author, where
+        # the listing names it `ghost`, a User. Refused as incomplete, one such
+        # comment anywhere failed the history read for every pull request in
+        # the batch, other authors' included.
+        ghost = dict(self.long_comment(3), author=None)
+        window = {"data": {"repository": {
+            "pr1": {"number": 1, "comments": {"totalCount": 1, "nodes": [ghost]}, "timelineItems": {"nodes": []}},
+            "pr2": {"number": 2, "comments": {"totalCount": 1, "nodes": [self.long_comment(1)]},
+                    "timelineItems": {"nodes": []}}}}}
+        with patch.object(self.api, "request", return_value=window):
+            history = self.api.histories([1, 2])
+        self.assertEqual(history[1]["comments"][0]["user"], "ghost")
+        self.assertEqual(parse_controller_state(history[2]["comments"])[1], 1)
+        # And on a later page of a long conversation.
+        everything = [self.long_comment(n) for n in range(1, 151)]
+        everything[120] = dict(everything[120], author=None)
+        comments = self.read_long({None: self.comment_page(everything[:100], 150, "c1"),
+                                   "c1": self.comment_page(everything[100:], 150)})[1]["comments"]
+        self.assertEqual(comments[120]["user"], "ghost")
+        self.assertEqual(parse_controller_state(comments)[1], 1)
+
+    def test_a_conversation_one_past_the_window_is_paged_and_one_within_it_is_not(self):
+        # 101 comments do not fit the batched window of 100, and the record
+        # may be the one left out of it. A hundred, or none, fit: one query.
+        everything = [self.long_comment(n) for n in range(1, 102)]
+        history = self.read_long({None: self.comment_page(everything[:100], 101, "c1"),
+                                  "c1": self.comment_page(everything[100:], 101)}, total=101)
+        self.assertEqual(len(history[1]["comments"]), 101)
+        self.assertEqual(parse_controller_state(history[1]["comments"])[1], 1)
+        for total in (0, 100):
+            nodes = [self.long_comment(n) for n in range(1, total + 1)]
+            with patch.object(self.api, "request", return_value=self.history_response(
+                    comments={"totalCount": total, "nodes": nodes})) as request:
+                self.assertEqual(len(self.api.histories([1])[1]["comments"]), total)
+            self.assertEqual(request.call_count, 1, total)
 
     def test_batched_history_of_nothing_asks_nothing(self):
         with patch.object(self.api, "request") as request:
