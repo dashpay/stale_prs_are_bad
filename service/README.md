@@ -1,9 +1,10 @@
 # PR Hygiene service
 
 A read-only web service. The scheduled `pr-hygiene.yml` workflow in this
-repository posts the analyzer's `dashboard.json` to it with a GitHub Actions
-OIDC token; the service keeps each repository's last good data in SQLite and
-serves it, publicly, as JSON and as a plain-text digest.
+repository posts the analyzer's `dashboard.json` to it, through the reusable
+`pr-hygiene-post.yml`, with a GitHub Actions OIDC token; the service keeps
+each repository's last good data in SQLite and serves it, publicly, as JSON
+and as a plain-text digest.
 
 It holds **no GitHub credential** and **never calls GitHub**, except to fetch
 GitHub's public token-signing keys from
@@ -12,8 +13,9 @@ GitHub's public token-signing keys from
 ## What it never does
 
 - Write anything to GitHub, or read anything from it but those public keys.
-- Accept data from anything but the one workflow, on `master`, on a
-  GitHub-hosted runner, on the first attempt of a scheduled or manual run.
+- Accept data from anything but the post workflow's job, called by the one
+  scheduled workflow on `master`, on a GitHub-hosted runner, on the first
+  attempt of a scheduled or manual run.
 - Look anything up for a public request: every answer comes from the
   database; an unknown login or PR is a 404.
 - Set a cookie, or log an `Authorization` header, a cookie or a client address.
@@ -27,22 +29,49 @@ GitHub's public token-signing keys from
 | Port | 8080, plain HTTP; terminate TLS in front of it |
 | Volume | `/data`, holding `pr-hygiene.sqlite3` and its `-wal`/`-shm` files. Must be a **local** volume: SQLite's WAL mode needs real file locks, so not NFS or SMB. The service refuses to start if WAL cannot be enabled. |
 | Outbound | HTTPS to `token.actions.githubusercontent.com` only |
-| Inbound | `POST /ingest` from GitHub Actions runners; `GET /api/v1/*` from anyone |
+| Inbound | `POST /ingest` from GitHub-hosted runners, so reachable from the internet over HTTPS (runners have no fixed addresses; GitHub publishes their changing ranges under `actions` in `https://api.github.com/meta`, should you allowlist); `GET /api/v1/*` from anyone |
 
 ### Environment
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PR_HYGIENE_OIDC_AUDIENCE` | — (required) | The audience the post job asks GitHub for; use the service's public URL, e.g. `https://pr-hygiene.dash.org`. |
+| `PR_HYGIENE_OIDC_AUDIENCE` | — (required) | The audience the post job asks GitHub for: the service's public URL, e.g. `https://pr-hygiene.dash.org`, character for character the repository variable `PR_HYGIENE_SERVICE_URL` (a trailing slash in one and not the other is a mismatch). |
 | `PR_HYGIENE_BIND` | `0.0.0.0:8080` | Listen address. |
 | `PR_HYGIENE_DB` | `/data/pr-hygiene.sqlite3` | Database file. |
 | `PR_HYGIENE_REPOSITORY_ID` | `1242761300` | Numeric id of the repository allowed to post (`dashpay/stale_prs_are_bad`). |
 | `PR_HYGIENE_REPOSITORY_OWNER_ID` | `11511719` | Numeric id of its owner (`dashpay`). |
 | `PR_HYGIENE_REF` | `refs/heads/master` | The only branch a posting run may run on. |
-| `PR_HYGIENE_WORKFLOW_REF` | `dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene.yml@refs/heads/master` | The only workflow (and job workflow) allowed to post. |
+| `PR_HYGIENE_WORKFLOW_REF` | `dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene.yml@refs/heads/master` | The only workflow whose runs may post (the token's `workflow_ref`): the scheduled caller. |
+| `PR_HYGIENE_JOB_WORKFLOW_REF` | `dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene-post.yml@refs/heads/master` | The only code that may hold a posting token (the token's `job_workflow_ref`): the reusable post workflow. Every other job of the caller — the Pages deploy, which also holds `id-token: write`, included — carries the caller's ref here and is refused. |
 | `PR_HYGIENE_BODY_LIMIT` | `1048576` | Largest snapshot accepted, in bytes. Five repositories with 139 open PRs measured 109 KB. |
 | `PR_HYGIENE_JOB_TIMEOUT_SECS` | `1800` | How long before the token was minted the snapshot may have been generated: the analyze job's `timeout-minutes` (20) plus the post job's start-up. 60 to 86400. |
 | `RUST_LOG` | `info` | Log filter. |
+
+### Turning on the post from GitHub Actions
+
+The `post` job of `pr-hygiene.yml` is dormant until the repository variable
+**`PR_HYGIENE_SERVICE_URL`** is set (Settings → Secrets and variables →
+Actions → Variables) to the service's `https://` base URL — the same value
+as `PR_HYGIENE_OIDC_AUDIENCE`. Every run then calls
+`.github/workflows/pr-hygiene-post.yml`, which:
+
+- downloads the run's `dashboard-data` artifact (no checkout, no build, no
+  third-party action besides `actions/download-artifact`);
+- mints an OIDC token with that URL as its audience, masks it, and
+- POSTs `dashboard.json` to `<url>/ingest` with `curl --fail-with-body`,
+  refusing a URL that is not `https://`.
+
+Runs: every 15 minutes (analyze and post only) and every 6 hours or on
+dispatch (also commit to the `data` branch and deploy Pages). A dry run
+posts nothing. A failed post fails the job and is not retried — a token
+posts once; the next run, at most 15 minutes later, carries newer data.
+A 403 names the claim that did not match; the job prints its
+`job_workflow_ref` and `workflow_ref` before posting.
+
+The analyzer exits non-zero when a repository cannot be fetched, which
+fails the analyze job: such runs are neither published nor posted. Runs
+that only lack an engine export are posted, and those repositories show as
+stale.
 
 ### In front of it
 
@@ -98,13 +127,16 @@ analyzer's `dashboard.json`. Checked in this order:
 1. The token, before the body is read: RS256 only; signature against
    GitHub's keys; `iss` and `aud` exactly; `exp`/`nbf` with 60 s of skew;
    `iat` no older than 10 minutes; `repository_id`, `repository_owner_id`,
-   `ref` with `ref_type` = `branch`, `workflow_ref` and `job_workflow_ref`,
-   `event_name` ∈ {`schedule`, `workflow_dispatch`},
-   `runner_environment` = `github-hosted`, `run_attempt` = `1`.
+   `ref` with `ref_type` = `branch`, `workflow_ref` (the caller) and
+   `job_workflow_ref` (the post workflow), `event_name` ∈ {`schedule`,
+   `workflow_dispatch`}, `runner_environment` = `github-hosted`,
+   `run_attempt` = `1`. Not `sub`: it changes when the repository is
+   renamed, and its format can be customised.
 2. The body, up to the size limit: the analyzer's schema version, every
    login, repository and area in GitHub's or the policy's format, every text
-   bounded. Long `fetch_error`/`stage_times_error` diagnostics are cut, not
-   refused.
+   bounded, every time between 2000 and the run (`generated_at` up to now,
+   each PR's times up to an hour after `generated_at`). Long
+   `fetch_error`/`stage_times_error` diagnostics are cut, not refused.
 3. The binding to the run: the snapshot's `commit` is the token's `sha`, and
    its `generated_at` lies between the token's `iat` minus the job timeout
    and `iat` plus the skew.
@@ -155,9 +187,10 @@ generation time of the snapshot that first showed the row, bounds it.
 ## Public API
 
 `/api/v1`, JSON, no sign-in. `Access-Control-Allow-Origin: *`, no cookies,
-`Cache-Control: public, max-age=60`, and an `ETag` per snapshot; send
-`If-None-Match` for a 304. An unknown query parameter is a 400. Before the
-first snapshot, every endpoint answers 503.
+`Cache-Control: public, max-age=60`, and a strong `ETag` — a hash of the
+response's bytes; send `If-None-Match` for a 304. `OPTIONS` answers the
+browser's preflight for that header. An unknown query parameter is a 400.
+Before the first snapshot, every endpoint answers 503.
 
 | Endpoint | |
 |---|---|
