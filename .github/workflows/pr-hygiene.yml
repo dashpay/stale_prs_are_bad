@@ -32,6 +32,9 @@ concurrency:
 jobs:
   analyze:
     name: Generate report
+    # A quarter-hourly run only feeds the service: until its URL is set there
+    # is nothing to do but spend the read App's rate limit.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 */6 * * *' || vars.PR_HYGIENE_SERVICE_URL != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
