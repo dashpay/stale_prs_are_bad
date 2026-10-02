@@ -120,7 +120,6 @@ const FIELDS: &[&str] = &[
     "waived",
     "waived_at",
     "waived_reason",
-    "write",
 ];
 
 /// Maps keyed by data rather than by field: access by login, receipts by

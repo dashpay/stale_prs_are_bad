@@ -119,6 +119,16 @@ pub enum Failure {
     WriteRouteDiffers,
     /// A write made after every write the recording holds.
     WriteNotRecorded,
+    /// A recording without what replaying its run needs: its clock, its
+    /// policy.
+    RunIncomplete,
+    /// What the run put out could not be read: `outputs.json` or
+    /// `printed.txt`.
+    RunFilesUnreadable,
+    /// `printed.txt` is not the JSON report the run printed.
+    ReportUnreadable,
+    /// The replayed run made no report where Python's printed one.
+    NoReport,
     /// A verdict whose outputs the port could not make.
     Unmade,
 }
@@ -145,6 +155,10 @@ impl fmt::Display for Failure {
             Failure::WriteNotMade => f.write_str("recorded write never made"),
             Failure::WriteRouteDiffers => f.write_str("write made to another route"),
             Failure::WriteNotRecorded => f.write_str("write the recording does not hold"),
+            Failure::RunIncomplete => f.write_str("recording lacks what its run needs"),
+            Failure::RunFilesUnreadable => f.write_str("outputs.json or printed.txt unreadable"),
+            Failure::ReportUnreadable => f.write_str("printed report is not JSON"),
+            Failure::NoReport => f.write_str("run made no report"),
             Failure::Unmade => f.write_str("outputs the port could not make"),
         }
     }
@@ -187,12 +201,7 @@ impl Check {
         }
     }
 
-    pub(super) fn failed(
-        layer: Layer,
-        index: usize,
-        failure: Failure,
-        detail: impl Into<String>,
-    ) -> Self {
+    pub fn failed(layer: Layer, index: usize, failure: Failure, detail: impl Into<String>) -> Self {
         Check {
             layer,
             index,

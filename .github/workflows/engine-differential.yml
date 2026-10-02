@@ -149,7 +149,8 @@ jobs:
             ' <<<"$headers"
           }
           # REST and GraphQL left, through repository $1, which the token
-          # can read. Each reading costs one request of its kind.
+          # can read. Each reading costs one request of its kind, charged to
+          # the budget, but for the last, made after it is reported.
           remaining() {
             local core graphql
             core=$(left core "repos/$1") || return 1
@@ -197,6 +198,7 @@ jobs:
             echo "::error::The App's rate limits could not be read from a response's headers; nothing recorded"
             exit 1
           fi
+          spent=$(( spent + 2 ))
           read -r core graphql <<<"$limits"
           echo "App rate limit remaining before: core $core, graphql $graphql"
           slot=$(( $(date -u +%s) / 21600 ))

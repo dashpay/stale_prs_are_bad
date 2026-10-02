@@ -1,8 +1,12 @@
 //! One recording replayed as a whole run: the port's reconcile layer driven
 //! over the recorded reads, at the recorded clock, with the recorded policy,
 //! status page and `GITHUB_RUN_ID`, the dry sync walking the write path as
-//! Python's did, and every write answered only as the next write the
-//! recording holds, with the same route and the same body as a JSON value.
+//! Python's did, and every write held to the next write the recording holds,
+//! its route and its body as a JSON value. A write to that route with
+//! another body is answered as recorded, so the run goes on and every later
+//! write is compared; the recorded answer echoes what Python wrote, so a
+//! difference after the first may follow from it. A write to another route,
+//! or past the last recorded one, has no answer and ends the run.
 //!
 //! What Python's command line decided from its own arguments is decided
 //! here from the recorded `argv`: the hourly batch of `--batch-size`, which
@@ -374,7 +378,7 @@ fn replay(recording: &Recording, args: &Argv) -> Result<Replayed, (Failure, Stri
         _ => None,
     }
     .ok_or((
-        Failure::Malformed,
+        Failure::RunIncomplete,
         "recording.json holds no clock".to_owned(),
     ))?;
     let mut clock = LoggingClock {
@@ -383,7 +387,7 @@ fn replay(recording: &Recording, args: &Argv) -> Result<Replayed, (Failure, Stri
         reads: Rc::default(),
     };
     let policy = recording.policy().cloned().ok_or((
-        Failure::Malformed,
+        Failure::RunIncomplete,
         "recording.json holds no policy".to_owned(),
     ))?;
     // Inside a recording a sync takes the write path, so that what it would
@@ -608,11 +612,11 @@ pub fn replay_run(recording: &Recording, files: &RunFiles, own: &OwnWords) -> Co
                 (Some(report), Ok(printed)) => {
                     Check::new(Layer::Report, 0, differences(report, &printed, "report"))
                 }
-                (None, _) => Check::failed(Layer::Report, 0, Failure::NoResult, "no report"),
+                (None, _) => Check::failed(Layer::Report, 0, Failure::NoReport, "no report"),
                 (_, Err(_)) => Check::failed(
                     Layer::Report,
                     0,
-                    Failure::Malformed,
+                    Failure::ReportUnreadable,
                     "printed.txt is not JSON",
                 ),
             });
@@ -644,7 +648,14 @@ pub fn replay_run(recording: &Recording, files: &RunFiles, own: &OwnWords) -> Co
         });
     }
     // A refused write took no recorded one: the one it stood against is
-    // counted where it was refused, not again as never made.
+    // counted where it was refused, not again as never made. A refusal is
+    // never caught, so it ends the run: it is the last write made, and the
+    // writes before it took the recorded ones in order.
+    debug_assert!(made
+        .iter()
+        .rev()
+        .skip(1)
+        .all(|check| !matches!(check, WriteCheck::Route | WriteCheck::Unrecorded)));
     let consumed = transport.recorded_writes() - transport.unwritten();
     let refused = usize::from(matches!(made.last(), Some(WriteCheck::Route)));
     for index in consumed + refused..transport.recorded_writes() {

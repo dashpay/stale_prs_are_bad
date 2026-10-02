@@ -36,7 +36,7 @@
 //! could not be read, 2 when the command itself could not run.
 
 use pr_hygiene_engine::conformance::{
-    compare, replay_run, Comparison, Layer, Outcome, OwnWords, Recording, RunFiles,
+    compare, replay_run, Check, Comparison, Failure, Layer, Outcome, OwnWords, Recording, RunFiles,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -338,7 +338,8 @@ fn categories(rows: &[Row]) -> String {
         "Field paths only: `[]` is any list item, `*` a key that is data (a login, a digest), \
          `?` a key this tool does not know. Cases are indices: into `evaluations.jsonl` for \
          snapshots and evaluations; into `verdicts.json` for verdicts, run verdicts and \
-         outputs; into the recorded writes, in order from 0, for writes; and 0 for the run as \
+         outputs; into the recorded writes, in order from 0, for writes (a write the recording \
+         does not hold is numbered on past its last); and 0 for the run as \
          a whole (outcome, report, clock, calls), with 1 for how often the outcome read the \
          review system's status page.\n\n\
          | Layer | Field | Kind | Count | Cases |\n|---|---|---|---:|---|\n",
@@ -411,15 +412,24 @@ fn row(dir: &Path, own: &OwnWords) -> Row {
         let found = recording
             .requests()
             .map_err(|e| e.to_string())
-            .and_then(|requests| {
-                let files = load_run(dir)?;
+            .map(|requests| {
                 let mut comparison = compare(&recording, own);
                 // The whole run's reads are the snapshots' and more: a read it
                 // lacks stops it, and its outcome says so. The missing reads
-                // counted are the snapshots'.
-                let run = replay_run(&recording, &files, own);
-                comparison.checks.extend(run.checks);
-                Ok((comparison, requests))
+                // counted are the snapshots'. What the run put out that cannot
+                // be read fails the whole-run layers and keeps the rest.
+                match load_run(dir) {
+                    Ok(files) => comparison
+                        .checks
+                        .extend(replay_run(&recording, &files, own).checks),
+                    Err(problem) => comparison.checks.push(Check::failed(
+                        Layer::Run,
+                        0,
+                        Failure::RunFilesUnreadable,
+                        problem,
+                    )),
+                }
+                (comparison, requests)
             });
         Ok::<_, String>((repository, label, found))
     })

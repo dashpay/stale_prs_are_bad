@@ -461,8 +461,9 @@ compared layer by layer:
 - **writes**: each write in the recorded order, its method and route, and
   its body as a JSON value. A write to the recorded route with another body
   is answered as recorded, so the run goes on and every later write is
-  compared too; a write to another route, or one more than the recording
-  holds, has no answer and stops the run;
+  compared too, though a difference after the first may follow from the
+  recorded answer, which echoes what Python wrote; a write to another route,
+  or one more than the recording holds, has no answer and stops the run;
 - **outputs**: what each verdict puts on GitHub, against `outputs.json`;
 - **report**: the JSON report, against `printed.txt` (a Markdown report is
   not compared);
@@ -495,7 +496,8 @@ summary holds the counts table only.
   text, or a failure such as a write made to another route) and the case
   indices. Cases index `evaluations.jsonl` for snapshots and evaluations;
   `verdicts.json` for verdicts, run verdicts and outputs; the recorded writes,
-  in order from 0, for writes; and are 0 for the run as a whole (outcome,
+  in order from 0, for writes (one the recording does not hold is numbered on
+  past its last); and are 0 for the run as a whole (outcome,
   report, clock, calls), 1 for the outcome's count of status-page reads.
   - A snapshot that differs under a matching evaluation is the reader.
   - An evaluation that differs is `policy`.

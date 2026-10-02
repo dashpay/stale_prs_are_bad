@@ -183,6 +183,13 @@ fn a_write_python_did_not_make_fails_the_gate() {
     assert!(
         found
             .iter()
+            .any(|d| d
+                == "write 5: write the recording does not hold: made after every recorded write"),
+        "{found:?}"
+    );
+    assert!(
+        found
+            .iter()
             .any(|d| d.contains("A write the recording does not hold")),
         "{found:?}"
     );
