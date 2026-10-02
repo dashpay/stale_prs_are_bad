@@ -613,11 +613,14 @@ class GitHub:
         """Every comment on one pull request, a page at a time, each with its editor.
 
         None when the pull request no longer resolves, as the batched query
-        treats one. The pages must add up: a comment posted during the read
-        lands on the last page and is counted by that page's total, so the
-        last total is what they are held to. One deleted from a page already
-        read leaves more comments than that, and the read is refused rather
-        than decided from.
+        treats one. The pages must hold the whole conversation: a comment
+        posted during the read lands on the last page and is counted by that
+        page's total, so the last total is what they are held to. One deleted
+        from a page already read leaves more comments read than that — a
+        superset, with nothing missing — and is kept. Fewer than the total
+        means part of the conversation was not read, and the read is refused
+        rather than decided from. Hidden comments, spam included, are both
+        returned and counted, so they never make the pages fall short.
         """
         query = """query($owner:String!, $repo:String!, $number:Int!, $after:String) {
           repository(owner:$owner, name:$repo) {
@@ -660,8 +663,8 @@ class GitHub:
             if not more:
                 break
             after = cursor
-        if len(nodes) != total:
-            raise GitHubError("Comment pages do not add up to the conversation")
+        if len(nodes) < total:
+            raise GitHubError("Comment pages hold fewer comments than the conversation")
         return nodes
 
     def threads(self, number):

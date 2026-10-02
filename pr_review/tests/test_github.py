@@ -926,31 +926,83 @@ class GitHubTests(unittest.TestCase):
         state, comment_id = parse_controller_state(comments)
         self.assertEqual((comment_id, state["admitted_at"]), (1, "2026-09-01T10:00:00Z"))
 
-    def test_a_long_conversation_read_in_pieces_that_do_not_add_up_is_refused(self):
-        # Pages short of what they must carry, or holding more comments than
-        # the conversation has (one deleted from a page already read), are
-        # not the whole conversation, and the record may be the part missing.
+    def test_a_long_conversation_that_changed_while_it_was_read_is_still_whole(self):
         everything = [self.long_comment(n) for n in range(1, 152)]
         first = self.comment_page(everything[:100], 150, "c1")
         # A comment posted during the read lands on the last page and is
-        # counted by its total: that read is whole.
+        # counted by its total.
         added = self.read_long({None: first, "c1": self.comment_page(everything[100:], 151)})
         self.assertEqual(len(added[1]["comments"]), 151)
-        # Deleted during the read: gone, as the batched query treats it.
+        # One deleted from a page already read leaves more comments read than
+        # the last total counts: a superset of the conversation, nothing
+        # missing from it. Refusing it failed the history read for every pull
+        # request in the batch, other authors' included.
+        window = {"data": {"repository": {
+            "pr1": {"number": 1, "comments": {"totalCount": 150, "nodes": everything[50:150]},
+                    "timelineItems": {"nodes": []}},
+            "pr2": {"number": 2, "comments": {"totalCount": 1, "nodes": [self.long_comment(999)]},
+                    "timelineItems": {"nodes": []}}}}}
+        pages = {None: first, "c1": self.comment_page(everything[100:150], 149)}
+        with patch.object(self.api, "request", side_effect=lambda method, path, payload=None:
+                          window if "fragment history" in payload["query"] else pages[payload["variables"]["after"]]):
+            history = self.api.histories([1, 2])
+        self.assertEqual((len(history[1]["comments"]), len(history[2]["comments"])), (150, 1))
+        # The pull request itself deleted during the read: gone, as the
+        # batched query treats it.
         gone = {"data": {"repository": {"pullRequest": None}}, "errors": [{"type": "NOT_FOUND"}]}
         self.assertEqual(self.read_long({None: first, "c1": gone}), {})
-        no_page_info = self.comment_page(everything[100:150], 150)
+
+    def test_a_long_conversation_read_short_or_malformed_is_refused(self):
+        # Fewer comments than the conversation holds, or pages that do not say
+        # how to go on, are not the whole conversation, and the record may be
+        # the part missing.
+        class Limited(dict):
+            # A reader that asks for the same page again and again fails
+            # here, instead of hanging the suite.
+            asked = 0
+
+            def __getitem__(self, cursor):
+                Limited.asked += 1
+                if Limited.asked > 10:
+                    raise AssertionError("the same page was asked for again and again")
+                return dict.__getitem__(self, cursor)
+        everything = [self.long_comment(n) for n in range(1, 151)]
+        first = self.comment_page(everything[:100], 150, "c1")
+
+        def page(nodes=everything[100:], total=150, cursor=None, **change):
+            answer = self.comment_page(nodes, total, cursor)
+            answer["data"]["repository"]["pullRequest"]["comments"]["pageInfo"].update(change)
+            return answer
+        no_page_info = page()
         del no_page_info["data"]["repository"]["pullRequest"]["comments"]["pageInfo"]
-        no_cursor = self.comment_page(everything[:100], 150, "c1")
-        no_cursor["data"]["repository"]["pullRequest"]["comments"]["pageInfo"]["endCursor"] = None
+        # Each answers every page a reader that let the fault through would
+        # go on to ask for, so only the fault itself can refuse the read.
         for pages, label in [
+                ({None: first, "c1": page(everything[100:149])}, 'the last page short of the total'),
                 ({None: first, "c1": no_page_info}, 'a page without its page information'),
-                ({None: no_cursor}, 'more to read and no cursor to read it from'),
-                ({None: first, "c1": self.comment_page(everything[100:150], 149)}, 'more comments than there are'),
-                ({None: first, "c1": dict(self.comment_page(everything[100:150], 150),
-                                          errors=[{"type": "RATE_LIMITED"}])}, 'an error that is not a deletion')]:
+                ({None: first, "c1": page(everything[100:149], cursor="c2", endCursor=None)}, 'more and no cursor'),
+                ({None: first, "c1": page(cursor="c1")}, 'a cursor that does not move'),
+                ({None: first, "c1": page([], cursor="c2"), "c2": page()}, 'an empty page with more to come'),
+                ({None: page(everything[:100], cursor="c1", hasNextPage="yes"), "c1": page()}, 'more, not said plainly'),
+                ({None: first, "c1": dict(page(), errors=[{"type": "RATE_LIMITED"}])}, 'an error not a deletion')]:
+            Limited.asked = 0
             with self.assertRaises(GitHubError, msg=label):
-                self.read_long(pages)
+                self.read_long(Limited(pages))
+
+    def test_a_conversation_one_past_the_window_is_paged_and_one_within_it_is_not(self):
+        # 101 comments do not fit the batched window of 100, and the record
+        # may be the one left out of it. A hundred, or none, fit: one query.
+        everything = [self.long_comment(n) for n in range(1, 102)]
+        history = self.read_long({None: self.comment_page(everything[:100], 101, "c1"),
+                                  "c1": self.comment_page(everything[100:], 101)}, total=101)
+        self.assertEqual(len(history[1]["comments"]), 101)
+        self.assertEqual(parse_controller_state(history[1]["comments"])[1], 1)
+        for total in (0, 100):
+            nodes = [self.long_comment(n) for n in range(1, total + 1)]
+            with patch.object(self.api, "request", return_value=self.history_response(
+                    comments={"totalCount": total, "nodes": nodes})) as request:
+                self.assertEqual(len(self.api.histories([1])[1]["comments"]), total)
+            self.assertEqual(request.call_count, 1, total)
 
     def test_batched_history_of_nothing_asks_nothing(self):
         with patch.object(self.api, "request") as request:
