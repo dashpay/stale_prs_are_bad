@@ -24,8 +24,14 @@ NUDGES_PER_RUN = 1
 
 
 
+def clock():
+    """The current instant. The engine reads the time here and nowhere else,
+    so a recording can fix it for a whole run and a replay can restore it."""
+    return datetime.now(timezone.utc)
+
+
 def utc_now():
-    return datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+    return clock().isoformat(timespec='seconds').replace('+00:00', 'Z')
 
 
 def context_fingerprint(prs, author):
@@ -91,7 +97,7 @@ def periodic_batch(prs, size, epoch_seconds=None, cadence=SWEEP_SECONDS):
     ordered = sorted(prs, key=lambda p: p['number'])
     if not ordered:
         return []
-    seconds = datetime.now(timezone.utc).timestamp() if epoch_seconds is None else epoch_seconds
+    seconds = clock().timestamp() if epoch_seconds is None else epoch_seconds
     start = (int(seconds // cadence) * size) % len(ordered)
     return [ordered[(start + offset) % len(ordered)] for offset in range(min(size, len(ordered)))]
 
