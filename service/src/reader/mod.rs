@@ -26,7 +26,7 @@ mod end_to_end;
 #[cfg(test)]
 pub(crate) mod mock;
 
-pub use app::{AppAuthError, AppKey, InstallationTokens, TokenSource};
+pub use app::{AppAuthError, AppKey, GivenToken, InstallationTokens, TokenSource};
 pub use read_only::{ReadOnly, NOT_A_READ};
 pub use status_page::StatusPage;
 pub use transport::HttpTransport;

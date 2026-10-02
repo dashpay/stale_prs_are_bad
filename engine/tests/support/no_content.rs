@@ -144,13 +144,45 @@ fn contents(sources: &[PathBuf], recording: &Path) -> Vec<String> {
     out
 }
 
-/// Nothing a recording holds appears in what the tool said: no whole value,
-/// and no word of one that is not also one of the report's own.
+/// `said` with every word of it that is one of `own` blanked out: what is
+/// left is what the report says beyond its own vocabulary. A recorded value
+/// found only inside the report's own words — `reviewer` inside the field
+/// `reviewers` — is that vocabulary, not the value.
+fn beyond(said: &str, own: &BTreeSet<String>) -> String {
+    let mut out = String::with_capacity(said.len());
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        if own.contains(&word.to_lowercase()) {
+            out.extend(word.chars().map(|_| ' '));
+        } else {
+            out.push_str(word);
+        }
+        word.clear();
+    };
+    for c in said.chars() {
+        if c.is_alphanumeric() {
+            word.push(c);
+        } else {
+            flush(&mut word, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut word, &mut out);
+    out
+}
+
+/// Nothing a recording holds appears in what the tool said: no whole value
+/// beyond the report's own words, and no word of one that is not also one
+/// of the report's own.
 #[track_caller]
 pub fn assert_no_contents(said: &str, recording: &Path, sources: &[PathBuf]) {
     let seen = contents(sources, recording);
     assert!(seen.len() > 20, "the recording holds text to look for");
-    let leaked: Vec<&String> = seen.iter().filter(|s| said.contains(s.as_str())).collect();
+    let beyond = beyond(said, &own_words(sources, recording));
+    let leaked: Vec<&String> = seen
+        .iter()
+        .filter(|s| beyond.contains(s.as_str()))
+        .collect();
     assert!(
         leaked.is_empty(),
         "printed what the recording holds: {leaked:?}\n{said}"

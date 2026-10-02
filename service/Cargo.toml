@@ -10,6 +10,12 @@ publish = false
 name = "pr-hygiene-service"
 path = "src/main.rs"
 
+# The engine differential's live reads, for the scheduled job; not part of
+# the service's image.
+[[bin]]
+name = "differential-live"
+path = "src/bin/differential-live.rs"
+
 [dependencies]
 pr-hygiene = { path = ".." }
 # The review engine, which reads GitHub through the reader's transport.

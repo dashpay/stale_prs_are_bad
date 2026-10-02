@@ -365,11 +365,15 @@ fn answer_value(answer: &Result<Reply, TransportError>) -> Option<PyValue> {
     }
 }
 
-/// The pull request's `updated_at` and head, as its own read answers them.
+/// The pull request's `updated_at` and head, as its own read answers them;
+/// one it does not give is `null`, and differs from one it gives.
 fn identity(pull: &PyValue) -> Option<String> {
-    let updated = field(pull, "updated_at")?;
-    let head = field(field(pull, "head")?, "sha")?;
-    let pair = PyValue::List(PyList::from(vec![updated.clone(), head.clone()]));
+    let updated = field(pull, "updated_at").cloned().unwrap_or(PyValue::None);
+    let head = field(pull, "head")
+        .and_then(|head| field(head, "sha"))
+        .cloned()
+        .unwrap_or(PyValue::None);
+    let pair = PyValue::List(PyList::from(vec![updated, head]));
     py_dumps(&pair, false, None, None).ok()
 }
 
