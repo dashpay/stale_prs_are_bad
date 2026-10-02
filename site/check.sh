@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fails when the page could start treating data as markup, code or a link:
 # its own scripts use an API that parses a string as HTML or code, open or
-# assign a URL, or set an attribute outside js/dom.js's checks; the HTML loses
+# assign a URL, set an attribute outside js/dom.js's checks, or make a request
+# to anything but a literal path beside the page; the HTML loses
 # its Content-Security-Policy or noindex, or carries inline script; or a
 # vendored file is unlisted or no longer matches its recorded checksum.
 # Everything the page renders comes from PR titles, blockers and areas anyone
@@ -48,6 +49,27 @@ if [ "$status" -eq 0 ]; then
 fi
 report "HTML, code or a URL taken from a string; use textContent / createElement / js/dom.js instead" "$status" "$hits"
 
+# Requests: every use of fetch is a call whose first argument is a fixed path
+# beside the page, written literally, so no URL is ever built from data and a
+# renamed or aliased fetch cannot hide one. Requests that change something
+# (a method other than GET) are made only in js/account.js, where each is a
+# fixed path and method.
+hits=$(grep -nE "\\bfetch\\b" "${files[@]}")
+status=$?
+if [ "$status" -eq 0 ]; then
+  hits=$(printf '%s\n' "$hits" | grep -vE '^[^:]+:[0-9]+:.*\bfetch\("[a-z0-9][a-z0-9_/.-]*"[,)]')
+  [ -n "$hits" ] || status=1
+fi
+report "a request whose URL is not a literal path beside the page" "$status" "$hits"
+
+hits=$(grep -nE "\\bmethod[[:space:]]*:" "${files[@]}")
+status=$?
+if [ "$status" -eq 0 ]; then
+  hits=$(printf '%s\n' "$hits" | grep -vE '^\./js/account\.js:[0-9]+:.*\bfetch\("[a-z0-9][a-z0-9_/.-]*", \{ method: "(POST|DELETE)", \.\.\.SAME_ORIGIN \}\)')
+  [ -n "$hits" ] || status=1
+fi
+report "a request that changes something outside js/account.js's fixed list" "$status" "$hits"
+
 # No inline script or event-handler attributes; the CSP forbids them too.
 hits=$(grep -nEi '<script([[:space:]][^>]*)?>[[:space:]]*[^<[:space:]]|<script>[[:space:]]*$|[[:space:]]on[a-z]+[[:space:]]*=' ./*.html)
 report "inline script in HTML" $? "$hits"
@@ -81,5 +103,5 @@ while IFS= read -r path; do
   fi
 done < <(find ./vendor -type f | sort)
 
-[ "$fail" -eq 0 ] && echo "check.sh: ok (${#files[@]} scripts, no HTML, code or URLs from strings; CSP and noindex intact; vendor listed and checksums match)"
+[ "$fail" -eq 0 ] && echo "check.sh: ok (${#files[@]} scripts, no HTML, code or URLs from strings; requests to literal paths only; CSP and noindex intact; vendor listed and checksums match)"
 exit "$fail"
