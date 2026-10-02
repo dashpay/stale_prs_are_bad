@@ -433,7 +433,7 @@ opens with a line per repository: whether this run made its full pass, and
 if not, why and when its turn comes; and how the pass compared live, in
 counts.
 
-Two budgets bound the run, 2 000 requests for the recordings and 1 600 for
+Two budgets bound the run, 2 200 requests for the recordings and 1 600 for
 the live reads. Requests are counted from the
 recordings, one per page of a paginated read (`differential --requests`),
 and a dry run that wrote no recording is charged its estimate. Before each
@@ -446,14 +446,17 @@ step's real cost is not capped once it runs. The costs, measured on the runs
 of 2026-10-02: a report reads six to seven requests an open pull request
 (194 for rust-dashcore's 33), and a batch that covered all of a repository's
 pull requests (tenderdash's four) twice its report; a one-author sync 15 to
-39. Platform's turn spends about 1 850 on recordings and 1 450 on live
-reads, the other turn about 1 300 and 700. The App's
+39. Platform's turn spends about 1 860 on recordings and 1 460 on live
+reads, the other turn about 1 480 and 790. The App's
 remaining REST and GraphQL limits are logged before and after, and read
-again before each repository: recording stops when either is below 1 500
+again before each repository: recording stops when REST is below 1 500
 plus what that repository is expected to cost, its live reads included
-(below), and when either cannot be read; a full pass that does not fit
-there gives way to the report, batch and samples first. The App had 5 220
-to 5 449 REST requests left before each run measured, and
+(below), when GraphQL is below 1 500 plus three fifths of that (queries are
+about a third of the requests, at about 1.4 points each), and when either
+cannot be read; a full pass that does not fit there gives way to the
+report, batch and samples first, and the summary says so. Platform's full
+pass needs about 4 030 REST and 3 020 GraphQL left; the App had 5 220 to
+5 449 REST and 4 657 to 5 450 GraphQL left before each run measured, and
 `pr-hygiene.yml`'s full runs, whose export reads about 900, start three
 hours away. Each limit is read from the `x-ratelimit-remaining` header of a real request
 of its kind — a repository read for REST, a `rateLimit` query for GraphQL —
@@ -541,12 +544,14 @@ passing it on, and names the first to each pull request by its method and
 route with every part that is data written `*` (the run goes on as if
 refused, so a later write to that pull request may follow from the refusal,
 and is not named). Two things a refusal carries to another pull request are
-allowed for. The run's one nudge is never spent, so every pull request
-after the first that wants a bot asked is asked too: only a run's first
-nudge is held. A record not written is not handed on to the author's next
-pull request, which can only make the live run write less there than
-Python's did. Beneath it the read-only layer lets through only the engine's
-own reads of the governed repositories.
+allowed for. The run's one nudge is never spent, so every pull request that
+wants a bot asked is asked; Python's run, its nudge spent on one pull
+request, asked about none after it, so a live nudge to a pull request
+Python decided after that one is not held (where Python asked about none,
+every live nudge is). A record not written is not handed on to the
+author's next pull request, which can only make the live run write less
+there than Python's did. Beneath it the read-only layer lets through only
+the engine's own reads of the governed repositories.
 
 A verdict, or a write, that differs is decided again from what was read
 live with Python's own inputs in place of the port's: the instant it
@@ -577,12 +582,17 @@ between Python's reads and the live ones:
   admission follows from them. In a full pass that is only that author's
   pull requests; which pull requests the pass decided is excused by any
   open pull request moving, and a write to one neither run decided by that
-  one moving (by any, where the write names it by head).
+  one moving, found in the open listing by its number or head, or by a
+  comment on it the live run read (by any moving, where it is found
+  nowhere).
 
 A read that failed live, every time it was asked, where Python's same read
 was answered stops that recording's comparison and is named as such
 (*live read failed where Python's was answered*): GitHub failing it, or
-the transport. Every other difference fails.
+the transport. The other way round — Python's read failed where the live
+one was answered — Python passed over a pull request it could not read,
+and the runs deciding different pull requests counts as moved. Every other
+difference fails.
 
 Accepted residuals, to watch on the first runs: a review thread resolved,
 a comment edited, or a collaborator's access changed between the reads may

@@ -59,8 +59,9 @@ jobs:
     runs-on: ubuntu-latest
     # The full pass of the largest repository reads about 1 200 requests
     # through Python and as many again live, at two to three requests a
-    # second.
-    timeout-minutes: 60
+    # second; the record step has 45 minutes, the build and the replays the
+    # rest.
+    timeout-minutes: 75
     env:
       # What the costs below were measured on: the four runs of 2026-10-02
       # (11:26, 15:49, 16:28, 16:48 UTC). A report cost 9 requests with one
@@ -81,18 +82,27 @@ jobs:
       # recordings themselves, a paginated read once per page. Every step is
       # weighed against what is left before it runs, with the estimates
       # below, and skipped when it would not fit; a full pass is weighed
-      # first. A step's real cost is not capped once it runs. Platform's
-      # turn: its full pass (about 1 200) and samples, then the other four
-      # repositories' reports, sweeps and samples (about 630 as measured),
-      # about 1 850. The other turn: their full passes (about 450) and
-      # samples, then platform's report and sweep (about 950 by estimate).
-      REQUEST_BUDGET: "2000"
+      # first. A step's real cost is not capped once it runs, and the
+      # estimates are weighed one step at a time against what was really
+      # spent before it. Platform's turn: its full pass (98 at twelve, about
+      # 1 200) and samples, about 1 250; then the other four repositories,
+      # each admitted while its report and sweep estimate fits (414, 182,
+      # 158 and 214), which as measured cost about 610 with their samples:
+      # about 1 860, and the last admitted still fits if platform's pass
+      # costs 1 450. The other turn: their full passes (47 at twelve, about
+      # 560) and samples, about 710; then platform's report and sweep (934
+      # by estimate, about 710 at the measured rate) and samples: about
+      # 1 480.
+      REQUEST_BUDGET: "2200"
       # Before each repository the App must have this many requests left
       # beyond what that repository is expected to cost, its live reads
-      # included, in both REST and GraphQL, so that pr-hygiene.yml's runs on
-      # the same installation are never starved: a full run of it exports
-      # every repository's report, about 900 requests (the four measured
-      # above, 280, and platform's 98 at six or seven each).
+      # included, so that pr-hygiene.yml's runs on the same installation are
+      # never starved: a full run of it exports every repository's report,
+      # about 900 requests (the four measured above, 280, and platform's 98
+      # at six or seven each). REST is held to the whole expected cost.
+      # GraphQL to three fifths of it: queries were 27 to 32 per cent of
+      # each recording's requests, and the GraphQL limit fell by about 1.4
+      # points a query (5 450 to 5 202 over the 15:49 run's 176 queries).
       RATE_RESERVE: "1500"
       # A report reads about six requests per open pull request (the pull
       # request, files, reviews, threads, statuses, checks), more where a
@@ -119,16 +129,22 @@ jobs:
       # before, which the tool weighs it at; a report's pull request about
       # eight. Measured, three one-author syncs and two report pull requests
       # cost 23 to 73 a repository. Platform's turn: its full pass (about
-      # 1 200) and samples, then about 230 for the other four, about 1 450.
+      # 1 200) and samples, then about 220 for the other four, about 1 460.
+      # The other turn: their full passes and samples, about 710, and
+      # platform's two report pull requests and samples, about 80.
       #
-      # So a run spends up to about 3 300 requests of the App's hour in
-      # platform's turn and about 2 000 in the other. The App had 5 220 to
-      # 5 449 REST and 4 657 to 5 450 GraphQL requests left before each of
-      # the runs above; pr-hygiene.yml's full runs start three hours away
-      # (its quarter-hourly runs do nothing until the service's URL is
-      # set), and the reserve above stops the job before a repository
-      # whenever the App has less left than that repository and the
-      # reserve need.
+      # So a run spends about 3 300 requests of the App's hour in
+      # platform's turn and about 2 300 in the other, and never more than
+      # the two budgets and the last step admitted under each. The App had
+      # 5 220 to 5 449 REST and 4 657 to 5 450 GraphQL requests left before
+      # each of the runs above. Platform's full pass needs 4 032 REST and
+      # 3 019 GraphQL left (the reserve, the pass at twelve a pull request
+      # and the same again live, with its samples), so it has its turn
+      # unless something else took over 1 100 of the App's hour first; the
+      # summary says so when it does. pr-hygiene.yml's full runs start
+      # three hours away (its quarter-hourly runs do nothing until the
+      # service's URL is set), and the reserve stops the job before a
+      # repository whenever the App has less left than it needs.
       LIVE_BUDGET: "1600"
       # A report's pull requests read live, per repository, rotating with
       # the run.
@@ -388,6 +404,12 @@ jobs:
               live_planned=0
             fi
           }
+          # Whether the App has room for what is planned beyond the reserve:
+          # REST for all of it, GraphQL for three fifths (see RATE_RESERVE).
+          room() {
+            (( core >= RATE_RESERVE + planned + live_planned \
+              && graphql >= RATE_RESERVE + (planned + live_planned) * 3 / 5 ))
+          }
 
           listed=$(env -u GH_TOKEN python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))")
           read -r -a repos <<<"$listed"
@@ -479,18 +501,17 @@ jobs:
             fi
             spent=$(( spent + 2 ))
             read -r core graphql <<<"$limits"
-            need=$(( RATE_RESERVE + planned + live_planned ))
-            if [ "$mode" = full ] && (( core < need || graphql < need )); then
+            if [ "$mode" = full ] && ! room; then
               echo "$repo: no full pass this run; the App has $core REST and $graphql GraphQL requests left"
               covered[$repo]="not this run: the App had $core REST and $graphql GraphQL requests left; its turn again: $(next_turn "$repo")"
               mode=sample
               plan
-              need=$(( RATE_RESERVE + planned + live_planned ))
               if (( spent + planned > REQUEST_BUDGET )); then
+                echo "$repo: not recorded this run; its report and sweep would pass the budget ($open open, $spent spent)"
                 continue
               fi
             fi
-            if (( core < need || graphql < need )); then
+            if ! room; then
               echo "::warning::The App has $core REST and $graphql GraphQL requests left; recording stops here"
               echo "Recording stopped early: the App had $core REST and $graphql GraphQL requests left." >> "$GITHUB_STEP_SUMMARY"
               break

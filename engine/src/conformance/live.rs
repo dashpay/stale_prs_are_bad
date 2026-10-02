@@ -143,14 +143,10 @@ impl WouldBe {
             Call::Graphql { .. } => (Target::Other, false),
             Call::Rest {
                 method, path, body, ..
-            } => {
-                let asks = *method == Method::Post
-                    && matches!(
-                        body.as_ref().and_then(|body| field(body, "body")),
-                        Some(PyValue::Str(text)) if text.starts_with(NUDGE_MARKER)
-                    );
-                (target_of(path), asks)
-            }
+            } => (
+                target_of(path),
+                *method == Method::Post && is_nudge(body.as_ref()),
+            ),
         };
         WouldBe {
             kind: write_kind(call),
@@ -405,9 +401,27 @@ fn recorded_answers(calls: &str) -> HashMap<CallKey, Vec<PyValue>> {
     answers
 }
 
-/// What each write Python's recorded run made was aimed at, in order: read
-/// from the route among its `gh api` arguments.
-fn recorded_writes(calls: &str) -> Vec<Target> {
+/// One write Python's recorded run made: what it was aimed at, and whether
+/// it asked a review bot to look at a head.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Recorded {
+    target: Target,
+    nudge: bool,
+}
+
+/// Whether a write's body is a nudge: a comment that opens with the
+/// engine's nudge marker.
+fn is_nudge(body: Option<&PyValue>) -> bool {
+    matches!(
+        body.and_then(|body| field(body, "body")),
+        Some(PyValue::Str(text)) if text.starts_with(NUDGE_MARKER)
+    )
+}
+
+/// Each write Python's recorded run made, in order: what it was aimed at,
+/// read from the route among its `gh api` arguments, and whether its body
+/// on stdin is a nudge.
+fn recorded_writes(calls: &str) -> Vec<Recorded> {
     calls
         .split('\n')
         .filter(|line| !line.is_empty())
@@ -421,7 +435,14 @@ fn recorded_writes(calls: &str) -> Vec<Target> {
                 }),
                 _ => None,
             };
-            route.map_or(Target::Other, |route| target_of(&route))
+            let body = match field(&entry, "stdin") {
+                Some(PyValue::Str(stdin)) => py_loads(stdin).ok(),
+                _ => None,
+            };
+            Recorded {
+                target: route.map_or(Target::Other, |route| target_of(&route)),
+                nudge: is_nudge(body.as_ref()),
+            }
         })
         .collect()
 }
@@ -502,23 +523,57 @@ impl Aimed {
     }
 }
 
-/// The would-be writes a live run is held to: every one but the nudges
-/// after its first. Python's run has one nudge to spend and spends it on
-/// the first pull request it asks a bot about. A live run's every write is
-/// refused, so its nudge is never spent, and each pull request after that
-/// one which wants a bot asked is asked too: those follow from the refusal,
-/// not from the port.
-fn held_writes(would_be: &[WouldBe]) -> impl Iterator<Item = (&Target, &str)> {
-    let mut nudged = false;
-    would_be.iter().filter_map(move |write| {
-        if write.nudge {
-            if nudged {
-                return None;
-            }
-            nudged = true;
-        }
-        Some((&write.target, write.kind.as_str()))
-    })
+/// Where Python's run spent its one nudge: the place, in the order it
+/// decided its pull requests, of the one it asked a bot about; `None` where
+/// it asked about none.
+struct Nudged {
+    order: HashMap<PyInt, usize>,
+    spent_at: Option<usize>,
+}
+
+impl Nudged {
+    fn of(python_numbers: &[Option<PyInt>], recorded: &[Recorded]) -> Self {
+        let order: HashMap<PyInt, usize> = python_numbers
+            .iter()
+            .enumerate()
+            .filter_map(|(at, n)| n.clone().map(|n| (n, at)))
+            .collect();
+        let spent_at = recorded
+            .iter()
+            .filter(|write| write.nudge)
+            .find_map(|write| match &write.target {
+                Target::Number(n) => order.get(n).copied(),
+                _ => None,
+            });
+        Nudged { order, spent_at }
+    }
+
+    /// Whether a live write is held to Python's run: every one but a nudge
+    /// to a pull request Python decided after the one it spent its nudge
+    /// on. Python's run has one nudge and, once it is spent, asks about no
+    /// other pull request. A live run's every write is refused, so its
+    /// nudge is never spent, and every pull request that wants a bot asked
+    /// is asked: those after Python's follow from the refusal, not from the
+    /// port. Where Python's run asked about none, none wanted it, and every
+    /// live nudge is held.
+    fn holds(&self, write: &WouldBe) -> bool {
+        let (true, Some(spent), Target::Number(n)) = (write.nudge, self.spent_at, &write.target)
+        else {
+            return true;
+        };
+        self.order.get(n).is_none_or(|at| *at <= spent)
+    }
+}
+
+/// The would-be writes a live run is held to, by [`Nudged::holds`].
+fn held_writes<'w>(
+    would_be: &'w [WouldBe],
+    nudged: &'w Nudged,
+) -> impl Iterator<Item = (&'w Target, &'w str)> {
+    would_be
+        .iter()
+        .filter(|write| nudged.holds(write))
+        .map(|write| (&write.target, write.kind.as_str()))
 }
 
 /// A live answer as the value it holds: a listing as its list of pages,
@@ -663,6 +718,7 @@ struct Listed {
     /// Its author's login, lowercased as `admit` groups them.
     author: Option<String>,
     number: Option<PyInt>,
+    head: Option<String>,
     /// What identifies its state: [`identity`].
     identity: String,
 }
@@ -698,12 +754,17 @@ impl Listings {
                         continue;
                     };
                     let login = field(pr, "user").and_then(|user| field(user, "login"));
+                    let head = field(pr, "head").and_then(|head| field(head, "sha"));
                     found.push(Listed {
                         author: match login {
                             Some(PyValue::Str(login)) => Some(login.to_lowercase()),
                             _ => None,
                         },
                         number: number_of(pr),
+                        head: match head {
+                            Some(PyValue::Str(head)) => Some(head.clone()),
+                            _ => None,
+                        },
                         identity,
                     });
                 }
@@ -748,6 +809,121 @@ impl Listings {
     fn number_moved(&self, number: &PyInt) -> bool {
         self.moved(|pr| pr.number.as_ref() == Some(number))
     }
+
+    /// Whether the pull request a write to one neither run decided was
+    /// aimed at moved: found by its number, by its head as the listing gave
+    /// it, or by a comment on it the live run read (`owners`). Where it
+    /// cannot be found, whether any open pull request moved (`any`).
+    fn target_moved(&self, target: &Target, owners: &HashMap<PyInt, PyInt>, any: bool) -> bool {
+        let number = match target {
+            Target::Number(n) => Some(n.clone()),
+            Target::Head(head) => self
+                .0
+                .iter()
+                .flatten()
+                .find(|pr| pr.head.as_deref() == Some(head.as_str()))
+                .and_then(|pr| pr.number.clone()),
+            Target::Comment(id) => owners.get(id).cloned(),
+            Target::Other => None,
+        };
+        number.map_or(any, |n| self.number_moved(&n))
+    }
+}
+
+/// The pull request each comment the live run read is on, by the comment's
+/// id: from the history queries, a pull request's `number` over its
+/// comments' `databaseId`s, and from a comment listing, the number in its
+/// route over each comment's `id`.
+fn comment_owners(log: &[Logged]) -> HashMap<PyInt, PyInt> {
+    let mut owners = HashMap::new();
+    for logged in log {
+        let Some(answer) = answer_value(&logged.answer) else {
+            continue;
+        };
+        if logged.key.1.is_some() {
+            let pulls = field(&answer, "data").and_then(|data| field(data, "repository"));
+            let Some(PyValue::Dict(pulls)) = pulls else {
+                continue;
+            };
+            for pull in pulls.values() {
+                let nodes = field(pull, "comments").and_then(|c| field(c, "nodes"));
+                let (Some(number), Some(PyValue::List(nodes))) = (number_of(pull), nodes) else {
+                    continue;
+                };
+                for node in nodes.iter() {
+                    if let Some(PyValue::Int(id)) = field(node, "databaseId") {
+                        owners.insert(id.clone(), number.clone());
+                    }
+                }
+            }
+            continue;
+        }
+        let route = logged.key.0.get(2).map(String::as_str).unwrap_or_default();
+        let Target::Number(number) = target_of(route) else {
+            continue;
+        };
+        if !route
+            .split('?')
+            .next()
+            .unwrap_or_default()
+            .ends_with("/comments")
+        {
+            continue;
+        }
+        let PyValue::List(pages) = answer else {
+            continue;
+        };
+        for page in pages.iter() {
+            let PyValue::List(comments) = page else {
+                continue;
+            };
+            for comment in comments.iter() {
+                if let Some(PyValue::Int(id)) = field(comment, "id") {
+                    owners.insert(id.clone(), number.clone());
+                }
+            }
+        }
+    }
+    owners
+}
+
+/// Whether a read failed on Python's side, every time Python asked it,
+/// where the live run's same read was answered: GitHub failing Python's
+/// read. Python's run passes over a pull request whose evidence it could
+/// not read, so the two runs then decide different pull requests for a
+/// reason that is neither engine's.
+fn answered_where_python_failed(calls: &str, log: &[Logged]) -> bool {
+    let mut python: HashMap<CallKey, bool> = HashMap::new();
+    for line in calls.split('\n').filter(|line| !line.is_empty()) {
+        let Ok(entry) = py_loads(line) else {
+            continue;
+        };
+        if !matches!(field(&entry, "kind"), Some(PyValue::Str(kind)) if kind == "read") {
+            continue;
+        }
+        let Some(PyValue::List(args)) = field(&entry, "args") else {
+            continue;
+        };
+        let args: Option<Vec<String>> = args
+            .iter()
+            .map(|arg| match arg {
+                PyValue::Str(arg) => Some(arg.clone()),
+                _ => None,
+            })
+            .collect();
+        let Some(args) = args else {
+            continue;
+        };
+        let stdin = match field(&entry, "stdin") {
+            Some(PyValue::Str(stdin)) => Some(stdin.clone()),
+            _ => None,
+        };
+        let ok = matches!(field(&entry, "exit"), Some(PyValue::Int(exit)) if exit.is_zero());
+        *python.entry((args, stdin)).or_default() |= ok;
+    }
+    log.iter().any(|logged| {
+        logged.answer.is_ok() && python.get(&logged.key).is_some_and(|answered| !answered)
+    })
 }
 
 /// Whether a read failed live, every time it was asked, where Python's
@@ -1248,7 +1424,9 @@ pub fn live_run<T: Transport>(
     live.moved = motions.values().filter(|m| **m != Motion::Still).count();
     let any_moved = scope_moved || live.moved > 0;
     if python_numbers != live_numbers {
-        if any_moved {
+        // A pull request Python could not read, and so did not decide, is
+        // GitHub answering otherwise between the two reads, as a move is.
+        if any_moved || answered_where_python_failed(&recording.calls, &observed.log) {
             moved(&mut live, 0);
         } else {
             live.comparison.checks.push(Check::failed(
@@ -1339,14 +1517,25 @@ pub fn live_run<T: Transport>(
     let returned = field(&recording.meta, "outcome")
         .and_then(|outcome| field(outcome, "returned"))
         .is_some();
+    let python_writes = recorded_writes(&recording.calls);
     let python_aimed = Aimed::of(
-        recorded_writes(&recording.calls)
-            .iter()
-            .map(|target| (target, "")),
+        python_writes.iter().map(|write| (&write.target, "")),
         &Aims::of(python_prs.iter().copied()),
     );
-    let live_aimed = Aimed::of(held_writes(&observed.would_be), &Aims::of(&run.snapshots));
-    let mut again = Again::new(recording, policy, &synced, &run, &payload, &observed.log);
+    let nudged = Nudged::of(&python_numbers, &python_writes);
+    let live_aimed = Aimed::of(
+        held_writes(&observed.would_be, &nudged),
+        &Aims::of(&run.snapshots),
+    );
+    let mut again = Again::new(
+        recording,
+        policy,
+        &synced,
+        &run,
+        &payload,
+        &observed.log,
+        &nudged,
+    );
     for (index, number) in python_numbers.iter().enumerate() {
         let Some(number) = number else {
             continue;
@@ -1389,16 +1578,15 @@ pub fn live_run<T: Transport>(
         });
     }
     // A write to a pull request neither run decided, where Python's run
-    // wrote to none: a pull request named by its number moved when its own
-    // line in the open listing did; any other, when anything did.
+    // wrote to none: it moved when its own line in the open listing did,
+    // found by its number, its head or a comment on it the live run read;
+    // where it cannot be found, when anything did.
     if returned && python_aimed.elsewhere.is_empty() && !live_aimed.elsewhere.is_empty() {
+        let owners = comment_owners(&observed.log);
         let unmoved = live_aimed
             .elsewhere
             .iter()
-            .find(|(target, _)| match target {
-                Target::Number(n) => !listings.number_moved(n),
-                _ => !any_moved,
-            });
+            .find(|(target, _)| !listings.target_moved(target, &owners, any_moved));
         let outcome = match unmoved {
             None => Outcome::Moved,
             Some((_, kind)) => {
@@ -1438,6 +1626,8 @@ struct Again<'a> {
     payload: &'a PyValue,
     live_now: Option<PyDateTime>,
     python_now: Option<PyDateTime>,
+    /// Which of its writes are held, as the live run's are.
+    nudged: &'a Nudged,
     tried: Vec<(Explanation, Option<(Aims, Aimed)>)>,
 }
 
@@ -1449,6 +1639,7 @@ impl<'a> Again<'a> {
         run: &Run,
         payload: &'a PyValue,
         log: &'a [Logged],
+        nudged: &'a Nudged,
     ) -> Self {
         let parse = |text: &str| PyDateTime::fromisoformat(&text.replace('Z', "+00:00")).ok();
         let python_now = match field(&recording.meta, "clock") {
@@ -1463,6 +1654,7 @@ impl<'a> Again<'a> {
             payload,
             live_now: parse(&run.generated_at),
             python_now,
+            nudged,
             tried: Vec::new(),
         }
     }
@@ -1494,7 +1686,10 @@ impl<'a> Again<'a> {
             .run(self.policy, sync_options(self.synced, &mut telemetry))
             .ok()?;
         let aims = Aims::of(&again.snapshots);
-        let aimed = Aimed::of(held_writes(&api.client().transport().would_be), &aims);
+        let aimed = Aimed::of(
+            held_writes(&api.client().transport().would_be, self.nudged),
+            &aims,
+        );
         Some((aims, aimed))
     }
 
@@ -2229,16 +2424,27 @@ mod tests {
             r#"{"kind": "write", "args": ["--method", "PATCH", "repos/a/b/issues/comments/300", "--input", "-"], "exit": 0, "stdout": ""}"#,
             r#"{"kind": "write", "args": ["--method", "DELETE", "repos/a/b/issues/4/labels/ready-to-merge"], "exit": 0, "stdout": ""}"#,
             r#"{"kind": "write", "args": ["--method", "POST", "repos/a/b/pulls/2/requested_reviewers", "--input", "-"], "exit": 0, "stdout": ""}"#,
+            r#"{"kind": "write", "args": ["--method", "POST", "repos/a/b/issues/7/comments", "--input", "-"], "stdin": "{\"body\": \"<!-- pr-hygiene-nudge v1 bot=coderabbitai sha=abc -->\\n@coderabbitai review\"}", "exit": 0, "stdout": ""}"#,
+            r#"{"kind": "write", "args": ["--method", "POST", "repos/a/b/issues/7/comments", "--input", "-"], "stdin": "{\"body\": \"a record\"}", "exit": 0, "stdout": ""}"#,
             r#"{"kind": "write", "args": [], "exit": 0, "stdout": ""}"#,
         ]);
+        let at = |target: Target| Recorded {
+            target,
+            nudge: false,
+        };
         assert_eq!(
             recorded_writes(&text),
             [
-                Target::Head("c0ffee".into()),
-                Target::Comment(PyInt::from(300)),
-                Target::Number(PyInt::from(4)),
-                Target::Number(PyInt::from(2)),
-                Target::Other,
+                at(Target::Head("c0ffee".into())),
+                at(Target::Comment(PyInt::from(300))),
+                at(Target::Number(PyInt::from(4))),
+                at(Target::Number(PyInt::from(2))),
+                Recorded {
+                    target: Target::Number(PyInt::from(7)),
+                    nudge: true,
+                },
+                at(Target::Number(PyInt::from(7))),
+                at(Target::Other),
             ]
         );
         assert!(recorded_writes("").is_empty());
@@ -2273,11 +2479,13 @@ mod tests {
     }
 
     #[test]
-    fn only_a_runs_first_nudge_is_held_since_its_every_write_is_refused() {
+    fn a_live_nudge_after_the_pull_request_python_spent_its_nudge_on_is_not_held() {
         // Python's run spends its one nudge on the first pull request it
-        // asks a bot about. Every write of a live run is refused, so its
-        // nudge is never spent and the next pull request is asked too:
-        // that second ask follows from the refusal, and is not held.
+        // asks a bot about, and asks about no other after it. Every write
+        // of a live run is refused, so its nudge is never spent and every
+        // later pull request that wants a bot asked is asked too: those
+        // asks follow from the refusal, and are not held. Nudges up to and
+        // at Python's are: there Python's run had its nudge to spend.
         let comment = |n: i64, body: &str| Call::Rest {
             method: Method::Post,
             path: format!("repos/a/b/issues/{n}/comments"),
@@ -2290,22 +2498,138 @@ mod tests {
             comment(1, "a record"),
             comment(2, &nudge),
             rest(Method::Post, "repos/a/b/statuses/def", None),
+            comment(3, &nudge),
         ]
         .iter()
         .map(WouldBe::of)
         .collect();
         assert_eq!(
             writes.iter().map(|w| w.nudge).collect::<Vec<_>>(),
-            [true, false, true, false]
+            [true, false, true, false, true]
         );
-        let held: Vec<&Target> = held_writes(&writes).map(|(target, _)| target).collect();
+        // Python decided 1, 2 and 3 in that order.
+        let decided: Vec<Option<PyInt>> = (1..=3).map(|n| Some(PyInt::from(n))).collect();
+        let python_nudged = |n: i64| Recorded {
+            target: Target::Number(PyInt::from(n)),
+            nudge: true,
+        };
+        let held = |python: &[Recorded]| -> Vec<Target> {
+            let nudged = Nudged::of(&decided, python);
+            held_writes(&writes, &nudged)
+                .map(|(target, _)| target.clone())
+                .collect()
+        };
+        let one = Target::Number(PyInt::from(1));
+        let two = Target::Number(PyInt::from(2));
+        let three = Target::Number(PyInt::from(3));
+        let status = Target::Head("def".into());
+        // Python spent it on 1: the asks of 2 and 3 are the refusal's.
         assert_eq!(
-            held,
-            [
-                &Target::Number(PyInt::from(1)),
-                &Target::Number(PyInt::from(1)),
-                &Target::Head("def".into()),
-            ]
+            held(&[python_nudged(1)]),
+            [one.clone(), one.clone(), status.clone()]
         );
+        // On 2, the live run having asked about 1 too: 1 and 2 are held,
+        // 3 is not. Here the live run first asks about 1 where Python did
+        // not: a difference to report, which this keeps.
+        assert_eq!(
+            held(&[python_nudged(2)]),
+            [one.clone(), one.clone(), two.clone(), status.clone()]
+        );
+        // Python asked about none, so none wanted it: every ask is held.
+        assert_eq!(
+            held(&[]),
+            [one.clone(), one.clone(), two, status.clone(), three]
+        );
+        // Python spent it on 1, which by the live read no longer wants a
+        // bot asked (a push since, a bot's review): the live run's first ask
+        // is about 2, which Python's, its nudge spent, never reached.
+        let later: Vec<WouldBe> = writes[1..].to_vec();
+        let nudged = Nudged::of(&decided, &[python_nudged(1)]);
+        let held: Vec<Target> = held_writes(&later, &nudged)
+            .map(|(target, _)| target.clone())
+            .collect();
+        assert_eq!(held, [one, status]);
+    }
+
+    #[test]
+    fn a_write_to_a_pull_request_neither_run_decided_moved_with_its_own_line() {
+        let listing = |pages: &str| Logged {
+            key: gh_arguments(&Call::Rest {
+                method: Method::Get,
+                path: "repos/a/b/pulls?state=open&per_page=100".into(),
+                body: None,
+                paginate: true,
+            })
+            .unwrap(),
+            answer: Ok(Reply::Pages(vec![pages.into()])),
+        };
+        let recorded = recorded_answers(&calls(&[
+            r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/pulls?state=open&per_page=100", "--paginate", "--slurp"], "stdin": null, "exit": 0, "stdout": "[[{\"number\": 3, \"head\": {\"sha\": \"h3\"}, \"updated_at\": \"t1\"}, {\"number\": 4, \"head\": {\"sha\": \"h4\"}, \"updated_at\": \"t1\"}]]", "stderr": ""}"#,
+        ]));
+        // 4 was updated between the reads; 3 was not.
+        let log = vec![
+            listing(
+                r#"[{"number": 3, "head": {"sha": "h3"}, "updated_at": "t1"}, {"number": 4, "head": {"sha": "h4"}, "updated_at": "t2"}]"#,
+            ),
+            // The live run read 4's history and 3's comments.
+            Logged {
+                key: (Vec::new(), Some("{}".into())),
+                answer: Ok(Reply::Text(
+                    r#"{"data": {"repository": {"pr4": {"number": 4, "comments": {"nodes": [{"databaseId": 400}]}}}}}"#.into(),
+                )),
+            },
+            Logged {
+                key: gh_arguments(&Call::Rest {
+                    method: Method::Get,
+                    path: "repos/a/b/issues/3/comments?per_page=100".into(),
+                    body: None,
+                    paginate: true,
+                })
+                .unwrap(),
+                answer: Ok(Reply::Pages(vec![r#"[{"id": 300}]"#.into()])),
+            },
+        ];
+        let listings = Listings::of("a/b", &recorded, &log);
+        let owners = comment_owners(&log);
+        assert_eq!(owners.get(&PyInt::from(400)), Some(&PyInt::from(4)));
+        assert_eq!(owners.get(&PyInt::from(300)), Some(&PyInt::from(3)));
+        let moved = |target: Target| listings.target_moved(&target, &owners, false);
+        assert!(moved(Target::Number(PyInt::from(4))));
+        assert!(!moved(Target::Number(PyInt::from(3))));
+        assert!(moved(Target::Head("h4".into())));
+        assert!(!moved(Target::Head("h3".into())));
+        assert!(moved(Target::Comment(PyInt::from(400))));
+        assert!(!moved(Target::Comment(PyInt::from(300))));
+        // Found nowhere: whatever anything else did.
+        assert!(!moved(Target::Comment(PyInt::from(999))));
+        assert!(listings.target_moved(&Target::Other, &owners, true));
+    }
+
+    #[test]
+    fn a_read_only_python_failed_is_named_where_the_live_one_was_answered() {
+        let calls = calls(&[
+            r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/pulls/1/files?per_page=100", "--paginate", "--slurp"], "stdin": null, "exit": 1, "stdout": "", "stderr": "HTTP 502"}"#,
+            r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/pulls/1/files?per_page=100", "--paginate", "--slurp"], "stdin": null, "exit": 1, "stdout": "", "stderr": "HTTP 502"}"#,
+            r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/labels/x"], "stdin": null, "exit": 1, "stdout": "", "stderr": "HTTP 404"}"#,
+        ]);
+        let files = gh_arguments(&Call::Rest {
+            method: Method::Get,
+            path: "repos/a/b/pulls/1/files?per_page=100".into(),
+            body: None,
+            paginate: true,
+        })
+        .unwrap();
+        let label = gh_arguments(&rest(Method::Get, "repos/a/b/labels/x", None)).unwrap();
+        let answered = Logged {
+            key: files,
+            answer: Ok(Reply::Pages(vec!["[]".into()])),
+        };
+        assert!(answered_where_python_failed(&calls, &[answered]));
+        // Failed on both sides: nothing to set against it.
+        let missing = Logged {
+            key: label,
+            answer: Err(TransportError::Failed(Failed::unavailable())),
+        };
+        assert!(!answered_where_python_failed(&calls, &[missing]));
     }
 }

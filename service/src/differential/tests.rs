@@ -685,6 +685,33 @@ async fn in_a_sync_of_every_pull_request_each_one_python_wrote_nothing_to_is_hel
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_write_to_a_pull_request_neither_run_decided_is_named_by_route_alone() {
+    // Python's run, here, marked no unreadable pull request and tidied
+    // none off the policy. The live run marks 1, which it could not read
+    // either: a write to a pull request neither run decided.
+    let dir = tempfile::tempdir().unwrap();
+    let recording = copy("sweep", dir.path());
+    let calls = without(
+        &read(&recording.join("calls.jsonl")),
+        &[21, 69, 70, 71, 73, 76, 77],
+    );
+    std::fs::write(recording.join("calls.jsonl"), &calls).unwrap();
+    let github = github(&calls, None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(!outcome.clean(), "{said}");
+    assert!(
+        said.contains(
+            "| live writes | `POST repos/*/*/statuses/*, to a pull request neither run decided` | would-be write, not sent | 1 | dashpay/platform · sync: 0 |"
+        ),
+        "{said}"
+    );
+    only_reads(&github);
+    let coverage = outcome.coverage().unwrap();
+    no_content::assert_no_contents(&format!("{said}\n{coverage}"), &recording, &sources());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_sync_of_every_pull_request_over_the_budget_is_skipped_unread_and_says_so() {
     let recording = synthetic().join("sweep");
     let github = github(&read(&recording.join("calls.jsonl")), None).await;
