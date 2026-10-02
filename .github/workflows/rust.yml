@@ -28,6 +28,12 @@ jobs:
       - name: serde_json features stay frozen
         run: |
           features=$(cargo tree --workspace --locked -e features -i serde_json)
+          # The default feature is always on; not finding it means the
+          # listing could not be read, which must not pass as "no match".
+          if ! grep -q 'serde_json feature "default"' <<<"$features"; then
+            echo "::error::could not read serde_json's features from cargo tree"
+            exit 1
+          fi
           if grep -E 'serde_json feature "(preserve_order|arbitrary_precision)"' <<<"$features"; then
             echo "::error::serde_json gained preserve_order or arbitrary_precision"
             exit 1
