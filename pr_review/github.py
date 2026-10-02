@@ -273,13 +273,23 @@ def parse_controller_diff(comments, number):
 
 
 def parse_controller_state(comments):
-    """Ignore copied receipts; the newest record wins; refuse corrupt history."""
+    """Ignore copied receipts and records somebody else edited; the newest record wins; refuse corrupt history."""
     found = []
     for comment in comments:
         if not is_engine(comment["user"]):
             continue
         body = comment["body"]
         if STATE_MARKER not in body:
+            continue
+        # Anyone with write access can edit anyone's comment, and this one
+        # holds the author's place in the review queue and whether this head
+        # was ever ready for a human — forge it and a pull request jumps the
+        # queue, or skips the green build asked for before a human is. Edited,
+        # it is this controller's only if this controller is who edited it;
+        # otherwise it is read as if it were not there. Not refused: that
+        # would put any pull request into a configuration error, one edit away.
+        created = comment.get("created_at")
+        if (comment.get("updated_at") or created) != created and not is_engine(comment.get("edited_by")):
             continue
         matches = list(STATE_PATTERN.finditer(body))
         if len(matches) != 1 or body.count(STATE_MARKER) != 1:
@@ -440,11 +450,13 @@ class GitHub:
     def comments(self, number):
         try:
             # This route carries no editor, so who rewrote an edited comment
-            # is unknown here and the reader treats it as unknown — which
-            # costs only CodeRabbit's rate-limit waiver, never a merge. The
-            # evidence print must not carry it either, or a pull request read
-            # by both routes would look changed between the read and the
-            # write on every run and never be written to again.
+            # is unknown here and the reader treats it as unknown: CodeRabbit's
+            # rate-limit waiver is not granted, and a record or diff this
+            # controller has refreshed is not read, so the pull request starts
+            # over in its author's queue. The evidence print must not carry
+            # it either, or a pull request read by both routes would look
+            # changed between the read and the write on every run and never
+            # be written to again.
             result = [{"id": raw["id"], "user": _login(raw["user"]),
                        "body": raw["body"], "created_at": _text(raw["created_at"], "comment creation time"),
                        "updated_at": _text(raw["updated_at"], "comment update time"), "edited_by": None}

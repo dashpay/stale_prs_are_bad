@@ -59,6 +59,44 @@ class BuildVerdictTests(unittest.TestCase):
         self.assertIsNone(parse_controller_diff([alone], 7))
         self.assertIsNone(parse_controller_diff([made], 8), 'another pull request')
 
+    def record(self, updated_at, edited_by=None, **state):
+        record = {'version': 1, 'number': 7, 'head': 'b' * 40, 'admitted_at': '2026-09-11T10:00:00Z',
+                  'ready_since': None, 'state': 'waiting-bots', 'evidence': 'c' * 64, 'context': 'd' * 64}
+        return dict(id=1, user='github-actions[bot]', body=GitHub.state_comment_body(dict(record, **state), 'text'),
+                    created_at='2026-09-11T10:00:00Z', updated_at=updated_at, edited_by=edited_by)
+
+    def test_a_record_whose_admission_a_collaborator_edited_is_not_trusted(self):
+        # The record says when this pull request took one of its author's
+        # review slots, and whether it was ever ready for a human on this
+        # head. Anyone with write access can edit anyone's comment: an earlier
+        # admission moves the pull request ahead of the author's own queue, and
+        # `ready-for-human` on the current head is remembered as having passed
+        # the green build that is asked for before a human is.
+        forged = self.record('2026-09-11T12:00:00Z', 'llbartekll',
+                             admitted_at='2026-01-01T00:00:00Z', state='ready-for-human')
+        self.assertEqual(parse_controller_state([forged]), (None, None))
+        # An editor this route could not name is nobody known, and the bare
+        # name is one a person can register.
+        for editor in (None, 'github-actions'):
+            self.assertEqual(parse_controller_state([dict(forged, edited_by=editor)]), (None, None), repr(editor))
+        # Ignored, not refused: refusing it would hand anyone with write
+        # access a configuration error on any pull request, one edit away.
+        broken = dict(forged, body=forged['body'].replace('"version":1', '"version":2'))
+        self.assertEqual(parse_controller_state([broken]), (None, None))
+        # As if it were not there: a record of this controller's own beside
+        # it is still read, though the forged one was written later.
+        kept = self.record('2026-09-11T10:00:00Z', None)
+        state, comment_id = parse_controller_state([kept, dict(forged, id=2)])
+        self.assertEqual((comment_id, state['admitted_at'], state['state']), (1, '2026-09-11T10:00:00Z', 'waiting-bots'))
+
+    def test_a_record_this_controller_refreshed_is_still_read(self):
+        # Every run that changes the record rewrites it in place, so all but
+        # a new record have been edited — by this controller. Refusing those
+        # would give up every pull request's slot and review clock each run.
+        refreshed = self.record('2026-09-11T12:00:00Z', 'github-actions[bot]', state='ready-for-human')
+        state, comment_id = parse_controller_state([refreshed])
+        self.assertEqual((comment_id, state['state']), (1, 'ready-for-human'))
+
     def test_a_diff_timestamp_that_is_not_one_is_refused(self):
         # It is read back as a time. A string that is not one raised out of
         # the verdict and took the whole repository's run with it.

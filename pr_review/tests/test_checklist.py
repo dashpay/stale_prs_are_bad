@@ -992,7 +992,7 @@ class SecondReviewTests(unittest.TestCase):
         result = evaluate(self.policy, self.pr, NOW, LATER)
         record = main.state_record(self.pr, result, 'c' * 64)
         older_written_last = dict(id=1, user='github-actions[bot]', created_at='2026-09-10T00:00:00Z', updated_at='2026-09-11T11:00:00Z',
-                                  body=GitHub.state_comment_body(record, 'old text'))
+                                  edited_by='github-actions[bot]', body=GitHub.state_comment_body(record, 'old text'))
         newer = dict(id=2, user='github-actions[bot]', created_at='2026-09-10T12:00:00Z', updated_at='2026-09-10T12:00:00Z',
                      body=GitHub.state_comment_body(dict(record, ready_since='2026-09-10T12:00:00Z'), 'other text'))
         parsed, holder_id = main.parse_controller_state([newer, older_written_last])
@@ -1075,6 +1075,11 @@ class StaleMarkTests(unittest.TestCase):
     def pr(self, base, labels, body=''):
         return {'number': 4660, 'state': 'open', 'base': base, 'labels': labels, 'body': body}
 
+    @staticmethod
+    def history(*comments):
+        # What the history read answers: the comments, each with who last edited it.
+        return {4660: {'comments': list(comments), 'lifecycle_at': None}}
+
     def test_labels_and_block_are_cleared_when_the_base_leaves_the_policy(self):
         # dashpay/platform#4660: rebased onto a feature branch, and two days
         # later still wearing `waiting-bots` and `bot-review-skipped` from the
@@ -1083,8 +1088,8 @@ class StaleMarkTests(unittest.TestCase):
         pr = self.pr('keep-history-lifecycle', ['waiting-bots', 'bot-review-skipped', 'enhancement'], 'text\n\n' + block)
         record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots', 'admitted_at': None, 'ready_since': None}, 'c' * 64)
         api = Mock()
-        api.comments.return_value = [dict(id=7, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
-                                          body=GitHub.state_comment_body(record, main.POINTER))]
+        api.histories.return_value = self.history(dict(id=7, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+                                                       body=GitHub.state_comment_body(record, main.POINTER)))
         with patch('sys.stderr', new_callable=io.StringIO) as err:
             main.clear_marks(api, self.policy, [pr], apply=True)
         self.assertEqual(sorted(c.args[1] for c in api.set_label.call_args_list), ['bot-review-skipped', 'waiting-bots'])
@@ -1108,6 +1113,7 @@ class StaleMarkTests(unittest.TestCase):
         diff = {'number': 4660, 'diff': 'd' * 64, 'diff_heads': ['a' * 40],
                 'receipts': {'e' * 64: '2026-09-02T09:00:00Z'}}
         return dict(id=comment_id, user='github-actions[bot]', created_at=NOW, updated_at=updated,
+                    edited_by='github-actions[bot]' if updated != NOW else None,
                     body=GitHub.state_comment_body(record, display, diff))
 
     def test_the_diff_history_is_kept_and_the_slot_given_up(self):
@@ -1119,7 +1125,7 @@ class StaleMarkTests(unittest.TestCase):
         # the time away as waiting for review.
         original = self.held()
         api = Mock()
-        api.comments.return_value = [original]
+        api.histories.return_value = self.history(original)
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
         comment_id, body = api.edit_comment.call_args.args
@@ -1139,10 +1145,33 @@ class StaleMarkTests(unittest.TestCase):
         holder = self.held(comment_id=50, updated='2026-09-11T12:00:00Z')
         older = self.held(state='waiting-self-review', comment_id=51, updated='2026-09-11T11:00:00Z')
         api = Mock()
-        api.comments.return_value = [holder, older]
+        api.histories.return_value = self.history(holder, older)
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
         self.assertEqual([c.args[0] for c in api.edit_comment.call_args_list], [50])
+
+    def test_a_record_this_controller_refreshed_is_set_aside(self):
+        # Records are rewritten in place, and an edited record is believed
+        # only when this controller is who edited it. The comments listing
+        # does not say who edited a comment; read from there, the current
+        # record would be ignored and never set aside, and the pull request
+        # would come back still holding its old slot and review clock.
+        held = self.held(updated='2026-09-11T13:00:00Z')
+        bot = {'login': 'github-actions', '__typename': 'Bot'}
+        node = {'databaseId': 7, 'body': held['body'], 'createdAt': held['created_at'],
+                'updatedAt': held['updated_at'], 'author': bot, 'editor': bot}
+        history = {'data': {'repository': {'pr4660': {
+            'number': 4660, 'comments': {'totalCount': 1, 'nodes': [node]}, 'timelineItems': {'nodes': []}}}}}
+        listed = [{'id': 7, 'user': {'login': 'github-actions[bot]'}, 'body': held['body'],
+                   'created_at': held['created_at'], 'updated_at': held['updated_at']}]
+        api = GitHub('dashpay/platform')
+        with patch.object(api, 'request', side_effect=lambda method, path, payload=None:
+                          history if path == 'graphql' else {'id': 7}) as request, \
+                patch.object(api, 'pages', return_value=listed):
+            self.assertTrue(main._set_aside_record(api, self.pr('feature', ['ready-for-human'], 'x')))
+        written = [c.args for c in request.call_args_list if c.args[0] == 'PATCH']
+        self.assertEqual([path for _, path, _ in written], ['repos/dashpay/platform/issues/comments/7'])
+        self.assertIn('"state":"not-governed"', written[0][2]['body'])
 
     def test_the_record_is_set_aside_before_the_marks_go(self):
         # The labels are what bring a pull request back into the sweep. If
@@ -1150,14 +1179,14 @@ class StaleMarkTests(unittest.TestCase):
         # again — rather than leaving a record that still holds a slot on a
         # pull request nobody looks at.
         api = Mock()
-        api.comments.return_value = [self.held()]
+        api.histories.return_value = self.history(self.held())
         api.edit_comment.side_effect = main.GitHubError('no')
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
         api.set_label.assert_not_called()
         api.remove_checklist.assert_not_called()
         api = Mock()
-        api.comments.return_value = [self.held()]
+        api.histories.return_value = self.history(self.held())
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
         names = [c[0] for c in api.mock_calls if c[0] in ('edit_comment', 'set_label')]
@@ -1165,12 +1194,12 @@ class StaleMarkTests(unittest.TestCase):
 
     def test_a_record_already_set_aside_is_not_written_again(self):
         api = Mock()
-        api.comments.return_value = [self.held()]
+        api.histories.return_value = self.history(self.held())
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
         done = dict(self.held(), body=api.edit_comment.call_args.args[1])
         api = Mock()
-        api.comments.return_value = [done]
+        api.histories.return_value = self.history(done)
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots'], 'x')], apply=True)
         api.edit_comment.assert_not_called()
@@ -1179,8 +1208,8 @@ class StaleMarkTests(unittest.TestCase):
     def test_the_record_comment_of_another_pull_request_is_not_touched(self):
         record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots', 'admitted_at': None, 'ready_since': None}, 'c' * 64)
         api = Mock()
-        api.comments.return_value = [dict(id=9, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
-                                          body=GitHub.state_comment_body(dict(record, number=999), main.POINTER))]
+        api.histories.return_value = self.history(dict(id=9, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+                                                       body=GitHub.state_comment_body(dict(record, number=999), main.POINTER)))
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots'], 'x')], apply=True)
         api.delete_comment.assert_not_called()
@@ -1212,7 +1241,7 @@ class StaleMarkTests(unittest.TestCase):
         # Taking the current label and leaving the retired one puts the pull
         # request back in the state this function exists to prevent: a label
         # with no checklist beside it, which reads as a verdict and is not one.
-        api = Mock(); api.comments.return_value = []
+        api = Mock(); api.histories.return_value = self.history()
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots', 'ready-to-merge'], 'x')], apply=True)
         self.assertEqual(sorted(c.args[1] for c in api.set_label.call_args_list), ['ready-to-merge', 'waiting-bots'])
@@ -1228,6 +1257,7 @@ class StaleMarkTests(unittest.TestCase):
         api = Mock()
         api.comments.return_value = [dict(id=7, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
                                           body=GitHub.state_comment_body(record, main.POINTER))]
+        api.histories.return_value = self.history(*api.comments.return_value)
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['ready-to-merge'], 'x')], apply=True)
         self.assertEqual([c.args[1] for c in api.set_label.call_args_list], ['ready-to-merge'])
