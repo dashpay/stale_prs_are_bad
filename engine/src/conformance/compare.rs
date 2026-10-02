@@ -115,6 +115,10 @@ pub enum Failure {
     Command,
     /// A write the recording holds that the run never made.
     WriteNotMade,
+    /// A write made to another route than the recorded write in its place.
+    WriteRouteDiffers,
+    /// A write made after every write the recording holds.
+    WriteNotRecorded,
     /// A verdict whose outputs the port could not make.
     Unmade,
 }
@@ -139,6 +143,8 @@ impl fmt::Display for Failure {
             Failure::NoResult => f.write_str("verdict's evaluation gave no result"),
             Failure::Command => f.write_str("a command the port does not run"),
             Failure::WriteNotMade => f.write_str("recorded write never made"),
+            Failure::WriteRouteDiffers => f.write_str("write made to another route"),
+            Failure::WriteNotRecorded => f.write_str("write the recording does not hold"),
             Failure::Unmade => f.write_str("outputs the port could not make"),
         }
     }

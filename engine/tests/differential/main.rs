@@ -86,10 +86,25 @@ fn contents(recording: &Path) -> Vec<String> {
             strings(&serde_json::from_str(line).expect("a JSON line"), &mut out);
         }
     }
-    let verdicts = std::fs::read_to_string(recording.join("verdicts.json")).expect("verdicts");
-    strings(&serde_json::from_str(&verdicts).expect("JSON"), &mut out);
+    for file in [
+        "verdicts.json",
+        "outputs.json",
+        "printed.txt",
+        "recording.json",
+    ] {
+        let text = std::fs::read_to_string(recording.join(file)).expect("a recording file");
+        // The printed report is JSON where the run printed JSON, and is
+        // looked through line by line where it printed Markdown.
+        match serde_json::from_str::<Value>(&text) {
+            Ok(value) => strings(&value, &mut out),
+            Err(_) => out.extend(text.lines().map(str::to_owned)),
+        }
+    }
     // What the report is allowed to say: the repository and the command,
     // which name the recording, and the words of its own headings.
+    // The layers a whole run adds are named `write`, `clock` and `calls`,
+    // and a recording holds `write` as a permission level; `error` is in the
+    // name of a synthetic recording's directory, which labels its row.
     let allowed = [
         "dashpay/platform",
         "dashpay",
@@ -97,6 +112,10 @@ fn contents(recording: &Path) -> Vec<String> {
         "report",
         "matched",
         "verdict",
+        "write",
+        "clock",
+        "calls",
+        "error",
     ];
     out.retain(|s| s.chars().count() >= 5 && !allowed.contains(&s.as_str()));
     out.sort();
@@ -124,15 +143,26 @@ fn every_synthetic_recording_matches_and_is_counted() {
         "{said}"
     );
     assert!(
-        said.contains("| dashpay/platform · report (report) | 2/2 | 2/2 | 2/2 | 0 | 16 | 0 |"),
+        said.contains(
+            "| dashpay/platform · report (report) | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 | 0/0 | 2/2 | 0/0 | 1/1 | 1/1 | 0 | 16 | 0 |"
+        ),
         "{said}"
     );
     assert!(
-        said.contains("| **all** (13 recordings) | 18/18 | 18/18 | 15/15 | 0 | 438 | 0 |"),
+        said.contains(
+            "| **all** (13 recordings) | 18/18 | 18/18 | 15/15 | 25/25 | 15/15 | 67/67 | 15/15 | 4/4 | 13/13 | 13/13 | 0 | 438 | 0 |"
+        ),
         "{said}"
     );
     assert!(said.contains("No differences."), "{said}");
-    for name in ["report", "rich-evidence", "long-history"] {
+    for name in [
+        "report",
+        "rich-evidence",
+        "long-history",
+        "sweep",
+        "nudge",
+        "report-json",
+    ] {
         assert_no_contents(&said, &synthetic().join(name));
     }
 }
@@ -160,9 +190,17 @@ fn a_changed_field_and_a_dropped_read_are_named_by_path_and_counted() {
     assert_eq!(output.status.code(), Some(1), "{said}");
     assert!(said.contains("the Rust engine differed"), "{said}");
     // Python's own evaluations are unchanged, so the port still agrees with
-    // them; only the snapshots rebuilt from the reads differ.
+    // them; the snapshots rebuilt from the reads differ, and the whole run
+    // stops at the read the recording lacks: its outcome says why, and it
+    // made no verdict, no clock read and not every call.
     assert!(
-        said.contains("| dashpay/platform · report | 0/2 | 2/2 | 2/2 | 1 | 15 | 2 |"),
+        said.contains(
+            "| dashpay/platform · report | 0/2 | 2/2 | 2/2 | 1/2 | 0/1 | 0/0 | 0/0 | 0/0 | 0/1 | 0/1 | 1 | 15 | 6 |"
+        ),
+        "{said}"
+    );
+    assert!(
+        said.contains("| run | — | read not in the recording | 1 | dashpay/platform · report: 0 |"),
         "{said}"
     );
     assert!(
@@ -198,11 +236,21 @@ fn a_verdict_python_reached_differently_is_named_by_path() {
     let (output, said) = run(&[&broken]);
     assert_eq!(output.status.code(), Some(1), "{said}");
     assert!(
-        said.contains("| dashpay/platform · report | 2/2 | 2/2 | 1/2 | 0 | 16 | 1 |"),
+        said.contains(
+            "| dashpay/platform · report | 2/2 | 2/2 | 1/2 | 2/2 | 1/2 | 0/0 | 2/2 | 0/0 | 1/1 | 1/1 | 0 | 16 | 2 |"
+        ),
         "{said}"
     );
     assert!(
         said.contains("| verdict | `verdict.state` | value | 1 | dashpay/platform · report: 0 |"),
+        "{said}"
+    );
+    // The whole run reaches the port's own state, which is not the one this
+    // copy records either.
+    assert!(
+        said.contains(
+            "| run verdict | `verdict.state` | value | 1 | dashpay/platform · report: 0 |"
+        ),
         "{said}"
     );
     assert_no_contents(&said, &broken);
@@ -264,9 +312,16 @@ fn a_run_that_raised_inside_evaluate_snapshots_still_rebuilds_over_the_history()
     let raised = copy("report", &dir);
     edit(&raised.join("verdicts.json"), |_| "[]\n".to_owned());
     let (output, said) = run(&[&raised]);
-    assert!(output.status.success(), "{said}");
+    // The snapshots and evaluations match over the history. The whole run,
+    // which the copy still records as returning, makes two rows where the
+    // copy holds none: the one difference.
+    assert_eq!(output.status.code(), Some(1), "{said}");
     assert!(
-        said.contains("| dashpay/platform · report | 2/2 | 2/2 | 0/0 | 0 | 16 | 0 |"),
+        said.contains("| dashpay/platform · report | 2/2 | 2/2 | 0/0 | 2/2 | 0/1 |"),
+        "{said}"
+    );
+    assert!(
+        said.contains("| run verdict | `verdicts` | length | 1 | dashpay/platform · report: 0 |"),
         "{said}"
     );
     let _ = std::fs::remove_dir_all(dir);
@@ -285,7 +340,11 @@ fn a_format_1_recording_is_compared_like_a_format_2_one() {
     });
     let (output, said) = run(&[&old]);
     assert!(output.status.success(), "{said}");
-    assert!(said.contains("| 1/1 | 1/1 | 1/1 | 0 | 41 | 0 |"), "{said}");
+    // Without a clock log, the clock is the one layer not compared.
+    assert!(
+        said.contains("| 1/1 | 1/1 | 1/1 | 2/2 | 1/1 | 6/6 | 1/1 | 0/0 | 0/0 | 1/1 | 0 | 41 | 0 |"),
+        "{said}"
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -366,6 +425,151 @@ fn requests_count_every_page_a_read_fetched() {
     assert_eq!(said.trim(), wanted.to_string());
     // More than one call per page somewhere, or this proves nothing.
     assert!(wanted > 0);
+}
+
+/// The `n`th recorded write of a recording's `calls.jsonl`, and the lines.
+fn writes_of(text: &str) -> (Vec<String>, Vec<usize>) {
+    let lines: Vec<String> = text.lines().map(str::to_owned).collect();
+    let writes = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.contains(r#""kind":"write""#))
+        .map(|(at, _)| at)
+        .collect();
+    (lines, writes)
+}
+
+fn joined(lines: &[String]) -> String {
+    lines.iter().map(|line| format!("{line}\n")).collect()
+}
+
+#[test]
+fn a_write_with_another_body_is_named_by_its_place_and_field() {
+    let dir = scratch("write-body");
+    let broken = copy("sync-pr-2", &dir);
+    // The status the run posts first, recorded as saying something else.
+    edit(&broken.join("calls.jsonl"), |text| {
+        text.replacen(
+            "Evaluating current review policy",
+            "Evaluating the policy afresh",
+            1,
+        )
+    });
+    let (output, said) = run(&[&broken]);
+    assert_eq!(output.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains(
+            "| dashpay/platform · sync --pr 2 | 1/1 | 1/1 | 1/1 | 2/2 | 1/1 | 5/6 | 1/1 | 0/0 | 1/1 | 1/1 | 0 | 41 | 1 |"
+        ),
+        "{said}"
+    );
+    assert!(
+        said.contains(
+            "| write | `write.description` | value | 1 | dashpay/platform · sync --pr 2: 0 |"
+        ),
+        "{said}"
+    );
+    assert_no_contents(&said, &broken);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn writes_in_another_order_are_named_where_the_order_breaks() {
+    let dir = scratch("write-order");
+    let broken = copy("sync-pr-2", &dir);
+    // The label and the reviewer request, recorded the other way round.
+    edit(&broken.join("calls.jsonl"), |text| {
+        let (mut lines, writes) = writes_of(&text);
+        let (label, request) = (writes[3], writes[4]);
+        assert!(lines[label].contains("/labels") && lines[request].contains("requested_reviewers"));
+        lines.swap(label, request);
+        joined(&lines)
+    });
+    let (output, said) = run(&[&broken]);
+    assert_eq!(output.status.code(), Some(1), "{said}");
+    // The port posts the label where the recording holds the request: a
+    // write to another route, which stops the run there; the two recorded
+    // writes after it are never made, and the calls stop short.
+    assert!(
+        said.contains(
+            "| write | — | write made to another route | 1 | dashpay/platform · sync --pr 2: 3 |"
+        ),
+        "{said}"
+    );
+    assert!(
+        said.contains(
+            "| write | — | recorded write never made | 2 | dashpay/platform · sync --pr 2: 4, 5 |"
+        ),
+        "{said}"
+    );
+    assert!(
+        said.contains(
+            "| run | — | call refused by the replay | 1 | dashpay/platform · sync --pr 2: 0 |"
+        ),
+        "{said}"
+    );
+    assert_no_contents(&said, &broken);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_clock_read_at_another_site_is_named() {
+    let dir = scratch("clock");
+    let broken = copy("sync-pr-2", &dir);
+    edit(&broken.join("recording.json"), |text| {
+        text.replacen("\"site\": \"collect\"", "\"site\": \"finish\"", 1)
+    });
+    let (output, said) = run(&[&broken]);
+    assert_eq!(output.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains(
+            "| clock | `clock_reads[][]` | value | 1 | dashpay/platform · sync --pr 2: 0 |"
+        ),
+        "{said}"
+    );
+    assert_no_contents(&said, &broken);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn what_a_write_body_and_a_printed_report_say_is_never_printed() {
+    // Distinctive text where only a recording holds it: in the body of a
+    // recorded write, and in the report the run printed. Both differ from
+    // what the port makes, so both layers report; neither text may appear.
+    const BODY: &str = "Quokka-Zanzibar-7731 left a confidential note";
+    const TITLE: &str = "Marmalade-Obsidian-4402 private roadmap";
+    let dir = scratch("no-content");
+    let sync = copy("sync-pr-2", &dir);
+    edit(&sync.join("calls.jsonl"), |text| {
+        let (mut lines, writes) = writes_of(&text);
+        // The checklist written into the description.
+        let at = writes[1];
+        assert!(lines[at].contains("pr-hygiene:start"));
+        lines[at] = lines[at].replacen("Some text.", BODY, 1);
+        joined(&lines)
+    });
+    let report = copy("report-json", &dir);
+    edit(&report.join("printed.txt"), |text| {
+        text.replacen("\"title\": \"PR 2\"", &format!("\"title\": \"{TITLE}\""), 1)
+    });
+    let (output, said) = run(&[&sync, &report]);
+    assert_eq!(output.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains("| write | `write.body` | value | 1 | dashpay/platform · sync --pr 2: 1 |"),
+        "{said}"
+    );
+    assert!(
+        said.contains(
+            "| report | `report.pull_requests[].title` | value | 1 | dashpay/platform · report: 0 |"
+        ),
+        "{said}"
+    );
+    for text in [BODY, TITLE, "Quokka", "Marmalade"] {
+        assert!(!said.contains(text), "printed {text:?}:\n{said}");
+    }
+    assert_no_contents(&said, &sync);
+    assert_no_contents(&said, &report);
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]

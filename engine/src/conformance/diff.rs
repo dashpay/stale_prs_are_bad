@@ -107,6 +107,7 @@ const FIELDS: &[&str] = &[
     "state",
     "status",
     "submitted_at",
+    "target_url",
     "telemetry_reads",
     "threads",
     "title",
@@ -119,6 +120,7 @@ const FIELDS: &[&str] = &[
     "waived",
     "waived_at",
     "waived_reason",
+    "write",
 ];
 
 /// Maps keyed by data rather than by field: access by login, receipts by

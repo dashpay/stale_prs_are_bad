@@ -41,5 +41,5 @@ pub use client::{Client, NoSleep, Sleep, ThreadSleep};
 pub use error::{PyClass, ReadError};
 pub use reader::{GitHub, History};
 pub use records::Record;
-pub use replay::{RecordingError, ReplayTransport};
+pub use replay::{RecordingError, ReplayTransport, WriteCheck};
 pub use transport::{Call, Failure, FromFn, Method, Reply, Scripted, Transport, TransportError};

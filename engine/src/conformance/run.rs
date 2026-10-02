@@ -22,6 +22,7 @@ use super::recording::{LoadError, Recording};
 use crate::evidence::records::{state_comment_body, validate_state};
 use crate::evidence::{
     Call, Client, GitHub, NoSleep, ReadError, ReplayTransport, Reply, Transport, TransportError,
+    WriteCheck,
 };
 use crate::policy::{diff_print, machine_author, receipt_print, validate_policy, LABEL_FOR_STATE};
 use crate::pycompat::text::py_slice;
@@ -618,16 +619,42 @@ pub fn replay_run(recording: &Recording, files: &RunFiles, own: &OwnWords) -> Co
         }
     }
 
-    // Every recorded write was checked as it was made; none may be left.
-    checks.push(match transport.unwritten() {
-        0 => Check::new(Layer::Write, 0, Vec::new()),
-        left => Check::failed(
+    // Every write, by its place in the recorded order: made as recorded, to
+    // the same route with another body (its fields, by path), to another
+    // route, past the last recorded one, or never made at all.
+    let made = transport.write_checks();
+    for (index, check) in made.iter().enumerate() {
+        checks.push(match check {
+            WriteCheck::Matched => Check::new(Layer::Write, index, Vec::new()),
+            WriteCheck::Body { made, recorded } => {
+                Check::new(Layer::Write, index, differences(made, recorded, "write"))
+            }
+            WriteCheck::Route => Check::failed(
+                Layer::Write,
+                index,
+                Failure::WriteRouteDiffers,
+                "made to another route than the recorded write's",
+            ),
+            WriteCheck::Unrecorded => Check::failed(
+                Layer::Write,
+                index,
+                Failure::WriteNotRecorded,
+                "made after every recorded write",
+            ),
+        });
+    }
+    // A refused write took no recorded one: the one it stood against is
+    // counted where it was refused, not again as never made.
+    let consumed = transport.recorded_writes() - transport.unwritten();
+    let refused = usize::from(matches!(made.last(), Some(WriteCheck::Route)));
+    for index in consumed + refused..transport.recorded_writes() {
+        checks.push(Check::failed(
             Layer::Write,
-            0,
+            index,
             Failure::WriteNotMade,
-            format!("{left} recorded write(s) never made"),
-        ),
-    });
+            "a recorded write the run never made",
+        ));
+    }
 
     // The clock, read at the same sites at the same points among the calls.
     if let Some(PyValue::List(recorded)) = field(&recording.meta, "clock_reads") {
