@@ -23,9 +23,12 @@
 //! one snapshot GitHub names each login's current account, so the tie is
 //! exact; across snapshots it would not be — a login can be renamed and
 //! then registered by someone else — so no tie is carried from one snapshot
-//! to the next. Until one is made, an open ask is known by its login only;
-//! one that ends that way belongs to no one who could be named, and is
-//! deleted.
+//! to the next. Until one is made, an open ask is known by its login only,
+//! is part of no one's speed, and is deleted if it ends that way. The one
+//! thing a later tie carries across a rename is an ask still open on the
+//! login: whoever holds it when the tie is made takes the ask from its
+//! start. Opt-outs keep ids only, so an opted-out person's open asks may be
+//! held by login too, until a tie to their id deletes them.
 //!
 //! **Timing.** Snapshots are minutes apart, so most changes are dated by
 //! the engine's record of when a PR entered its stage, and otherwise to
@@ -204,7 +207,7 @@ pub struct ClosedRecorded {
 pub(crate) fn record(tx: &Transaction<'_>, d: &Dashboard) -> anyhow::Result<()> {
     let opted_out = opted_out(tx)?;
     let closed = closed_read(d);
-    closed_facts(tx, d.generated_at, closed.values().copied(), &opted_out)?;
+    closed_facts(tx, closed.values().copied(), &opted_out, None)?;
     let authors = Authors::of(d);
     let mut listed = HashSet::new();
     for r in &d.repos {
@@ -266,13 +269,23 @@ pub(crate) fn record(tx: &Transaction<'_>, d: &Dashboard) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// Record the merges, reviews and authors of `d`'s closed PRs alone: for a
+/// Record the merges and reviews of `d`'s closed PRs alone: for a
 /// snapshot that is not newer than the latest, such as a year's backfill
 /// imported after posting began. These are dated facts no later snapshot
-/// changes; nothing open is moved by an older snapshot.
-pub(crate) fn record_closed(tx: &Transaction<'_>, d: &Dashboard) -> anyhow::Result<ClosedRecorded> {
+/// changes; nothing open is moved by an older snapshot. Those dated before
+/// `kept_from` are past the retention already, and not recorded.
+pub(crate) fn record_closed(
+    tx: &Transaction<'_>,
+    d: &Dashboard,
+    kept_from: DateTime<Utc>,
+) -> anyhow::Result<ClosedRecorded> {
     let opted_out = opted_out(tx)?;
-    closed_facts(tx, d.generated_at, closed_read(d).into_values(), &opted_out)
+    closed_facts(
+        tx,
+        closed_read(d).into_values(),
+        &opted_out,
+        Some(kept_from),
+    )
 }
 
 fn author_seen(
@@ -333,12 +346,15 @@ fn open_facts<'a>(
     Ok(())
 }
 
+/// A closed PR's merge and reviews. Its author is not kept apart from the
+/// merge: nothing open needs it.
 fn closed_facts<'a>(
     tx: &Transaction<'_>,
-    at: DateTime<Utc>,
     closed: impl Iterator<Item = &'a ClosedPr>,
     opted_out: &HashSet<i64>,
+    kept_from: Option<DateTime<Utc>>,
 ) -> anyhow::Result<ClosedRecorded> {
+    let kept = |t: DateTime<Utc>| kept_from.is_none_or(|from| t >= from);
     let mut added = ClosedRecorded::default();
     let mut merge = tx.prepare_cached(
         "INSERT OR IGNORE INTO merges (repo, number, author_id, ready_at, merged_at)
@@ -346,7 +362,9 @@ fn closed_facts<'a>(
     )?;
     for c in closed {
         let number = i64::try_from(c.number).context("PR number out of range")?;
-        added.reviews += reviews_seen(tx, &c.repo, number, &c.reviews, opted_out)?;
+        let reviews: Vec<DecisiveReview> =
+            c.reviews.iter().filter(|r| kept(r.at)).cloned().collect();
+        added.reviews += reviews_seen(tx, &c.repo, number, &reviews, opted_out)?;
         let Some(author) = c
             .author_id
             .and_then(sql_id)
@@ -354,9 +372,8 @@ fn closed_facts<'a>(
         else {
             continue;
         };
-        author_seen(tx, &c.repo, number, author, at)?;
         if let (Some(ready), Some(merged)) = (c.ready_at, c.merged_at) {
-            if ready <= merged {
+            if ready <= merged && kept(merged) {
                 added.merges +=
                     merge.execute(params![c.repo, number, author, ts(ready), ts(merged)])?;
             }
@@ -733,14 +750,17 @@ pub(crate) fn forget_login(tx: &Transaction<'_>, login: &str) -> anyhow::Result<
     )?)
 }
 
-/// Delete speed inputs dated before `cutoff`. What is still open stays: it
-/// is current.
+/// Delete speed inputs dated before `cutoff`: an ask by when it was made
+/// (the month it counts in), a turn by when it ended or, still open, when
+/// it began. An ask or turn left open on an abandoned PR goes too; if the
+/// PR is still in that stage, the next ingest opens a fresh one, untimed.
 pub(crate) fn purge(tx: &Transaction<'_>, cutoff: DateTime<Utc>) -> anyhow::Result<usize> {
     let cutoff = ts(cutoff);
     let mut deleted = 0;
     for sql in [
-        "DELETE FROM asks WHERE ended_at < ?1",
+        "DELETE FROM asks WHERE asked_at < ?1",
         "DELETE FROM turns WHERE ended_at < ?1",
+        "DELETE FROM turns WHERE ended_at IS NULL AND started_at < ?1",
         "DELETE FROM merges WHERE merged_at < ?1",
         "DELETE FROM reviews WHERE at < ?1",
         "DELETE FROM pr_authors WHERE seen_at < ?1",
@@ -1804,22 +1824,37 @@ mod tests {
                 vec![review("bob", BOB, Verdict::Approved, &mar2("09:20"))],
             )],
         ));
+        // A year on, PR 90 is still in self-review, abandoned; 92 is new.
+        db.ingest(&snap(
+            "2027-03-01T10:00:00Z",
+            vec![
+                pr(90, Stage::SelfReview, &mar2("09:00")),
+                pr(92, Stage::SelfReview, "2027-03-01T09:00:00Z"),
+            ],
+        ));
         let rows = db.rows_of(ALICE) + db.rows_of(BOB);
         let purged = db.store.purge_expired(t("2027-04-01T00:00:00Z")).unwrap();
         assert_eq!(purged.speed_inputs, 0, "13 months on, all but a day: kept");
         let purged = db.store.purge_expired(t("2027-04-03T00:00:00Z")).unwrap();
+        assert_eq!(db.rows_of(BOB), 0, "his review on 91");
+        assert_eq!(
+            db.one::<i64>("SELECT number FROM turns"),
+            92,
+            "the turn left open on 90 for over 13 months goes; 92's stays"
+        );
+        assert_eq!(db.one::<i64>("SELECT count(*) FROM merges"), 0);
         assert_eq!(
             db.rows_of(ALICE),
-            1,
-            "only the open turn stays: it is current"
+            3,
+            "92's turn, and both PRs' authorship, seen a month ago"
         );
-        assert_eq!(db.rows_of(BOB), 0);
-        assert_eq!(purged.speed_inputs as i64, rows - 1);
+        assert_eq!(purged.speed_inputs as i64, rows - 3);
     }
 
     /// A year of closed PRs is read once and imported after posting has
     /// begun, so it is older than the latest snapshot. It is not stored as
-    /// a snapshot, but its merges and reviews are.
+    /// a snapshot, but its merges and reviews are — except those already
+    /// past the 13 months kept.
     #[test]
     fn an_older_backfill_import_adds_its_closed_prs_merges_and_reviews() {
         let mut db = db();
@@ -1836,9 +1871,21 @@ mod tests {
             )],
         );
         year_ago.ready_at = Some(t("2025-03-05T00:00:00Z"));
-        let backfill = snap_closed(&mar2("09:00"), vec![], vec![year_ago]);
+        let mut too_old = closed(
+            101,
+            true,
+            "2025-01-10T00:00:00Z",
+            vec![review(
+                "bob",
+                BOB,
+                Verdict::Approved,
+                "2025-01-09T00:00:00Z",
+            )],
+        );
+        too_old.ready_at = Some(t("2025-01-05T00:00:00Z"));
+        let backfill = snap_closed(&mar2("09:00"), vec![], vec![year_ago, too_old]);
         let raw = serde_json::to_string(&backfill).unwrap();
-        let imported = db.store.import(&backfill, &raw, Utc::now()).unwrap();
+        let imported = db.store.import(&backfill, &raw, t(&mar2("10:30"))).unwrap();
         assert!(matches!(imported.outcome, Outcome::NotNewer { .. }));
         assert_eq!(
             imported,

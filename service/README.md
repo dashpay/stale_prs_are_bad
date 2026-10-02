@@ -149,7 +149,7 @@ GitHub. To restore, stop the service and put the copy in place as
 | Kept | For |
 |---|---|
 | Sessions — the GitHub user id and login only (with the SHA-256 of the cookie's id) | 30 days from sign-in |
-| Speed inputs | 13 months after the time that dates each row; an ask or turn still open is kept, as it is current |
+| Speed inputs | 13 months after the time that dates each row: an ask by when it was made, a turn by when it ended (or began, while still open), a merge or review by its own time |
 | Stage history (`stage_changes`; names PRs and stages, no person) | 13 months after the snapshot that first showed each row |
 | Raw snapshots | 30 days, then cleared at the next ingest; their time and commit stay |
 | Sign-ins under way | 10 minutes |
@@ -241,7 +241,7 @@ no-store`, `Vary: Cookie`, no ETag. With sign-in off, each answers 404.
 | `GET /api/v1/me/speed` | Your own speed (below), computed on request from your speed inputs alone; `{"opted_out": true}` once you opted out; 401 signed out. |
 | `POST /auth/logout` | End this browser's session, on the server too. 204. |
 | `POST /api/v1/me/opt-out` | Opt out: no speed is computed for you and its inputs are deleted; the public queue, a mirror of GitHub, is unchanged. You stay signed in. 204; 401 signed out. |
-| `DELETE /api/v1/me` | Delete your account: every session of yours, in every browser, and your speed inputs. An opt-out is kept, so it is still honoured. 204; 401 signed out. |
+| `DELETE /api/v1/me` | Delete your account: every session of yours, in every browser, and your speed inputs. An opt-out is kept, so it is still honoured; without one, your speed inputs are recorded again from the next ingest. 204; 401 signed out. |
 
 The three that change something require an `Origin` header exactly equal to
 `PR_HYGIENE_PUBLIC_ORIGIN`; a missing or different one is a 403. The page
@@ -287,21 +287,34 @@ when its repository could not be read while it was open.
 | `prelogins` | SHA-256 of the pre-login cookie's id; the `state` and PKCE verifier; when | until used, at most 10 minutes; at most 10 000 at once, oldest dropped first |
 | `sessions` | SHA-256 of the session cookie's id (never the id); GitHub user id and login; created and expiry | 30 days; at most 5 per person, oldest dropped first |
 | `opt_outs` | GitHub user id; when | until further notice, through account deletion |
-| `asks` | PR; the GitHub user id asked (while an ask is open, the login asked instead until an event ties it to an id); when asked and when it ended; answered, covered or left; whether timed | 13 months after it ended |
-| `turns` | PR; author id; start, end and time in the author's stage; whether timed | 13 months after it ended |
+| `asks` | PR; while open, the login asked, and the GitHub user id once an event ties the login to one; when asked and when it ended; answered, covered or left; whether timed. An ended ask keeps the id only | 13 months after it was made |
+| `turns` | PR; author id; start, end and time in the author's stage; whether timed | 13 months after it ended, or began while still open |
 | `merges` | PR; author id; first ready for review; merged | 13 months after the merge |
 | `reviews` | PR; reviewer id; approved, changes requested or dismissed; when | 13 months after the review |
-| `pr_authors` | PR; author id; last seen | 13 months after last seen |
+| `pr_authors` | open PR; author id; last seen | 13 months after last seen |
 
 No GitHub token, email or name is stored. The speed inputs come from
 public GitHub activity in the snapshots, only from repositories a snapshot
-read, and are never recorded for anyone who opted out. A login is tied to
-an account id only by an event GitHub reports in the same snapshot — that
-person's own decisive review on the PR, or a PR they authored — never by
-looking a login up, so someone who registers a login another person gave up
-inherits nothing. An ask that ends before anything ties its login to an id
-is deleted. Opting out or deleting your account deletes every row with your
-id and the open asks known only by the login you signed in with.
+read. Nothing is recorded under the id of anyone who opted out.
+
+A login is tied to an account id only by an event GitHub reports in the
+same snapshot — that person's own decisive review on the PR, or a PR they
+authored — never by looking a login up, so someone who registers a login
+another person gave up inherits no history. The one exception is an ask
+still open on the login when they take it: tied to them later, it counts
+as theirs from when it was made.
+
+Until such an event, an open ask is held by the login the engine asked,
+with no id: no more than the public queue shows, never part of anyone's
+speed. Opt-outs keep user ids only, so this holds for someone who opted out
+too. When an event ties the login to an opted-out id the ask is deleted, and
+an ask that ends with no id at all is deleted too. Opting out or deleting
+your account deletes every row with your id, and the open asks held by the
+login you signed in with.
+
+Deleted rows are overwritten in the database file (`secure_delete`); a
+backup taken before still holds them, until it is pruned (see
+[Backup](#backup)).
 
 ## Ingest
 

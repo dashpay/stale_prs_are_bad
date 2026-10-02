@@ -105,10 +105,10 @@ CREATE TABLE IF NOT EXISTS opt_outs (
     user_id       INTEGER PRIMARY KEY,
     opted_out_at  TEXT NOT NULL
 );
--- Speed inputs (see speed.rs): keyed by GitHub user id, never recorded for
--- anyone in opt_outs, kept 13 months.
+-- Speed inputs (see speed.rs): keyed by GitHub user id, never recorded
+-- under an id in opt_outs, kept 13 months.
 --
--- Each PR's author, from the PR itself. `seen_at` is when the PR was last
+-- Each open PR's author, from the PR itself. `seen_at` is when it was last
 -- seen, and dates the row for retention.
 CREATE TABLE IF NOT EXISTS pr_authors (
     repo          TEXT NOT NULL,
@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS asks (
 CREATE UNIQUE INDEX IF NOT EXISTS asks_open ON asks (repo, number, login)
     WHERE ended_at IS NULL;
 CREATE INDEX IF NOT EXISTS asks_by_person ON asks (person_id);
-CREATE INDEX IF NOT EXISTS asks_by_end ON asks (ended_at);
+CREATE INDEX IF NOT EXISTS asks_by_start ON asks (asked_at);
 -- A PR's time in its author's stage. `author_secs` sums its stretches
 -- there that are over; `resumed_at` is when the current one began (NULL
 -- while bots or a build have the PR, since `paused_at`).
@@ -254,6 +254,9 @@ impl Store {
             path.display()
         );
         conn.pragma_update(None, "synchronous", "NORMAL")?;
+        // What an opt-out, a deletion or a purge deletes is overwritten on
+        // disk, not left in free pages for a copy of the file to carry.
+        conn.pragma_update(None, "secure_delete", true)?;
         conn.pragma_update(None, "foreign_keys", true)?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
         anyhow::ensure!(
@@ -390,12 +393,18 @@ impl Store {
                 let tx = self
                     .conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)?;
-                let added = speed::record_closed(&tx, d)?;
+                let kept_from = received_at
+                    .checked_sub_months(HISTORY_RETENTION)
+                    .context("history retention cutoff")?;
+                let added = speed::record_closed(&tx, d, kept_from)?;
                 tx.commit()?;
                 Some(added)
             }
             Outcome::Stored { .. } | Outcome::TokenUsed => None,
         };
+        // A backfill reaches back further than the retention; what is past
+        // it goes now, not at the service's next daily purge.
+        self.purge_expired(received_at)?;
         Ok(Imported { outcome, closed })
     }
 
