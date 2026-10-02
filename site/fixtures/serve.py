@@ -9,7 +9,8 @@ GitHub, no cookies, and one sign-in state for every browser.
 own calls move the state as the service would: signing in (GET /auth/login)
 signs in, sign-out and delete sign out, opt-out opts out. Like the service,
 a call that changes something needs an Origin equal to this server's own.
-GET /__mock/state?set=<state> resets the state between checks.
+GET /__mock/state?set=<state> resets the state between checks. Open it as
+127.0.0.1 (not localhost): any other Host is refused.
 """
 
 import argparse
@@ -29,6 +30,7 @@ class Handler(SimpleHTTPRequestHandler):
     me = {}
     speed = b""
     speed_status = 200
+    host = ""  # "127.0.0.1:<port>": the only Host accepted, and the Origin a change needs
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=os.path.dirname(HERE), **kwargs)
@@ -48,13 +50,25 @@ class Handler(SimpleHTTPRequestHandler):
     def signed_in(self):
         return Handler.state in ("signed-in", "opted-out")
 
+    def foreign_host(self):
+        """Refuse a request for any other host name, as a DNS-rebinding page would send."""
+        if self.headers.get("Host") == Handler.host:
+            return False
+        self.send(421, b'{"error":"host"}')
+        return True
+
     def do_GET(self):
+        if self.foreign_host():
+            return None
         url = urlsplit(self.path)
         path = url.path
         if path == "/dashboard.json":
             return self.send(200, Handler.data)
         if path == "/__mock/state":
-            Handler.state = parse_qs(url.query).get("set", ["signed-out"])[0]
+            state = parse_qs(url.query).get("set", [""])[0]
+            if state not in STATES:
+                return self.send(400, b'{"error":"state"}')
+            Handler.state = state
             return self.send(204)
         if path.startswith("/auth/") or path.startswith("/api/v1/me"):
             if Handler.state == "none":
@@ -83,7 +97,7 @@ class Handler(SimpleHTTPRequestHandler):
         if Handler.state == "none":
             return self.send(404, b'{"error":"not found"}')
         origin = self.headers.get("Origin")
-        if origin != f"http://{self.headers.get('Host')}":
+        if origin != f"http://{Handler.host}":
             self.log_message("refused: Origin %r", origin)
             return self.send(403, b'{"error":"origin"}')
         if route == "logout":
@@ -95,11 +109,15 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send(204)
 
     def do_POST(self):
+        if self.foreign_host():
+            return None
         routes = {"/auth/logout": "logout", "/api/v1/me/opt-out": "opt-out"}
         path = urlsplit(self.path).path
         return self.change(routes[path]) if path in routes else self.send(405)
 
     def do_DELETE(self):
+        if self.foreign_host():
+            return None
         path = urlsplit(self.path).path
         return self.change("delete") if path == "/api/v1/me" else self.send(405)
 
@@ -113,14 +131,18 @@ def main():
     p.add_argument("--speed", default=os.path.join(HERE, "speed.sample.json"))
     p.add_argument("--speed-status", type=int, default=200, help="answer the speed route with this status instead")
     a = p.parse_args()
-    data = json.load(open(a.data))
+    with open(a.data) as f:
+        data = json.load(f)
     # Fresh data, so the page shows no staleness banner over the states.
     data["generated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000000Z")
     Handler.data = json.dumps(data).encode()
-    Handler.me = json.load(open(a.me))
-    Handler.speed = open(a.speed, "rb").read()
+    with open(a.me) as f:
+        Handler.me = json.load(f)
+    with open(a.speed, "rb") as f:
+        Handler.speed = f.read()
     Handler.speed_status = a.speed_status
     Handler.state = a.state
+    Handler.host = f"127.0.0.1:{a.port}"
     print(f"http://127.0.0.1:{a.port}/#/me  ({a.state})", flush=True)
     ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()
 

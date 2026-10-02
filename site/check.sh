@@ -49,26 +49,31 @@ if [ "$status" -eq 0 ]; then
 fi
 report "HTML, code or a URL taken from a string; use textContent / createElement / js/dom.js instead" "$status" "$hits"
 
-# Requests: every use of fetch is a call whose first argument is a fixed path
-# beside the page, written literally, so no URL is ever built from data and a
-# renamed or aliased fetch cannot hide one. Requests that change something
-# (a method other than GET) are made only in js/account.js, where each is a
-# fixed path and method.
-hits=$(grep -nE "\\bfetch\\b" "${files[@]}")
-status=$?
-if [ "$status" -eq 0 ]; then
-  hits=$(printf '%s\n' "$hits" | grep -vE '^[^:]+:[0-9]+:.*\bfetch\("[a-z0-9][a-z0-9_/.-]*"[,)]')
-  [ -n "$hits" ] || status=1
-fi
-report "a request whose URL is not a literal path beside the page" "$status" "$hits"
-
-hits=$(grep -nE "\\bmethod[[:space:]]*:" "${files[@]}")
-status=$?
-if [ "$status" -eq 0 ]; then
-  hits=$(printf '%s\n' "$hits" | grep -vE '^\./js/account\.js:[0-9]+:.*\bfetch\("[a-z0-9][a-z0-9_/.-]*", \{ method: "(POST|DELETE)", \.\.\.SAME_ORIGIN \}\)')
-  [ -n "$hits" ] || status=1
-fi
-report "a request that changes something outside js/account.js's fixed list" "$status" "$hits"
+# Requests. A guard against drift, not a sandbox: a name built at run time
+# would pass it, and what actually bounds requests is the CSP's
+# connect-src 'self' and the service's Origin check. Within that: fetch is
+# the only request API, every line naming it holds one call whose first
+# argument is a literal path beside the page, so no URL is built from data;
+# and a request that changes something (any request method set at all) is
+# only one of js/account.js's fixed calls.
+except() { # label, grep -E pattern of uses, grep -E pattern of the allowed lines
+  local found s
+  found=$(grep -nE "$2" "${files[@]}")
+  s=$?
+  if [ "$s" -eq 0 ]; then
+    # grep -v: 0 when lines are left (hits), 1 when none are, 2 on error.
+    found=$(printf '%s\n' "$found" | grep -vE "$3")
+    s=$?
+  fi
+  report "$1" "$s" "$found"
+}
+literal_fetch='\bfetch\("[a-z0-9][a-z0-9_/.-]*"[,)]'
+except "a request whose URL is not a literal path beside the page" '\bfetch\b' "^[^:]+:[0-9]+:.*$literal_fetch"
+except "two requests on one line" '\bfetch\b.*\bfetch\b' '^$'
+except "a request API other than fetch" '\b(sendBeacon|EventSource|WebSocket|XMLHttpRequest|importScripts)\b|\bnew[[:space:]]+Request\b' '^$'
+except "a request that changes something outside js/account.js's fixed list" \
+  "\\bmethod[[:space:]]*:|$q""method$q[[:space:]]*(:|\\])|\\.method\\b" \
+  '^\./js/account\.js:[0-9]+:[[:space:]]*request: \(\) => fetch\("[a-z0-9][a-z0-9_/.-]*", \{ method: "(POST|DELETE)", \.\.\.SAME_ORIGIN \}\),$'
 
 # No inline script or event-handler attributes; the CSP forbids them too.
 hits=$(grep -nEi '<script([[:space:]][^>]*)?>[[:space:]]*[^<[:space:]]|<script>[[:space:]]*$|[[:space:]]on[a-z]+[[:space:]]*=' ./*.html)
