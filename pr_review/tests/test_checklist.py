@@ -1102,27 +1102,80 @@ class StaleMarkTests(unittest.TestCase):
         self.assertIn('keep-history-lifecycle', body)
         self.assertNotIn(main.POINTER, body)
 
-    def test_the_record_survives_byte_for_byte(self):
-        # 58 platform pull requests lost their place in the review queue when
-        # their branch left the policy and came back: the record holding their
-        # admission had been deleted, and they returned behind everyone who
-        # arrived while they were away.
-        record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'ready-for-human',
-                                        'admitted_at': '2026-09-01T10:00:00Z', 'ready_since': '2026-09-02T10:00:00Z'},
-                                   'c' * 64)
+    def held(self, state='ready-for-human', comment_id=7, updated=NOW, admitted='2026-09-01T10:00:00Z',
+             display='Ready for review — `dpp`: shumkov.\nFull checklist in the description.'):
+        record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': state,
+                                        'admitted_at': admitted, 'ready_since': '2026-09-02T10:00:00Z'}, 'c' * 64)
         diff = {'number': 4660, 'diff': 'd' * 64, 'diff_heads': ['a' * 40],
                 'receipts': {'e' * 64: '2026-09-02T09:00:00Z'}}
-        original = GitHub.state_comment_body(record, 'Ready for review — `dpp`: shumkov.\nFull checklist in the description.', diff)
+        return dict(id=comment_id, user='github-actions[bot]', created_at=NOW, updated_at=updated,
+                    body=GitHub.state_comment_body(record, display, diff))
+
+    def test_the_diff_history_is_kept_and_the_slot_given_up(self):
+        # What the bots and the author said about each diff is kept byte for
+        # byte, so none of it is asked again if the pull request comes back.
+        # Its review slot and its review clock are not: it returns like a
+        # draft made ready — queued again, waiting from its return — instead
+        # of displacing whoever was admitted while it was away or counting
+        # the time away as waiting for review.
+        original = self.held()
         api = Mock()
-        api.comments.return_value = [dict(id=7, user='github-actions[bot]', created_at=NOW, updated_at=NOW, body=original)]
+        api.comments.return_value = [original]
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
-        body = api.edit_comment.call_args.args[1]
-        markers = original.split('\n\n', 1)[0]
-        self.assertTrue(body.startswith(markers + '\n\n'), 'state and diff records unchanged')
-        state, comment_id = main.parse_controller_state([dict(id=7, user='github-actions[bot]', created_at=NOW,
-                                                              updated_at=NOW, body=body)])
-        self.assertEqual((state['admitted_at'], comment_id), ('2026-09-01T10:00:00Z', 7))
+        comment_id, body = api.edit_comment.call_args.args
+        diff_line = original['body'].split('\n\n', 1)[0].split('\n')[1]
+        self.assertEqual(body.split('\n\n', 1)[0].split('\n')[1], diff_line, 'diff history byte for byte')
+        rewritten = dict(original, body=body)
+        state, held_id = main.parse_controller_state([rewritten])
+        self.assertEqual(held_id, 7)
+        self.assertEqual((state['admitted_at'], state['ready_since'], state['state']), (None, None, 'not-governed'))
+        self.assertEqual(state['head'], 'a' * 40)
+        self.assertIsNotNone(main.parse_controller_diff([rewritten], 4660))
+
+    def test_only_the_current_record_is_rewritten(self):
+        # The current record is the one written last. Rewriting an older
+        # announcement as well could make it the newest, and the stale state
+        # it carries the record.
+        holder = self.held(comment_id=50, updated='2026-09-11T12:00:00Z')
+        older = self.held(state='waiting-self-review', comment_id=51, updated='2026-09-11T11:00:00Z')
+        api = Mock()
+        api.comments.return_value = [holder, older]
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
+        self.assertEqual([c.args[0] for c in api.edit_comment.call_args_list], [50])
+
+    def test_the_record_is_set_aside_before_the_marks_go(self):
+        # The labels are what bring a pull request back into the sweep. If
+        # the record cannot be written they stay, and the next sweep tries
+        # again — rather than leaving a record that still holds a slot on a
+        # pull request nobody looks at.
+        api = Mock()
+        api.comments.return_value = [self.held()]
+        api.edit_comment.side_effect = main.GitHubError('no')
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
+        api.set_label.assert_not_called()
+        api.remove_checklist.assert_not_called()
+        api = Mock()
+        api.comments.return_value = [self.held()]
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
+        names = [c[0] for c in api.mock_calls if c[0] in ('edit_comment', 'set_label')]
+        self.assertEqual(names[0], 'edit_comment')
+
+    def test_a_record_already_set_aside_is_not_written_again(self):
+        api = Mock()
+        api.comments.return_value = [self.held()]
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
+        done = dict(self.held(), body=api.edit_comment.call_args.args[1])
+        api = Mock()
+        api.comments.return_value = [done]
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots'], 'x')], apply=True)
+        api.edit_comment.assert_not_called()
+        api.set_label.assert_called_once()
 
     def test_the_record_comment_of_another_pull_request_is_not_touched(self):
         record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots', 'admitted_at': None, 'ready_since': None}, 'c' * 64)
@@ -1181,19 +1234,6 @@ class StaleMarkTests(unittest.TestCase):
         self.assertEqual([c.args[1] for c in api.set_label.call_args_list], ['ready-to-merge'])
         api.delete_comment.assert_not_called()
         self.assertEqual(api.edit_comment.call_args.args[0], 7)
-
-    def test_one_record_comment_that_cannot_be_rewritten_does_not_stop_the_others(self):
-        record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots',
-                                        'admitted_at': None, 'ready_since': None}, 'c' * 64)
-        body = GitHub.state_comment_body(record, main.POINTER)
-        api = Mock()
-        api.comments.return_value = [dict(id=i, user='github-actions[bot]', created_at=NOW, updated_at=NOW, body=body)
-                                     for i in (7, 8)]
-        api.edit_comment.side_effect = [main.GitHubError('gone'), None]
-        with patch('sys.stderr', new_callable=io.StringIO):
-            main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots'], 'x')], apply=True)
-        self.assertEqual([c.args[0] for c in api.edit_comment.call_args_list], [7, 8])
-        api.delete_comment.assert_not_called()
 
     def test_a_preview_run_says_what_it_would_clear_and_writes_nothing(self):
         api = Mock()

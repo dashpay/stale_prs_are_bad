@@ -238,10 +238,8 @@ def clear_marks(api, policy, prs, apply=False):
     it left — a pull request wearing `waiting-bots` and `bot-review-skipped`
     two days after this controller stopped looking at it, which reads as a
     verdict and is not one. The record comment stays, saying why nothing is
-    checked: it is the pull request's memory — when it was admitted to a
-    review slot, what was said about each diff — and a pull request rebased
-    away and back again would otherwise return as a stranger, behind everyone
-    who arrived while it was gone.
+    checked, and keeps what was said about each diff; the review slot and the
+    review clock it held are given up (see `_set_aside_record`).
 
     A name this controller has retired goes too, but only where it left a
     mark of its own: `ready-to-merge` is ordinary English, and a pull request
@@ -268,6 +266,10 @@ def clear_marks(api, policy, prs, apply=False):
               + ', '.join(filter(None, [', '.join(stale), 'the checklist' if block else ''])), file=sys.stderr)
         if not apply:
             continue
+        # The record goes first: if it cannot be written, the marks stay and
+        # the next sweep comes back to it.
+        if not _set_aside_record(api, pr):
+            continue
         for label in stale:
             try:
                 api.set_label(pr['number'], label, False, pr.get('labels') or [])
@@ -278,25 +280,45 @@ def clear_marks(api, policy, prs, apply=False):
                 api.remove_checklist(pr['number'])
             except GitHubError as error:
                 print(f"PR #{pr['number']}: could not remove the checklist: {error}", file=sys.stderr)
-        # The record stays; only its words change, since they pointed at the
-        # checklist just removed. The records themselves are kept byte for
-        # byte, so the pull request returns with its admission and its diff
-        # history intact.
-        try:
-            records = bot_comments(dict(pr, comments=api.comments(pr['number'])), STATE_MARKER)
-        except GitHubError as error:
-            records = []
-            print(f"PR #{pr['number']}: could not read the record comment: {error}", file=sys.stderr)
-        base = pr['base'].replace('`', '')
-        note = (f"PR Hygiene is not checking this pull request: it targets `{base}`, outside the policy. "
-                "Its record is kept for when it returns.")
-        # One that will not change does not keep the others.
-        for comment in records:
-            markers, _, _ = comment['body'].partition('\n\n')
-            try:
-                api.edit_comment(comment['id'], markers + '\n\n' + note)
-            except GitHubError as error:
-                print(f"PR #{pr['number']}: could not update the record comment: {error}", file=sys.stderr)
+
+
+def _set_aside_record(api, pr):
+    """Keep what was said about each diff; give up the review slot and clock.
+
+    A pull request that leaves the policy and comes back is treated like one
+    converted to draft and back: it queues for a slot again and its review
+    wait starts again, instead of displacing whoever was admitted while it
+    was away or counting the time away as waiting. What the bots and the
+    author said about each diff is kept byte for byte, so none of it is asked
+    again. Only the current record — the one written last — is rewritten:
+    rewriting an older one too could make its stale state the newest.
+    Returns whether the pull request may lose its marks now.
+    """
+    try:
+        comments = api.comments(pr['number'])
+        state, comment_id = parse_controller_state(comments)
+    except GitHubError as error:
+        print(f"PR #{pr['number']}: could not read the record comment: {error}", file=sys.stderr)
+        return False
+    if comment_id is None or state.get('number') != pr['number']:
+        return True
+    holder = next(c for c in comments if c['id'] == comment_id)
+    diff_line = next((line for line in holder['body'].partition('\n\n')[0].split('\n')
+                      if line.startswith(DIFF_MARKER)), None)
+    base = pr['base'].replace('`', '')
+    note = (f"PR Hygiene is not checking this pull request: it targets `{base}`, outside the policy. "
+            "What was said about its diffs is kept for when it returns; it will queue for a review slot again.")
+    marker, _, display = GitHub.state_comment_body(
+        dict(state, admitted_at=None, ready_since=None, state='not-governed'), note).partition('\n\n')
+    body = marker + (f'\n{diff_line}' if diff_line else '') + '\n\n' + display
+    if body == holder['body']:
+        return True
+    try:
+        api.edit_comment(comment_id, body)
+    except GitHubError as error:
+        print(f"PR #{pr['number']}: could not update the record comment: {error}", file=sys.stderr)
+        return False
+    return True
 
 
 def state_record(pr, result, context):
