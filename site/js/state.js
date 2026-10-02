@@ -24,8 +24,11 @@ export function parseHash(hash, data) {
     }
     route = { view: "person", login: login !== null && LOGIN_RE.test(login) ? login : null };
   } else if (parts[0] === "me") route = { view: "me" };
+  else if (parts[0] === "privacy") route = { view: "privacy" };
 
   const q = new URLSearchParams(query);
+  // The service sends a failed sign-in back to "#/me?signin=failed".
+  if (route.view === "me") route.signinFailed = q.get("signin") === "failed";
   const get = (k) => q.get(k) ?? "";
   const f = {
     repo: data.repoSet.has(get("repo")) ? get("repo") : "",

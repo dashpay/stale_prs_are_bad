@@ -2,7 +2,7 @@
 // describe current state; lateness colour stays on PRs and never ranks people.
 
 import { h } from "./dom.js";
-import { LOGIN_RE, has, findPerson, formatDuration, shortRepo } from "./model.js";
+import { LOGIN_RE, has, findPerson, formatDuration, personHref, shortRepo } from "./model.js";
 import { setFilters } from "./state.js";
 import { effectiveWho } from "./filters.js";
 import {
@@ -114,7 +114,8 @@ function wipChips(wip) {
       `${shortRepo(repo)} ${n}${n > limit ? " ▲" : ""}`)));
 }
 
-export function personView(data, login, { isMe = false, onChange } = {}) {
+/** One person's page; on Me, `note` says how the page knows it is you. */
+export function personView(data, login, { isMe = false, note = null } = {}) {
   const person = findPerson(data, login);
   if (!person) {
     return [section("Person not found",
@@ -126,8 +127,7 @@ export function personView(data, login, { isMe = false, onChange } = {}) {
       h("h2", { id: "person-name", tabindex: "-1" }, person.login),
       h("span", { class: "kind" }, person.isBot ? ["bot ", botMark()] : "human"),
       person.roles.length ? h("span", { class: "kind" }, ["· ", roles(person)]) : null),
-    isMe ? h("p", { class: "sub" }, "Kept in this browser only. ",
-      h("button", { type: "button", class: "linkish", on: { click: onChange } }, "Not you? Change")) : null,
+    note,
     areasList(person, isMe));
   return [
     header,
@@ -245,51 +245,61 @@ export function meView(data, rerender, picked) {
   const stored = picked ? { person: picked, missing: null } : storedMe(data);
   const me = stored.person;
   if (me) {
+    const change = () => {
+      forgetMe();
+      rerender(null);
+    };
     return personView(data, me.login, {
       isMe: true,
-      onChange: () => {
-        forgetMe();
-        rerender(null);
-      },
+      note: h("p", { class: "sub" }, "Kept in this browser only. ",
+        h("button", { type: "button", class: "linkish", on: { click: change } }, "Not you? Change")),
     });
   }
-  const input = h("input", { type: "search", id: "me-q", placeholder: "your GitHub login", autocomplete: "off", spellcheck: "false" });
-  const list = h("ul", { class: "picker" });
-  // Only people whose login passes validation can be picked, so only those are ever stored.
-  const people = data.people
-    .filter((p) => findPerson(data, p.login) === p)
-    .sort((a, b) => a.isBot - b.isBot || String(a.login).localeCompare(String(b.login)));
   const pick = (p) => {
     rememberMe(p);
     rerender(p);
   };
+  return [h("section", { class: "card" },
+    h("h2", {}, "Who are you?"),
+    h("p", { class: "sub" }, "Pick your GitHub login to see the reviews you owe and your PRs. It is kept in this browser only."),
+    stored.missing ? h("p", { class: "sub" }, `${stored.missing} is not in this data, so there is nothing to show for them yet.`) : null,
+    loginSearch(data, "me-q", "your GitHub login", pick))];
+}
+
+/**
+ * A search over everyone in the data that lists matches as you type. Each
+ * match is a button that calls `choose`, or with `links` a link to their
+ * page; Enter chooses the only match, or an exact one.
+ */
+export function loginSearch(data, id, placeholder, choose, { links = false } = {}) {
+  const input = h("input", { type: "search", id, placeholder, autocomplete: "off", spellcheck: "false" });
+  const list = h("ul", { class: "picker" });
+  // Only people whose login passes validation are listed, so only those can be chosen.
+  const people = data.people
+    .filter((p) => findPerson(data, p.login) === p)
+    .sort((a, b) => a.isBot - b.isBot || String(a.login).localeCompare(String(b.login)));
   const matching = () => {
     const q = input.value.trim().toLowerCase();
     return people.filter((p) => !q || p.login.toLowerCase().includes(q));
   };
+  const entry = (p) => [avatar(p.login), p.login, p.isBot ? [" ", botMark()] : null];
   const fill = () => {
     const shown = matching();
-    list.replaceChildren(...shown.map((p) => h("li", {}, h("button", {
-      type: "button", class: "pick", on: { click: () => pick(p) },
-    }, avatar(p.login), p.login, p.isBot ? [" ", botMark()] : null))));
+    list.replaceChildren(...shown.map((p) => h("li", {}, links
+      ? h("a", { class: "pick", href: personHref(p.login) }, entry(p))
+      : h("button", { type: "button", class: "pick", on: { click: () => choose(p) } }, entry(p)))));
     if (!shown.length) list.append(h("li", { class: "muted" }, "No one by that name."));
   };
   input.addEventListener("input", fill);
-  // Enter picks the only match, or an exact one.
   input.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     const shown = matching();
     const exact = shown.find((p) => p.login.toLowerCase() === input.value.trim().toLowerCase());
     if (shown.length === 1 || exact) {
       e.preventDefault();
-      pick(exact || shown[0]);
+      choose(exact || shown[0]);
     }
   });
   fill();
-  return [h("section", { class: "card" },
-    h("h2", {}, "Who are you?"),
-    h("p", { class: "sub" }, "Pick your GitHub login to see the reviews you owe and your PRs. It is kept in this browser only."),
-    stored.missing ? h("p", { class: "sub" }, `${stored.missing} is not in this data, so there is nothing to show for them yet.`) : null,
-    h("div", { class: "field" }, h("label", { for: "me-q" }, "Search"), input),
-    list)];
+  return [h("div", { class: "field" }, h("label", { for: id }, "Search"), input), list];
 }

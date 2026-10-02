@@ -1,7 +1,9 @@
 // The only way this page builds DOM. Every string from dashboard.json is
 // attacker-controlled (PR titles, blockers, areas, logins), so text always
 // goes in through text nodes and attributes pass an allowlist. Links and
-// image sources are accepted only in the shapes this page builds itself.
+// image sources are accepted only in the shapes this page builds itself:
+// a route in the hash, a PR on GitHub, or the service's sign-in, a fixed path
+// beside the page.
 
 const SAFE_ATTRS = new Set([
   "class", "id", "title", "alt", "role", "tabindex", "scope", "colspan",
@@ -10,7 +12,7 @@ const SAFE_ATTRS = new Set([
   "hidden", "checked", "selected", "disabled", "lang", "datetime",
 ]);
 
-const SAFE_HREF = /^(#[^\s]*|https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*)$/;
+const SAFE_HREF = /^(#[^\s]*|auth\/login|https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*)$/;
 const SAFE_SRC = /^https:\/\/avatars\.githubusercontent\.com\/[A-Za-z0-9-]{1,39}\?s=40$/;
 
 function setAttr(el, name, value) {
