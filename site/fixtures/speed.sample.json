@@ -1,0 +1,309 @@
+{
+ "since": "2025-10-02T00:00:00Z",
+ "months": [
+  {
+   "month": "2025-10",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": null,
+    "n": 2
+   }
+  },
+  {
+   "month": "2025-11",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": 52,
+    "n": 3
+   }
+  },
+  {
+   "month": "2025-12",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": 61,
+    "n": 4
+   }
+  },
+  {
+   "month": "2026-01",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": 70,
+    "n": 5
+   }
+  },
+  {
+   "month": "2026-02",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": 58,
+    "n": 6
+   }
+  },
+  {
+   "month": "2026-03",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": 44,
+    "n": 7
+   }
+  },
+  {
+   "month": "2026-04",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": 49,
+    "n": 6
+   }
+  },
+  {
+   "month": "2026-05",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": 39,
+    "n": 8
+   }
+  },
+  {
+   "month": "2026-06",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": 41,
+    "n": 7
+   }
+  },
+  {
+   "month": "2026-07",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": null,
+    "n": 2
+   }
+  },
+  {
+   "month": "2026-08",
+   "review_wait": {
+    "asked": 0,
+    "answered": 0,
+    "open": 0,
+    "median_hours": null,
+    "n": 0
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": 36,
+    "n": 3
+   }
+  },
+  {
+   "month": "2026-09",
+   "review_wait": {
+    "asked": 9,
+    "answered": 7,
+    "open": 2,
+    "median_hours": 20.5,
+    "n": 7
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 2
+   },
+   "cycle_time": {
+    "median_hours": 30.5,
+    "n": 5
+   }
+  },
+  {
+   "month": "2026-10",
+   "review_wait": {
+    "asked": 12,
+    "answered": 8,
+    "open": 4,
+    "median_hours": 16,
+    "n": 8
+   },
+   "your_turn": {
+    "median_hours": 6.5,
+    "n": 4
+   },
+   "cycle_time": {
+    "median_hours": 27,
+    "n": 6
+   }
+  },
+  {
+   "month": "<img src=x onerror=alert('month')>",
+   "review_wait": {
+    "asked": 12,
+    "answered": 8,
+    "open": 4,
+    "median_hours": 16,
+    "n": 8
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": null,
+    "n": 0
+   }
+  },
+  {
+   "month": "2026-13",
+   "review_wait": {
+    "asked": 12,
+    "answered": 8,
+    "open": 4,
+    "median_hours": 16,
+    "n": 8
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": null,
+    "n": 0
+   }
+  },
+  {
+   "month": "2026-10",
+   "review_wait": {
+    "asked": 12,
+    "answered": 8,
+    "open": 4,
+    "median_hours": 16,
+    "n": 8
+   },
+   "your_turn": {
+    "median_hours": null,
+    "n": 0
+   },
+   "cycle_time": {
+    "median_hours": 9999,
+    "n": 99
+   }
+  },
+  {
+   "month": "2025-09",
+   "review_wait": {
+    "asked": "5",
+    "answered": -1,
+    "open": 2.5,
+    "median_hours": "12",
+    "n": "3"
+   },
+   "your_turn": "<script>alert('turn')</script>",
+   "cycle_time": {
+    "median_hours": -4,
+    "n": 3.5
+   }
+  },
+  "not a month"
+ ]
+}

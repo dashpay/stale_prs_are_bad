@@ -2,7 +2,9 @@
    late), stepped per mode so every mark clears 3:1 on its surface and the
    three stay apart under protanopia and deuteranopia; a shape (circle,
    triangle, diamond) always rides with the colour. Stage colours are the
-   eight categorical slots in a fixed order, each mode its own validated step. */
+   eight categorical slots in a fixed order, each mode its own validated step.
+   Speed, one series per chart, takes the first categorical slot and is never
+   coloured as good or bad. */
 :root {
   color-scheme: light;
   --page: #f9f9f7;
@@ -36,6 +38,8 @@
   --stage-mergeable: #e34948;
   --stage-blocked: #898781;
   --stage-unknown: #c3c2b7;
+
+  --series: #2a78d6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -71,6 +75,8 @@
     --stage-mergeable: #e66767;
     --stage-blocked: #898781;
     --stage-unknown: #5d5c57;
+
+    --series: #3987e5;
   }
 }
 
@@ -86,7 +92,7 @@ body {
 }
 
 a { color: var(--link); }
-main:focus, h2[tabindex="-1"]:focus { outline: none; }
+main:focus, h2[tabindex="-1"]:focus, span[tabindex="-1"]:focus { outline: none; }
 a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible {
   outline: 2px solid var(--link);
   outline-offset: 2px;
@@ -379,6 +385,62 @@ button.linkish {
   overflow-wrap: anywhere;
 }
 .pick:hover { background: var(--wash); }
+a.pick { text-decoration: none; }
+
+/* Me with sign-in */
+.button, button.action {
+  display: inline-block;
+  font: inherit;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.button { background: var(--ink); color: var(--page); font-weight: 600; border: 1px solid var(--ink); }
+.button:hover { opacity: 0.88; }
+button.action { color: var(--ink); background: var(--surface); border: 1px solid var(--border); }
+button.action:hover { background: var(--wash); }
+button.action-danger { color: var(--over); border-color: var(--over); }
+.confirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.confirm-q { flex: 1 1 100%; }
+.action-error { color: var(--over); }
+.notice {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 8px 12px;
+  margin: 0 0 12px;
+}
+.notice:focus { outline: 2px solid var(--link); outline-offset: 2px; }
+.me-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.me-note .confirm-q { flex-basis: auto; }
+
+/* Your speed: one small chart per measure, the same width each */
+.speed-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin: 8px 0 4px;
+}
+.speed-tile { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.speed-tile h3 { font-size: 13px; margin: 0; color: var(--ink-2); font-weight: 600; }
+.speed-value { font-size: 28px; font-weight: 600; line-height: 1.15; margin: 2px 0 0; }
+.speed-of { font-size: 12px; color: var(--ink-2); margin: 0; }
+.speed-plot { margin-top: 6px; }
+.speed-about { font-size: 12px; color: var(--ink-2); margin: 6px 0 0; }
+.speed-table { margin-top: 8px; }
+.speed-table summary { cursor: pointer; color: var(--link); padding: 4px 0; }
+.account { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--grid); }
+.account h3 { font-size: 14px; margin: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-start; }
+
+/* Privacy */
+.privacy { max-width: 72ch; }
+.privacy h3 { font-size: 14px; margin: 14px 0 4px; }
+.privacy p, .privacy ul { margin: 0 0 8px; }
+.privacy ul { padding-left: 18px; }
+
+.foot { margin: 20px 0 8px; font-size: 12px; color: var(--ink-2); }
 
 @media (max-width: 560px) {
   .page { padding: 12px 16px; }

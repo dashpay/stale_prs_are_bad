@@ -7,6 +7,8 @@ import { parseHash, buildHash } from "./js/state.js";
 import { filterBar } from "./js/filters.js";
 import { teamView } from "./js/team.js";
 import { peopleView, personView, meView } from "./js/people.js";
+import { meRoute, navigated } from "./js/account.js";
+import { privacyView } from "./js/privacy.js";
 
 const root = document.getElementById("app");
 let data = null;
@@ -33,6 +35,7 @@ async function load() {
   render();
   addEventListener("hashchange", () => {
     pickedMe = null;
+    navigated();
     render();
   });
   // Plot is drawn with resolved colours, so a scheme change redraws the page.
@@ -136,14 +139,20 @@ function draw() {
     content = peopleView(data, f);
   } else if (route.view === "person") {
     content = personView(data, route.login);
+  } else if (route.view === "privacy") {
+    content = privacyView();
   } else {
-    content = meView(data, (p) => {
+    // Where there is no sign-in, Me is the login picker kept in this browser.
+    content = meRoute(data, route, render, () => meView(data, (p) => {
       pickedMe = p;
       render();
-    }, pickedMe);
+    }, pickedMe));
   }
-  document.title = route.view === "person" && route.login ? `${route.login} · PR Hygiene` : "PR Hygiene";
-  root.replaceChildren(...[header(route, f), ...banners(), bar, h("main", { id: "main", tabindex: "-1" }, content)].filter(Boolean));
+  document.title = route.view === "person" && route.login ? `${route.login} · PR Hygiene`
+    : route.view === "privacy" ? "Privacy · PR Hygiene" : "PR Hygiene";
+  const footer = h("footer", { class: "foot" },
+    h("a", { href: "#/privacy", "aria-current": route.view === "privacy" ? "page" : null }, "Privacy"));
+  root.replaceChildren(...[header(route, f), ...banners(), bar, h("main", { id: "main", tabindex: "-1" }, content), footer].filter(Boolean));
 
   const el = focusId ? document.getElementById(focusId) : null;
   if (el) {

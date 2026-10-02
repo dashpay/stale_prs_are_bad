@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fails when the page could start treating data as markup, code or a link:
 # its own scripts use an API that parses a string as HTML or code, open or
-# assign a URL, or set an attribute outside js/dom.js's checks; the HTML loses
+# assign a URL, set an attribute outside js/dom.js's checks, or make a request
+# to anything but a literal path beside the page; the HTML loses
 # its Content-Security-Policy or noindex, or carries inline script; or a
 # vendored file is unlisted or no longer matches its recorded checksum.
 # Everything the page renders comes from PR titles, blockers and areas anyone
@@ -48,6 +49,32 @@ if [ "$status" -eq 0 ]; then
 fi
 report "HTML, code or a URL taken from a string; use textContent / createElement / js/dom.js instead" "$status" "$hits"
 
+# Requests. A guard against drift, not a sandbox: a name built at run time
+# would pass it, and what actually bounds requests is the CSP's
+# connect-src 'self' and the service's Origin check. Within that: fetch is
+# the only request API, every line naming it holds one call whose first
+# argument is a literal path beside the page, so no URL is built from data;
+# and a request that changes something (any request method set at all) is
+# only one of js/account.js's fixed calls.
+except() { # label, grep -E pattern of uses, grep -E pattern of the allowed lines
+  local found s
+  found=$(grep -nE "$2" "${files[@]}")
+  s=$?
+  if [ "$s" -eq 0 ]; then
+    # grep -v: 0 when lines are left (hits), 1 when none are, 2 on error.
+    found=$(printf '%s\n' "$found" | grep -vE "$3")
+    s=$?
+  fi
+  report "$1" "$s" "$found"
+}
+literal_fetch='\bfetch\("[a-z0-9][a-z0-9_/.-]*"[,)]'
+except "a request whose URL is not a literal path beside the page" '\bfetch\b' "^[^:]+:[0-9]+:.*$literal_fetch"
+except "two requests on one line" '\bfetch\b.*\bfetch\b' '^$'
+except "a request API other than fetch" '\b(sendBeacon|EventSource|WebSocket|XMLHttpRequest|importScripts)\b|\bnew[[:space:]]+Request\b' '^$'
+except "a request that changes something outside js/account.js's fixed list" \
+  "\\bmethod[[:space:]]*:|$q""method$q[[:space:]]*(:|\\])|\\.method\\b" \
+  '^\./js/account\.js:[0-9]+:[[:space:]]*request: \(\) => fetch\("[a-z0-9][a-z0-9_/.-]*", \{ method: "(POST|DELETE)", \.\.\.SAME_ORIGIN \}\),$'
+
 # No inline script or event-handler attributes; the CSP forbids them too.
 hits=$(grep -nEi '<script([[:space:]][^>]*)?>[[:space:]]*[^<[:space:]]|<script>[[:space:]]*$|[[:space:]]on[a-z]+[[:space:]]*=' ./*.html)
 report "inline script in HTML" $? "$hits"
@@ -81,5 +108,5 @@ while IFS= read -r path; do
   fi
 done < <(find ./vendor -type f | sort)
 
-[ "$fail" -eq 0 ] && echo "check.sh: ok (${#files[@]} scripts, no HTML, code or URLs from strings; CSP and noindex intact; vendor listed and checksums match)"
+[ "$fail" -eq 0 ] && echo "check.sh: ok (${#files[@]} scripts, no HTML, code or URLs from strings; requests to literal paths only; CSP and noindex intact; vendor listed and checksums match)"
 exit "$fail"
