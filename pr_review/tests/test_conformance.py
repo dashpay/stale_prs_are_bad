@@ -349,6 +349,55 @@ class ClockTests(RecordingCase):
         self.assertEqual({e['now'] for e in conformance.load_recording(directory)['evaluations']},
                          {'2026-09-12T10:00:00Z'})
 
+    def test_every_clock_read_is_logged_with_where_the_engine_asked(self):
+        # Every read returns the recorded instant, so an engine that reads the
+        # time where Python does not still gives the same answers; only this
+        # log tells the two apart. `after` is the last call made before it.
+        directory = self.record('sync', '--pr', '1')
+        meta = json.loads(Path(directory, 'recording.json').read_text())
+        self.assertEqual(meta['format'], conformance.FORMAT)
+        self.assertEqual(meta['clock_reads'], [{'site': 'collect', 'after': 2}, {'site': 'run', 'after': 10},
+                                               {'site': 'publish', 'after': 24}])
+        history = conformance.load_recording(directory)['calls'][1]
+        self.assertIn('fragment history', history['stdin'], 'admission is dated right after the histories are read')
+        self.assertEqual(self.replay(directory), [])
+
+    def test_a_clock_read_somewhere_else_is_caught(self):
+        directory = self.record('sync', '--pr', '1')
+        self.edit(directory, 'recording.json', lambda meta: meta['clock_reads'][1].update(site='collect'))
+        self.assertIn('clock reads: recorded 3, replayed 3; read #2 recorded collect after call 10, '
+                      'replayed run after call 10', self.replay(directory))
+
+    def test_an_extra_clock_read_is_caught(self):
+        directory = self.record('sync', '--pr', '1')
+        # The same answers, read at two more points: `collect` and
+        # `evaluate_snapshots` both ask who holds too many slots.
+        real = main.admission_conflicts
+        with patch.object(main, 'admission_conflicts', side_effect=lambda *a: (main.utc_now(), real(*a))[1]):
+            differences = self.replay(directory)
+        self.assertEqual(differences, ['clock reads: recorded 3, replayed 5; read #2 recorded run after call 10, '
+                                       'replayed collect after call 2'])
+
+    def test_a_recording_made_before_clock_reads_were_logged_still_replays(self):
+        directory = self.record('report')
+
+        def first_format(meta):
+            meta['format'] = 1
+            del meta['clock_reads']
+        self.edit(directory, 'recording.json', first_format)
+        with contextlib.redirect_stderr(io.StringIO()):
+            summary, differences = conformance.replay_recording(directory)
+        self.assertEqual(differences, [])
+        self.assertIn('format 1: clock reads not recorded, not compared', summary)
+        self.edit(directory, 'recording.json', lambda meta: meta.update(format=3))
+        with self.assertRaisesRegex(conformance.RecordingError, 'unknown recording format 3'):
+            conformance.load_recording(directory)
+        # A current recording that lost its log would replay with nothing to
+        # compare it against, and pass.
+        self.edit(directory, 'recording.json', lambda meta: meta.update(format=conformance.FORMAT))
+        with self.assertRaisesRegex(conformance.RecordingError, 'clock reads belong to format 2'):
+            conformance.load_recording(directory)
+
     def test_a_replay_runs_at_the_recorded_instant_whatever_the_time_now(self):
         directory = self.record('report')
         with patch.object(main, 'clock', side_effect=AssertionError('the real clock was read')):

@@ -66,7 +66,12 @@ What a recording run does differently, and only while recording:
   give the same writes — but it is not a forecast of the next real run.
 - **The clock is read once.** `main.clock()` is the one place the engine reads
   the time (`utc_now` and the batch rotations go through it); the recording
-  fixes it at the start of the run and stores it.
+  fixes it at the start of the run and stores it. Every later read returns
+  that instant and is logged, in order, as `{site, after}`: `site` is the
+  engine function that asked (the first on the stack outside `clock` and
+  `utc_now`, by name — never a line number, and never a comprehension or a
+  lambda, whose frames come and go between Python versions), `after` the
+  ordinal of the last call made before it, `0` for none.
 - **The review system's status page** (`telemetry.fetch`) is read for real
   once, if the policy has bot timeouts, and stored.
 - **Snapshots run one at a time.** In production four run at once and share
@@ -78,7 +83,7 @@ What a recording run does differently, and only while recording:
 
 | File | Contents |
 |---|---|
-| `recording.json` | `format`, `repository`, `argv` (the command, without local paths), `clock`, `policy` (as loaded), `telemetry` (the payload or `null`) and `telemetry_reads`, `outcome` (`{"returned": 0}` or the exception), `environment`, `python`, `engine_commit`, `redacted` |
+| `recording.json` | `format`, `repository`, `argv` (the command, without local paths), `clock` and `clock_reads`, `policy` (as loaded), `telemetry` (the payload or `null`) and `telemetry_reads`, `outcome` (`{"returned": 0}` or the exception), `environment`, `python`, `engine_commit`, `redacted` |
 | `calls.jsonl` | one line per `gh api` call, in the order made: `ordinal`, `kind` (`read`/`write`), `args`, `stdin`, `exit`, `stdout`, `stderr`; `raised` when `gh` could not run |
 | `verdicts.json` | the verdict rows, in order, exactly as `evaluate_snapshots` returned them |
 | `evaluations.jsonl` | every `evaluate` call of the run: `pr` (the evidence Python's reader produced), `admitted_at`, `now`, `telemetry_states`, `result`; `policy` only where it is not the recording's |
@@ -177,10 +182,16 @@ for another engine below. It fails when:
 - an output differs, or the printed report does;
 - an evaluation's result or evidence differs;
 - the engine asks a read the recording does not hold, or leaves one unasked;
-- the status page is read a different number of times.
+- the status page is read a different number of times;
+- the clock is read at another site, at another point among the calls, or a
+  different number of times.
 
 The summary line notes a recording made on another minor version of Python:
 what `fromisoformat` accepts changed between them.
+
+A recording is `format` 2. Format 1 is the same without `clock_reads`; it
+still replays, every comparison but that one made, and its summary line says
+so. Any other format is refused.
 
 ## Evaluate cases
 
@@ -278,10 +289,13 @@ python -m pr_review.conformance replay conformance/functions
 
 ## What this corpus cannot tell apart
 
-- **When the clock is read.** It is fixed for the whole run, so an engine that
-  reuses the run's instant where Python reads the clock again — the second
-  evaluation before a success, the admission re-check — gives the same
-  answers here. In a real run they differ by seconds.
+- **When the clock is read, from the answers alone.** It is fixed for the
+  whole run, so an engine that reuses the run's instant where Python reads the
+  clock again — the second evaluation before a success, the admission
+  re-check — gives the same answers here; in a real run they differ by
+  seconds. Only the log of reads (`clock_reads`) tells the two apart, so
+  another engine logs a site for each read of its own clock, named as Python's
+  are, and the two logs are compared.
 - **What happens when a write fails.** Every canned answer is a success. The
   failure paths — a label that 404s, a reviewer request refused with 422 —
   belong to the port's own HTTP-mock tests.

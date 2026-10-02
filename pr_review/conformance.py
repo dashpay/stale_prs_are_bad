@@ -32,7 +32,10 @@ from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 
-FORMAT = 1
+FORMAT = 2
+# Format 1 is format 2 without `clock_reads`. It still replays, with the one
+# comparison it cannot make left out.
+READABLE_FORMATS = (1, FORMAT)
 # The identity every write is answered as: the one the Actions workflow posts
 # under. The engine recognises its own statuses and comments by it, so an
 # answer under any other name would make it read its own writes as a stranger's.
@@ -212,6 +215,27 @@ class _InOrder:
         return [function(*items) for items in zip(*iterables)]
 
 
+# Where the engine lives: a frame from any other file is not the engine asking.
+_ENGINE = Path(__file__).resolve().parent
+
+
+def _clock_site(frame):
+    """The engine function that asked for the time: the first on the stack outside `clock` and `utc_now`.
+
+    By name, not line, so an edit elsewhere in the file moves nothing. A
+    comprehension, a generator expression or a lambda is not a site of its
+    own: whether a comprehension has a frame at all depends on the Python.
+    """
+    while frame is not None:
+        code = frame.f_code
+        where = Path(code.co_filename).resolve()
+        if (where.parent == _ENGINE and where.name != 'conformance.py'
+                and code.co_name not in {'clock', 'utc_now'} and not code.co_name.startswith('<')):
+            return code.co_name
+        frame = frame.f_back
+    return None
+
+
 def _iso(instant):
     return instant.astimezone(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
@@ -311,6 +335,7 @@ class _Session:
     def __init__(self, now):
         self.now = now
         self.calls = []
+        self.clock_reads = []
         self.verdicts = []
         self.evaluations = []
         self.outputs = []
@@ -333,6 +358,21 @@ class _Session:
     def loaded_policy(self, policy):
         self.policies_loaded += 1
         self.policy = copy.deepcopy(policy)
+
+    # -- the clock
+
+    def clock(self):
+        """The recorded instant, logged with where the engine asked for it.
+
+        The site, and the ordinal of the last call made before the read
+        (0 for none): a run that reads the time somewhere else, or at
+        another point among its calls, is told apart, though every read
+        returns the same instant.
+        """
+        site = _clock_site(sys._getframe(1))
+        with self._lock:
+            self.clock_reads.append({'site': site, 'after': len(self.calls)})
+        return _instant(self.now)
 
     # -- the boundary
 
@@ -410,8 +450,7 @@ class _Session:
             self._installed = True
             if isinstance(self, ReplaySession):
                 swap(github, 'time', _NoSleep)
-            fixed = _instant(self.now)
-            swap(engine, 'clock', lambda: fixed)
+            swap(engine, 'clock', self.clock)
             self._fetch = telemetry.fetch
             swap(telemetry, 'fetch', lambda *a, **k: self.telemetry())
             swap(engine, 'ThreadPoolExecutor', _InOrder)
@@ -533,6 +572,7 @@ def record(args, argv, engine):
         'repository': args.repo,
         'argv': _normalised_argv(args),
         'clock': session.now,
+        'clock_reads': session.clock_reads,
         'policy': session.policy,
         'telemetry': session.telemetry_payload,
         'telemetry_reads': session.telemetry_reads,
@@ -572,8 +612,10 @@ def write_recording(directory, meta, session):
 def load_recording(directory):
     directory = Path(directory)
     meta = json.loads((directory / 'recording.json').read_text())
-    if meta.get('format') != FORMAT:
+    if meta.get('format') not in READABLE_FORMATS:
         raise RecordingError(f'{directory}: unknown recording format {meta.get("format")!r}')
+    if (meta['format'] == FORMAT) != isinstance(meta.get('clock_reads'), list):
+        raise RecordingError(f'{directory}: clock reads belong to format {FORMAT} and only to it')
 
     def lines(name):
         return [json.loads(line) for line in (directory / name).read_text().splitlines() if line]
@@ -691,6 +733,16 @@ def compare(recording, session, outcome, mask=False):
                                'pull requests read differently')
     if getattr(session, 'printed', None) != recording['printed']:
         differences.append('the printed report differs')
+    if 'clock_reads' in recording['meta']:
+        recorded = [(r['site'], r['after']) for r in recording['meta']['clock_reads']]
+        replayed = [(r['site'], r['after']) for r in session.clock_reads]
+        if recorded != replayed:
+            index = next((i for i, (before, after) in enumerate(zip(recorded, replayed)) if before != after),
+                         min(len(recorded), len(replayed)))
+            said = ['{} after call {}'.format(*reads[index]) if index < len(reads) else 'nothing'
+                    for reads in (recorded, replayed)]
+            differences.append(f'clock reads: recorded {len(recorded)}, replayed {len(replayed)}; '
+                               f'read #{index + 1} recorded {said[0]}, replayed {said[1]}')
     if session.telemetry_reads != recording['meta'].get('telemetry_reads', 0):
         differences.append(f"status page read {session.telemetry_reads} time(s), "
                            f"recorded {recording['meta'].get('telemetry_reads', 0)}")
@@ -709,6 +761,8 @@ def replay_recording(directory):
     made_on = str(recording['meta'].get('python') or '')
     if made_on.split('.')[:2] != [str(sys.version_info.major), str(sys.version_info.minor)]:
         summary += f' (recorded on Python {made_on or "unknown"})'
+    if 'clock_reads' not in recording['meta']:
+        summary += f" (format {recording['meta'].get('format')}: clock reads not recorded, not compared)"
     return summary, differences
 
 
