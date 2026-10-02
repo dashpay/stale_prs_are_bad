@@ -4,7 +4,7 @@
 //! decided here; the page only filters, sorts and draws.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::config::Config;
@@ -23,7 +23,7 @@ const DEFAULT_SLOT_LIMIT: u32 = 5;
 /// review PRs and may open their own; a policy may not name them at all.
 const ENGINE_REVIEW_BOTS: &[&str] = &["thepastaclaw", "coderabbitai", "coderabbitai[bot]"];
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Dashboard {
     pub schema_version: u32,
     pub generated_at: DateTime<Utc>,
@@ -38,7 +38,7 @@ pub struct Dashboard {
     pub people: Vec<PersonOut>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StageOut {
     pub stage: Stage,
     pub owner: Owner,
@@ -56,7 +56,7 @@ pub struct StageOut {
 }
 
 /// Whose move a stage waits on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Owner {
     Author,
@@ -66,7 +66,7 @@ pub enum Owner {
     Nobody,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoOut {
     pub repo: String,
     pub engine_state_available: bool,
@@ -82,7 +82,7 @@ pub struct RepoOut {
 }
 
 /// Whose move a PR is waiting on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Stage {
     Draft,
@@ -154,7 +154,7 @@ impl Stage {
 
 /// Where `since` comes from. Only a recorded entry into the stage is precise
 /// enough to call a PR late; "opened" is shown as context and never coloured.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SinceBasis {
     /// When the PR entered its stage, as recorded: by the engine's record
@@ -164,7 +164,7 @@ pub enum SinceBasis {
     Opened,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Lateness {
     Ok,
@@ -172,14 +172,14 @@ pub enum Lateness {
     VeryLate,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
     Human,
     Bot,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Role {
     AuthorBot,
@@ -187,13 +187,13 @@ pub enum Role {
 }
 
 /// An area still waiting for an approval: anyone listed may give it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ask {
     pub area: String,
     pub approvers: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrOut {
     /// `owner/name#number`.
     pub key: String,
@@ -234,13 +234,13 @@ pub struct PrOut {
 }
 
 /// One area of one PR that a person may approve, and who else may instead.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AreaPart {
     pub area: String,
     pub others: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Owed {
     pub pr: String,
     pub areas: Vec<AreaPart>,
@@ -248,7 +248,7 @@ pub struct Owed {
     pub rereview: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersonOut {
     pub login: String,
     pub kind: Kind,

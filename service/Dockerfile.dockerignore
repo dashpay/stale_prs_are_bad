@@ -1,0 +1,13 @@
+# The build context is the repository root; send only what the build needs.
+*
+!Cargo.toml
+!Cargo.lock
+!src/
+!service/
+service/target
+!site/index.html
+!site/app.js
+!site/style.css
+!site/js/
+!site/vendor/d3.min.js
+!site/vendor/plot.umd.min.js

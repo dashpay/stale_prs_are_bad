@@ -1,0 +1,102 @@
+name: PR Hygiene post
+
+# Posts the calling run's dashboard data to the PR Hygiene service with a
+# GitHub OIDC token. It is a workflow of its own so that only this code can
+# hold a token the service accepts: the service requires the token's
+# `job_workflow_ref` to be this file on master, while every other job of
+# the calling workflow — the Pages deploy among them, which also holds
+# `id-token: write` — carries the caller's own ref. The token pin protects
+# the token, not the artifact: any step of the run could replace that, so
+# the bytes posted must match the digest the analyze job recorded.
+#
+# No checkout, no build, no third-party code: the artifact, curl and the
+# runner's token endpoint.
+
+on:
+  workflow_call:
+    inputs:
+      service-url:
+        description: The service's https base URL; the token's audience, verbatim
+        type: string
+        required: true
+      sha256:
+        description: Digest of dashboard.json as the analyze job wrote it
+        type: string
+        required: true
+      tolerate-failure:
+        description: A failed post is a warning rather than a failed run
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  post:
+    name: Post to the service
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write       # mint the OIDC token the service verifies
+    steps:
+      - name: Download the dashboard data
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dashboard-data
+          path: dashboard-data
+
+      # Not secret: what the service compares against its configuration.
+      # A 403 naming `job_workflow_ref` means the two differ.
+      - name: Show the identity the service checks
+        env:
+          JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          echo "job_workflow_ref: $JOB_WORKFLOW_REF"
+          echo "workflow_ref:     $WORKFLOW_REF"
+
+      - name: Check the data is what the analyze job wrote
+        env:
+          EXPECTED: ${{ inputs.sha256 }}
+        run: |
+          set -euo pipefail
+          actual=$(sha256sum dashboard-data/dashboard.json | cut -d' ' -f1)
+          if [ -z "$EXPECTED" ] || [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::dashboard.json is not the file the analyze job wrote; not posting"
+            exit 1
+          fi
+
+      - name: Mint a token and post
+        continue-on-error: ${{ inputs.tolerate-failure }}
+        env:
+          SERVICE_URL: ${{ inputs.service-url }}
+        run: |
+          set -euo pipefail
+          # Never send a token anywhere but over TLS.
+          case "$SERVICE_URL" in
+            https://*) ;;
+            *) echo "::error::the service URL must start with https://"; exit 1 ;;
+          esac
+          umask 077
+          headers="$RUNNER_TEMP/pr-hygiene-headers"
+          trap 'rm -f "$headers"' EXIT
+
+          # The audience is the URL exactly as configured: the service
+          # compares it byte for byte with PR_HYGIENE_OIDC_AUDIENCE.
+          audience=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$SERVICE_URL")
+          printf 'Authorization: bearer %s\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" > "$headers"
+          # --fail, not --fail-with-body: the response carries the token.
+          token=$(curl --silent --show-error --fail --max-time 30 -H @"$headers" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience" \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["value"])')
+          echo "::add-mask::$token"
+
+          # Each token posts once: a retry must mint a new one.
+          printf 'Authorization: Bearer %s\n' "$token" > "$headers"
+          curl --silent --show-error --fail-with-body --max-time 60 --proto '=https' \
+            -H @"$headers" \
+            -H 'Content-Type: application/json' \
+            --data-binary @dashboard-data/dashboard.json \
+            "${SERVICE_URL%/}/ingest"
+          echo

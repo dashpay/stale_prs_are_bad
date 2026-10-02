@@ -432,6 +432,12 @@ fn end_to_end_pipeline_matches_snapshot() {
     );
     // No evidence read for it: the review cycle's own start, as before.
     assert_eq!(pr(3000).since, at("2026-05-17T06:00:00Z"));
+    // The service reads this JSON back into the same types: nothing may be
+    // lost or reshaped on the way, or it would serve something else.
+    let json = serde_json::to_string(&board).unwrap();
+    let read_back: dashboard::Dashboard = serde_json::from_str(&json).unwrap();
+    assert_eq!(read_back, board);
+    assert_eq!(serde_json::to_string(&read_back).unwrap(), json);
     insta::assert_json_snapshot!("dashboard", board);
 }
 

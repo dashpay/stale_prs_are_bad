@@ -6,6 +6,11 @@ description = "Nightly PR-hygiene dashboard for the repositories in policies/rep
 license = "MIT"
 publish = false
 
+[workspace]
+# The analyzer (this package) produces dashboard.json; the service ingests
+# it and serves the public API, reusing the analyzer's types.
+members = [".", "service"]
+
 [[bin]]
 name = "pr-hygiene"
 path = "src/main.rs"
