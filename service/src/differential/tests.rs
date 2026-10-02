@@ -781,3 +781,92 @@ async fn what_github_answered_a_sync_of_every_pull_request_is_never_printed() {
     }
     no_content::assert_no_contents(&said, &recording, &sources());
 }
+
+/// `calls` with every recorded answer's `from` replaced by `to`: GitHub
+/// answering otherwise than it did when Python read it.
+fn rewritten(calls: &str, from: &str, to: &str) -> String {
+    let mut out = String::new();
+    let mut found = false;
+    for line in calls.lines() {
+        let PyValue::Dict(mut entry) = py_loads(line).unwrap() else {
+            panic!("a call")
+        };
+        if let Some(PyValue::Str(stdout)) = entry.get("stdout") {
+            if stdout.contains(from) {
+                found = true;
+                let changed = stdout.replace(from, to);
+                entry.insert("stdout".into(), PyValue::Str(changed));
+            }
+        }
+        out.push_str(&py_dumps(&PyValue::Dict(entry), false, None, None).unwrap());
+        out.push('\n');
+    }
+    assert!(found, "the recording holds {from:?}");
+    out
+}
+
+/// Pull request 2's one comment in the synthetic sweep, as GitHub's
+/// history query answered it to Python.
+const COMMENT: &str = r#""databaseId": 102, "body": "/self-reviewed cccccccccccccccccccccccccccccccccccccccc", "createdAt": "2026-09-11T11:00:00Z", "updatedAt": "2026-09-11T11:00:00Z""#;
+
+/// The same comment rewritten in place, GitHub's update time of it at
+/// `updated`.
+fn rewrote(updated: &str) -> String {
+    format!(
+        r#""databaseId": 102, "body": "/self-reviewed cccccccccccccccccccccccccccccccccccccccc (summary updated)", "createdAt": "2026-09-11T11:00:00Z", "updatedAt": "{updated}""#
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_comment_edited_between_the_reads_moved_its_pull_request_and_no_other() {
+    // A bot rewrote its comment in place after Python read it: GitHub moved
+    // the comment's update time and not the pull request's.
+    let recording = synthetic().join("sweep");
+    let calls = rewritten(
+        &read(&recording.join("calls.jsonl")),
+        COMMENT,
+        &rewrote("2026-09-12T10:03:00Z"),
+    );
+    let github = github(&calls, None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(outcome.clean(), "{said}");
+    // 2 moved, its snapshot and verdict with it; 5 is still held to
+    // Python's, and matched.
+    assert!(
+        said.contains("| dashpay/platform · sync | 1/2 | 1/2 | 0/0 | 1 | 0 | 2 | 0 |"),
+        "{said}"
+    );
+    assert!(
+        said.contains(
+            "| live snapshot | — | moved during the read | 1 | dashpay/platform · sync: 0 |"
+        ),
+        "{said}"
+    );
+    only_reads(&github);
+    no_content::assert_no_contents(&said, &recording, &sources());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_comment_that_differs_with_its_update_time_unmoved_still_fails() {
+    // The same body, read otherwise, with the comment's update time as
+    // Python read it: nothing says GitHub changed it, so the difference is
+    // the port's.
+    let recording = synthetic().join("sweep");
+    let calls = rewritten(
+        &read(&recording.join("calls.jsonl")),
+        COMMENT,
+        &rewrote("2026-09-11T11:00:00Z"),
+    );
+    let github = github(&calls, None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(!outcome.clean(), "{said}");
+    assert!(
+        said.contains(
+            "| live snapshot | `pr.comments[].body` | value | 1 | dashpay/platform · sync: 0 |"
+        ),
+        "{said}"
+    );
+    no_content::assert_no_contents(&said, &recording, &sources());
+}

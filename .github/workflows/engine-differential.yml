@@ -111,8 +111,11 @@ jobs:
       # A full pass reads what a report does and walks the write path of
       # each pull request: its identity read again, the five labels once,
       # and for a ready one its evidence and admission read again before
-      # the status. Measured where a sweep covered a whole repository, twice
-      # its report (above): twelve an open pull request leaves room.
+      # the status. Measured on the first full pass (run 37044611862):
+      # rust-dashcore's, 290 requests for 30 pull requests, 9.7 each and
+      # one and a half times its report. Twelve leaves room for platform's
+      # longer lists: its pass is weighed at about 1 180 and should cost
+      # about 950.
       PER_FULL_PR: "12"
       # A sweep of six pull requests: their snapshots, their write paths
       # (identity re-reads, labels), and the final re-check of a ready one.
@@ -134,10 +137,12 @@ jobs:
       # platform's two report pull requests and samples, about 80.
       #
       # So a run spends about 3 300 requests of the App's hour in
-      # platform's turn and about 2 300 in the other, and never more than
-      # the two budgets and the last step admitted under each. The App had
-      # 5 220 to 5 449 REST and 4 657 to 5 450 GraphQL requests left before
-      # each of the runs above. Platform's full pass needs 4 032 REST and
+      # platform's turn and about 2 300 in the other by the estimates, and
+      # never more than the two budgets and the last step admitted under
+      # each. At the measured 9.7 a pull request, platform's turn costs
+      # about 2 850 (1 620 recorded, 1 230 live). The App had 5 220 to
+      # 5 449 REST and 4 657 to 5 450 GraphQL requests left before each of
+      # the runs measured. Platform's full pass needs 4 032 REST and
       # 3 019 GraphQL left (the reserve, the pass at twelve a pull request
       # and the same again live, with its samples), so it has its turn
       # unless something else took over 1 100 of the App's hour first; the

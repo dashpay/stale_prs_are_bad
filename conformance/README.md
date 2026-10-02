@@ -576,6 +576,20 @@ between Python's reads and the live ones:
   head was first seen and whether a verdict was published on it are
   excused, and so is its verdict, but any other field of its snapshot is
   still held to Python's;
+- a comment on it was edited after Python read it — its update time (or
+  edit time) is later live than in Python's copy of the same comment;
+  GitHub moves the comment's update time and not the pull request's, as
+  when a bot rewrites its comment in place: its comments, and the
+  engine's record and diff record read from them, are excused, and so is
+  its verdict and a write to it. Held to Python's copy of the comment, not
+  to the instant Python's run began: Python read each comment minutes into
+  its run, so an edit between the two is already in what Python read. A
+  comment that differs with its update time unmoved still fails;
+- one of its review threads was replied to, or opened, after Python's run
+  began — a voice Python's read lacks, created after the recording's
+  instant (a thread carries no update time, only when each voice in it was
+  created): its threads, and the permissions of who spoke in them, are
+  excused, and its verdict and writes;
 - one of its author's open pull requests did, as the open listing
   answered (one opened, closed, pushed, drafted, updated): its verdict, a
   write to it, and which pull requests the run decided are excused, since
@@ -594,10 +608,9 @@ one was answered — Python passed over a pull request it could not read,
 and the runs deciding different pull requests counts as moved. Every other
 difference fails.
 
-Accepted residuals, to watch on the first runs: a review thread resolved,
-a comment edited, or a collaborator's access changed between the reads may
-not move the pull request's update time, and would then read as a
-difference.
+Accepted residuals: a review thread resolved or unresolved, a thread's
+opening comment edited, or a collaborator's access changed between the
+reads moves no time the snapshot carries, so it reads as a difference.
 
 A full pass reads its pull requests minutes after Python's — platform's
 takes Python about ten — so more of them read as moved than in a one-author
