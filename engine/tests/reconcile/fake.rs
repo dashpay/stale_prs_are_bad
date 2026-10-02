@@ -19,7 +19,6 @@ use crate::support::*;
 use pr_hygiene_engine::evidence::replay::transient;
 use pr_hygiene_engine::evidence::{Failure, Method};
 use pr_hygiene_engine::pycompat::text::py_lower;
-use pr_hygiene_engine::pycompat::PyDict;
 use std::collections::BTreeMap;
 
 pub const REPO: &str = "dashpay/platform";
@@ -68,6 +67,8 @@ impl Comment {
 pub struct Pr {
     pub number: i64,
     pub author: String,
+    /// Whether GitHub marks the author's account a bot.
+    pub bot_author: bool,
     pub title: String,
     pub body: String,
     pub labels: Vec<String>,
@@ -99,6 +100,7 @@ impl Pr {
         Pr {
             number,
             author: author.into(),
+            bot_author: false,
             title: format!("PR {number}"),
             body: "Some text.".into(),
             labels: Vec::new(),
@@ -374,7 +376,9 @@ impl Fake {
         paths.sort();
         paths.dedup();
         json!({
-            "number": pr.number, "user": rest_user(&pr.author), "body": pr.body,
+            "number": pr.number,
+            "user": {"login": pr.author, "type": if pr.bot_author { "Bot" } else { "User" }},
+            "body": pr.body,
             "labels": pr.labels.iter().map(|name| json!({"name": name})).collect::<Vec<_>>(),
             "assignees": pr.assignees.iter().map(|login| json!({"login": login})).collect::<Vec<_>>(),
             "head": {"sha": pr.head}, "base": {"ref": pr.base, "sha": pr.base_sha},
@@ -403,8 +407,7 @@ impl Fake {
     fn lifecycle(pr: &Pr) -> Vec<Value> {
         pr.timeline
             .iter()
-            .filter(|(event, _)| event == "closed" || event == "convert_to_draft")
-            .next_back()
+            .rfind(|(event, _)| event == "closed" || event == "convert_to_draft")
             .map(|(_, at)| vec![json!({"createdAt": at})])
             .unwrap_or_default()
     }
@@ -830,14 +833,4 @@ impl Transport for Fake {
             Err((status, message)) => Err(failed(status, &message)),
         }
     }
-}
-
-/// A dict built in the order given.
-pub fn dict(entries: &[(&str, PyValue)]) -> PyValue {
-    PyValue::Dict(
-        entries
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), v.clone()))
-            .collect::<PyDict>(),
-    )
 }

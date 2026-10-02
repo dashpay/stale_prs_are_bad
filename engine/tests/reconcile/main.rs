@@ -3,9 +3,12 @@
 //! reconciliation tests of `pr_review/tests` as scenarios on a stateful
 //! fake of GitHub.
 
+mod checklist;
 mod fake;
 mod functions;
 mod properties;
+mod publication;
 mod recordings;
 mod scene;
 mod support;
+mod writes;
