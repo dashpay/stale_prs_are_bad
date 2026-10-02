@@ -8,10 +8,9 @@
 //!   a report's, [`live_run`] for a one-author sync's).
 //! - **Verdicts.** A one-author sync is run whole, live, as the service will
 //!   run it ([`live_run`]), and each verdict is compared with Python's row.
-//! - **No write where nothing changed.** Where every pull request that run
-//!   decided carries a record of the engine's whose evidence print is the
-//!   print of what was just read, and Python's own run, minutes earlier,
-//!   wrote nothing, the live run must want to write nothing either.
+//! - **No write where nothing changed.** Where Python's own run, minutes
+//!   earlier, ran to its end, decided the same pull requests and wrote
+//!   nothing, the live run must want to write nothing either.
 //! - **Explained differences.** A verdict, or a write, that differs is
 //!   decided again from what was read live, with Python's own inputs in
 //!   place of the port's: the instant it decided at, the review system's
@@ -46,7 +45,7 @@ use crate::evidence::replay::{gh_arguments, is_read};
 use crate::evidence::{
     Call, Client, Failure as Failed, GitHub, NoSleep, ReadError, Reply, Transport, TransportError,
 };
-use crate::policy::{admit, evaluate, fingerprint, validate_policy};
+use crate::policy::{admit, evaluate, validate_policy};
 use crate::pycompat::{py_dumps, py_loads, PyDateTime, PyInt, PyList, PyValue};
 use crate::reconcile::{
     telemetry_states, Clock, ClockSite, Command, Reconciler, Run, RunOptions, Selection,
@@ -239,9 +238,9 @@ pub struct Live {
     /// ones.
     pub moved: usize,
     /// Whether a live whole run was held to writing nothing: `Some(true)`
-    /// where every pull request it decided carried a current record and
-    /// Python's own run wrote nothing; `Some(false)` where not; `None`
-    /// where no whole run was made.
+    /// where Python's own run ran to its end, decided the same pull requests
+    /// and wrote nothing; `Some(false)` where not; `None` where no whole run
+    /// was made.
     pub settled: Option<bool>,
 }
 
@@ -1057,19 +1056,16 @@ pub fn live_run<T: Transport>(
         });
     }
 
-    // Nothing changed since the engine last wrote: every pull request the
-    // run decided carries the engine's record, whose evidence print is the
-    // print of what was just read; and Python's own run, minutes before,
-    // ran to its end, decided the same pull requests and wrote nothing.
-    let current = !run.snapshots.is_empty()
-        && run.snapshots.iter().all(|snapshot| {
-            let recorded = field(snapshot, "controller_state").and_then(|r| field(r, "evidence"));
-            matches!((recorded, fingerprint(snapshot)), (Some(PyValue::Str(was)), Ok(now)) if *was == now)
-        });
+    // Nothing to write: Python's own run, minutes before, ran to its end,
+    // decided the same pull requests and wrote nothing. The evidence print in
+    // the engine's record is not asked to be current: the engine rewrites the
+    // record only when its state, head, admission or ready time would change,
+    // so a conversation that goes on without changing the verdict leaves the
+    // print behind, and requiring it left most runs unjudged.
     let returned = field(&recording.meta, "outcome")
         .and_then(|outcome| field(outcome, "returned"))
         .is_some();
-    let settled = current
+    let settled = !run.snapshots.is_empty()
         && returned
         && python_numbers == live_numbers
         && recorded_writes(&recording.calls) == 0;

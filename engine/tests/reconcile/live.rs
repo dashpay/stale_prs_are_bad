@@ -180,3 +180,43 @@ fn a_settled_pull_request_read_live_wants_to_write_nothing() {
     assert!(live.comparison.is_clean());
     assert_eq!(scene.fake.written.len(), written, "nothing written");
 }
+
+#[test]
+fn a_settled_pull_request_whose_evidence_moved_on_is_still_held_to_writing_nothing() {
+    // The engine rewrites its record only when the state, head, admission or
+    // ready time would change; the evidence print in it is left as it was, so
+    // the record does not churn on every comment. A conversation that goes on
+    // without changing the verdict therefore leaves the print behind, and
+    // Python's own dry run writes nothing. Requiring the print to be current
+    // left most live one-author runs unjudged; writing nothing is the test.
+    let (policy, mut fake) = fixture();
+    fake.pr(1).author = "reviewer".into();
+    fake.pr(1).comments[0].author = "reviewer".into();
+    fake.state
+        .engine_status(HEAD, "pending", "waiting-bots", "2026-09-11T09:00:00Z");
+    let mut scene = Scene::new(fake);
+    settle(&mut scene, &policy);
+    scene.fake.pr(1).comments.push(Comment::new(
+        9001,
+        "reviewer",
+        "Rebased on the latest base; nothing else changed.",
+        "2026-09-11T09:30:00Z",
+    ));
+    let recording = recorded(&mut scene, &policy, &PyValue::None);
+    let written = scene.fake.written.len();
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    assert_eq!(live.settled, Some(true), "{:?}", live.comparison);
+    assert!(
+        matches!(outcome(&live, Layer::LiveWrites), Outcome::Matched),
+        "{:?}",
+        live.comparison
+    );
+    assert!(live.comparison.is_clean());
+    assert_eq!(scene.fake.written.len(), written, "nothing written");
+}
