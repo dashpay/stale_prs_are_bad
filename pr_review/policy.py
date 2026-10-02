@@ -22,15 +22,13 @@ REVIEW_BOTS = ('thepastaclaw', 'coderabbitai')
 ENGINE_LOGINS = frozenset({'github-actions[bot]'})
 
 
-def is_engine(login, bare=False):
-    """Whether `login` is one of this engine's identities.
+def is_engine(login):
+    """Whether `login` is one of this engine's identities, in any case.
 
-    `bare` also accepts the name without its `[bot]` suffix, the spelling
-    GitHub returns for an editor; a comment's author always carries it, and
-    a person may register the bare name.
+    Only the `name[bot]` spelling counts: the bare name is one a person can
+    register.
     """
-    login = (login or '').lower()
-    return login in ENGINE_LOGINS or (bare and f'{login}[bot]' in ENGINE_LOGINS)
+    return (login or '').lower() in ENGINE_LOGINS
 WRITE = {'write', 'maintain', 'admin'}
 
 # A label says whose move it is, in a listing. A red build is visible there

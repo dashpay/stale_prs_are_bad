@@ -240,12 +240,10 @@ def parse_controller_diff(comments, number):
         # controller is who edited it. Where that cannot be known the pull
         # request starts over, which is what it did before this existed.
         edited = comment.get("updated_at") or comment["created_at"]
-        # Both spellings: what comes back is the login, and the "[bot]" suffix
-        # is only appended where the reader asked for the type. Refusing the
-        # bare one refused this controller's own hand, which rewrites the
-        # record on every refresh — so the marker became unreadable the second
-        # time it was written, and stayed that way.
-        if edited != comment["created_at"] and not is_engine(comment.get("edited_by"), bare=True):
+        # The editor is read with its type, so this controller's own hand
+        # comes back as `name[bot]` like its author; the bare name is one a
+        # person can register, and counts for nothing.
+        if edited != comment["created_at"] and not is_engine(comment.get("edited_by")):
             continue
         # In a comment of this controller's own, beside its record for this
         # same pull request. Any workflow can post as the Actions app, and one
@@ -493,7 +491,7 @@ class GitHub:
           comments(last:100) {
             totalCount
             nodes { databaseId body createdAt updatedAt author { login __typename }
-                    editor { login } }
+                    editor { login __typename } }
           }
           timelineItems(last:1, itemTypes:[CLOSED_EVENT, CONVERT_TO_DRAFT_EVENT]) {
             nodes {
@@ -954,7 +952,9 @@ class GitHub:
         written = self.request("POST", f"{self.root}/statuses/{quote(head, safe='')}", payload)
         if not isinstance(written, dict):
             raise GitHubError("Commit status was not acknowledged")
-        self._statuses[head] = [dict(payload, creator={"login": "github-actions[bot]"},
+        # Whoever GitHub says wrote it, so the cache never claims an identity
+        # this engine did not post under.
+        self._statuses[head] = [dict(payload, creator=written.get("creator") or {},
                                      created_at=written.get("created_at"))] + statuses
         return written
 
