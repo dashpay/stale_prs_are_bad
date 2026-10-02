@@ -360,6 +360,30 @@ directory, the cases the port is known not to match yet. It only shrinks: a
 listed case that passes fails the test, and so do an unlisted case that
 fails and a listed case that does not exist.
 
+### Where the Rust engine departs from Python on purpose
+
+Each refuses input that nothing GitHub answers, or the engine writes, can
+hold, and fails closed or fails the run rather than guess:
+
+- **A lone surrogate** (`"\ud800"`) in JSON read from a bot's comment cannot
+  be held in a Rust string. That read takes its function's unreadable path,
+  the path invalid JSON takes in Python: a CodeRabbit receipt holding one is
+  not a receipt.
+- **A float in a hashed print** (`diff_print`, `fingerprint`): Python's JSON
+  writer writes it; the engine's writes no float, so the run fails
+  (`PyErr::Unported`).
+- **A carried commit id holding a character outside ASCII**: Python matches
+  thepastaclaw's final-phase marker case-insensitively with its own Unicode
+  case data, which the port does not have. Such an id matches nothing, so the
+  bot reads as not having reported on it. The engine's records name only
+  hexadecimal commits.
+- **Timeouts in fractional hours**, and **a review slot keyed by a pull request
+  number that is not an int**: refused (`Unported`); `validate_policy` and
+  GitHub allow neither.
+- **Sorting values that cannot be compared**: under 64 items the port asks `<`
+  of the same pairs as CPython and raises where it raises; past that CPython
+  merges runs and may meet a different incomparable pair first.
+
 ## What another engine must match exactly
 
 - **The verdicts**: every field of every row, rows in order.

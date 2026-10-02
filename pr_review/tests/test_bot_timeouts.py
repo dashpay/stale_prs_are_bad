@@ -75,6 +75,17 @@ class BotTimeoutTests(unittest.TestCase):
         pr['comments'] = [dict(limited, created_at=ago(0.2), updated_at=ago(0.2))]
         self.assertIsNone(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'])
 
+    def test_coderabbit_is_not_nudged_within_the_hour_it_asked_for(self):
+        # It documents an hour's retry after its own limit. Asking again inside
+        # that hour only adds to the load it reported, however long ago the
+        # head appeared: past the nudge window, the same head without the
+        # notice is asked.
+        policy, pr = waiting(7)
+        self.assertTrue(bot_schedule(policy, pr, 'coderabbitai', NOW)['nudge'])
+        pr['comments'] = [{'user': 'coderabbitai[bot]', 'created_at': ago(0.2), 'updated_at': ago(0.2),
+                           'body': '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\nwait'}]
+        self.assertFalse(bot_schedule(policy, pr, 'coderabbitai', NOW)['nudge'])
+
     def test_the_limit_is_read_from_when_the_notice_was_written_not_first_posted(self):
         # CodeRabbit keeps one comment and edits it. Reading `created_at`
         # found a notice from the week the pull request opened — or, once the
