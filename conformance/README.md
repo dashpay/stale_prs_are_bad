@@ -333,6 +333,29 @@ engine compiles in (`engine/src/pycompat/tables.rs`). The engine's
 the version it ran on in every file, and writes the same bytes each run; run
 it again only when the Python the engine runs on changes.
 
+```sh
+uv run -q --python 3.12 --no-project --with pyyaml python conformance/pycompat/generate_policy.py
+```
+
+Writes what the policy port needs beyond that, from `pr_review/policy.py`
+itself: `policy_regex.json` (every pattern the policy uses, with what `re`
+matched), `object.json` (`str()`, float `repr`, `==` and `<` between values,
+the characters whose `upper()` is ASCII), and `policy_malformed.json`
+(corpus cases with one field deleted or given another type, and whether
+`evaluate` raised or what it answered). It refuses to run when a pattern it
+copies no longer appears in `policy.py`; run it again when the policy's
+patterns or `evaluate` change.
+
+## The Rust engine's gate
+
+`engine/tests/policy` runs every evaluate case and the `policy.admit`,
+`policy.receipt_print` and `policy.diff_print` function cases through the
+Rust port, comparing each result as the JSON Python's writer makes of it.
+`conformance/pending.txt` lists, one path per line relative to this
+directory, the cases the port is known not to match yet. It only shrinks: a
+listed case that passes fails the test, and so do an unlisted case that
+fails and a listed case that does not exist.
+
 ## What another engine must match exactly
 
 - **The verdicts**: every field of every row, rows in order.

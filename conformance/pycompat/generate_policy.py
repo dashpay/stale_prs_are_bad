@@ -17,6 +17,8 @@ verbatim, so a pattern changed there and not here stops this script.
 The output is deterministic: a second run writes the same bytes.
 """
 
+import copy
+import hashlib
 import json
 import random
 import re
@@ -374,10 +376,104 @@ def object_goldens(rng):
     write_json('object.json', [], float_repr=reprs, str=strs, eq=eq, order=order, upper_into_ascii=upper)
 
 
+# --- evaluate on input of the wrong shape ------------------------------------------
+
+DELETE = {'delete': True}
+# What one field is replaced by: nothing, and a value of every JSON type,
+# including the timestamps `_time` refuses and accepts.
+REPLACEMENTS = [DELETE, None, 0, 7, True, False, 1.5, '', 'x', '2026-09-11T12:00:00', '2026-09-11T12:00:00Z',
+                [], ['x'], {}, {'x': 1}]
+
+
+def paths(value, depth=3):
+    """Every dict key, and the first item of every list, down to `depth`."""
+    if depth == 0:
+        return
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            yield [key]
+            for rest in paths(inner, depth - 1):
+                yield [key] + rest
+    elif isinstance(value, list) and value:
+        yield [0]
+        for rest in paths(value[0], depth - 1):
+            yield [0] + rest
+
+
+def mutated(value, path, replacement):
+    value = copy.deepcopy(value)
+    if not path:
+        return None if replacement is DELETE else copy.deepcopy(replacement)
+    container = value
+    for step in path[:-1]:
+        container = container[step]
+    if replacement is DELETE:
+        if isinstance(container, dict):
+            del container[path[-1]]
+        else:
+            return None
+    else:
+        container[path[-1]] = copy.deepcopy(replacement)
+    return value
+
+
+def floats_tagged(value):
+    """`value` with every float as `{"float": repr}`, which both sides write the same way."""
+    if isinstance(value, float):
+        return {'float': repr(value)}
+    if isinstance(value, list):
+        return [floats_tagged(x) for x in value]
+    if isinstance(value, dict):
+        return {k: floats_tagged(v) for k, v in value.items()}
+    return value
+
+
+def outcome(case):
+    from pr_review.conformance import python_exception_text
+    try:
+        result = policy.evaluate(copy.deepcopy(case['policy']), copy.deepcopy(case['pr']), case['admitted_at'],
+                                 case['now'], copy.deepcopy(case['telemetry_states']))
+    except Exception as error:  # noqa: BLE001 - which class escapes is what is recorded
+        return {'raised': type(error).__name__}
+    text = None
+    if python_exception_text(result):
+        at = next(i for i, b in enumerate(result['blockers']) if not b.startswith('Proceeded without'))
+        text = result['blockers'].pop(at)
+    written = json.dumps(floats_tagged(result), separators=(',', ':'), ensure_ascii=True)
+    return {'state': result['state'], 'digest': hashlib.sha256(written.encode()).hexdigest()[:16],
+            'exception_text': text}
+
+
+def malformed_goldens(rng):
+    """Corpus cases with one field replaced, and what `evaluate` made of each:
+    which exception escaped it, or the verdict it answered."""
+    files = sorted((ROOT / 'conformance' / 'evaluate').glob('*.json'))
+    bases = files[::17]
+    for name in ('waiting-author-', 'waiting-bots-', 'ready-for-human-', 'ready-to-merge-'):
+        rich = [f for f in files if f.name.startswith(name) and f not in bases
+                and (lambda c: c['pr'].get('threads') and c['pr'].get('controller_diff'))(json.loads(f.read_text()))]
+        bases += rich[:2]
+    entries = []
+    for base in bases:
+        case = json.loads(base.read_text())
+        targets = [('pr', p) for p in paths(case['pr'])] + [('policy', p) for p in paths(case['policy'])]
+        targets += [('admitted_at', []), ('now', []), ('telemetry_states', [])]
+        combos = [(t, p, r) for t, p in targets for r in REPLACEMENTS if not (r is DELETE and not p)]
+        for target, path, replacement in rng.sample(combos, min(150, len(combos))):
+            changed = mutated(case[target], path, replacement)
+            if replacement is DELETE and changed is None and path:
+                continue
+            entries.append({'base': f'evaluate/{base.name}', 'target': target, 'path': path,
+                            'value': replacement if replacement is DELETE else tag(replacement),
+                            'outcome': outcome(dict(case, **{target: changed}))})
+    write_json('policy_malformed.json', entries)
+
+
 def main():
     rng = random.Random(20261003)
     regex_goldens(rng)
     object_goldens(rng)
+    malformed_goldens(rng)
 
 
 if __name__ == '__main__':

@@ -391,6 +391,21 @@ mod tests {
     }
 
     #[test]
+    fn a_head_outside_ascii_names_no_final_phase() {
+        // Python folds such a head with its own Unicode case data, which
+        // the port does not have: it matches nothing instead, so the bot
+        // reads as not having reported. The engine's records name only
+        // hexadecimal commits.
+        let body = "<!-- thepastaclaw-review-phase v1 phase=final sha=\u{e9} -->";
+        assert!(final_phase(&["\u{e9}".to_owned()]).unwrap().is_none());
+        let mixed = final_phase(&["\u{e9}".to_owned(), "ab".to_owned()])
+            .unwrap()
+            .unwrap();
+        assert!(!mixed.is_match(body));
+        assert!(mixed.is_match("<!-- thepastaclaw-review-phase v1 phase=final sha=AB -->"));
+    }
+
+    #[test]
     fn every_policy_pattern_matches_what_python_matched() {
         let file = golden();
         let mut failures = Vec::new();
