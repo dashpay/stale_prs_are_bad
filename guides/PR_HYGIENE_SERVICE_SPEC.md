@@ -690,7 +690,20 @@ with its case listed, and the port catches up afterwards.
 **Trust model through cut-over** (corrects §3):
 - Any collaborator with write access can edit any comment, and any workflow
   posts as `github-actions[bot]`.
-- Before cut-over, both engines ignore edited records, as above.
+- Before cut-over, records follow these rules in both engines, as above:
+  - A record is edited if GitHub gives it an edit time or names an editor.
+    An edited record is trusted only when the engine is the editor; a null
+    editor is not trusted.
+  - Records are ordered by when the engine last wrote them, not by
+    `updated_at`.
+  - When the newest record is untrusted, the PR has no record. An older
+    record is never brought back.
+- **Accepted residuals:**
+  - Deleting the newest record, or editing its marker out, brings back the
+    one before it. This needs write access, and only matters when an older
+    record holds an earlier admission.
+  - A workflow on a pushed branch acts as `github-actions[bot]`. Only the
+    App identity closes this.
 - At cut-over each repository gets a cut-over instant. After it, a
   `github-actions[bot]` status or record is trusted only if it was created
   and last updated at or before that instant.
