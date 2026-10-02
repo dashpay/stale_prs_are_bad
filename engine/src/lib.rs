@@ -11,3 +11,4 @@ pub mod conformance;
 pub mod evidence;
 pub mod policy;
 pub mod pycompat;
+pub mod reconcile;
