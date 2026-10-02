@@ -1,6 +1,6 @@
 # Spec: PR Hygiene as one service with an API
 
-Status: draft revision 4, 2026-10-02 — after simplicity, reliability/migration
+Status: draft revision 5, 2026-10-02 — after simplicity, reliability/migration
 and security reviews; the owner's decisions (**Rust**, a **public API**,
 **GitHub sign-in open to anyone** that personalises the page); then a
 Rust-port review and a public-API/privacy review. Replaces the delivery parts of `DASHBOARD_V2_SPEC.md`
@@ -273,6 +273,60 @@ engine's posted verdicts deliver value long before.
 Fallback if infra will not host anything merge-critical: stop after step 1
 (the Python engine stays in Actions on `@master`; the Rust service is the
 public API, the page and the history, read-only on GitHub).
+
+## 6a. Step 1a in detail — the read-only service
+
+Goal: the public API, the site with sign-in, the skill and Slack on one
+service before the engine port, with **no GitHub write credential in the
+service at all**.
+
+**Data in.** A scheduled workflow in this repository (every 15 minutes, and
+on dispatch) does what the dashboard job already does — the Python engine's
+read-only `report --format json` per repository, then the Rust analyzer
+(`--json-out`, with the stage-history evidence of #68) — and POSTs the
+snapshot to `POST /ingest`. It authenticates with **GitHub's Actions OIDC
+token** (audience = the service's URL); the service verifies the JWT against
+GitHub's published keys and requires `repository` =
+`dashpay/stale_prs_are_bad`, `ref` = `refs/heads/master`, `workflow_ref` =
+this repository's `.github/workflows/pr-hygiene.yml@refs/heads/master`, and
+event `schedule` or `workflow_dispatch`. No shared secret; a pull request's
+code cannot mint that token. The snapshot is validated (schema version,
+sizes) before it replaces anything; a snapshot whose `generated_at` is not
+newer than the stored one is ignored.
+
+**Store (SQLite).** `snapshots` (the latest per repository, the raw JSON
+kept for 30 days), `observations` (per PR and ingest: stage, engine state,
+since, lateness, reviewers asked) from which stage transitions are derived,
+`sessions`. No tokens are stored.
+
+**API** (as §2, served from the latest snapshot): `/api/v1/prs`,
+`/api/v1/prs/{owner}/{repo}/{n}`, `/api/v1/people`,
+`/api/v1/people/{login}` (`?format=text` for the skill and Slack),
+`/api/v1/repos` (freshness, `shadow` everywhere in step 1a),
+`/api/v1/stages`. Public, cacheable, ETag per snapshot; nothing reaches
+GitHub.
+
+**Sign-in.** The sign-in App's web flow (`state` + PKCE), `/user` read
+once, the token discarded; a `__Host-` session cookie holding the GitHub
+user id and login. `/api/v1/me` returns the signed-in person's page; speed
+(`/api/v1/me/speed`) arrives in 1a-6 once history exists.
+
+**Site.** The page from #67, served by the service from its own origin,
+reading the API instead of `dashboard.json`; Me = sign-in.
+
+**Skill and Slack.** `/prs` reads `/api/v1/people/{login}?format=text`;
+the Slack digest workflow reads the same text per person instead of running
+the engine.
+
+**Code.** A `service/` crate in this repository's Cargo workspace beside the
+analyzer, reusing its `dashboard` types: axum, tokio, rusqlite (bundled),
+jsonwebtoken + reqwest for OIDC keys and the sign-in exchange, tower-http
+for static files and headers. A Dockerfile and a deploy note for infra.
+
+**Increments (each a PR):** 1a-1 workspace + store + ingest (OIDC) + read
+API; 1a-2 the producer workflow (dormant until the service URL is set);
+1a-3 the site on the API; 1a-4 sign-in + Me; 1a-5 skill and Slack on the
+API; 1a-6 history and speed.
 
 ## 7. Open PRs
 
