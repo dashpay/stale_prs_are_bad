@@ -16,6 +16,11 @@
 //! - [`replay_run`]: the whole recorded run replayed through the port's
 //!   reconcile layer — the same verdicts, the same writes in the same order,
 //!   the same outputs, report and clock reads.
+//! - [`live`]: the same pull requests read again live, through whatever
+//!   transport the caller gives, and held to what Python's recorded run
+//!   read and decided; a whole run against pull requests whose records are
+//!   current must want to write nothing.
+//! - [`report`]: what the differential tools print about all of it.
 //!
 //! Nothing here formats what a recording holds. A [`Check`] that failed
 //! keeps the error itself for a test to read, and says so.
@@ -23,11 +28,14 @@
 mod compare;
 mod diff;
 mod exception;
+pub mod live;
 mod recording;
+pub mod report;
 mod run;
 
 pub use compare::{
-    collected, compare, rebuild_snapshots, Check, Comparison, Failure, Layer, Outcome, SHARED_HEAD,
+    collected, compare, rebuild_snapshots, Check, Comparison, Explanation, Failure, Layer, Outcome,
+    SHARED_HEAD,
 };
 pub use diff::{differences, Difference, Kind};
 pub use exception::{set_aside_exception_text, ExceptionText, OwnWords, SourceError};

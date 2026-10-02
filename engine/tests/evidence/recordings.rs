@@ -61,6 +61,10 @@ fn rebuild(dir: &Path, recording: &Recording) -> Result<usize, String> {
             Outcome::Failed { failure, detail } => {
                 problems.push(format!("{name}: evaluation {index}: {failure}: {detail}"))
             }
+            // Only a live read explains a difference or sees a move.
+            Outcome::Explained { .. } | Outcome::Moved => problems.push(format!(
+                "{name}: evaluation {index}: a live outcome from a recording"
+            )),
         }
     }
     if missing > 0 && problems.is_empty() {

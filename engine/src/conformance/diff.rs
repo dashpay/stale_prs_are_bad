@@ -149,6 +149,9 @@ pub enum Kind {
     /// Where Python raised, the port's reason is one of the engine's own:
     /// it stopped where Python raised.
     ExceptionTextOwnWords,
+    /// A write a live run would have made, named by its method and route
+    /// with every part that is data written `*`. It was never sent.
+    WouldBeWrite,
 }
 
 impl Kind {
@@ -162,6 +165,7 @@ impl Kind {
             Kind::Order => "key order",
             Kind::ExceptionTextAbsent => "exception text on one side only",
             Kind::ExceptionTextOwnWords => "own words where Python raised",
+            Kind::WouldBeWrite => "would-be write, not sent",
         }
     }
 }

@@ -57,6 +57,14 @@ pub enum Layer {
     Clock,
     /// Every recorded call made once, in the order recorded.
     Call,
+    /// A pull request read live, against the `pr` Python's `evaluate` was
+    /// given.
+    LiveSnapshot,
+    /// A verdict decided live, against Python's row.
+    LiveVerdict,
+    /// A whole run made live against pull requests whose records are
+    /// current: the writes it would have made, which must be none.
+    LiveWrites,
 }
 
 impl Layer {
@@ -72,6 +80,9 @@ impl Layer {
             Layer::Report => "report",
             Layer::Clock => "clock",
             Layer::Call => "call",
+            Layer::LiveSnapshot => "live snapshot",
+            Layer::LiveVerdict => "live verdict",
+            Layer::LiveWrites => "live writes",
         }
     }
 }
@@ -131,6 +142,12 @@ pub enum Failure {
     NoReport,
     /// A verdict whose outputs the port could not make.
     Unmade,
+    /// A live read the read-only layer would not send: not one of the
+    /// engine's reads of a repository it may read.
+    ReadRefused,
+    /// A live run that evaluated other pull requests than Python's run, or
+    /// in another order.
+    OtherPullRequests,
 }
 
 impl fmt::Display for Failure {
@@ -160,7 +177,36 @@ impl fmt::Display for Failure {
             Failure::ReportUnreadable => f.write_str("printed report is not JSON"),
             Failure::NoReport => f.write_str("run made no report"),
             Failure::Unmade => f.write_str("outputs the port could not make"),
+            Failure::ReadRefused => f.write_str("live read refused by the read-only layer"),
+            Failure::OtherPullRequests => {
+                f.write_str("live run evaluated other pull requests than Python's")
+            }
         }
+    }
+}
+
+/// Which of Python's own inputs made a live difference vanish when the
+/// port was given them in place of its own: the instant it decided at, the
+/// review system's status page, the instant a pull request was admitted.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Explanation {
+    pub clock: bool,
+    pub telemetry: bool,
+    pub admission: bool,
+}
+
+impl fmt::Display for Explanation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let named: Vec<&str> = [
+            (self.clock, "clock"),
+            (self.telemetry, "status page"),
+            (self.admission, "admission"),
+        ]
+        .into_iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, name)| name)
+        .collect();
+        f.write_str(&named.join(" and "))
     }
 }
 
@@ -177,6 +223,16 @@ pub enum Outcome {
         failure: Failure,
         detail: String,
     },
+    /// Live differences that vanished once the port was given Python's own
+    /// inputs (`by`): the two engines read the same and decided alike, at
+    /// different moments. Not a failure.
+    Explained {
+        differences: Vec<Difference>,
+        by: Explanation,
+    },
+    /// The pull request changed between Python's read and the port's live
+    /// one, so what differs says nothing of the port. Not a failure.
+    Moved,
 }
 
 /// One snapshot, evaluation or verdict, by its index in its file.
@@ -215,6 +271,15 @@ impl Check {
     pub fn matched(&self) -> bool {
         matches!(self.outcome, Outcome::Matched)
     }
+
+    /// Whether this check is no failure: it matched, or what differs is
+    /// explained, or the pull request moved under the read.
+    pub fn passed(&self) -> bool {
+        matches!(
+            self.outcome,
+            Outcome::Matched | Outcome::Explained { .. } | Outcome::Moved
+        )
+    }
 }
 
 /// Everything one recording's comparison found.
@@ -235,22 +300,32 @@ impl Comparison {
     }
 
     /// How many differences were found: each field that differs in each
-    /// case, and each case the port could not produce.
+    /// case, and each case the port could not produce. What is explained,
+    /// and a pull request that moved, are not counted.
     pub fn differences(&self) -> usize {
         self.checks
             .iter()
             .map(|check| match &check.outcome {
-                Outcome::Matched => 0,
+                Outcome::Matched | Outcome::Explained { .. } | Outcome::Moved => 0,
                 Outcome::Differs(found) => found.len(),
                 Outcome::Failed { .. } => 1,
             })
             .sum()
     }
 
-    /// Whether the port matched Python everywhere and needed no read the
-    /// recording lacks.
+    /// How many checks are explained by Python's own inputs.
+    pub fn explained(&self) -> usize {
+        self.checks
+            .iter()
+            .filter(|c| matches!(c.outcome, Outcome::Explained { .. }))
+            .count()
+    }
+
+    /// Whether the port matched Python everywhere, or differed only where a
+    /// difference is explained or a pull request moved, and needed no read
+    /// the recording lacks.
     pub fn is_clean(&self) -> bool {
-        self.missing_reads == 0 && self.checks.iter().all(Check::matched)
+        self.missing_reads == 0 && self.checks.iter().all(Check::passed)
     }
 }
 
@@ -314,7 +389,10 @@ pub(super) fn read_failure(
 }
 
 /// The policy an evaluation used: its own, or the recording's.
-fn policy_of<'a>(recording: &'a Recording, evaluation: &'a PyValue) -> Option<&'a PyValue> {
+pub(super) fn policy_of<'a>(
+    recording: &'a Recording,
+    evaluation: &'a PyValue,
+) -> Option<&'a PyValue> {
     field(evaluation, "policy").or_else(|| recording.policy())
 }
 
@@ -515,7 +593,7 @@ fn evaluations(recording: &Recording, own: &OwnWords) -> (Vec<Check>, Vec<Option
 
 /// Whether `evaluate_snapshots` marked this row for a head another open
 /// pull request shares: it appends that reason last, after `evaluate`.
-fn shares_head(row: &PyValue) -> bool {
+pub(super) fn shares_head(row: &PyValue) -> bool {
     matches!(field(row, "blockers"), Some(PyValue::List(blockers))
         if matches!(blockers.last(), Some(PyValue::Str(last)) if last == SHARED_HEAD))
 }
@@ -524,7 +602,7 @@ fn shares_head(row: &PyValue) -> bool {
 /// shared-head override where Python's row shows it was applied (which
 /// heads are shared is the open listing's, not `evaluate`'s), then the
 /// repository.
-fn verdict_row(result: &PyValue, policy: &PyValue, shared: bool) -> PyValue {
+pub(super) fn verdict_row(result: &PyValue, policy: &PyValue, shared: bool) -> PyValue {
     let mut row = result.clone();
     if let PyValue::Dict(entries) = &mut row {
         if shared {
