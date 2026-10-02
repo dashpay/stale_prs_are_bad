@@ -371,10 +371,15 @@ def _graphql_comment(comment):
     its author is that person speaking. Whether it was edited at all is the
     edit time GitHub records, not the update time, which also moves when a
     comment is hidden; the field is required, so a query that stopped asking
-    for it fails rather than reading every comment as unedited.
+    for it fails rather than reading every comment as unedited. A comment
+    whose author GitHub answers as nobody — a deleted account — is the
+    `ghost` user's, as the listing names it, rather than a failure of the
+    whole history read for every pull request beside it.
     """
     edited_at = comment["lastEditedAt"]
-    return {"id": comment["databaseId"], "user": _graphql_login(comment["author"]),
+    author = comment["author"]
+    return {"id": comment["databaseId"],
+            "user": _graphql_login(author) if author is not None else "ghost",
             "body": comment["body"],
             "created_at": _text(comment["createdAt"], "comment creation time"),
             "updated_at": _text(comment["updatedAt"], "comment update time"),

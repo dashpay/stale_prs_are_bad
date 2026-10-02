@@ -989,6 +989,28 @@ class GitHubTests(unittest.TestCase):
             with self.assertRaises(GitHubError, msg=label):
                 self.read_long(Limited(pages))
 
+    def test_a_comment_by_a_deleted_account_does_not_fail_the_history_read(self):
+        # GitHub can answer a deleted account's comment with no author, where
+        # the listing names it `ghost`, a User. Refused as incomplete, one such
+        # comment anywhere failed the history read for every pull request in
+        # the batch, other authors' included.
+        ghost = dict(self.long_comment(3), author=None)
+        window = {"data": {"repository": {
+            "pr1": {"number": 1, "comments": {"totalCount": 1, "nodes": [ghost]}, "timelineItems": {"nodes": []}},
+            "pr2": {"number": 2, "comments": {"totalCount": 1, "nodes": [self.long_comment(1)]},
+                    "timelineItems": {"nodes": []}}}}}
+        with patch.object(self.api, "request", return_value=window):
+            history = self.api.histories([1, 2])
+        self.assertEqual(history[1]["comments"][0]["user"], "ghost")
+        self.assertEqual(parse_controller_state(history[2]["comments"])[1], 1)
+        # And on a later page of a long conversation.
+        everything = [self.long_comment(n) for n in range(1, 151)]
+        everything[120] = dict(everything[120], author=None)
+        comments = self.read_long({None: self.comment_page(everything[:100], 150, "c1"),
+                                   "c1": self.comment_page(everything[100:], 150)})[1]["comments"]
+        self.assertEqual(comments[120]["user"], "ghost")
+        self.assertEqual(parse_controller_state(comments)[1], 1)
+
     def test_a_conversation_one_past_the_window_is_paged_and_one_within_it_is_not(self):
         # 101 comments do not fit the batched window of 100, and the record
         # may be the one left out of it. A hundred, or none, fit: one query.
