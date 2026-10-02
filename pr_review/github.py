@@ -986,6 +986,9 @@ class GitHub:
     def comment(self, number, body):
         return self.request("POST", f"{self.root}/issues/{number}/comments", {"body": body})
 
+    def edit_comment(self, comment_id, body):
+        return self.request("PATCH", f"{self.root}/issues/comments/{comment_id}", {"body": body})
+
     def delete_comment(self, comment_id):
         return self.request("DELETE", f"{self.root}/issues/comments/{comment_id}")
 
