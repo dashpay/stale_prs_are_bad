@@ -281,8 +281,11 @@ the engine port, with **no GitHub write credential in the service at all**.
 (Revised after a security/design review.)
 
 **Data in — push, from its own job.** The scheduled workflow in this
-repository (cadence set after measuring the App's API calls per run; 15
-minutes is the target) keeps its analyze job as it is — engine export, Rust
+repository (every 15 minutes: one full engine export measured on
+2026-10-02 at ≈590 REST calls, 6 GraphQL points and 139 s for five
+repositories and 136 PRs — ≈2 400 calls an hour against the read-only App's
+5 000; the governed repositories' own engine runs use their own tokens)
+keeps its analyze job as it is — engine export, Rust
 analyzer, `dashboard.json` handed on as an artifact. A **separate post job**
 holds `id-token: write` and nothing else: no checkout, no build, no
 third-party code; it downloads the artifact, mints the OIDC token
