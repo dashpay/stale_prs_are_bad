@@ -84,8 +84,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.SecondReviewTests.test_the_holder_is_the_comment_the_record_was_read_from",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.SecondReviewTests.test_the_holder_is_the_comment_the_record_was_read_from"
  ],
  "python": "3.12"
 }

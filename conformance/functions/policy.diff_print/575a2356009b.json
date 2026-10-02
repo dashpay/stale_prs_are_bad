@@ -76,8 +76,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.SecondReviewTests.test_a_bot_author_still_gets_the_merge_announcement_and_its_record",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.SecondReviewTests.test_a_bot_author_still_gets_the_merge_announcement_and_its_record"
  ],
  "python": "3.12"
 }

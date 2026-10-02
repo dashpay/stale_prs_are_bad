@@ -273,9 +273,9 @@ function is replaced, like `evaluate`, before anything binds it.
 Two answers have no JSON of their own: `admit` keys its map by pull request
 number, written as JSON writes any key, as a string (`{"12":"2026-…"}`, as
 `serde_json` writes an integer key too); `admission_conflicts` answers a set,
-written sorted. A case is kept only if it replays from its JSON exactly; one
-call is not (a `state_record` made while a test had replaced `fingerprint`
-with a stand-in, which the real one does not reproduce). None raised and none
+written sorted. A case is kept only if it replays from its JSON exactly; today
+one call does not (a `state_record` made while a test had replaced
+`fingerprint` with a stand-in, which the real one does not reproduce). None raised and none
 held anything JSON cannot, today; the harvest prints all of these counts per
 function. A `state_record` output carries the evidence and context prints of
 its inputs: here, unlike across runs, they are the same bytes from the same

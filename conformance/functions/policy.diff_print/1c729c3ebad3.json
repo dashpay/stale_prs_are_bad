@@ -75,8 +75,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.PublishTests.test_the_second_verdict_sees_the_same_rate_limit_notice",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.PublishTests.test_the_second_verdict_sees_the_same_rate_limit_notice"
  ],
  "python": "3.12"
 }

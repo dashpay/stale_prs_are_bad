@@ -59,8 +59,7 @@
  "output": "9c496e0f6522b2244d29994c20fd603cd4a3ec83f908af12cd9c0ed679fe1d37",
  "tests": [
   "test_checklist.PublishTests.test_a_comment_carrying_both_records_is_left_alone_when_it_agrees",
-  "test_checklist.PublishTests.test_the_diff_is_written_beside_the_record_not_inside_it",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.PublishTests.test_the_diff_is_written_beside_the_record_not_inside_it"
  ],
  "python": "3.12"
 }

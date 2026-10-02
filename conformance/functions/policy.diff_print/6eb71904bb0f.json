@@ -90,8 +90,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.RecordTests.test_the_first_pass_converts_a_standing_record_of_this_move_rather_than_announcing_it",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.RecordTests.test_the_first_pass_converts_a_standing_record_of_this_move_rather_than_announcing_it"
  ],
  "python": "3.12"
 }

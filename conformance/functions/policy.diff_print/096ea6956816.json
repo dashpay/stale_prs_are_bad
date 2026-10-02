@@ -85,8 +85,7 @@
   "test_checklist.SecondReviewTests.test_a_foreign_bot_comment_quoting_the_marker_is_left_alone",
   "test_checklist.SecondReviewTests.test_a_pull_request_back_in_draft_loses_the_stale_block",
   "test_checklist.SecondReviewTests.test_the_holder_is_the_comment_the_record_was_read_from",
-  "test_checklist.SecondReviewTests.test_the_move_coming_back_to_the_author_is_announced_again",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.SecondReviewTests.test_the_move_coming_back_to_the_author_is_announced_again"
  ],
  "python": "3.12"
 }

@@ -65,8 +65,7 @@
  },
  "output": null,
  "tests": [
-  "test_main.PublicationTests.test_a_scan_can_carry_a_pull_request_out_of_waiting_for_a_build",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_main.PublicationTests.test_a_scan_can_carry_a_pull_request_out_of_waiting_for_a_build"
  ],
  "python": "3.12"
 }

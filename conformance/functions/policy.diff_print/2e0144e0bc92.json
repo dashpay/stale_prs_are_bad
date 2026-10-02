@@ -32,8 +32,7 @@
  },
  "output": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
  "tests": [
-  "test_main.PublicationTests.test_noop_success_rechecks_reviews_after_admission_history_reads",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_main.PublicationTests.test_noop_success_rechecks_reviews_after_admission_history_reads"
  ],
  "python": "3.12"
 }

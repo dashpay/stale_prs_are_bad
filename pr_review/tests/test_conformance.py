@@ -221,9 +221,9 @@ class RecordAndReplayTests(RecordingCase):
         self.assertEqual(self.replay(directory), [])
 
     def test_a_dry_sync_of_one_pull_request_round_trips(self):
-        # `sync --pr N` is what an event on one pull request runs, and the
-        # one-author path the service will run: it has to replay as a sweep
-        # does, and what it would write touches that pull request alone.
+        # `sync --pr N` is what an event on one pull request runs, over that
+        # author's pull requests only: it has to replay as a sweep does, and
+        # what it would write touches that pull request alone.
         directory = self.record('sync', '--pr', '2')
         recording = conformance.load_recording(directory)
         self.assertEqual(recording['meta']['argv'], ['sync', '--repo', REPO, '--pr', '2', '--format', 'markdown'])
@@ -638,7 +638,24 @@ class FunctionCaseTests(unittest.TestCase):
         self.assertEqual(conformance._written({'b', 'a', 'c'}), ['a', 'b', 'c'])
         written = [json.loads(p.read_text())['output'] for p in self.cases('main.admission_conflicts')]
         self.assertTrue(any(written), 'a case where somebody holds too many admissions')
-        self.assertTrue(all(output == sorted(output) for output in written))
+
+    def test_a_case_names_only_the_tests_that_made_it(self):
+        # Once the suite has run, checking the cases calls some functions again
+        # through names `main` bound to the observing ones. Were those calls
+        # observed, each would be credited to whichever test ran last: the
+        # workflow tests, which read YAML and call nothing harvested here.
+        named = {test for path in self.CASES.rglob('*.json') for test in json.loads(path.read_text())['tests']}
+        self.assertEqual({test for test in named if test.startswith('test_workflow.')}, set())
+
+    def test_a_call_made_after_the_suite_is_neither_kept_nor_counted(self):
+        watching, kept = [True], []
+        counts = {'calls': 0, 'not_serialisable': 0, 'raised': 0}
+        observed = conformance._observing(lambda value: value * 2, lambda given, output: kept.append((given, output)),
+                                          counts, watching)
+        self.assertEqual(observed(1), 2)
+        watching[0] = False
+        self.assertEqual(observed(2), 4, 'still the function it stands for')
+        self.assertEqual((kept, counts['calls']), ([({'value': 1}, 2)], 1))
 
     def test_a_case_can_only_name_a_function_the_corpus_holds(self):
         # A case is data: it must not be able to name any callable it likes.

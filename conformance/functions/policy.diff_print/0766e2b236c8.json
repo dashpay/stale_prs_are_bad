@@ -87,8 +87,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.RecordTests.test_a_description_with_no_room_is_left_alone_on_the_fast_path",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.RecordTests.test_a_description_with_no_room_is_left_alone_on_the_fast_path"
  ],
  "python": "3.12"
 }

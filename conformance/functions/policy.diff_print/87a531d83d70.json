@@ -105,8 +105,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.PublishTests.test_only_a_bot_saying_something_new_tells_the_author_again",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.PublishTests.test_only_a_bot_saying_something_new_tells_the_author_again"
  ],
  "python": "3.12"
 }

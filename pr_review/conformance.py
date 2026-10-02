@@ -889,8 +889,9 @@ def replay_function_case(path):
 
 # ---------------------------------------------------------------- harvesting
 
-def _observing(original, keep, counts):
-    """`original`, handing each call's inputs, by parameter name, and its answer to `keep`.
+def _observing(original, keep, counts, watching):
+    """`original`, handing each call's inputs, by parameter name, and its answer to `keep`
+    for as long as `watching[0]` holds.
 
     The inputs are copied before the call, which may change what it was
     given. A call whose inputs or answer `keep` cannot hold still runs, and
@@ -902,6 +903,8 @@ def _observing(original, keep, counts):
 
     @functools.wraps(original)
     def observed(*arguments, **keywords):
+        if not watching[0]:
+            return original(*arguments, **keywords)
         try:
             inputs = copy.deepcopy((arguments, keywords))
         except Exception:
@@ -952,6 +955,10 @@ def harvest(destination, functions, start='pr_review/tests'):
         raise RecordingError('the harvested functions must be observed before the engine or the tests are imported')
     counts = {name: {'calls': 0, 'not_serialisable': 0, 'raised': 0} for name in ('evaluate',) + FUNCTIONS}
     cases, calls, current = {}, {name: {} for name in FUNCTIONS}, [None]
+    # Names bound by `from .policy import ...` keep the observing function
+    # after it is put back, and checking the cases below calls some of them:
+    # only calls the suite makes are cases.
+    watching = [True]
 
     def keep_evaluation(given, result):
         case = {'policy': given['policy'], 'pr': given['pr'], 'admitted_at': given['admitted_at'],
@@ -984,12 +991,12 @@ def harvest(destination, functions, start='pr_review/tests'):
             stack.callback(setattr, owner, attribute, previous)
             setattr(owner, attribute, staticmethod(value) if isinstance(previous, staticmethod) else value)
 
-        swap(rules, 'evaluate', _observing(rules.evaluate, keep_evaluation, counts['evaluate']))
+        swap(rules, 'evaluate', _observing(rules.evaluate, keep_evaluation, counts['evaluate'], watching))
         # Those outside `main` first: importing `main` binds `admit` and
         # `diff_print` to names of its own, and those must be the observing ones.
         for name in sorted(FUNCTIONS, key=lambda name: name.startswith('main.')):
             owner, attribute = _home(name)
-            swap(owner, attribute, _observing(getattr(owner, attribute), keeping(name), counts[name]))
+            swap(owner, attribute, _observing(getattr(owner, attribute), keeping(name), counts[name], watching))
         # A few tests leave the second evaluation inside `publish` on the real
         # clock. Fixed here, those cases are the same on every harvest.
         from . import main as engine
@@ -1001,6 +1008,7 @@ def harvest(destination, functions, start='pr_review/tests'):
         report = io.StringIO()
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             outcome = unittest.TextTestRunner(resultclass=Tracking, stream=report).run(suite)
+        watching[0] = False
     if not outcome.wasSuccessful():
         sys.stderr.write(report.getvalue())
         raise RecordingError(f'the test suite failed ({len(outcome.failures)} failures, '

@@ -67,8 +67,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.SecondReviewTests.test_a_pull_request_back_in_draft_loses_the_stale_block",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.SecondReviewTests.test_a_pull_request_back_in_draft_loses_the_stale_block"
  ],
  "python": "3.12"
 }

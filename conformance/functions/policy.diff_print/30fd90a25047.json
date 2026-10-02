@@ -27,8 +27,7 @@
   "test_main.PublicationTests.test_changed_other_pr_admission_blocks_success",
   "test_main.PublicationTests.test_new_head_before_request_does_not_invite_reviewers",
   "test_main.PublicationTests.test_own_new_admission_is_expected_during_success_revalidation",
-  "test_main.PublicationTests.test_review_change_during_publication_cannot_publish_success",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_main.PublicationTests.test_review_change_during_publication_cannot_publish_success"
  ],
  "python": "3.12"
 }

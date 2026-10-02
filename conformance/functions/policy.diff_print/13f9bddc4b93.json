@@ -91,8 +91,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.SecondReviewTests.test_the_status_never_depends_on_the_description_or_the_labels",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.SecondReviewTests.test_the_status_never_depends_on_the_description_or_the_labels"
  ],
  "python": "3.12"
 }

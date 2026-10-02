@@ -74,8 +74,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.PublishTests.test_what_the_bot_said_is_written_down_so_an_edit_can_be_told_from_a_report",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.PublishTests.test_what_the_bot_said_is_written_down_so_an_edit_can_be_told_from_a_report"
  ],
  "python": "3.12"
 }

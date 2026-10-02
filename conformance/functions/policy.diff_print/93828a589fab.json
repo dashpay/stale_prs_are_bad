@@ -83,8 +83,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.RecordTests.test_two_standing_comments_converge_to_one",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.RecordTests.test_two_standing_comments_converge_to_one"
  ],
  "python": "3.12"
 }

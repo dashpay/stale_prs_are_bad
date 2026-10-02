@@ -94,8 +94,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.RecordTests.test_an_evidence_only_change_refreshes_the_record_in_place_and_posts_nothing",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.RecordTests.test_an_evidence_only_change_refreshes_the_record_in_place_and_posts_nothing"
  ],
  "python": "3.12"
 }

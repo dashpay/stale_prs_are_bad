@@ -82,8 +82,7 @@
  },
  "output": "9c496e0f6522b2244d29994c20fd603cd4a3ec83f908af12cd9c0ed679fe1d37",
  "tests": [
-  "test_checklist.PublishTests.test_the_second_verdict_sees_the_same_carried_review",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.PublishTests.test_the_second_verdict_sees_the_same_carried_review"
  ],
  "python": "3.12"
 }

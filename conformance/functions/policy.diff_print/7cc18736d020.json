@@ -86,8 +86,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.PublishTests.test_nothing_is_rewritten_when_description_labels_and_comment_already_agree",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.PublishTests.test_nothing_is_rewritten_when_description_labels_and_comment_already_agree"
  ],
  "python": "3.12"
 }

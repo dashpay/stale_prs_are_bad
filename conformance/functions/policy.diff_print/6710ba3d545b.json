@@ -77,8 +77,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.PublishTests.test_a_record_line_somebody_truncated_does_not_wedge_the_pull_request",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.PublishTests.test_a_record_line_somebody_truncated_does_not_wedge_the_pull_request"
  ],
  "python": "3.12"
 }

@@ -86,8 +86,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.PublishTests.test_the_same_move_on_the_same_head_is_kept_current_in_place",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.PublishTests.test_the_same_move_on_the_same_head_is_kept_current_in_place"
  ],
  "python": "3.12"
 }

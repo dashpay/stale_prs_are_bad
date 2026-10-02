@@ -74,8 +74,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.SecondReviewTests.test_a_foreign_bot_comment_quoting_the_marker_is_left_alone",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.SecondReviewTests.test_a_foreign_bot_comment_quoting_the_marker_is_left_alone"
  ],
  "python": "3.12"
 }

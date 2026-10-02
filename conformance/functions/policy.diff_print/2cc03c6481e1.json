@@ -91,8 +91,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.PublishTests.test_a_state_nobody_acts_on_and_back_does_not_announce_again",
-  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+  "test_checklist.PublishTests.test_a_state_nobody_acts_on_and_back_does_not_announce_again"
  ],
  "python": "3.12"
 }
