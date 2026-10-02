@@ -567,7 +567,12 @@ not a read (Python's own `is_read`) as a write GitHub refused, never
 passing it on, and names the first to each pull request by its method and
 route with every part that is data written `*` (the run goes on as if
 refused, so a later write to that pull request may follow from the refusal,
-and is not named). Two things a refusal carries to another pull request are
+and is not named). A status whose description is one of the engine's fixed
+phrases (*Review evidence changed; reconciliation required*, *Evaluating
+current review policy*, …) or a verdict's state is named with its state and
+description, and so is a comment that is nothing but one: those words are
+the engine's, never a person's, and say which path the run took. Anything
+else — a record, a move, a description — is named by its route alone. Two things a refusal carries to another pull request are
 allowed for. The run's one nudge is never spent, so every pull request that
 wants a bot asked is asked; Python's run, its nudge spent on one pull
 request, asked about none after it, so a live nudge to a pull request
@@ -623,6 +628,18 @@ between Python's reads and the live ones:
   one moving, found in the open listing by its number or head, or by a
   comment on it the live run read (by any moving, where it is found
   nowhere).
+
+A pull request also *moved during the read* when GitHub moved under the
+live run itself. A ready pull request is read again before its status is
+posted; where what was read again is not what the run first read, the
+engine posts *pending · Review evidence changed; reconciliation required*,
+as it must. That status counts as moved only where one of the run's own
+reads of the pull request was answered otherwise when asked again: its own
+routes, its heads' statuses, a query naming it, its node in each history
+query, its author's open pull requests in the open listing, anyone's
+access. The same status where nothing read was answered otherwise — two of
+GitHub's routes disagreeing, or the port reading again differently from
+the first time — still fails, and names itself.
 
 A read that failed live, every time it was asked, where Python's same read
 was answered stops that recording's comparison and is named as such

@@ -320,7 +320,149 @@ fn a_pull_request_of_a_settled_repository_that_wants_a_write_is_named_alone() {
         writes,
         [
             (0, "matched".to_owned()),
-            (1, "POST repos/*/*/statuses/*".to_owned()),
+            (
+                1,
+                r#"POST repos/*/*/statuses/* pending "Evaluating current review policy""#
+                    .to_owned(),
+            ),
+            (2, "matched".to_owned()),
+            (3, "matched".to_owned()),
+        ],
+        "{:?}",
+        live.comparison
+    );
+}
+
+/// Each pull request's no-write check: matched, moved, or the first write
+/// it wanted.
+fn writes_of(live: &Live) -> Vec<(usize, String)> {
+    live.comparison
+        .checks
+        .iter()
+        .filter(|check| check.layer == Layer::LiveWrites)
+        .map(|check| {
+            let said = match &check.outcome {
+                Outcome::Matched => "matched".to_owned(),
+                Outcome::Moved => "moved".to_owned(),
+                Outcome::Differs(found) => found[0].path.clone(),
+                other => format!("{other:?}"),
+            };
+            (check.index, said)
+        })
+        .collect()
+}
+
+/// The settled repository of `mixed()`, Python's dry run of every pull
+/// request over it, and `during` registered after that run: what happens
+/// on GitHub while the live run reads.
+fn settled_then(during: impl FnMut(&mut State, &Call) + 'static) -> (Scene, Recording, PyValue) {
+    let (policy, fake) = mixed();
+    let mut scene = Scene::new(fake);
+    for _ in 0..3 {
+        scene.fake.forget_calls();
+        scene.sync_all(&policy);
+    }
+    let recording = recorded_of(&mut scene, &policy, &PyValue::None, Pick::All);
+    scene.fake.on_call(during);
+    (scene, recording, policy)
+}
+
+/// Whether `call` reads `route` of the repository.
+fn reads(call: &Call, route: &str) -> bool {
+    matches!(call, Call::Rest { method: Method::Get, path, .. }
+        if path.split('?').next() == Some(&format!("repos/{REPO}/{route}")[..]))
+}
+
+#[test]
+fn a_review_landing_between_a_live_runs_read_and_its_recheck_is_a_move() {
+    // Pull request 2 is ready, so the run reads it again before it would
+    // post its status. Between its first read and that one, someone leaves
+    // a review: the evidence changed under the run, which says so in its
+    // status, as it must. That is GitHub moving, not the port.
+    let mut asked = 0;
+    let (mut scene, recording, _) = settled_then(move |state, call| {
+        if reads(call, "pulls/2/reviews") {
+            asked += 1;
+            if asked == 2 {
+                let head = state.pr(2).head.clone();
+                state.pr(2).reviews.push(review(
+                    98,
+                    "passerby",
+                    "COMMENTED",
+                    &head,
+                    LATER,
+                    "One more thought.",
+                ));
+            }
+        }
+    });
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    assert_eq!(
+        writes_of(&live),
+        [
+            (0, "matched".to_owned()),
+            (1, "moved".to_owned()),
+            (2, "matched".to_owned()),
+            (3, "matched".to_owned()),
+        ],
+        "{:?}",
+        live.comparison
+    );
+    assert!(live.comparison.is_clean(), "{:?}", live.comparison);
+}
+
+/// The fake, with one route answered otherwise than its state says: two of
+/// GitHub's routes to the same thing disagreeing, with nothing having moved.
+struct Disagreeing<'a> {
+    fake: &'a mut Fake,
+    route: &'static str,
+    page: &'static str,
+}
+
+impl Transport for Disagreeing<'_> {
+    fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
+        if reads(call, self.route) {
+            return Ok(Reply::Pages(vec![self.page.to_owned()]));
+        }
+        self.fake.call(call)
+    }
+}
+
+#[test]
+fn the_same_status_where_no_read_answered_otherwise_on_asking_again_still_fails() {
+    // The run's re-check reads pull request 2 by another route than its
+    // first read did: its timeline, where the first read took the batched
+    // history. That route says it went to draft once; the history says
+    // not. The re-check posts the same status, but nothing it read was
+    // answered otherwise when asked again: not GitHub moving under the run,
+    // and held to Python's.
+    let (mut scene, recording, _) = settled_then(|_, _| {});
+    let live = live_run(
+        &recording,
+        Disagreeing {
+            fake: &mut scene.fake,
+            route: "issues/2/timeline",
+            page: r#"[{"event": "convert_to_draft", "created_at": "2026-09-11T08:00:00Z"}]"#,
+        },
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    assert_eq!(
+        writes_of(&live),
+        [
+            (0, "matched".to_owned()),
+            (
+                1,
+                r#"POST repos/*/*/statuses/* pending "Review evidence changed; reconciliation required""#
+                    .to_owned()
+            ),
             (2, "matched".to_owned()),
             (3, "matched".to_owned()),
         ],

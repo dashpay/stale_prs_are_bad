@@ -496,7 +496,7 @@ async fn a_would_be_write_where_nothing_changed_is_reported_and_never_sent() {
         "{said}"
     );
     assert!(
-        said.contains("| live writes | `POST repos/*/*/statuses/*` | would-be write, not sent |"),
+        said.contains(r#"| live writes | `POST repos/*/*/statuses/* pending "Evaluating current review policy"` | would-be write, not sent |"#),
         "{said}"
     );
     only_reads(&github);
@@ -671,7 +671,7 @@ async fn in_a_sync_of_every_pull_request_each_one_python_wrote_nothing_to_is_hel
     );
     assert!(
         said.contains(
-            "| live writes | `POST repos/*/*/statuses/*` | would-be write, not sent | 1 | dashpay/platform · sync: 1 |"
+            r#"| live writes | `POST repos/*/*/statuses/* pending "Evaluating current review policy"` | would-be write, not sent | 1 | dashpay/platform · sync: 1 |"#
         ),
         "{said}"
     );
@@ -680,6 +680,9 @@ async fn in_a_sync_of_every_pull_request_each_one_python_wrote_nothing_to_is_hel
         coverage.ends_with("no write 0/1; 0 moved, 0 explained, 1 unsettled; 1 differences"),
         "{coverage}"
     );
+    // The status is named by the engine's own words; what it would write
+    // into 5's description, its author's text, never is.
+    assert!(!said.contains("Work in progress"), "{said}");
     only_reads(&github);
     no_content::assert_no_contents(&format!("{said}\n{coverage}"), &recording, &sources());
 }
@@ -702,7 +705,7 @@ async fn a_write_to_a_pull_request_neither_run_decided_is_named_by_route_alone()
     assert!(!outcome.clean(), "{said}");
     assert!(
         said.contains(
-            "| live writes | `POST repos/*/*/statuses/*, to a pull request neither run decided` | would-be write, not sent | 1 | dashpay/platform · sync: 0 |"
+            r#"| live writes | `POST repos/*/*/statuses/* error "Incomplete policy evidence; reconciliation required", to a pull request neither run decided` | would-be write, not sent | 1 | dashpay/platform · sync: 0 |"#
         ),
         "{said}"
     );
