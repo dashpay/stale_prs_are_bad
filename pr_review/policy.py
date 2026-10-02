@@ -343,6 +343,57 @@ ATTESTATION_TRIGGERS = ('/self-review', '/selfreview', '/self review')
 RATE_LIMITED = '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'
 RATE_LIMITED_MARKER = 'rate limited by coderabbit.ai'
 RATE_LIMITED_END = '<!-- end of auto-generated comment: rate limited by coderabbit.ai -->'
+# How each review bot labels a finding it opens a thread for. A suggestion is
+# the author's to take or leave; anything else — a blocker, a label not in that
+# bot's own table, no label at all — holds the pull request until the thread is
+# resolved, so a format either bot changes fails closed. CodeRabbit's
+# "🧹 Nitpick" is the kind of finding beside its severity, not a severity.
+FINDING_BLOCKS = {'thepastaclaw': {'🔴 Blocking': True, '🟡 Suggestion': False, '💬 Nitpick': False},
+                  'coderabbitai': {'🔴 Critical': True, '🟠 Major': True, '🟡 Minor': False, '🔵 Trivial': False}}
+HIDDEN_MARKUP = re.compile(r'<!--.*?-->', re.S)
+# thepastaclaw: `**🟡 Suggestion: title**`. The label leads with an emoji, which
+# keeps a bold "Why:" in the text from reading as a heading.
+PASTA_HEADING = re.compile(r'(?m)^\*\*(?P<label>[^\x00-\x7f][^*:\n]*):')
+# CodeRabbit: `_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_`, a line
+# of two or more italic segments and nothing else.
+RABBIT_HEADING = re.compile(r'(?m)^_[^_\n]+_(?:[ \t]*\|[ \t]*_[^_\n]+_)+[ \t\r]*$')
+
+
+def _producer(author):
+    return (author or '').lower().removesuffix('[bot]')
+
+
+def finding_severities(author, body):
+    """The severity of every finding a review bot opened a thread with.
+
+    One opening can hold several findings under their own headings, so every
+    heading is read: reading the first alone would let a Major sit behind a
+    Minor. Only the bot's own heading shape names a suggestion, so one quoted
+    in the text is not taken for a label. A blocking label counts wherever it
+    appears, so a heading this cannot parse beside one it can still holds the
+    thread; a heading with no severity that bot uses is kept as written, which
+    holds it too.
+    """
+    table = FINDING_BLOCKS.get(_producer(author))
+    if table is None:
+        return []
+    text = HIDDEN_MARKUP.sub('', body or '')
+    if _producer(author) == 'thepastaclaw':
+        labels = [m['label'].strip() for m in PASTA_HEADING.finditer(text)]
+    else:
+        labels = []
+        for line in RABBIT_HEADING.findall(text):
+            segments = [s.strip().strip('_').strip() for s in line.split('|')]
+            labels += [s for s in segments if s in table] or [line.strip()]
+    return labels + [label for label, blocks in table.items()
+                     if blocks and label in (body or '') and label not in labels]
+
+
+def finding_blocks(thread):
+    """Whether a bot's thread holds the pull request until it is resolved."""
+    table = FINDING_BLOCKS.get(_producer(thread.get('author')), {})
+    labels = thread.get('severities')
+    return not labels or any(table.get(label, True) for label in labels)
 
 
 def _may_object(permissions, user):
@@ -544,8 +595,8 @@ def rate_limited_at(comments, head_seen_at, head=None):
 
     The instant returned is a property of the head: the later of the notice
     and the head, never the moment of the edit that revealed it. An instant
-    that moved with the clock would keep raising the floor an attestation has
-    to clear, so a no-op edit would void one already given.
+    that moved with the clock would keep moving when the bots last spoke, so a
+    no-op edit would read as a new report and announce the move again.
 
     The marker is in the body only while the limit stands: a review that
     succeeds later rewrites the comment without it.
@@ -603,7 +654,7 @@ def bot_schedule(policy, pr, bot, nowISO, telemetry_state=None):
     # A review demonstrably still running may finish late; nothing else waits.
     # The moment a waiver takes effect is a property of the head, not of the run
     # that noticed it: an instant that moved with the clock would be later than
-    # every comment, and the author's self-review could never satisfy it.
+    # every announcement, and each run would read as the bots speaking again.
     # Nothing here consults the status page, so no third party can hold a pull
     # request back by claiming a review is still running.
     due_at = (_time(seen) + timedelta(hours=waive_after)).isoformat().replace('+00:00', 'Z')
@@ -721,7 +772,13 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         result['reviewed_since'] = seen_first
         latest = _latest_reviews(pr['reviews'])
         bot_blocks = [r for u,r in latest.items() if u in BOTS and r['state'].upper() == 'CHANGES_REQUESTED']
-        bot_threads = [t for t in pr['threads'] if not t['is_resolved'] and t['author'].lower() in BOTS]
+        # Only a thread holding a blocker is something the bot is owed an
+        # answer on. Threads outlive the commit they were written on: a blocker
+        # left from an earlier commit still holds the pull request, so it
+        # stands for the bot having spoken; a suggestion holds nothing, so it
+        # is no evidence the bot has reviewed this head.
+        bot_threads = [t for t in pr['threads']
+                       if not t['is_resolved'] and t['author'].lower() in BOTS and finding_blocks(t)]
         pasta, rabbit = [], []
         for review in pr['reviews']:
             user, state = review['user'].lower(), review['state'].upper()
@@ -752,8 +809,8 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         # reported. It is not missing, so nothing waives it: the objection is
         # answered by dismissing the review or resolving the thread, in the
         # open, not by telling this controller to stop waiting.
-        heard = {u for u, r in latest.items() if u in BOTS and (r.get('commit_id') or '').lower() in heads
-                 and r['state'].upper() == 'CHANGES_REQUESTED'}
+        heard = {u.removesuffix('[bot]') for u, r in latest.items() if u in BOTS
+                 and (r.get('commit_id') or '').lower() in heads and r['state'].upper() == 'CHANGES_REQUESTED'}
         heard |= {t['author'].lower().removesuffix('[bot]') for t in bot_threads}
         missing = [bot for bot in sorted(required) if not receipts[bot] and bot not in heard]
         waived, why, reasons = {}, {}, []
@@ -766,8 +823,8 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 # A human decided the bots are not coming. That is a waiver
                 # with a name on it, and the name is what keeps it honest. A
                 # waiver that had already taken effect keeps its earlier
-                # instant, or a late skip would send an attested pull request
-                # back for a fresh attestation.
+                # instant, or a late skip would read as the bots speaking again
+                # and announce the move afresh.
                 instants = [skip['at']] + ([plan['waived_at']] if plan['waived_at'] else [])
                 waived[bot] = min(instants, key=_time)
                 result['skipped_by'] = skip['user']
@@ -831,22 +888,15 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         elif findings:
             gate('waiting-author', *findings)
         bots_done = first is None
-        # Self-review must follow whichever producers this repository runs. With
-        # none, the author's own attestation is the only gate.
-        # A waiver is itself an event the author's self-review must follow, so a
-        # attestation written before the bots were given up on cannot count.
-        # Every receipt raises the floor an attestation must clear, whether or
-        # not this controller can see a finding in it. A bot states a blocker
-        # in the prose of the receipt itself — "Add signer support or defer
-        # selecting these keys before merging", no thread, no changes request
-        # — so "it had nothing to say" is not a thing that can be read off the
-        # evidence, and guessing it merges pull requests nobody has read.
+        # An attestation says the author read this code, so only a change to
+        # the code takes it back. A bot reporting on the same code afterwards
+        # does not: what it found is answered in its own threads, and a
+        # blocker there holds the pull request on its own.
         instants = pasta + rabbit + list(waived.values())
         completed = max(instants, key=_time) if instants else pr['created_at']
-        floor_at = completed
         # When the bots last spoke, recorded whether or not they are done with
-        # it. A finding arriving after the author was asked to attest is what
-        # voids the attestation, and whoever has to tell them again reads this.
+        # it. A finding arriving after the author was told their move is a new
+        # thing to answer, and whoever has to tell them again reads this.
         result['bot_completed_at'] = completed if instants else None
         # `/self-reviewed <sha>` names the commit it covers. Bare `/self-reviewed`
         # means "everything pushed so far", which is only safe once this head has
@@ -856,11 +906,13 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         # An attestation is the author saying it, wherever they say it: a
         # comment, or the body of their own review — which is one action from
         # the diff they are attesting to. A review carries no edit history
-        # here, and needs none: editing an old one cannot move its timestamp
-        # forward, and the floor below is what a later edit would have to beat.
+        # here, and anyone with write access can edit one, but it carries the
+        # commit it was submitted on: one written on another diff says nothing
+        # about this one, however it reads now.
         written = [dict(user=c['user'], body=c['body'], at=c['created_at'])
                    for c in pr['comments'] if c['created_at'] == c['updated_at']]
-        written += [dict(user=r['user'], body=r['body'] or '', at=r['submitted_at']) for r in pr['reviews']]
+        written += [dict(user=r['user'], body=r['body'] or '', at=r['submitted_at']) for r in pr['reviews']
+                    if (r.get('commit_id') or '').lower() in heads]
         # Twice in two days somebody posted the phrase on a pull request that
         # was not theirs and nothing happened. It cannot count — an
         # attestation is whoever holds the pull request saying they read what
@@ -878,38 +930,29 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 continue
             if said['head'] and said['head'].lower() not in heads:
                 continue
-            if said['head']:
-                floor = floor_at
-            elif seen:
-                floor = max(floor_at, seen, key=_time)
-            else:
-                continue
-            if _time(comment['at']) <= _time(floor):
+            if not said['head'] and (not seen or _time(comment['at']) <= _time(seen)):
                 continue
             if comment['user'].lower() in holding:
                 attestations.append(comment['at'])
                 attested_by.add(comment['user'].lower())
-            elif bots_done:
+            else:
                 # Everything but whose it is: telling them to take the pull
                 # request over is only true advice when taking it over would
-                # make what they wrote count, and it would not if they wrote
-                # it before the bots reported or about another commit. A
-                # producer still to report is the same sentence coming true
-                # and then quietly ceasing to be: they take it over, the bot
-                # reports, the floor rises past what they wrote and the advice
-                # vanishes along with the credit for it.
+                # make what they wrote count, so it is given only for an
+                # attestation that would count for this diff.
                 on_their_behalf.append(comment['user'])
         if not attestations and machine_author(policy, pr):
             # An account that opens pull requests without a person behind it
             # cannot post an attestation. It never owns an area — the policy
             # refuses to load if it does — so the eligible approval it needs
             # anyway is what stands in for one.
-            # Stands in for an attestation, so it is dated when the bots were
-            # done — not at the floor, which can predate an objection the pull
-            # request has already answered.
+            # Stands in for an attestation, so it is dated when this diff was
+            # first seen, else when the bots last spoke, and only failing both
+            # when the pull request opened — which can predate an objection it
+            # has already answered.
             attestations = [seen or completed]
         if not attestations:
-            gate('waiting-self-review', 'Author must post /self-reviewed ' + pr['head'] + ' after bot completion')
+            gate('waiting-self-review', 'Author must post /self-reviewed ' + pr['head'])
         self_time = max(attestations, key=_time) if attestations else None
         if first is None:
             result['self_reviewed_at'] = self_time
@@ -919,6 +962,11 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 objectors[user] = review['submitted_at']
                 objection_lines.append(f'{review["user"]} requested changes')
         for thread in pr['threads']:
+            # A bot's thread is answered, not objected in: the replies under
+            # its findings are whoever is working on the pull request saying
+            # "fixed in …" or "not applicable", and reading those as objections
+            # would hold the pull requests they are finishing. A reviewer who
+            # wants a suggestion taken requests changes or opens a thread.
             if thread['is_resolved'] or thread['author'].lower() in BOTS:
                 continue
             # Everyone who spoke in the thread, not only whoever opened it: an

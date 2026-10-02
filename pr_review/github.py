@@ -6,7 +6,7 @@ import re
 import subprocess
 import time
 
-from .policy import CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, RETIRED_LABELS, STATE_LABELS
+from .policy import CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, RETIRED_LABELS, STATE_LABELS, finding_severities
 import sys
 from datetime import datetime
 from urllib.parse import quote
@@ -559,9 +559,10 @@ class GitHub:
               reviewThreads(first:100, after:$cursor) {
                 totalCount
                 pageInfo { hasNextPage endCursor }
-                nodes { id isResolved comments(first:100) {
-                  nodes { author { login } createdAt }
-                } }
+                nodes { id isResolved
+                  opening: comments(first:1) { nodes { body } }
+                  comments(first:100) { nodes { author { login } createdAt } }
+                }
               }
             }
           }
@@ -586,22 +587,32 @@ class GitHub:
                 if not isinstance(connection["nodes"], list):
                     raise GitHubError("Missing review thread nodes")
                 for node in connection["nodes"]:
-                    comments = node["comments"]["nodes"]
-                    if not isinstance(comments, list) or type(node["isResolved"]) is not bool:
+                    comments, opening = node["comments"]["nodes"], node["opening"]["nodes"]
+                    if not isinstance(comments, list) or not isinstance(opening, list) \
+                            or type(node["isResolved"]) is not bool:
                         raise GitHubError("Incomplete review thread")
                     if not comments:
                         # Every comment in the thread was deleted; nothing remains to resolve.
                         emptied += 1
                         continue
+                    if not opening or not isinstance(opening[0]["body"], str):
+                        raise GitHubError("Incomplete review thread")
+                    author = _login(comments[0]["author"])
                     # Whoever opened the thread names it; whoever spoke in it can
                     # be objecting. An author's own thread with a reviewer's
                     # objection in reply was read as the author's alone.
+                    # How a bot labelled its findings decides whether the
+                    # thread holds the pull request; the text itself is not
+                    # kept. CodeRabbit appends to its opening once a finding
+                    # is addressed, which would otherwise read as the review
+                    # evidence changing underneath a write.
                     results.append({"id": _text(node["id"], "thread identity"), "is_resolved": node["isResolved"],
-                                    "author": _login(comments[0]["author"]),
+                                    "author": author,
                                     "created_at": _text(comments[0]["createdAt"], "thread creation time"),
                                     "voices": [{"user": _login(c["author"]),
                                                 "created_at": _text(c["createdAt"], "thread comment time")}
-                                               for c in comments]})
+                                               for c in comments],
+                                    "severities": finding_severities(author, opening[0]["body"])})
                 info = connection["pageInfo"]
                 if type(info["hasNextPage"]) is not bool:
                     raise GitHubError("Missing review-thread pagination state")

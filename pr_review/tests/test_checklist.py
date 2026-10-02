@@ -194,7 +194,9 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(result['state'], 'waiting-bots')
         block = main.checklist_block(result)
         self.assertIn('coderabbitai not yet · thepastaclaw not yet — `/skip-bots` proceeds without the ones not yet reported', block)
-        self.assertIn('- [ ] Self-review — post `/self-reviewed` once the bots are done', block)
+        # It covers the code whenever it is written; nothing about it waits on the bots.
+        self.assertIn('- [ ] Self-review — post `/self-reviewed`\n', block)
+        self.assertNotIn('once the bots are done', block)
         self.assertIsNone(main.move_text(result), 'nobody\'s move: nothing is announced')
 
     def test_the_skip_is_not_offered_once_every_missing_bot_is_already_waived(self):
@@ -571,9 +573,8 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(api.upsert_state.call_args.args[3], 50, 'edited, so nobody is notified twice')
 
     def test_a_new_head_is_announced_afresh_so_the_author_is_told_again(self):
-        # tenderdash#1489: the author attested, a bot finished afterwards and
-        # voided it, and the announcement for the new head was edited into the
-        # old one — which notifies nobody. Three of four pull requests on that
+        # tenderdash#1489: the announcement for the new head was edited into
+        # the old one — which notifies nobody. Three of four pull requests on that
         # repository in one day went quiet the same way.
         result = evaluate(self.policy, self.pr, NOW, LATER)
         record = main.state_record(self.pr, result, 'c' * 64)
@@ -626,20 +627,84 @@ class PublishTests(unittest.TestCase):
         api.upsert_state.assert_called_once()
         self.assertEqual(api.upsert_state.call_args.args[3], 50, 'edited: nobody is notified twice')
 
-    def test_a_bot_reporting_after_the_author_was_told_tells_them_again(self):
-        # tenderdash#1489: the author was asked for an attestation, a bot
-        # finished afterwards and voided it, and the state passed through the
-        # build on the way back. Editing the old announcement leaves the
-        # author with nothing in their inbox and the pull request never moves.
+    def test_a_bot_reporting_with_nothing_to_answer_is_not_announced_again(self):
+        # tenderdash#1489: a bot finished after the author was told their
+        # move, and the state passed through the build on the way back. A
+        # report with nothing to answer takes nothing back: the move is the
+        # same one, kept current in place, and a repost would notify the author
+        # for nothing — and on a ready pull request, every reviewer it asks.
+        for attested in (False, True):
+            with self.subTest(attested=attested):
+                policy, pr = self.policy, copy.deepcopy(self.pr)
+                if attested:
+                    pr['comments'] = pr['comments'] + [dict(
+                        id=9, user='llbartekll', body=f'/self-reviewed {HEAD}',
+                        created_at='2026-09-11T09:20:00Z', updated_at='2026-09-11T09:20:00Z')]
+                result = evaluate(policy, pr, NOW, LATER)
+                self.assertEqual(result['state'], 'ready-for-human' if attested else 'waiting-self-review')
+                told = GitHub.state_comment_body(main.state_record(pr, result, 'c' * 64), main.move_text(result))
+                pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', body=told,
+                                                        created_at='2026-09-11T09:30:00Z',
+                                                        updated_at='2026-09-11T09:30:00Z')]
+                pr['controller_state'] = main.state_record(pr, dict(result, state='waiting-build'), 'c' * 64)
+                again = evaluate(policy, pr, NOW, LATER)
+                self.assertGreater(again['bot_completed_at'], '2026-09-11T09:30:00Z', 'a bot reported after they were told')
+                api = self.run_publish(pr, again)
+                api.upsert_state.assert_called_once()
+                self.assertEqual(api.upsert_state.call_args.args[3], 50, 'edited in place')
+
+    def rabbit_receipt(self, risk='Minimal', finding='', banner=''):
+        import json as _json
+        covered = _json.dumps({'sourceCommitId': HEAD, 'coveredCommitId': HEAD, 'kind': 'reviewed'},
+                              separators=(',', ':'))
+        return ((f'<!-- review_stack_entry_start -->\n{banner}<!-- review_stack_entry_end -->\n' if banner else '')
+                + f'<!-- final_review_risk_start -->\n**Merge Risk:** {risk}\n'
+                + f'<!-- final_review_risk_coverage:{covered} -->\n{finding}<!-- final_review_risk_end -->')
+
+    def test_only_a_bot_saying_something_new_tells_the_author_again(self):
+        # The author was told to answer a blocker. CodeRabbit then rewrote its
+        # comment: a banner is not a report and must not notify anyone again,
+        # while a new finding about the code is, and must.
         policy, pr = self.policy, copy.deepcopy(self.pr)
+        pr['threads'] = [dict(author='coderabbitai', is_resolved=False, created_at='2026-09-11T11:00:00Z',
+                              severities=['🟠 Major'])]
+        pr['comments'] = pr['comments'] + [dict(id=21, user='coderabbitai[bot]', body=self.rabbit_receipt(),
+                                                created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        first = evaluate(policy, pr, NOW, LATER)
+        self.assertEqual(first['state'], 'waiting-author')
+        told = GitHub.state_comment_body(main.state_record(pr, first, 'c' * 64), main.move_text(first))
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', body=told,
+                                                created_at='2026-09-11T11:30:00Z', updated_at='2026-09-11T11:30:00Z')]
+        pr['controller_state'] = main.state_record(pr, dict(first, state='waiting-build'), 'c' * 64)
+        pr['controller_diff'] = {'number': pr['number'], 'receipts': first['receipts']}
+        for body, target in [(self.rabbit_receipt(banner='<a href="#">Review in Change Stack</a>\n'), 50),
+                             (self.rabbit_receipt(risk='High', finding='Add signer support before merging.\n'), None)]:
+            with self.subTest(target=target):
+                pr['comments'][-2] = dict(pr['comments'][-2], body=body, updated_at='2026-09-11T12:30:00Z')
+                again = evaluate(policy, pr, NOW, LATER)
+                self.assertEqual(again['state'], 'waiting-author')
+                api = self.run_publish(pr, again)
+                api.upsert_state.assert_called_once()
+                self.assertEqual(api.upsert_state.call_args.args[3], target)
+
+    def test_a_bot_reporting_while_an_objection_waits_tells_the_author_again(self):
+        # The move is the author's — a reviewer objected after they attested —
+        # and a bot then says something new about the code. That is something
+        # more for them to read, so it is announced, not edited in.
+        policy, pr = self.policy, copy.deepcopy(self.pr)
+        pr['comments'] = pr['comments'] + [dict(id=9, user='llbartekll', body=f'/self-reviewed {HEAD}',
+                                                created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        pr['reviews'] = [dict(pr['reviews'][0], state='CHANGES_REQUESTED', submitted_at='2026-09-11T12:00:00Z')]
         result = evaluate(policy, pr, NOW, LATER)
-        self.assertEqual(result['state'], 'waiting-self-review')
-        before = GitHub.state_comment_body(main.state_record(pr, result, 'c' * 64), main.move_text(result))
-        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', body=before,
-                                                created_at='2026-09-11T09:30:00Z', updated_at='2026-09-11T09:30:00Z')]
+        self.assertEqual(result['blockers'][0], 'Author response is required after the latest human objection')
+        told = GitHub.state_comment_body(main.state_record(pr, result, 'c' * 64), main.move_text(result))
+        pr['comments'] = pr['comments'] + [dict(id=50, user='github-actions[bot]', body=told,
+                                                created_at='2026-09-11T12:30:00Z', updated_at='2026-09-11T12:30:00Z')]
         pr['controller_state'] = main.state_record(pr, dict(result, state='waiting-build'), 'c' * 64)
+        pr['comments'] = pr['comments'] + [dict(id=21, user='coderabbitai[bot]', body=self.rabbit_receipt(),
+                                                created_at='2026-09-11T13:00:00Z', updated_at='2026-09-11T13:00:00Z')]
         again = evaluate(policy, pr, NOW, LATER)
-        self.assertGreater(again['bot_completed_at'], '2026-09-11T09:30:00Z', 'a bot reported after the author was told')
+        self.assertEqual(again['state'], 'waiting-author')
         api = self.run_publish(pr, again)
         api.upsert_state.assert_called_once()
         self.assertIsNone(api.upsert_state.call_args.args[3], 'a new comment: that is the notification')
@@ -650,7 +715,8 @@ class PublishTests(unittest.TestCase):
         # post `/self-reviewed`" went out while a bot was still waited on and
         # its finding went unsaid.
         policy, pr = self.policy, copy.deepcopy(self.pr)
-        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False, created_at='2026-09-11T10:00:00Z',
+                              severities=['🟠 Major'])]
         pr['comments'] = pr['comments'] + [dict(id=9, user='llbartekll', body=f'/self-reviewed {HEAD}',
                                                 created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
         pr['reviews'] = pr['reviews'] + [dict(id=7, user='romchornyi', state='CHANGES_REQUESTED',
@@ -669,7 +735,8 @@ class PublishTests(unittest.TestCase):
         # completion time used to be left unset — so the announcement looked
         # current and was edited, and the author heard nothing.
         policy, pr = self.policy, copy.deepcopy(self.pr)
-        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False, created_at='2026-09-11T10:00:00Z',
+                              severities=['🟠 Major'])]
         pr['comments'] = pr['comments'] + [dict(id=9, user='llbartekll', body=f'/self-reviewed {HEAD}',
                                                 created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
         result = evaluate(policy, pr, NOW, LATER)
@@ -689,7 +756,8 @@ class PublishTests(unittest.TestCase):
         # author already attested, posting it again changes nothing, and the
         # thing actually owed goes unsaid.
         policy, pr = self.policy, copy.deepcopy(self.pr)
-        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False, created_at='2026-09-11T10:00:00Z',
+                              severities=['🟠 Major'])]
         pr['comments'] = pr['comments'] + [dict(id=9, user='llbartekll', body=f'/self-reviewed {HEAD}',
                                                 created_at='2026-09-11T12:00:00Z', updated_at='2026-09-11T12:00:00Z')]
         result = evaluate(policy, pr, NOW, LATER)
@@ -715,7 +783,8 @@ class PublishTests(unittest.TestCase):
         policy = dict(policy, bot_authors=['infraclaw-dash'])
         # A bot left a finding, so the move is the author's — and there is no
         # author to take it.
-        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False, created_at='2026-09-11T10:00:00Z',
+                              severities=['🟠 Major'])]
         result = evaluate(policy, pr, NOW, LATER)
         self.assertEqual(result['state'], 'waiting-author')
         self.assertEqual(main.MOVE_STATES.get(result['state']), 'waiting-self-review')
@@ -946,7 +1015,7 @@ class SecondReviewTests(unittest.TestCase):
 
     def test_the_move_coming_back_to_the_author_is_announced_again(self):
         # A → B → A on one head — the author attested, it went out for review,
-        # a bot finished afterwards and voided the attestation. Editing A's
+        # a reviewer objected. Editing A's
         # old announcement leaves the author with nothing in their inbox and
         # a pull request that never moves again, which is how three of four
         # pull requests on one repository went quiet in a day.

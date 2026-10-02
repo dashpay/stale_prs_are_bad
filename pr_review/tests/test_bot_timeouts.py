@@ -161,10 +161,9 @@ class BotTimeoutTests(unittest.TestCase):
             self.assertIsNone(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'], repr(editor))
 
     def test_the_rate_limit_instant_does_not_move_when_the_notice_is_rewritten(self):
-        # It feeds the floor an attestation must clear. An instant that moved
-        # with each edit would void a standing attestation, withdraw a green
-        # required check, and ask the author for another — on an edit that
-        # said nothing new about the diff.
+        # It dates when the bots last spoke. An instant that moved with each
+        # edit would read as a new report, and could announce the move again on
+        # an edit that said nothing new about the diff.
         policy, pr = waiting(4)
         notice = {'user': 'coderabbitai[bot]', 'created_at': ago(3), 'updated_at': ago(3),
                   'edited_by': 'coderabbitai', 'body': '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'}
@@ -219,10 +218,11 @@ class WaiverTests(unittest.TestCase):
         self.assertEqual(result['waived'], ['thepastaclaw'])
         self.assertEqual(result['status'], 'success')
 
-    def test_a_self_review_written_before_the_waiver_does_not_count(self):
+    def test_a_self_review_written_before_the_waiver_still_counts(self):
+        # Giving up on a bot changes no code, so it takes no attestation back.
         policy, pr = waiting(20)
         pr['comments'] = [dict(pr['comments'][0], created_at=ago(19), updated_at=ago(19))]
-        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-self-review')
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'ready-to-merge')
 
     def test_an_objection_on_the_current_head_still_blocks_and_is_never_waived(self):
         policy, pr = waiting(20)
@@ -241,7 +241,7 @@ class WaiverTests(unittest.TestCase):
     def test_a_bot_is_not_asked_while_the_pull_request_owes_it_an_answer(self):
         policy, pr = waiting(7)
         pr['threads'] = [{'id': 't1', 'is_resolved': False, 'author': 'coderabbitai[bot]',
-                          'created_at': ago(8)}]
+                          'created_at': ago(8), 'severities': ['🟠 Major']}]
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['nudge'], [])
         pr['threads'] = []
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['nudge'], ['thepastaclaw'])
@@ -369,15 +369,12 @@ class SkipBotsTests(unittest.TestCase):
         pr['comments'].append(skip('reviewer', ago(0.5)))
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['waived'], ['thepastaclaw'])
 
-    def test_the_attestation_must_follow_the_skip(self):
-        # Giving up on the bots is an event the author's self-review must come
-        # after, exactly as a timeout waiver is: the read they attested to
-        # expected the bots' findings still to come.
+    def test_a_skip_does_not_take_the_attestation_back(self):
+        # Skipping the bots changes no code, exactly as a timeout waiver does
+        # not: an attestation written before the skip still covers this diff.
         policy, pr = self.waiting_on_bots()
         pr['comments'].append(dict(id=3, user='owner', body='/self-reviewed', created_at=ago(0.8), updated_at=ago(0.8)))
         pr['comments'].append(skip('reviewer', ago(0.5)))
-        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-self-review')
-        pr['comments'].append(dict(id=4, user='owner', body='/self-reviewed', created_at=ago(0.2), updated_at=ago(0.2)))
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'ready-to-merge')
 
     def test_a_skip_cannot_wave_away_a_bot_that_objected(self):
@@ -395,9 +392,22 @@ class SkipBotsTests(unittest.TestCase):
         self.assertIn('thepastaclaw requested changes on this head; dismiss the review or push a fix', result['blockers'])
 
         policy, pr = self.waiting_on_bots()
-        pr['threads'] = [dict(id=9, author='coderabbitai[bot]', is_resolved=False, created_at=ago(0.9))]
+        pr['threads'] = [dict(id=9, author='coderabbitai[bot]', is_resolved=False, created_at=ago(0.9),
+                              severities=['🟠 Major'])]
         pr['comments'].append(skip('reviewer', ago(0.5)))
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-author')
+
+    def test_a_suggestion_left_open_does_not_stop_a_skip(self):
+        # A suggestion holds nothing and is no report on this head, so the bot
+        # that left it is still missing — and a skip proceeds without it.
+        policy, pr = self.waiting_on_bots()
+        pr['threads'] = [dict(id=9, author='thepastaclaw', is_resolved=False, created_at=ago(0.9),
+                              severities=['🟡 Suggestion'])]
+        self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots')
+        pr['comments'].append(skip('reviewer', ago(0.5)))
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(result['waived'], ['thepastaclaw'])
+        self.assertEqual(result['state'], 'waiting-self-review', 'the bots are done with; the author is next')
 
     def test_a_skip_by_someone_this_controller_cannot_vouch_for_is_ignored(self):
         # Unknown is not the same as read; neither may skip.
@@ -411,8 +421,8 @@ class SkipBotsTests(unittest.TestCase):
         self.assertEqual(evaluate(policy, pr, NOW, NOW)['state'], 'waiting-bots', 'a bot cannot skip the bots')
 
     def test_the_earliest_skip_is_the_one_that_counts(self):
-        # The instant the bots were given up on is what the attestation must
-        # follow. A later repeat must not move it and send the author back.
+        # The instant the bots were given up on dates when they last spoke. A
+        # later repeat must not move it and read as the bots speaking again.
         policy, pr = self.waiting_on_bots()
         pr['comments'].append(skip('reviewer', ago(0.7)))
         pr['comments'].append(dict(id=91, user='owner', body='/skip-bots', created_at=ago(0.3), updated_at=ago(0.3)))
@@ -422,8 +432,8 @@ class SkipBotsTests(unittest.TestCase):
 
     def test_a_skip_after_a_timeout_waiver_does_not_move_the_waiver(self):
         # Waived at +16h, attested at +17h, then someone posts /skip-bots at
-        # +19h: the attestation still stands, or the pull request would be
-        # sent back for a fresh one over nothing.
+        # +19h: the waiver keeps its instant, or the late skip would read as
+        # the bots speaking again over nothing.
         policy, pr = waiting(20)
         pr['comments'] = [c for c in pr['comments'] if not c['body'].startswith('/self-reviewed')]
         # The fixture's other bot reported at +18h; the attestation follows both.

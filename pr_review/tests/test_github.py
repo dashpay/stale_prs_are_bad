@@ -591,32 +591,63 @@ class GitHubTests(unittest.TestCase):
             self.api.snapshot(1, {"fallback": [], "areas": []})
 
     def test_should_paginate_graphql_threads_and_reject_stuck_cursor(self):
-        node = {"id": "T1", "isResolved": False, "comments": {"nodes": [
+        node = {"id": "T1", "isResolved": False, "opening": {"nodes": [{"body": "Rename this."}]}, "comments": {"nodes": [
             {"author": {"login": "reviewer"}, "createdAt": "2026-09-01T00:00:00Z"}]}}
         with patch.object(self.api, "request", side_effect=[self.graph([node], True, "c1"), self.graph(total=1)] ) as request:
             self.assertEqual(self.api.threads(1), [{"id": "T1", "is_resolved": False, "author": "reviewer", "created_at": "2026-09-01T00:00:00Z",
-                                                   "voices": [{"user": "reviewer", "created_at": "2026-09-01T00:00:00Z"}]}])
+                                                   "voices": [{"user": "reviewer", "created_at": "2026-09-01T00:00:00Z"}],
+                                                   "severities": []}])
             self.assertEqual(request.call_args.args[2]["variables"]["cursor"], "c1")
         with patch.object(self.api, "request", return_value=self.graph([], True, "same")), self.assertRaises(GitHubError):
             self.api.threads(1)
 
     def test_thread_whose_comments_were_all_deleted_is_skipped(self):
-        live = {"id": "T1", "isResolved": False, "comments": {"nodes": [
+        live = {"id": "T1", "isResolved": False, "opening": {"nodes": [{"body": "Rename this."}]}, "comments": {"nodes": [
             {"author": {"login": "reviewer"}, "createdAt": "2026-09-01T00:00:00Z"}]}}
-        emptied = {"id": "T2", "isResolved": False, "comments": {"nodes": []}}
+        emptied = {"id": "T2", "isResolved": False, "opening": {"nodes": []}, "comments": {"nodes": []}}
         with patch.object(self.api, "request", return_value=self.graph([emptied, live], total=2)):
             self.assertEqual([t["id"] for t in self.api.threads(1)], ["T1"])
 
     def test_a_thread_carries_everyone_who_spoke_in_it(self):
         # An author's own thread with a reviewer's objection in reply was read
         # as the author's alone, and the objection vanished with it.
-        thread = {"id": "T1", "isResolved": False, "comments": {"nodes": [
+        thread = {"id": "T1", "isResolved": False, "opening": {"nodes": [{"body": "Why?"}]}, "comments": {"nodes": [
             {"author": {"login": "author"}, "createdAt": "2026-09-01T00:00:00Z"},
             {"author": {"login": "reviewer"}, "createdAt": "2026-09-02T00:00:00Z"}]}}
         with patch.object(self.api, "request", return_value=self.graph([thread], total=1)):
             (only,) = self.api.threads(1)
         self.assertEqual(only["author"], "author")
         self.assertEqual([v["user"] for v in only["voices"]], ["author", "reviewer"])
+
+    def test_a_thread_carries_the_severity_of_its_findings_not_their_text(self):
+        # Whether a bot's thread holds the pull request depends on how it
+        # labelled its findings. The text is not kept: CodeRabbit appends to
+        # its opening once a finding is addressed, and keeping that would read
+        # as review evidence changing underneath a write.
+        body = ("_🎯 Functional Correctness_ | _🟡 Minor_ | _⚡ Quick win_\n\n"
+                "**Reject an empty identifier.**\n<!-- cr-comment:v1:1 -->")
+        def node(text):
+            return {"id": "T1", "isResolved": False, "opening": {"nodes": [{"body": text}]}, "comments": {"nodes": [
+                {"author": {"login": "coderabbitai"}, "createdAt": "2026-09-01T00:00:00Z"}]}}
+        with patch.object(self.api, "request", return_value=self.graph([node(body)], total=1)):
+            (only,) = self.api.threads(1)
+        self.assertEqual(only["severities"], ["🟡 Minor"])
+        self.assertNotIn("body", only)
+        addressed = body + "\n\n✅ Addressed in commit 1a2b3c4"
+        with patch.object(self.api, "request", return_value=self.graph([node(addressed)], total=1)):
+            self.assertEqual(self.api.threads(1), [only])
+
+    def test_a_thread_whose_opening_did_not_arrive_is_refused(self):
+        # Read as no label it would hold the pull request; read as anything
+        # else it could let a blocker through. Neither is an answer.
+        thread = {"id": "T1", "isResolved": False, "comments": {"nodes": [
+            {"author": {"login": "thepastaclaw"}, "createdAt": "2026-09-01T00:00:00Z"}]}}
+        for opening in (None, {"nodes": None}, {"nodes": []}, {"nodes": [{"body": None}]}):
+            with self.subTest(opening=opening):
+                broken = dict(thread) if opening is None else dict(thread, opening=opening)
+                with patch.object(self.api, "request", return_value=self.graph([broken], total=1)), \
+                        self.assertRaises(GitHubError):
+                    self.api.threads(1)
 
     def test_should_refuse_truncated_thread_connection(self):
         with patch.object(self.api, "request", return_value=self.graph(total=1)), self.assertRaises(GitHubError):

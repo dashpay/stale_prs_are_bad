@@ -51,7 +51,8 @@ class PolicyTests(unittest.TestCase):
         # naming the thread while the blockers said nothing about it.
         p, pr = fixture()
         pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'thepastaclaw']
-        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False)]
+        pr['threads'] = [dict(author='coderabbitai[bot]', is_resolved=False, created_at='2026-09-11T10:00:00Z',
+                              severities=['🟠 Major'])]
         result = evaluate(p, pr, NOW, NOW)
         self.assertEqual(result['state'], 'waiting-bots')
         self.assertTrue(any('coderabbitai' in b for b in result['blockers']), result['blockers'])
@@ -476,10 +477,10 @@ class PolicyTests(unittest.TestCase):
                 + '<!-- tips_end -->\n')
 
     def test_a_cosmetic_edit_is_not_the_bot_speaking_again(self):
-        # tenderdash#1489, rust-dashcore#1048: the author attested, CodeRabbit
-        # rewrote its comment hours later to add a banner, and the attestation
-        # was thrown away — the author was asked for another that would read
-        # nothing new. Both of them posted it twice.
+        # tenderdash#1489, rust-dashcore#1048: CodeRabbit rewrote its comment
+        # hours later to add a banner, with the same words about the code. That
+        # is not a new report, so it must not date one: the author would be
+        # told again about a finding that does not exist.
         p, pr = fixture()
         pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
         pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
@@ -494,6 +495,7 @@ class PolicyTests(unittest.TestCase):
         pr['controller_diff'] = {'number': 1, 'receipts': first['receipts']}
         again = evaluate(p, pr, NOW, NOW)
         self.assertEqual(again['status'], 'success', again['blockers'])
+        self.assertEqual(again['bot_completed_at'], first['bot_completed_at'])
 
     def test_a_check_that_fails_is_the_bot_speaking_again(self):
         # The checks are not in the block with the findings, and they are
@@ -513,10 +515,11 @@ class PolicyTests(unittest.TestCase):
         # reworded. That is what it did on rust-dashcore#1048.
         pr['comments'][0] = dict(pr['comments'][0], updated_at='2026-09-11T13:00:00Z',
                                  body=self.rabbit(why='It identifies the change well.'))
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success', 'a reworded explanation')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['bot_completed_at'], first['bot_completed_at'],
+                         'a reworded explanation')
         # The verdict itself changes.
         pr['comments'][0] = dict(pr['comments'][0], body=self.rabbit(checks='❌ Failed'))
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['bot_completed_at'], '2026-09-11T13:00:00Z')
 
     def test_the_checks_are_read_as_a_set_and_their_explanations_not_at_all(self):
         # It reorders its own table between two writes of the same report —
@@ -714,7 +717,7 @@ class PolicyTests(unittest.TestCase):
         # findings block. A block with no end — markup that changed, a comment
         # trimmed at GitHub's limit — would leave the findings invisible while
         # the checks around them still produced a print, and a blocker written
-        # into them afterwards would never move the floor.
+        # into them afterwards would never read as the bot speaking again.
         from pr_review.policy import receipt_print
         whole = self.rabbit()
         self.assertIsNotNone(receipt_print({'id': 1, 'body': whole}))
@@ -735,8 +738,10 @@ class PolicyTests(unittest.TestCase):
     def test_a_new_finding_is_the_bot_speaking_again(self):
         # platform#4653: the blocker was in the prose of the receipt itself —
         # "Add signer support or defer selecting these keys before merging" —
-        # with no thread and no changes request. An attestation written before
-        # it has not read it.
+        # with no thread and no changes request. It is a new report, dated
+        # when it was written. It does not take back an attestation of the
+        # same code: blockers are held by the bots' threads and changes
+        # requests, and CodeRabbit posted this one as a thread next.
         p, pr = fixture()
         pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
         pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
@@ -748,7 +753,8 @@ class PolicyTests(unittest.TestCase):
                                  body=self.rabbit(finding='Add signer support before merging.'))
         pr['controller_diff'] = {'number': 1, 'receipts': first['receipts']}
         again = evaluate(p, pr, NOW, NOW)
-        self.assertEqual(again['state'], 'waiting-self-review')
+        self.assertEqual(again['bot_completed_at'], '2026-09-11T13:00:00Z')
+        self.assertEqual(again['state'], 'ready-to-merge')
 
     def test_what_two_comments_said_is_told_apart(self):
         # Two reports are two reports even when they say the same thing, and
@@ -767,14 +773,14 @@ class PolicyTests(unittest.TestCase):
 
     def test_a_receipt_this_controller_has_not_seen_dates_from_the_comment(self):
         # Nothing remembered yet, and nothing assumed: the comment's own time
-        # is the floor, which is what it was before any of this.
+        # is when the bot spoke, which is what it was before any of this.
         p, pr = fixture()
         pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'coderabbitai[bot]']
         pr['comments'] = [dict(id=1, user='coderabbitai[bot]', body=self.rabbit(),
                                created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T13:00:00Z'),
                           dict(id=3, user='owner', body=f'/self-reviewed {HEAD}',
                                created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['bot_completed_at'], '2026-09-11T13:00:00Z')
 
     def test_a_machine_author_does_not_spend_a_review_slot(self):
         # The five are a limit on one person's attention. An account that
@@ -931,10 +937,10 @@ class PolicyTests(unittest.TestCase):
                                  created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')])
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
 
-    def test_the_advice_is_not_given_while_a_producer_is_still_to_report(self):
-        # Told to take it over, they do — and then the outstanding bot reports,
-        # the floor rises past what they wrote, and the credit for it goes away
-        # with no word said. Advice that stops being true is worse than none.
+    def test_the_advice_is_given_while_a_producer_is_still_to_report(self):
+        # Told to take it over, they do, and what they wrote counts: a bot
+        # reporting afterwards does not take an attestation of this code back,
+        # so the advice stays true.
         p, pr = fixture()
         pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'thepastaclaw']
         pr['comments'] = [dict(id=3, user='fallback', body=f'/self-reviewed {HEAD}',
@@ -942,17 +948,18 @@ class PolicyTests(unittest.TestCase):
         result = evaluate(p, pr, NOW, NOW)
         self.assertEqual(result['state'], 'waiting-bots')
         items = {i['item']: i for i in result['checklist']}
-        self.assertEqual(items['self_review']['on_their_behalf'], [], 'thepastaclaw has not reported yet')
+        self.assertEqual(items['self_review']['on_their_behalf'], ['fallback'])
 
     def test_the_advice_to_take_it_over_is_only_given_where_it_is_true(self):
         # Told to assign themselves, they do, and it still does not count
-        # because they wrote it before the bots reported — and the sentence
+        # because they wrote it before this diff was pushed — and the sentence
         # disappears without explaining itself. Say nothing rather than that.
         p, pr = fixture()
-        pr['comments'] = [dict(id=3, user='reviewer', body=f'/self-reviewed {HEAD}',
+        pr['head_seen_at'] = '2026-09-11T10:30:00Z'
+        pr['comments'] = [dict(id=3, user='reviewer', body='/self-reviewed',
                                created_at='2026-09-11T09:00:00Z', updated_at='2026-09-11T09:00:00Z')]
         items = {i['item']: i for i in evaluate(p, pr, NOW, NOW)['checklist']}
-        self.assertEqual(items['self_review']['on_their_behalf'], [], 'it was written before the bots reported')
+        self.assertEqual(items['self_review']['on_their_behalf'], [], 'it was written before this diff')
         pr['comments'][0] = dict(pr['comments'][0], created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')
         items = {i['item']: i for i in evaluate(p, pr, NOW, NOW)['checklist']}
         self.assertEqual(items['self_review']['on_their_behalf'], ['reviewer'])
@@ -1119,12 +1126,25 @@ class PolicyTests(unittest.TestCase):
         pr['reviews'].append(dict(id=9, user='reviewer', state='COMMENTED', commit_id=HEAD,
                                   submitted_at='2026-09-11T12:00:00Z', body='/self-reviewed'))
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
-        # The same rules: it must follow the bots, and nobody else's review counts.
-        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
-        pr['reviews'][-1]['submitted_at'] = '2026-09-11T09:30:00Z'
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', 'before what a bot said')
+        # The same rules: it must follow this diff, and nobody else's review counts.
+        pr['reviews'][-1]['submitted_at'] = '2026-09-11T08:30:00Z'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', 'before this diff')
         pr['reviews'][-1].update(submitted_at='2026-09-11T12:00:00Z', user='owner')
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', 'only the author attests')
+
+    def test_a_review_written_on_another_diff_does_not_attest_to_this_one(self):
+        # A review carries no edit history, and anyone with write access can
+        # edit one. An old review rewritten to name the current commit would
+        # otherwise attest to code that did not exist when it was written; the
+        # commit it was submitted on is what says which diff it read.
+        p, pr = fixture()
+        pr['author'] = 'reviewer'
+        pr['comments'] = []
+        pr['reviews'].append(dict(id=9, user='reviewer', state='COMMENTED', commit_id=OLD_HEAD,
+                                  submitted_at='2026-09-11T11:00:00Z', body=f'/self-reviewed {HEAD}'))
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+        pr['reviews'][-1]['commit_id'] = HEAD
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-for-human')
 
     def test_an_ordinary_review_by_the_author_is_not_an_attestation(self):
         # Sixty-two of these exist across the governed repositories, most with
@@ -1141,9 +1161,9 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', repr(body))
 
     def test_a_bot_authors_stand_in_attestation_is_dated_when_the_bots_were_done(self):
-        # It stands in for an attestation, so it must not be dated at the
-        # floor: with clean bots the floor is the day the pull request opened,
-        # and every objection since would read as unanswered.
+        # It stands in for an attestation, so it must not be dated when the
+        # pull request opened, which can predate every objection since — each
+        # would read as unanswered.
         p, pr = fixture()
         pr.update(author='Copilot', author_is_bot=True, comments=[], head_seen_at=None)
         pr['reviews'].append(dict(id=8, user='owner', state='CHANGES_REQUESTED', commit_id=HEAD,
@@ -1180,20 +1200,19 @@ class PolicyTests(unittest.TestCase):
         self.assertNotEqual(result['state'], 'waiting-bots', 'and so nothing is waiting for a bot')
         self.assertEqual(result['state'], 'waiting-author')
 
-    def test_every_bot_receipt_raises_the_floor_however_the_finding_is_shaped(self):
-        # A bot states a blocker in the prose of the receipt itself — "Add
+    def test_a_bot_receipt_after_the_attestation_does_not_take_it_back(self):
+        # A bot can state a blocker in the prose of the receipt itself — "Add
         # signer support or defer selecting these keys before merging", no
-        # thread, no changes request (dashpay/platform#4653). "It had nothing
-        # to say" cannot be read off the evidence, so every receipt counts.
+        # thread, no changes request (dashpay/platform#4653). Asking for the
+        # phrase again would not hold the pull request either. A bot's blocker
+        # is held by its own threads and changes requests, and the attestation
+        # is about the code, which the receipt did not change.
         p, pr = fixture()
         pr['head_seen_at'] = '2026-09-11T09:00:00Z'
         pr['threads'] = []
         pr['comments'][0].update(body='/self-reviewed', created_at='2026-09-11T09:30:00Z',
                                  updated_at='2026-09-11T09:30:00Z')
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review',
-                         'the bots reported after it; nothing here can prove they found nothing')
-        pr['comments'][0].update(created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge', 'the bots reported after it')
 
     def test_the_check_passes_in_exactly_one_state(self):
         # The invariant the gate rests on. Every reachable state is driven
@@ -1239,24 +1258,26 @@ class PolicyTests(unittest.TestCase):
         result = evaluate(p, pr, NOW, NOW)
         self.assertEqual(result['state'], 'waiting-self-review')
 
-    def test_bare_self_review_before_the_bots_finish_does_not_count(self):
+    def test_a_blocker_resolved_without_a_push_leaves_an_earlier_attestation_standing(self):
         p, pr = fixture()
         pr['head_seen_at'] = '2026-09-11T09:00:00Z'
-        # A bot that said something on this head is what puts a floor under
-        # the attestation; answered or not, it still had to be read.
-        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
+        # A bot raised a blocker on this head after the author attested. It
+        # holds the pull request while it is open; resolving it is the
+        # explicit answer, and the code the author read is the same.
+        pr['threads'] = [dict(id=1, author='coderabbitai', is_resolved=False, created_at='2026-09-11T10:00:00Z',
+                              severities=['🟠 Major'])]
         pr['comments'][0].update(body='/self-reviewed', created_at='2026-09-11T09:30:00Z',
                                  updated_at='2026-09-11T09:30:00Z')
-        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-author')
+        pr['threads'][0]['is_resolved'] = True
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
 
-    def test_an_attestation_sharing_a_second_with_its_floor_does_not_count(self):
+    def test_an_attestation_sharing_a_second_with_the_heads_first_status_does_not_count(self):
         p, pr = fixture()
-        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
-        # A bot that said something on this head is what puts a floor under
-        # the attestation; answered or not, it still had to be read.
-        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
-        floor = max(r['submitted_at'] for r in pr['reviews'])
-        pr['comments'][0].update(body='/self-reviewed', created_at=floor, updated_at=floor)
+        # A bare attestation must follow this head's first status; in the same
+        # second it cannot be told to.
+        seen = pr['head_seen_at'] = '2026-09-11T11:00:00Z'
+        pr['comments'][0].update(body='/self-reviewed', created_at=seen, updated_at=seen)
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review')
 
     def test_bare_self_review_needs_a_head_the_controller_has_seen(self):
@@ -1289,13 +1310,9 @@ class PolicyTests(unittest.TestCase):
         changed['reviews'][0].update(state='CHANGES_REQUESTED')
         self.assertEqual(evaluate(p,changed,NOW,NOW)['state'], 'waiting-author')
 
-    def test_self_review_requires_unedited_author_confirmation_after_bots(self):
+    def test_self_review_requires_unedited_author_confirmation(self):
         p, pr = fixture()
-        # A bot that said something on this head is what puts a floor under
-        # the attestation; answered or not, it still had to be read.
-        pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
-        for update in [{'user':'reviewer'}, {'body':'/self-reviewed old'},
-                       {'updated_at':NOW}, {'created_at':'2026-09-11T09:00:00Z','updated_at':'2026-09-11T09:00:00Z'}]:
+        for update in [{'user':'reviewer'}, {'body':'/self-reviewed old'}, {'updated_at':NOW}]:
             changed = copy.deepcopy(pr)
             changed['comments'][0].update(update)
             self.assertEqual(evaluate(p,changed,NOW,NOW)['state'], 'waiting-self-review')
@@ -1368,18 +1385,17 @@ class PolicyTests(unittest.TestCase):
         pr['reviews'][0]['state'] = 'CHANGES_REQUESTED'
         self.assertNotEqual(original,fingerprint(pr))
 
-    def test_edited_bot_summary_requires_fresh_author_confirmation(self):
+    def test_an_edited_bot_summary_is_a_new_report_not_a_new_attestation(self):
         p, pr = fixture()
         pr['reviews'] = pr['reviews'][:1]
-        # A bot that said something on this head is what puts a floor under
-        # the attestation; answered or not, it still had to be read.
         pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
         pr['comments'].append(dict(id=8,user='coderabbitai[bot]',created_at='2026-09-11T10:00:00Z',
                                   updated_at='2026-09-11T10:00:00Z',
                                   body='<!-- final_review_risk_coverage:{"kind":"reviewed","coveredCommitId":"'+HEAD+'"} -->'))
         self.assertEqual(evaluate(p,pr,NOW,NOW)['status'], 'success')
         pr['comments'][-1]['updated_at'] = NOW
-        self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'waiting-self-review')
+        edited = evaluate(p,pr,NOW,NOW)
+        self.assertEqual((edited['status'], edited['bot_completed_at']), ('success', NOW))
         pr['comments'][-1]['body'] = 'Skipped review'
         self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'waiting-bots')
 
@@ -1430,13 +1446,14 @@ class PolicyTests(unittest.TestCase):
         prs[1]['base'] = 'another-branch'
         self.assertNotIn(2,admit(p,prs,NOW))
 
-    def test_new_bot_completion_requires_author_to_review_latest_outcome(self):
+    def test_a_bot_completing_again_does_not_ask_for_another_attestation(self):
+        # It reviewed the same code again. Its findings are in its threads;
+        # the author's attestation of that code stands.
         p, pr = fixture()
-        # A bot that said something on this head is what puts a floor under
-        # the attestation; answered or not, it still had to be read.
         pr['threads'] = [dict(id=1, author='coderabbitai[bot]', is_resolved=True, created_at='2026-09-11T10:00:00Z')]
         pr['reviews'].append(dict(pr['reviews'][1],id=20,submitted_at=NOW))
-        self.assertEqual(evaluate(p,pr,NOW,NOW)['state'], 'waiting-self-review')
+        result = evaluate(p,pr,NOW,NOW)
+        self.assertEqual((result['state'], result['bot_completed_at']), ('ready-to-merge', NOW))
 
     def test_controller_comment_creation_does_not_invalidate_evidence(self):
         _, pr = fixture()
@@ -1512,6 +1529,230 @@ class PolicyTests(unittest.TestCase):
                 policy['areas'][0]['unresolved'] = unresolved
             with self.subTest(unresolved=unresolved), self.assertRaises(ValueError):
                 validate_policy(policy)
+
+
+# Thread openings as the two review bots write them.
+PASTA_SUGGESTION = ('<!-- thepastaclaw-review v1 finding=1ae5c0d05709 dedupe=823d079e92be8910 -->\n'
+                    '**🟡 Suggestion: Add coverage for the ambiguous unpadded base64/base58 case**\n\n'
+                    'The regression test uses a padded encoding, so it never reaches the ambiguous case.')
+PASTA_BLOCKING = ('<!-- thepastaclaw-review v1\nfinding=86cd4cfc5f6d dedupe=eabaeb4163b84d5f -->\n'
+                  '**🔴 Blocking: Do not require a live Tokio runtime for every later UI frame**\n\n'
+                  '**Why:** `spawn_blocking` panics when no runtime is entered.')
+PASTA_NITPICK = ('<!-- thepastaclaw-review v1 finding=1 dedupe=2 -->\n'
+                 '**💬 Nitpick: Document why the probe stays synchronous**\n\nA sentence would do.')
+RABBIT_MINOR = ('_🎯 Functional Correctness_ | _🟡 Minor_ | _⚡ Quick win_\n\n'
+                '**Reject an empty identifier.**\n\n_Note: this mirrors the parser above._\n'
+                '<!-- cr-comment:v1:1 -->')
+RABBIT_MAJOR = ('_🗄️ Data Integrity & Integration_ | _🟠 Major_ | _🏗️ Heavy lift_\n\n'
+                '**Support `ECDSA_HASH160` in the external signer before selecting it.**')
+# CodeRabbit can open one thread with several findings; here the Minor one comes first.
+RABBIT_MINOR_THEN_MAJOR = (RABBIT_MINOR + '\n\n---\n\n'
+                           '_📐 Maintainability & Code Quality_ | _🟠 Major_ | _🏗️ Heavy lift_\n\n'
+                           '**Move state-transition protocol interpretation to Rust.**\n<!-- cr-comment:v1:2 -->')
+RABBIT_REFACTOR_MAJOR = '_🛠️ Refactor suggestion_ | _🟠 Major_\n\n**Extract the shared decoder.**'
+
+
+def bot_thread(author, severities, **changes):
+    """An unresolved thread a review bot opened, as the snapshot records it."""
+    return dict(dict(id=7, author=author, is_resolved=False, created_at='2026-09-11T10:00:00Z',
+                     severities=severities), **changes)
+
+
+class BotFindingTests(unittest.TestCase):
+    def test_a_bots_suggestion_does_not_hold_the_pull_request(self):
+        # The author owns every area, the build is green, and they posted
+        # /self-reviewed for the head. thepastaclaw then reviewed the same head
+        # and left one 🟡 Suggestion. The pull request sat in waiting-author:
+        # the suggestion held it, and the report that carried it threw the
+        # attestation away. A suggestion is the author's to take or leave, and
+        # the code they reviewed has not changed.
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        pr['comments'][0].update(body='/self-reviewed', created_at='2026-09-11T09:30:00Z',
+                                 updated_at='2026-09-11T09:30:00Z')
+        pr['threads'] = [bot_thread('thepastaclaw', ['🟡 Suggestion'])]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual((result['state'], result['status']), ('ready-to-merge', 'success'), result['blockers'])
+
+    def test_only_a_blocker_holds_it(self):
+        # A suggestion is the author's to take or leave. A label that is not a
+        # known suggestion — a blocker, a label this does not know, no label at
+        # all — holds the pull request: a format the bots change must fail
+        # closed.
+        for author, severities, expected in [
+                ('thepastaclaw', ['🟡 Suggestion'], 'ready-to-merge'),
+                ('thepastaclaw', ['💬 Nitpick'], 'ready-to-merge'),
+                ('coderabbitai[bot]', ['🟡 Minor'], 'ready-to-merge'),
+                ('coderabbitai', ['🟡 Minor'], 'ready-to-merge'),
+                ('coderabbitai', ['🟠 Major'], 'waiting-author'),
+                ('thepastaclaw', ['🔴 Blocking'], 'waiting-author'),
+                ('coderabbitai[bot]', ['🟠 Major'], 'waiting-author'),
+                ('coderabbitai[bot]', ['🔴 Critical'], 'waiting-author'),
+                ('coderabbitai[bot]', ['🟡 Minor', '🟠 Major'], 'waiting-author'),
+                ('coderabbitai[bot]', ['🟢 Something new'], 'waiting-author'),
+                ('thepastaclaw', [], 'waiting-author'),
+                ('thepastaclaw', None, 'waiting-author')]:
+            with self.subTest(author=author, severities=severities):
+                p, pr = fixture()
+                pr['threads'] = [bot_thread(author, severities)]
+                if severities is None:
+                    del pr['threads'][0]['severities']
+                self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], expected)
+
+    def test_a_suggestion_is_not_a_report_on_a_head_the_bot_has_not_reviewed(self):
+        # Threads outlive the head they were written on. A suggestion left on
+        # an earlier commit says nothing about this one: the bot is still owed
+        # a review, and it is still asked for one.
+        p, pr = fixture()
+        p['bot_timeouts'] = {'nudge_after_hours': 1, 'waive_after_hours': 100}
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] != 'thepastaclaw']
+        pr['threads'] = [bot_thread('thepastaclaw', ['🟡 Suggestion'])]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertEqual(result['nudge'], ['thepastaclaw'])
+
+    def test_an_answer_under_a_bot_suggestion_is_not_an_objection(self):
+        # Across the governed repositories the replies under a bot's findings
+        # from someone other than the author are the people finishing the
+        # pull request answering them — "Fixed in b4b73669a8", "Not applicable
+        # to Dash" — from colleagues, agents and automation alike. Read as
+        # objections they would hold exactly the pull requests being finished.
+        p, pr = fixture()
+        for who in ('reviewer', 'github-actions', 'stranger'):
+            with self.subTest(who=who):
+                pr['threads'] = [bot_thread('thepastaclaw', ['🟡 Suggestion'], voices=[
+                    dict(user='thepastaclaw', created_at='2026-09-11T10:00:00Z'),
+                    dict(user=who, created_at='2026-09-11T12:00:00Z')])]
+                result = evaluate(p, pr, NOW, NOW)
+                self.assertEqual(result['state'], 'ready-to-merge', result['blockers'])
+                self.assertEqual(result['objections'], [])
+
+    def test_a_bots_changes_request_holds_whatever_its_threads_say(self):
+        # Where CodeRabbit is set to request changes, it does so sometimes over
+        # Minor threads alone. A changes request is an explicit objection, and
+        # there it is the only gate on findings outside the diff: dismiss or push.
+        p, pr = fixture()
+        pr['reviews'][1].update(state='CHANGES_REQUESTED')
+        pr['threads'] = [bot_thread('coderabbitai[bot]', ['🟡 Minor'])]
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'waiting-author')
+        self.assertIn('coderabbitai requested changes on this head; dismiss the review or push a fix',
+                      result['blockers'])
+
+    def test_a_self_review_is_reset_by_code_not_by_a_bot_reporting(self):
+        # An attestation says the author read this code. A bot reporting on
+        # the same code afterwards does not unread it — what the bot said is
+        # answered in its own threads — and only a push that changes the diff
+        # puts something in front of the author they have not read.
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T09:00:00Z'
+        for body in ('/self-reviewed', f'/self-reviewed {HEAD}'):
+            with self.subTest(body=body):
+                pr['comments'][0].update(body=body, created_at='2026-09-11T09:30:00Z',
+                                         updated_at='2026-09-11T09:30:00Z')
+                self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge',
+                                 'both bots reported at 10:00, after it')
+        pr['head_seen_at'] = '2026-09-11T10:30:00Z'
+        pr['comments'][0]['body'] = '/self-reviewed'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-self-review', 'written before this diff')
+
+    def test_every_finding_in_an_opening_is_read(self):
+        # CodeRabbit can open one thread with two findings, a Minor and then a
+        # Major. Reading the first heading alone lets the Major sit behind the
+        # Minor.
+        from pr_review.policy import finding_severities
+        self.assertEqual(finding_severities('coderabbitai', RABBIT_MINOR_THEN_MAJOR), ['🟡 Minor', '🟠 Major'])
+        # The same holds for thepastaclaw should it ever group findings.
+        grouped = PASTA_SUGGESTION + '\n\n' + PASTA_BLOCKING
+        self.assertEqual(finding_severities('thepastaclaw', grouped), ['🟡 Suggestion', '🔴 Blocking'])
+        # A later finding under a label nobody knows holds the thread too.
+        from pr_review.policy import finding_blocks
+        for author, body in [('thepastaclaw', PASTA_SUGGESTION + '\n\n**🟣 Urgent: Something new**'),
+                             ('coderabbitai', RABBIT_MINOR + '\n\n---\n\n_🎯 Functional Correctness_ | _🟣 Urgent_\n')]:
+            with self.subTest(author=author):
+                self.assertTrue(finding_blocks(bot_thread(author, finding_severities(author, body))))
+
+    def test_each_bot_is_read_in_its_own_heading_shape(self):
+        from pr_review.policy import finding_severities
+        for author, body, expected in [
+                ('thepastaclaw', PASTA_SUGGESTION, ['🟡 Suggestion']),
+                ('thepastaclaw', PASTA_NITPICK, ['💬 Nitpick']),
+                # A bold "Why:" in the text is not a heading, and a marker
+                # spanning lines is not text.
+                ('thepastaclaw', PASTA_BLOCKING, ['🔴 Blocking']),
+                # An italic line in the text is not a heading either.
+                ('coderabbitai', RABBIT_MINOR, ['🟡 Minor']),
+                ('coderabbitai[bot]', RABBIT_MAJOR, ['🟠 Major']),
+                # "suggestion" in a CodeRabbit category is not a severity.
+                ('coderabbitai', RABBIT_REFACTOR_MAJOR, ['🟠 Major'])]:
+            with self.subTest(author=author, body=body[:40]):
+                self.assertEqual(finding_severities(author, body), expected)
+
+    def test_a_label_outside_a_heading_is_not_a_severity(self):
+        # A finding quoting another one, or a heading inside a hidden marker,
+        # must not lend its label to the thread.
+        from pr_review.policy import finding_severities
+        quoted = RABBIT_MAJOR + '\n\n> _🎯 Functional Correctness_ | _🟡 Minor_\n\nThe 🟡 Minor note above is stale.'
+        self.assertEqual(finding_severities('coderabbitai', quoted), ['🟠 Major'])
+        hidden = '<!--\n_🎯 Functional Correctness_ | _🟡 Minor_\n-->\n' + RABBIT_MAJOR
+        self.assertEqual(finding_severities('coderabbitai', hidden), ['🟠 Major'])
+        prose = '<!-- thepastaclaw-review v1 -->\nThis reads like a 🟡 Suggestion but has no heading.'
+        self.assertEqual(finding_severities('thepastaclaw', prose), [])
+
+    def test_the_severity_is_read_not_the_kind_of_finding(self):
+        # 🧹 Nitpick is the kind of finding in CodeRabbit's heading, beside its
+        # severity. Taking it for the severity made a Major read as optional,
+        # and an unknown severity beside it read as optional too.
+        from pr_review.policy import finding_blocks, finding_severities
+        for heading, blocks in [('_🧹 Nitpick_ | _🔵 Trivial_', False),
+                                ('_🧹 Nitpick_ | _🟠 Major_', True),
+                                ('_🧹 Nitpick_ | _🟣 Something new_', True)]:
+            with self.subTest(heading=heading):
+                labels = finding_severities('coderabbitai', heading + '\n\n**Rename it.**')
+                self.assertEqual(finding_blocks(bot_thread('coderabbitai', labels)), blocks, labels)
+
+    def test_a_blocker_this_cannot_parse_still_holds_the_thread(self):
+        # One heading parsed is not every heading parsed. A blocker written in
+        # a shape the parser does not know, beside a Minor it does, must not be
+        # read as the Minor alone.
+        from pr_review.policy import finding_blocks, finding_severities
+        for second in (' _🎯 Functional Correctness_ | _🟠 Major_',
+                       '_⚠️ Potential issue_ | **🟠 Major**',
+                       '> _🎯 Functional Correctness_ | _🟠 Major_',
+                       '_🟡 Minor_ | _🟠 Major_',
+                       '`<!--` opens a comment in the sample.\n\n_🎯 Functional Correctness_ | _🟠 Major_'):
+            with self.subTest(second=second):
+                body = RABBIT_MINOR + '\n\n---\n\n' + second + '\n\n**Fix the decoder.**\n<!-- cr-comment:v1:2 -->'
+                labels = finding_severities('coderabbitai', body)
+                self.assertTrue(finding_blocks(bot_thread('coderabbitai', labels)), labels)
+        body = PASTA_SUGGESTION + '\n\n### 🔴 Blocking: the fence hides the heading'
+        self.assertTrue(finding_blocks(bot_thread('thepastaclaw', finding_severities('thepastaclaw', body))))
+
+    def test_each_bot_is_held_to_its_own_labels(self):
+        # A label one bot uses is unknown in the other's heading, and unknown
+        # holds the thread.
+        from pr_review.policy import finding_blocks, finding_severities
+        pasta = '<!-- thepastaclaw-review v1 -->\n**🟡 Minor: Rename it**'
+        rabbit = '_🎯 Functional Correctness_ | _🟡 Suggestion_\n\n**Rename it.**'
+        self.assertTrue(finding_blocks(bot_thread('thepastaclaw', finding_severities('thepastaclaw', pasta))))
+        self.assertTrue(finding_blocks(bot_thread('coderabbitai', finding_severities('coderabbitai', rabbit))))
+
+    def test_a_heading_with_windows_line_endings_is_still_a_heading(self):
+        from pr_review.policy import finding_severities
+        self.assertEqual(finding_severities('coderabbitai', RABBIT_MINOR.replace('\n', '\r\n')), ['🟡 Minor'])
+
+    def test_a_heading_without_a_known_severity_is_kept_so_it_blocks(self):
+        from pr_review.policy import finding_severities
+        labels = finding_severities('coderabbitai', '_🎯 Functional Correctness_ | _⚡ Quick win_\n\n**Fix it.**')
+        self.assertEqual(len(labels), 1)
+        p, pr = fixture()
+        pr['threads'] = [bot_thread('coderabbitai[bot]', labels)]
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'waiting-author')
+
+    def test_a_person_has_no_severity(self):
+        from pr_review.policy import finding_severities
+        self.assertEqual(finding_severities('reviewer', PASTA_SUGGESTION), [])
 
 
 if __name__ == '__main__':
