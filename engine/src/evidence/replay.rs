@@ -10,10 +10,14 @@
 //! served once, in the order recorded; a call the recording does not hold,
 //! or asked more often than it was recorded, is refused.
 //!
-//! A write is answered as the recorder answered it, and only as the next
-//! write the recording holds: the same method and route, and a body that
-//! is the same JSON value, every string in it byte for byte. Anything else
-//! is refused, naming where the two differ.
+//! A write is answered as the recorder answered it, and is held to the
+//! next write the recording holds: the same method and route, and a body
+//! that is the same JSON value, every string in it byte for byte. What
+//! became of each is kept ([`WriteCheck`]). A write to the recorded route
+//! with another body is answered as recorded all the same, so the run goes
+//! on and every later write is compared too; a write to another route, or
+//! one more than the recording holds, has no answer and is refused, naming
+//! where the two differ.
 //!
 //! Whether a failure is worth one more try is decided here as Python
 //! decided it: by looking for a gateway error, a timeout or a truncated
@@ -166,8 +170,26 @@ pub struct ReplayTransport {
     /// Reads refused because they were asked more often than recorded.
     exhausted: usize,
     writes: VecDeque<RecordedWrite>,
+    /// How many writes the recording holds.
+    recorded_writes: usize,
+    /// What became of each write made, in the order made.
+    write_checks: Vec<WriteCheck>,
     /// The ordinal of every recorded call served, in the order asked.
     served: Vec<usize>,
+}
+
+/// What became of one write the port made, in the order made.
+#[derive(Debug, Clone)]
+pub enum WriteCheck {
+    /// The next recorded write: the same route and the same body.
+    Matched,
+    /// The next recorded write's route with another body: both bodies, as
+    /// the values they carry. Answered as recorded, so the run goes on.
+    Body { made: PyValue, recorded: PyValue },
+    /// Another route than the next recorded write's. Refused.
+    Route,
+    /// A write after every recorded one. Refused.
+    Unrecorded,
 }
 
 /// Why a recording could not be read.
@@ -259,6 +281,7 @@ impl ReplayTransport {
                     problem: "a write recorded as failing is not replayed".into(),
                 });
             }
+            self.recorded_writes += 1;
             self.writes.push_back(RecordedWrite {
                 ordinal,
                 arguments,
@@ -319,6 +342,16 @@ impl ReplayTransport {
         self.writes.len()
     }
 
+    /// How many writes the recording holds.
+    pub fn recorded_writes(&self) -> usize {
+        self.recorded_writes
+    }
+
+    /// What became of each write made, in the order made.
+    pub fn write_checks(&self) -> &[WriteCheck] {
+        &self.write_checks
+    }
+
     /// The ordinal of every recorded call served, in the order it was
     /// asked: `1, 2, 3, …` when the calls were made in the order recorded.
     pub fn served(&self) -> &[usize] {
@@ -330,6 +363,7 @@ impl ReplayTransport {
         let (arguments, stdin) =
             gh_arguments(call).map_err(|error| TransportError::Refused(error.to_string()))?;
         let Some(recorded) = self.writes.front() else {
+            self.write_checks.push(WriteCheck::Unrecorded);
             return Err(TransportError::Refused(format!(
                 "A write the recording does not hold: {}",
                 named(call, &arguments)
@@ -342,19 +376,22 @@ impl ReplayTransport {
             ))
         };
         if recorded.arguments != arguments {
-            return Err(differs(
-                "route",
-                &recorded.arguments.join(" "),
-                &arguments.join(" "),
-            ));
+            let refused = differs("route", &recorded.arguments.join(" "), &arguments.join(" "));
+            self.write_checks.push(WriteCheck::Route);
+            return Err(refused);
         }
         let (was, now) = (
             same_value(recorded.stdin.as_deref()),
             same_value(stdin.as_deref()),
         );
-        if was != now {
-            return Err(differs("body", &was, &now));
-        }
+        self.write_checks.push(if was == now {
+            WriteCheck::Matched
+        } else {
+            WriteCheck::Body {
+                made: value_of(stdin.as_deref()),
+                recorded: value_of(recorded.stdin.as_deref()),
+            }
+        });
         let ordinal = recorded.ordinal;
         let answer = self
             .writes
@@ -362,6 +399,15 @@ impl ReplayTransport {
             .map_or_else(String::new, |recorded| recorded.stdout);
         self.served.push(ordinal);
         Ok(Reply::Text(answer))
+    }
+}
+
+/// A request body as the value it carries: its JSON, the text itself when
+/// it is not JSON, `None` when there is none.
+fn value_of(stdin: Option<&str>) -> PyValue {
+    match stdin {
+        None => PyValue::None,
+        Some(text) => py_loads(text).unwrap_or_else(|_| PyValue::Str(text.to_owned())),
     }
 }
 

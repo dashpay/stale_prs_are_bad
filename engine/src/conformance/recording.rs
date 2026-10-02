@@ -212,7 +212,14 @@ impl Recording {
     /// were never sent. GraphQL's own limit is counted in points, which
     /// this does not see.
     pub fn requests(&self) -> Result<usize, LoadError> {
-        let mut total = 0;
+        let (rest, graphql) = self.requests_by_kind()?;
+        Ok(rest + graphql)
+    }
+
+    /// [`Recording::requests`], as REST requests and GraphQL queries: the
+    /// two limits GitHub counts them against.
+    pub fn requests_by_kind(&self) -> Result<(usize, usize), LoadError> {
+        let (mut rest, mut graphql) = (0, 0);
         for (index, line) in self.calls.split('\n').enumerate() {
             if line.is_empty() {
                 continue;
@@ -223,6 +230,8 @@ impl Recording {
             }
             let paginated = matches!(field(&entry, "args"), Some(PyValue::List(args))
                 if args.iter().any(|a| matches!(a, PyValue::Str(a) if a == "--paginate")));
+            let query = matches!(field(&entry, "args"), Some(PyValue::List(args))
+                if args.iter().any(|a| matches!(a, PyValue::Str(a) if a == "graphql")));
             let pages = match field(&entry, "stdout") {
                 Some(PyValue::Str(stdout)) if paginated => match py_loads(stdout) {
                     Ok(PyValue::List(pages)) => pages.len(),
@@ -231,9 +240,14 @@ impl Recording {
                 _ => 1,
             };
             // A paginated read that printed no page still asked once.
-            total += if pages == 0 { 1 } else { pages };
+            let asked = if pages == 0 { 1 } else { pages };
+            if query {
+                graphql += asked;
+            } else {
+                rest += asked;
+            }
         }
-        Ok(total)
+        Ok((rest, graphql))
     }
 }
 

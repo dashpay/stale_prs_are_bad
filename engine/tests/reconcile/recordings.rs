@@ -109,8 +109,11 @@ fn every_synthetic_recording_replays_to_the_same_run() {
                 differences.join("\n  ")
             ));
         }
-        // Every layer of a whole run was compared, and something was.
-        for layer in [Layer::Run, Layer::Write, Layer::Clock, Layer::Call] {
+        // Every layer of a whole run was compared, and something was: every
+        // write too, where the run wrote.
+        let writes = whole.recording.calls.contains(r#""kind":"write""#);
+        let layers = [Layer::Run, Layer::Clock, Layer::Call, Layer::Write];
+        for layer in layers.into_iter().take(if writes { 4 } else { 3 }) {
             assert!(
                 comparison.matched(layer).1 > 0,
                 "{}: no {layer:?}",
@@ -160,13 +163,9 @@ fn a_write_with_other_words_fails_the_gate() {
         assert!(calls.contains("Evaluating current review policy"));
         *calls = calls.replace("Evaluating current review policy", "Evaluating the policy");
     });
-    assert!(
-        found.iter().any(
-            |d| d.starts_with("run 0: call refused by the replay: Write #")
-                && d.contains("differs from the recording in its body")
-        ),
-        "{found:?}"
-    );
+    // The write is named by its place and the field that differs, and the
+    // run goes on to compare every write after it.
+    assert_eq!(found, ["write 0: write.description (value)"]);
 }
 
 #[test]
@@ -181,6 +180,13 @@ fn a_write_python_did_not_make_fails_the_gate() {
         lines.remove(last);
         w.recording.calls = lines.iter().map(|line| format!("{line}\n")).collect();
     });
+    assert!(
+        found
+            .iter()
+            .any(|d| d
+                == "write 5: write the recording does not hold: made after every recorded write"),
+        "{found:?}"
+    );
     assert!(
         found
             .iter()
@@ -208,7 +214,7 @@ fn a_write_python_made_and_the_port_did_not_fails_the_gate() {
     assert!(
         found
             .iter()
-            .any(|d| d.starts_with("write 0: recorded write never made")),
+            .any(|d| d.starts_with("write 6: recorded write never made")),
         "{found:?}"
     );
 }

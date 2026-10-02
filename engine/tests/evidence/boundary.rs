@@ -7,7 +7,7 @@
 
 use crate::support::*;
 use pr_hygiene_engine::evidence::replay::{gh_arguments, is_read};
-use pr_hygiene_engine::evidence::{ReplayTransport, Scripted, Sleep};
+use pr_hygiene_engine::evidence::{ReplayTransport, Scripted, Sleep, WriteCheck};
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -543,14 +543,26 @@ fn a_replayed_write_is_held_to_its_body_as_a_json_value() {
             "stdin": r#"{"description":"ready é","context":"PR Hygiene","state":"pending"}"#,
             "exit": 0, "stdout": r#"{"id": 1}"#, "stderr": ""})])
     };
+    let mut same = recorded();
     assert_eq!(
-        recorded().call(&status("ready é")),
+        same.call(&status("ready é")),
         Ok(Reply::Text(r#"{"id": 1}"#.into()))
     );
-    assert!(matches!(
-        recorded().call(&status("ready e")),
-        Err(TransportError::Refused(why)) if why.contains("in its body")
-    ));
+    assert!(matches!(same.write_checks(), [WriteCheck::Matched]));
+    // Another body is answered as recorded, so the run goes on and every
+    // later write is compared too; what it said is kept beside what was
+    // recorded.
+    let mut other = recorded();
+    assert_eq!(
+        other.call(&status("ready e")),
+        Ok(Reply::Text(r#"{"id": 1}"#.into()))
+    );
+    let [WriteCheck::Body { made, recorded }] = other.write_checks() else {
+        panic!("one write, with another body: {:?}", other.write_checks())
+    };
+    assert_py(field(made, "description"), json!("ready e"));
+    assert_py(field(recorded, "description"), json!("ready é"));
+    assert_eq!((other.unwritten(), other.recorded_writes()), (0, 1));
 }
 
 #[test]

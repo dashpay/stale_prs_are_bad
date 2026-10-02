@@ -107,6 +107,7 @@ const FIELDS: &[&str] = &[
     "state",
     "status",
     "submitted_at",
+    "target_url",
     "telemetry_reads",
     "threads",
     "title",

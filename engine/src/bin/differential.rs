@@ -5,16 +5,21 @@
 //! ```text
 //! differential [--summary FILE] [--python-source DIR] DIR...
 //! differential --requests DIR...
+//! differential --request-kinds DIR...
 //! ```
 //!
 //! Each `DIR` is a recording, or a directory searched for recordings. For
 //! each one the port rebuilds every snapshot Python's `evaluate` saw from
 //! the recorded reads alone, runs `evaluate` on what Python's was given, and
-//! compares the verdict rows as far as `evaluate` decides them. The report
-//! is Markdown on stdout: a counts table per recording and per repository,
-//! then the differences grouped by layer, field path and kind, with the
-//! indices of the cases that show each. `--summary FILE` appends the counts
-//! table alone to `FILE`.
+//! compares the verdict rows as far as `evaluate` decides them. Then it
+//! replays the whole run through its reconcile layer: the run's outcome,
+//! its verdict rows, every write in the recorded order with its body, what
+//! each verdict puts on GitHub (`outputs.json`), the JSON report it printed,
+//! where it read the clock and the order of every call. The report is
+//! Markdown on stdout: a counts table per recording and per repository, then
+//! the differences grouped by layer, field path and kind, with the indices
+//! of the cases that show each. `--summary FILE` appends the counts table
+//! alone to `FILE`.
 //!
 //! Nothing a recording holds is printed: no title, body, login or
 //! permission level, and no error message, which can quote them. A panic
@@ -24,11 +29,15 @@
 //!
 //! `--requests` prints one number: how many requests to GitHub the
 //! recordings' reads made, counting each page of a paginated read.
+//! `--request-kinds` prints the same as two: the REST requests, then the
+//! GraphQL queries, the two limits GitHub counts them against.
 //!
 //! Exit status: 0 when every recording matched, 1 when any differed or
 //! could not be read, 2 when the command itself could not run.
 
-use pr_hygiene_engine::conformance::{compare, Comparison, Layer, Outcome, OwnWords, Recording};
+use pr_hygiene_engine::conformance::{
+    compare, replay_run, Check, Comparison, Failure, Layer, Outcome, OwnWords, Recording, RunFiles,
+};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -40,12 +49,13 @@ use std::process::ExitCode;
 /// the rest.
 const INDICES_SHOWN: usize = 12;
 
-const USAGE: &str = "usage: differential [--summary FILE] [--python-source DIR] DIR...\n       differential --requests DIR...";
+const USAGE: &str = "usage: differential [--summary FILE] [--python-source DIR] DIR...\n       differential --requests DIR...\n       differential --request-kinds DIR...";
 
 struct Options {
     summary: Option<PathBuf>,
     python_source: PathBuf,
     requests: bool,
+    request_kinds: bool,
     paths: Vec<PathBuf>,
 }
 
@@ -55,6 +65,7 @@ fn options() -> Result<Option<Options>, String> {
         summary: None,
         python_source: Path::new(env!("CARGO_MANIFEST_DIR")).join("../pr_review"),
         requests: false,
+        request_kinds: false,
         paths: Vec::new(),
     };
     let mut args = std::env::args_os().skip(1);
@@ -70,6 +81,7 @@ fn options() -> Result<Option<Options>, String> {
                     .into()
             }
             Some("--requests") => options.requests = true,
+            Some("--request-kinds") => options.request_kinds = true,
             Some("-h" | "--help") => return Ok(None),
             Some(flag) if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => options.paths.push(arg.into()),
@@ -108,6 +120,11 @@ fn load(dir: &Path) -> Result<Recording, String> {
     Recording::load_with(|name| std::fs::read_to_string(dir.join(name))).map_err(|e| e.to_string())
 }
 
+/// What the recorded run put out: its outputs and its printed report.
+fn load_run(dir: &Path) -> Result<RunFiles, String> {
+    RunFiles::load_with(|name| std::fs::read_to_string(dir.join(name))).map_err(|e| e.to_string())
+}
+
 /// A name that can only hold what a repository and a command are spelled
 /// with, so that it can carry nothing else into the report.
 fn plain(text: &str) -> String {
@@ -140,6 +157,13 @@ struct Counts {
     snapshots: (usize, usize),
     evaluations: (usize, usize),
     verdicts: (usize, usize),
+    run_verdicts: (usize, usize),
+    writes: (usize, usize),
+    outputs: (usize, usize),
+    report: (usize, usize),
+    clock: (usize, usize),
+    calls: (usize, usize),
+    outcome: (usize, usize),
     missing_reads: usize,
     requests: usize,
     differences: usize,
@@ -156,6 +180,13 @@ impl Counts {
                 counts.snapshots = comparison.matched(Layer::Snapshot);
                 counts.evaluations = comparison.matched(Layer::Evaluation);
                 counts.verdicts = comparison.matched(Layer::Verdict);
+                counts.run_verdicts = comparison.matched(Layer::RunVerdict);
+                counts.writes = comparison.matched(Layer::Write);
+                counts.outputs = comparison.matched(Layer::Output);
+                counts.report = comparison.matched(Layer::Report);
+                counts.clock = comparison.matched(Layer::Clock);
+                counts.calls = comparison.matched(Layer::Call);
+                counts.outcome = comparison.matched(Layer::Run);
                 counts.missing_reads = comparison.missing_reads;
                 counts.requests = *requests;
                 counts.differences = comparison.differences();
@@ -178,6 +209,13 @@ impl Counts {
         pair(&mut self.snapshots, other.snapshots);
         pair(&mut self.evaluations, other.evaluations);
         pair(&mut self.verdicts, other.verdicts);
+        pair(&mut self.run_verdicts, other.run_verdicts);
+        pair(&mut self.writes, other.writes);
+        pair(&mut self.outputs, other.outputs);
+        pair(&mut self.report, other.report);
+        pair(&mut self.clock, other.clock);
+        pair(&mut self.calls, other.calls);
+        pair(&mut self.outcome, other.outcome);
         self.missing_reads += other.missing_reads;
         self.requests += other.requests;
         self.differences += other.differences;
@@ -191,10 +229,17 @@ impl Counts {
             self.differences.to_string()
         };
         format!(
-            "| {name} | {} | {} | {} | {} | {} | {differences} |\n",
+            "| {name} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {differences} |\n",
             ratio(self.snapshots),
             ratio(self.evaluations),
             ratio(self.verdicts),
+            ratio(self.outcome),
+            ratio(self.run_verdicts),
+            ratio(self.writes),
+            ratio(self.outputs),
+            ratio(self.report),
+            ratio(self.clock),
+            ratio(self.calls),
             self.missing_reads,
             self.requests,
         )
@@ -203,8 +248,10 @@ impl Counts {
 
 fn counts_table(rows: &[Row]) -> String {
     let mut out = String::from(
-        "| Recording | Snapshots matched | Evaluations matched | Verdicts matched | Missing reads | Requests | Differences |\n\
-         |---|---:|---:|---:|---:|---:|---:|\n",
+        "Each layer is cases matched of cases compared. The first three hold \
+         `evaluate` to Python's; the rest replay the whole run.\n\n\
+         | Recording | Snapshots | Evaluations | Verdicts | Outcome | Run verdicts | Writes | Outputs | Report | Clock | Calls | Missing reads | Requests | Differences |\n\
+         |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n",
     );
     let mut repositories: Vec<(&str, Counts)> = Vec::new();
     let mut all = Counts::default();
@@ -289,8 +336,12 @@ fn categories(rows: &[Row]) -> String {
     }
     out.push_str(
         "Field paths only: `[]` is any list item, `*` a key that is data (a login, a digest), \
-         `?` a key this tool does not know. Cases are indices into `evaluations.jsonl` \
-         (snapshots and evaluations) and `verdicts.json` (verdicts).\n\n\
+         `?` a key this tool does not know. Cases are indices: into `evaluations.jsonl` for \
+         snapshots and evaluations; into `verdicts.json` for verdicts, run verdicts and \
+         outputs; into the recorded writes, in order from 0, for writes (a write the recording \
+         does not hold is numbered on past its last); and 0 for the run as \
+         a whole (outcome, report, clock, calls), with 1 for how often the outcome read the \
+         review system's status page.\n\n\
          | Layer | Field | Kind | Count | Cases |\n|---|---|---|---:|---|\n",
     );
     for ((layer, field, kind), (count, at)) in &found {
@@ -360,8 +411,26 @@ fn row(dir: &Path, own: &OwnWords) -> Row {
         let label = format!("{repository} · {}", plain(&recording.command()));
         let found = recording
             .requests()
-            .map(|requests| (compare(&recording, own), requests))
-            .map_err(|e| e.to_string());
+            .map_err(|e| e.to_string())
+            .map(|requests| {
+                let mut comparison = compare(&recording, own);
+                // The whole run's reads are the snapshots' and more: a read it
+                // lacks stops it, and its outcome says so. The missing reads
+                // counted are the snapshots'. What the run put out that cannot
+                // be read fails the whole-run layers and keeps the rest.
+                match load_run(dir) {
+                    Ok(files) => comparison
+                        .checks
+                        .extend(replay_run(&recording, &files, own).checks),
+                    Err(problem) => comparison.checks.push(Check::failed(
+                        Layer::Run,
+                        0,
+                        Failure::RunFilesUnreadable,
+                        problem,
+                    )),
+                }
+                (comparison, requests)
+            });
         Ok::<_, String>((repository, label, found))
     })
     .and_then(|loaded| loaded);
@@ -385,6 +454,18 @@ fn run(options: Options) -> Result<bool, String> {
     let dirs = recordings(&options.paths);
     if dirs.is_empty() {
         return Err("no recording found under the paths given".into());
+    }
+    if options.request_kinds {
+        let (mut rest, mut graphql) = (0, 0);
+        for dir in &dirs {
+            let counted = guarded(|| load(dir)?.requests_by_kind().map_err(|e| e.to_string()))
+                .and_then(|counted| counted);
+            let (r, g) = counted.map_err(|e| format!("{}: {e}", dir.display()))?;
+            rest += r;
+            graphql += g;
+        }
+        println!("{rest} {graphql}");
+        return Ok(true);
     }
     if options.requests {
         let mut total = 0;
@@ -476,7 +557,9 @@ mod tests {
             found: caught.map(|_| (Comparison::default(), 0)),
         };
         let table = counts_table(std::slice::from_ref(&row));
-        assert!(table.contains("| unreadable (x) | 0/0 | 0/0 | 0/0 | 0 | 0 | 1 (1 unreadable) |"));
+        assert!(table.contains(
+            "| unreadable (x) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0 | 0 | 1 (1 unreadable) |"
+        ));
         assert!(!categories(&[row]).contains("a title"));
     }
 }

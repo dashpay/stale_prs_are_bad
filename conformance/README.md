@@ -424,8 +424,15 @@ it runs, so the budget sits well below 1 500, where the last step admitted
 could cost a third more than its estimate and still stay under. The App's
 remaining REST and GraphQL limits are logged before and after, and read
 again before each repository: recording stops when either is below 1 000
-plus what that repository is expected to cost. GraphQL's limit is counted in
-points, which the budget does not see.
+plus what that repository is expected to cost, and when either cannot be
+read. Each is read from the `x-ratelimit-remaining` header of a real request
+of its kind — a repository read for REST, a `rateLimit` query for GraphQL —
+whose `x-ratelimit-resource` says which limit it counted against. GitHub
+calls those headers the authoritative count and `GET /rate_limit` an
+overview that can disagree with them, and on this App it did: the endpoint
+showed the same REST count before and after a run that made several hundred
+REST requests. GraphQL's limit is counted in points, which the budget does
+not see.
 
 **What it compares.** Python first replays every recording against itself;
 a failure there is the recorder's, not the port's. Then
@@ -443,10 +450,31 @@ recording:
   what `evaluate_snapshots` adds: the repository, and the shared-head
   override where Python's row shows it.
 
+Then the whole run is replayed through the port's reconcile layer, as
+`tests/reconcile` replays the synthetic recordings (`replay_run`), and
+compared layer by layer:
+
+- **outcome**: whether the run failed, and with which class of error; and
+  how often it read the review system's status page;
+- **run verdicts**: each row the port's own run made, against
+  `verdicts.json`, with the same exclusion of a Python exception's text;
+- **writes**: each write in the recorded order, its method and route, and
+  its body as a JSON value. A write to the recorded route with another body
+  is answered as recorded, so the run goes on and every later write is
+  compared too, though a difference after the first may follow from the
+  recorded answer, which echoes what Python wrote; a write to another route,
+  or one more than the recording holds, has no answer and stops the run;
+- **outputs**: what each verdict puts on GitHub, against `outputs.json`;
+- **report**: the JSON report, against `printed.txt` (a Markdown report is
+  not compared);
+- **clock**: every read of the clock, its site and the call it came after
+  (format 2);
+- **calls**: every recorded call made, once, in the recorded order.
+
 A read the port needs and the recording lacks counts as a missing read, and
-fails the run. Writes, canonical outputs, the printed report and the clock
-log are not compared yet. The deliberate divergences above have no category
-yet, so one would show as a plain difference. Formats 1 and 2 both load.
+fails the run; the whole run stops at it, and its outcome says so. The
+deliberate divergences above have no category yet, so one would show as a
+plain difference. Formats 1 and 2 both load.
 
 **What it never outputs.** Recordings live in a mode-700 directory under the
 runner's temporary directory and are deleted by the job's last step, pass or
@@ -465,10 +493,22 @@ summary holds the counts table only.
   port.
 - *The Rust engine differed*: the categories table gives the layer, the field
   path, the kind (value, type, length, missing, extra, key order, exception
-  text) and the case indices. Cases index `evaluations.jsonl` for snapshots
-  and evaluations, and `verdicts.json` for verdicts.
+  text, or a failure such as a write made to another route) and the case
+  indices. Cases index `evaluations.jsonl` for snapshots and evaluations;
+  `verdicts.json` for verdicts, run verdicts and outputs; the recorded writes,
+  in order from 0, for writes (one the recording does not hold is numbered on
+  past its last); and are 0 for the run as a whole (outcome,
+  report, clock, calls), 1 for the outcome's count of status-page reads.
   - A snapshot that differs under a matching evaluation is the reader.
   - An evaluation that differs is `policy`.
+  - A run verdict that differs under matching verdicts is
+    `evaluate_snapshots` or what the run collected.
+  - A write that differs, an output, or the report is the reconcile layer;
+    a write's field path (`write.description`, `write.body`) says which part
+    of its body, and *write made to another route* or *recorded write never
+    made* says the run took another path from there.
+  - A clock read at another site, or calls in another order, is the run
+    asking at another point than Python did.
   - *Read not in the recording* is a request written differently from
     Python's, or one Python never made.
 
@@ -476,12 +516,8 @@ summary holds the counts table only.
   locally with a read-only token, redact it into `conformance/live/`, and run
   the tool on the redacted copy.
 
-**Phase 2, after the reconcile layer.** The tool replays each sync through
-the Rust reconcile layer, answering writes as the recorder did. It compares
-the ordered writes (method, path, and body as JSON), `outputs.json`, the
-printed report and the clock reads, and builds verdict rows from the port's
-own `evaluate_snapshots`. Then the live half: Rust reads the same pull
-requests over HTTP and its snapshots are compared with Python's. A pull
+**What comes next.** The live half: Rust reads the same pull requests over
+HTTP and its snapshots are compared with Python's. A pull
 request whose evidence print equals its last real record must produce no
 write. A difference is run again with Python's clock, status page and
 `admitted_at` substituted, and only one that then vanishes is categorised
