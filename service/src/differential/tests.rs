@@ -600,3 +600,157 @@ async fn what_github_answered_live_is_never_printed() {
     }
     no_content::assert_no_contents(&said, &recording, &sources());
 }
+
+/// `calls` without the calls of the given ordinals: as if Python's run had
+/// not made those writes. GitHub, served from the reads, answers the same.
+fn without(calls: &str, ordinals: &[i64]) -> String {
+    calls
+        .lines()
+        .filter(|line| {
+            let PyValue::Dict(entry) = py_loads(line).unwrap() else {
+                panic!("a call")
+            };
+            !matches!(entry.get("ordinal"), Some(PyValue::Int(n))
+                if ordinals.iter().any(|o| n.as_i64() == Some(*o)))
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+// The synthetic sweep is a dry `sync` of every pull request: 2 and 5
+// decided, 1 unreadable and marked so, 3 and 4 no longer governed and their
+// marks taken off. Python's run writes to each.
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sync_of_every_pull_request_read_live_as_recorded_matches_and_sends_no_write() {
+    let recording = synthetic().join("sweep");
+    let github = github(&read(&recording.join("calls.jsonl")), None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(outcome.clean(), "{said}");
+    // Every pull request decided, compared one by one. Python's run wrote
+    // to both, so neither is held to getting no write.
+    let requests = outcome.spent;
+    assert!(
+        said.contains(&format!(
+            "| dashpay/platform · sync | 2/2 | 2/2 | 0/0 | 0 | 0 | 2 | 0 | {requests} | 0 |"
+        )),
+        "{said}"
+    );
+    let coverage = outcome.coverage().unwrap();
+    assert_eq!(
+        coverage,
+        "2 pull requests; snapshots 2/2, verdicts 2/2, no write 0/0; 0 moved, 0 explained, \
+         2 unsettled; 0 differences"
+    );
+    let to_github = github
+        .seen()
+        .iter()
+        .filter(|request| request.path() != "/status.json")
+        .count();
+    assert_eq!(requests, to_github, "every request counted");
+    only_reads(&github);
+    no_content::assert_no_contents(&format!("{said}\n{coverage}"), &recording, &sources());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn in_a_sync_of_every_pull_request_each_one_python_wrote_nothing_to_is_held() {
+    // Python's run, here, wrote to 2 and not to 5. The live run wants to
+    // write to both: 2 is not held to anything, 5 is, and differs.
+    let dir = tempfile::tempdir().unwrap();
+    let recording = copy("sweep", dir.path());
+    let calls = without(&read(&recording.join("calls.jsonl")), &[61, 64, 67]);
+    std::fs::write(recording.join("calls.jsonl"), &calls).unwrap();
+    let github = github(&calls, None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(!outcome.clean(), "{said}");
+    assert!(
+        said.contains("| dashpay/platform · sync | 2/2 | 2/2 | 0/1 | 0 | 0 | 1 | 0 |"),
+        "{said}"
+    );
+    assert!(
+        said.contains(
+            "| live writes | `POST repos/*/*/statuses/*` | would-be write, not sent | 1 | dashpay/platform · sync: 1 |"
+        ),
+        "{said}"
+    );
+    let coverage = outcome.coverage().unwrap();
+    assert!(
+        coverage.ends_with("no write 0/1; 0 moved, 0 explained, 1 unsettled; 1 differences"),
+        "{coverage}"
+    );
+    only_reads(&github);
+    no_content::assert_no_contents(&format!("{said}\n{coverage}"), &recording, &sources());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sync_of_every_pull_request_over_the_budget_is_skipped_unread_and_says_so() {
+    let recording = synthetic().join("sweep");
+    let github = github(&read(&recording.join("calls.jsonl")), None).await;
+    let outcome = live(&github, &recording, RECORDED, 10).await;
+    let said = outcome.printed();
+    assert!(outcome.clean(), "{said}");
+    assert_eq!(outcome.spent, 0);
+    assert!(github.seen().is_empty(), "nothing read");
+    assert_eq!(
+        outcome.coverage().unwrap(),
+        "2 pull requests; not read live: over the live budget"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_a_sync_of_every_pull_request_is_a_repositorys_full_coverage() {
+    let recording = synthetic().join("sync-pr-2");
+    let github = github(&read(&recording.join("calls.jsonl")), None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    assert!(outcome.coverage().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn what_github_answered_a_sync_of_every_pull_request_is_never_printed() {
+    // Distinctive text only the live answers hold, in each decided pull
+    // request: a review's body on 2 and a file's name on 5.
+    const BODY: &str = "Wombat-Kilimanjaro-5519 wrote something private";
+    const FILE: &str = "Tangerine-Basalt-0827/secret.rs";
+    let recording = synthetic().join("sweep");
+    let calls = edited(
+        &read(&recording.join("calls.jsonl")),
+        |args| is_route(args, "repos/dashpay/platform/pulls/2/reviews?per_page=100"),
+        |answer| {
+            if let PyValue::List(pages) = answer {
+                if let Some(PyValue::List(page)) = pages.iter_mut().next() {
+                    if let Some(review) = page.iter_mut().next() {
+                        set(review, "body", BODY);
+                    }
+                }
+            }
+        },
+    );
+    let calls = edited(
+        &calls,
+        |args| is_route(args, "repos/dashpay/platform/pulls/5/files?per_page=100"),
+        |answer| {
+            if let PyValue::List(pages) = answer {
+                if let Some(PyValue::List(page)) = pages.iter_mut().next() {
+                    if let Some(file) = page.iter_mut().next() {
+                        set(file, "filename", FILE);
+                    }
+                }
+            }
+        },
+    );
+    let github = github(&calls, None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = format!(
+        "{}\n{}\n{}",
+        outcome.printed(),
+        outcome.summary(),
+        outcome.coverage().unwrap()
+    );
+    assert!(!outcome.clean(), "{said}");
+    for text in [BODY, FILE, "Wombat", "Tangerine", "ghs_test"] {
+        assert!(!said.contains(text), "printed {text:?}:\n{said}");
+    }
+    no_content::assert_no_contents(&said, &recording, &sources());
+}

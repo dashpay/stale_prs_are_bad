@@ -7,20 +7,26 @@
 //! - A report's recording: a few of its pull requests, rotating with the
 //!   run, read live and compared with the snapshots Python's `evaluate` was
 //!   given.
-//! - A one-author `sync --pr N` recording: the same command run whole,
-//!   live, walking the write path. Its snapshots and verdicts are compared
-//!   with Python's; and where nothing has changed since the engine last
-//!   wrote, it must want to write nothing. What it would write is answered
-//!   as refused by the engine's observing layer and never reaches the
-//!   transport; the read-only layer beneath refuses anything that is not
-//!   one of the engine's reads of an allowed repository.
-//! - Any other recording (the hourly sweep) is not read live: the budget
-//!   goes to the paths the service will run.
+//! - A sync's recording — one author's, `sync --pr N`, or every pull
+//!   request's, `sync` — the same command run whole, live, walking the
+//!   write path. Its snapshots and verdicts are compared with Python's,
+//!   pull request by pull request; and each pull request nothing has
+//!   changed on since the engine last wrote must get no write. What it
+//!   would write is answered as refused by the engine's observing layer
+//!   and never reaches the transport; the read-only layer beneath refuses
+//!   anything that is not one of the engine's reads of an allowed
+//!   repository.
+//! - Any other recording (the hourly sweep's batch) is not read live: the
+//!   budget goes to the paths the service will run.
 //!
 //! Each recording's live reads are weighed against what is left of the
 //! request budget before they are made, at the requests Python's own run
 //! of the same command made, or at [`PER_PULL_REQUEST`] a report pull
 //! request, and skipped when they would not fit.
+//!
+//! A sync of every pull request is a repository's full coverage, and has a
+//! line of its own besides its row ([`Outcome::coverage`]): how many pull
+//! requests Python's run decided, and how they compared live.
 //!
 //! What it says is the conformance report
 //! (`pr_hygiene_engine::conformance::report`), under the same rule as the
@@ -49,12 +55,13 @@ pub const PER_REPORT: usize = 2;
 /// The live counts table.
 pub const TABLE: Table = Table {
     intro: "Read live right after Python recorded. Each layer is cases matched of cases \
-            compared: snapshots and verdicts against Python's, and one-author runs held to \
-            writing nothing where nothing changed since the engine last wrote. Moved: pull \
-            requests that changed between the two reads. Explained: differences gone once \
-            given Python's clock, status page or admission instant. Unsettled: one-author \
-            runs not held to writing nothing, as Python's own run wrote or did not run \
-            to its end. Skipped: recordings over the budget, not read live.",
+            compared: snapshots and verdicts against Python's, and the pull requests of a \
+            sync held to getting no write where nothing changed since the engine last \
+            wrote. Moved: pull requests that changed between the two reads. Explained: \
+            differences gone once given Python's clock, status page or admission instant. \
+            Unsettled: pull requests of a sync not held to getting no write, as Python's own \
+            run wrote to them or did not run to its end. Skipped: recordings over the \
+            budget, not read live.",
     layers: &[
         (Layer::LiveSnapshot, "Snapshots"),
         (Layer::LiveVerdict, "Verdicts"),
@@ -65,9 +72,11 @@ pub const TABLE: Table = Table {
 
 /// What a case index in the live categories points at.
 pub const CASES: &str = "Cases are indices into the `evaluations.jsonl` of the \
-    recording read live; for a one-author run's writes, and for a run that evaluated \
-    other pull requests than Python's, 0. A would-be write is named by its method and \
-    route, every part of the route that is data written `*`; none was sent.";
+    recording read live, a would-be write by the pull request it was for; for a run that \
+    evaluated other pull requests than Python's, and for a write to a pull request \
+    neither run decided, 0. A would-be write is named by its method and route, every \
+    part of the route that is data written `*`, and only the first to each pull request \
+    is named; none was sent.";
 
 /// How many live reads a run may make, and which.
 #[derive(Debug, Clone, Copy)]
@@ -95,9 +104,42 @@ pub struct Outcome {
     pub rows: Vec<Row>,
     /// The requests the live reads made, a page of a listing each.
     pub spent: usize,
+    /// What each sync of every pull request found, one line each, in
+    /// counts: a repository's full coverage.
+    pub full: Vec<String>,
+}
+
+/// The line a sync of every pull request gets: how many pull requests
+/// Python's run decided, and how they compared live; or that they were not
+/// read live.
+fn coverage(decided: usize, live: Option<&Live>) -> String {
+    let Some(live) = live else {
+        return format!("{decided} pull requests; not read live: over the live budget");
+    };
+    let layer = |layer: Layer| {
+        let (matched, compared) = live.comparison.matched(layer);
+        format!("{matched}/{compared}")
+    };
+    format!(
+        "{decided} pull requests; snapshots {}, verdicts {}, no write {}; {} moved, {} \
+         explained, {} unsettled; {} differences",
+        layer(Layer::LiveSnapshot),
+        layer(Layer::LiveVerdict),
+        layer(Layer::LiveWrites),
+        live.moved,
+        live.comparison.explained(),
+        live.unsettled,
+        live.comparison.differences(),
+    )
 }
 
 impl Outcome {
+    /// The full coverage lines, if any recording was a sync of every pull
+    /// request.
+    pub fn coverage(&self) -> Option<String> {
+        (!self.full.is_empty()).then(|| self.full.join("\n"))
+    }
+
     /// Whether every recording read live matched, or differed only where a
     /// difference is explained or a pull request moved.
     pub fn clean(&self) -> bool {
@@ -139,11 +181,15 @@ impl Outcome {
 }
 
 /// What a recording's live reads are, if it has any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Work {
     /// A report: a few of its pull requests.
     Report,
     /// A one-author sync, run whole.
     Run,
+    /// A sync of every pull request, run whole: the repository's full
+    /// coverage.
+    All,
 }
 
 fn work(recording: &Recording) -> Option<Work> {
@@ -152,6 +198,8 @@ fn work(recording: &Recording) -> Option<Work> {
         Some(Work::Report)
     } else if command.starts_with("sync --pr ") {
         Some(Work::Run)
+    } else if command == "sync" {
+        Some(Work::All)
     } else {
         None
     }
@@ -185,10 +233,18 @@ fn counts(live: &Live, skipped: bool) -> Vec<usize> {
     vec![
         live.moved,
         live.comparison.explained(),
-        usize::from(live.settled == Some(false)),
+        live.unsettled,
         usize::from(skipped),
         live.requests,
     ]
+}
+
+/// One recording read live: its row, the requests its live reads made,
+/// and, for a sync of every pull request, its full coverage line.
+struct Read {
+    row: Row,
+    cost: usize,
+    coverage: Option<String>,
 }
 
 /// Read live what each recording under `dirs` read, while the budget
@@ -206,6 +262,7 @@ pub fn compare(dirs: &[PathBuf], own: &OwnWords, settings: Settings, reads: Read
         status_page,
     } = reads;
     let mut rows = Vec::new();
+    let mut full = Vec::new();
     let mut spent = 0;
     for dir in dirs {
         let directory = plain(&dir.file_name().unwrap_or_default().to_string_lossy());
@@ -220,9 +277,10 @@ pub fn compare(dirs: &[PathBuf], own: &OwnWords, settings: Settings, reads: Read
         });
         match read {
             Ok(None) => {}
-            Ok(Some((row, cost))) => {
-                spent += cost;
-                rows.push(row);
+            Ok(Some(read)) => {
+                spent += read.cost;
+                rows.push(read.row);
+                full.extend(read.coverage);
             }
             Err(problem) => {
                 spent += left;
@@ -236,10 +294,11 @@ pub fn compare(dirs: &[PathBuf], own: &OwnWords, settings: Settings, reads: Read
         }
     }
     label_rows(&mut rows);
-    Outcome { rows, spent }
+    Outcome { rows, spent, full }
 }
 
-/// One recording's row, and the requests its live reads made; `None` for a
+/// One recording's row, the requests its live reads made, and its full
+/// coverage line where it is a sync of every pull request; `None` for a
 /// recording that is not read live. `left` is what is left of the budget.
 fn one(
     dir: &Path,
@@ -248,7 +307,7 @@ fn one(
     settings: Settings,
     left: usize,
     reads: &mut Reads<'_>,
-) -> Option<(Row, usize)> {
+) -> Option<Read> {
     let loaded = Recording::load_with(|name| std::fs::read_to_string(dir.join(name)))
         .map_err(|e| e.to_string());
     let recording = match loaded {
@@ -260,7 +319,11 @@ fn one(
                 directory: directory.to_owned(),
                 found: Err(problem),
             };
-            return Some((row, 0));
+            return Some(Read {
+                row,
+                cost: 0,
+                coverage: None,
+            });
         }
     };
     let work = work(&recording)?;
@@ -272,6 +335,8 @@ fn one(
         directory: directory.to_owned(),
         found,
     };
+    let decided = recording.verdicts.len();
+    let full = |live: Option<&Live>| (work == Work::All).then(|| coverage(decided, live));
     // Python's own run of the same command made these requests minutes
     // ago; the live run makes the same reads.
     let estimate = match work {
@@ -279,22 +344,31 @@ fn one(
             let picks = settings.report_prs.min(recording.verdicts.len());
             PER_REPORT + PER_PULL_REQUEST * picks
         }
-        Work::Run => recording.requests().unwrap_or(settings.budget),
+        Work::Run | Work::All => recording.requests().unwrap_or(settings.budget),
     };
     if estimate > left {
         let skipped = Found {
             counts: counts(&Live::default(), true),
             ..Found::default()
         };
-        return Some((row(Ok(skipped)), 0));
+        return Some(Read {
+            row: row(Ok(skipped)),
+            cost: 0,
+            coverage: full(None),
+        });
     }
     let Ok(transport) = (reads.transport)() else {
         let problem = "the read-only transport could not be made".to_owned();
-        return Some((row(Err(problem)), 0));
+        return Some(Read {
+            row: row(Err(problem)),
+            cost: 0,
+            coverage: (work == Work::All)
+                .then(|| format!("{decided} pull requests; could not be read live")),
+        });
     };
     let live = match work {
         Work::Report => live_snapshots(&recording, settings.report_prs, settings.slot, transport),
-        Work::Run => live_run(
+        Work::Run | Work::All => live_run(
             &recording,
             transport,
             &mut *reads.clock,
@@ -302,11 +376,17 @@ fn one(
             own,
         ),
     };
+    let coverage = full(Some(&live));
+    let cost = live.requests;
     let found = Found {
         counts: counts(&live, false),
         comparison: live.comparison,
     };
-    Some((row(Ok(found)), live.requests))
+    Some(Read {
+        row: row(Ok(found)),
+        cost,
+        coverage,
+    })
 }
 
 #[cfg(test)]

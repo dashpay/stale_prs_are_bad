@@ -1,13 +1,15 @@
 //! The live comparison held to its rule for a pull request nothing has
 //! changed since the engine last wrote, over the stateful fake: settled by
-//! earlier runs, a one-author run made live wants to write nothing, and is
-//! counted as held to it.
+//! earlier runs, a one-author run made live, or a run of every pull
+//! request, wants to write nothing, and each pull request is counted as
+//! held to it.
 //!
 //! "Python's" run here is the port's own dry run of the same command over
-//! the same state: its snapshot, verdict and admission stand where Python's
-//! would, and it recorded no call, so it wrote nothing.
+//! the same state: its snapshots, verdicts and admissions stand where
+//! Python's would, and it recorded no call, so it wrote nothing.
 
 use crate::fake::*;
+use crate::properties::mixed;
 use crate::scene::*;
 use crate::support::*;
 use pr_hygiene_engine::conformance::live::{live_run, Live};
@@ -66,45 +68,55 @@ fn dict(entries: Vec<(&str, PyValue)>) -> PyValue {
 /// The recording of a dry `sync --pr 1` over the fake as it stands, with
 /// the status page `page`.
 fn recorded(scene: &mut Scene, policy: &PyValue, page: &PyValue) -> Recording {
+    recorded_of(scene, policy, page, Pick::Pr(1))
+}
+
+/// The recording of a dry sync of `pick` — `Pick::Pr(n)` or `Pick::All` —
+/// over the fake as it stands, with the status page `page`.
+fn recorded_of(scene: &mut Scene, policy: &PyValue, page: &PyValue, pick: Pick) -> Recording {
+    let argv: Vec<String> = match &pick {
+        Pick::Pr(n) => vec![
+            "sync".into(),
+            "--repo".into(),
+            REPO.into(),
+            "--pr".into(),
+            n.to_string(),
+        ],
+        Pick::All => vec!["sync".into(), "--repo".into(), REPO.into()],
+        Pick::Batch(_) => panic!("a batch is not read live"),
+    };
     let run = scene
-        .run_with(
-            policy,
-            Command::Sync,
-            Pick::Pr(1),
-            None,
-            false,
-            page.clone(),
-        )
+        .run_with(policy, Command::Sync, pick, None, false, page.clone())
         .expect("the dry run decides");
     let now = run.generated_at.clone();
     let candidates = PyValue::List(PyList::from(run.candidates.clone()));
-    let admitted = admit(policy, &candidates, &s(&now))
-        .expect("admission")
-        .get(&PyInt::from(1))
-        .cloned()
-        .unwrap_or(PyValue::None);
-    let row = run.verdicts[0].clone();
-    let mut result = row.clone();
-    if let PyValue::Dict(fields) = &mut result {
-        fields.shift_remove("repository");
+    let slots = admit(policy, &candidates, &s(&now)).expect("admission");
+    let mut evaluations = String::new();
+    for (snapshot, row) in run.snapshots.iter().zip(&run.verdicts) {
+        let PyValue::Int(number) = field(snapshot, "number") else {
+            panic!("a numbered pull request")
+        };
+        let admitted = slots.get(number).cloned().unwrap_or(PyValue::None);
+        let mut result = row.clone();
+        if let PyValue::Dict(fields) = &mut result {
+            fields.shift_remove("repository");
+        }
+        let evaluation = dict(vec![
+            ("pr", snapshot.clone()),
+            ("admitted_at", admitted),
+            ("now", s(&now)),
+            ("telemetry_states", PyValue::None),
+            ("result", result),
+        ]);
+        evaluations.push_str(&format!("{}\n", dump(&evaluation)));
     }
-    let evaluation = dict(vec![
-        ("pr", run.snapshots[0].clone()),
-        ("admitted_at", admitted),
-        ("now", s(&now)),
-        ("telemetry_states", PyValue::None),
-        ("result", result),
-    ]);
     let meta = dict(vec![
         ("format", PyValue::Int(PyInt::from(2))),
         ("repository", s(REPO)),
         (
             "argv",
             PyValue::List(PyList::from(
-                ["sync", "--repo", REPO, "--pr", "1"]
-                    .iter()
-                    .map(|word| s(word))
-                    .collect::<Vec<_>>(),
+                argv.iter().map(|word| s(word)).collect::<Vec<_>>(),
             )),
         ),
         ("clock", s(&now)),
@@ -119,10 +131,10 @@ fn recorded(scene: &mut Scene, policy: &PyValue, page: &PyValue) -> Recording {
     let files = [
         ("recording.json", dump(&meta)),
         ("calls.jsonl", String::new()),
-        ("evaluations.jsonl", format!("{}\n", dump(&evaluation))),
+        ("evaluations.jsonl", evaluations),
         (
             "verdicts.json",
-            dump(&PyValue::List(PyList::from(vec![row]))),
+            dump(&PyValue::List(PyList::from(run.verdicts.clone()))),
         ),
     ];
     Recording::load_with(|name| -> Result<String, String> {
@@ -163,7 +175,7 @@ fn a_settled_pull_request_read_live_wants_to_write_nothing() {
         &mut || PyValue::None,
         &own(),
     );
-    assert_eq!(live.settled, Some(true), "{:?}", live.comparison);
+    assert_eq!(live.unsettled, 0, "{:?}", live.comparison);
     assert!(
         matches!(outcome(&live, Layer::LiveWrites), Outcome::Matched),
         "{:?}",
@@ -211,7 +223,7 @@ fn a_settled_pull_request_whose_evidence_moved_on_is_still_held_to_writing_nothi
         &mut || PyValue::None,
         &own(),
     );
-    assert_eq!(live.settled, Some(true), "{:?}", live.comparison);
+    assert_eq!(live.unsettled, 0, "{:?}", live.comparison);
     assert!(
         matches!(outcome(&live, Layer::LiveWrites), Outcome::Matched),
         "{:?}",
@@ -219,4 +231,100 @@ fn a_settled_pull_request_whose_evidence_moved_on_is_still_held_to_writing_nothi
     );
     assert!(live.comparison.is_clean());
     assert_eq!(scene.fake.written.len(), written, "nothing written");
+}
+
+#[test]
+fn every_pull_request_of_a_settled_repository_read_live_is_held_to_no_write_and_gets_none() {
+    // A repository settled by full passes: admitted, recorded, described,
+    // labelled and asked. A run of every pull request, made live, decides
+    // each as Python's run did and wants to write to none of them, nor to
+    // the one rebased off the policy, whose marks are already gone.
+    let (policy, fake) = mixed();
+    let mut scene = Scene::new(fake);
+    for _ in 0..3 {
+        scene.fake.forget_calls();
+        scene.sync_all(&policy);
+    }
+    assert!(scene.writes().is_empty(), "settled: {:?}", scene.writes());
+    let recording = recorded_of(&mut scene, &policy, &PyValue::None, Pick::All);
+    assert_eq!(recording.verdicts.len(), 4, "every governed pull request");
+    let written = scene.fake.written.len();
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    let held: Vec<usize> = live
+        .comparison
+        .checks
+        .iter()
+        .filter(|check| check.layer == Layer::LiveWrites)
+        .map(|check| {
+            assert!(
+                matches!(check.outcome, Outcome::Matched),
+                "{:?}",
+                live.comparison
+            );
+            check.index
+        })
+        .collect();
+    assert_eq!(held, [0, 1, 2, 3], "each pull request held, and none wrote");
+    assert_eq!(live.unsettled, 0);
+    assert_eq!(live.comparison.matched(Layer::LiveSnapshot), (4, 4));
+    assert_eq!(live.comparison.matched(Layer::LiveVerdict), (4, 4));
+    assert!(live.comparison.is_clean(), "{:?}", live.comparison);
+    assert_eq!(scene.fake.written.len(), written, "nothing written");
+}
+
+#[test]
+fn a_pull_request_of_a_settled_repository_that_wants_a_write_is_named_alone() {
+    // The same repository, one pull request's state label taken off by
+    // hand after the last pass: Python's run would put it back, so here
+    // "Python's" dry run, made before the label went, wrote nothing, and
+    // the live run, made after, wants to write to that one pull request
+    // and to no other.
+    let (policy, fake) = mixed();
+    let mut scene = Scene::new(fake);
+    for _ in 0..3 {
+        scene.fake.forget_calls();
+        scene.sync_all(&policy);
+    }
+    let recording = recorded_of(&mut scene, &policy, &PyValue::None, Pick::All);
+    let labels = &mut scene.fake.pr(2).labels;
+    assert!(!labels.is_empty(), "2 wears its state label: {labels:?}");
+    labels.clear();
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    let writes: Vec<(usize, String)> = live
+        .comparison
+        .checks
+        .iter()
+        .filter(|check| check.layer == Layer::LiveWrites)
+        .map(|check| {
+            let said = match &check.outcome {
+                Outcome::Matched => "matched".to_owned(),
+                Outcome::Differs(found) => found[0].path.clone(),
+                other => format!("{other:?}"),
+            };
+            (check.index, said)
+        })
+        .collect();
+    assert_eq!(
+        writes,
+        [
+            (0, "matched".to_owned()),
+            (1, "POST repos/*/*/statuses/*".to_owned()),
+            (2, "matched".to_owned()),
+            (3, "matched".to_owned()),
+        ],
+        "{:?}",
+        live.comparison
+    );
 }
