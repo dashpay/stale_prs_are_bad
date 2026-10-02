@@ -1,0 +1,3 @@
+# Conformance cases the Rust engine does not match yet, one path per line,
+# relative to conformance/. The list only shrinks: a listed case that
+# passes fails the gate, and so does an unlisted case that fails.

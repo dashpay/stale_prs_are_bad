@@ -333,6 +333,57 @@ engine compiles in (`engine/src/pycompat/tables.rs`). The engine's
 the version it ran on in every file, and writes the same bytes each run; run
 it again only when the Python the engine runs on changes.
 
+```sh
+uv run -q --python 3.12 --no-project --with pyyaml python conformance/pycompat/generate_policy.py
+```
+
+Writes what the policy port needs beyond that, from `pr_review/policy.py`
+itself: `policy_regex.json` (every pattern the policy uses, with what `re`
+matched), `object.json` (`str()`, float `repr`, `==` and `<` between values,
+the characters whose `upper()` is ASCII, what `sorted()` leaves or raises),
+`policy_malformed.json` (corpus cases with one field deleted or given another
+type, whether `evaluate` raised or what it answered, and `fingerprint`), and
+`policy_variants.json` (what the corpus cannot tell apart: which of two
+equal instants a verdict keeps, what `strip` takes around an attestation or
+a skip, the order `diff_print` sorts files in, and `fingerprint` of every
+corpus snapshot). It refuses to run when a pattern it copies no longer
+appears in `policy.py`, and records only the minor version of Python, so CI
+regenerates the files and fails on any difference, as it does the corpus.
+
+## The Rust engine's gate
+
+`engine/tests/policy` runs every evaluate case and the `policy.admit`,
+`policy.receipt_print` and `policy.diff_print` function cases through the
+Rust port, comparing each result as the JSON Python's writer makes of it.
+`conformance/pending.txt` lists, one path per line relative to this
+directory, the cases the port is known not to match yet. It only shrinks: a
+listed case that passes fails the test, and so do an unlisted case that
+fails and a listed case that does not exist.
+
+### Where the Rust engine departs from Python on purpose
+
+Each refuses input that nothing GitHub answers, or the engine writes, can
+hold, and fails closed or fails the run rather than guess:
+
+- **A lone surrogate** (`"\ud800"`) in JSON read from a bot's comment cannot
+  be held in a Rust string. That read takes its function's unreadable path,
+  the path invalid JSON takes in Python: a CodeRabbit receipt holding one is
+  not a receipt.
+- **A float in a hashed print** (`diff_print`, `fingerprint`): Python's JSON
+  writer writes it; the engine's writes no float, so the run fails
+  (`PyErr::Unported`).
+- **A carried commit id holding a character outside ASCII**: Python matches
+  thepastaclaw's final-phase marker case-insensitively with its own Unicode
+  case data, which the port does not have. Such an id matches nothing, so the
+  bot reads as not having reported on it. The engine's records name only
+  hexadecimal commits.
+- **Timeouts in fractional hours**, and **a review slot keyed by a pull request
+  number that is not an int**: refused (`Unported`); `validate_policy` and
+  GitHub allow neither.
+- **Sorting values that cannot be compared**: under 64 items the port asks `<`
+  of the same pairs as CPython and raises where it raises; past that CPython
+  merges runs and may meet a different incomparable pair first.
+
 ## What another engine must match exactly
 
 - **The verdicts**: every field of every row, rows in order.

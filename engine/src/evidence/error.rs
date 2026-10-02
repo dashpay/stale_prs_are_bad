@@ -13,6 +13,7 @@ pub enum PyClass {
     AttributeError,
     ValueError,
     RecursionError,
+    OverflowError,
 }
 
 /// Why a read gave no answer.
@@ -75,6 +76,9 @@ impl From<PyErr> for ReadError {
             PyErr::Type(_) => PyClass::TypeError,
             PyErr::Key(_) => PyClass::KeyError,
             PyErr::Recursion(_) => PyClass::RecursionError,
+            PyErr::Attribute(_) => PyClass::AttributeError,
+            PyErr::Overflow(_) => PyClass::OverflowError,
+            PyErr::Unported(why) => return ReadError::NotPorted(why),
         };
         ReadError::exception(class, error.to_string())
     }

@@ -1,5 +1,6 @@
 //! Python's `datetime.datetime` as the engine uses it: `fromisoformat`,
-//! `isoformat`, comparison, subtraction and `timestamp`.
+//! `isoformat`, comparison, subtraction, adding a `timedelta` and
+//! `timestamp`.
 //!
 //! [`PyDateTime::fromisoformat`] is a port of CPython 3.12's C
 //! `datetime_fromisoformat`, which is what the engine runs. It works on the
@@ -34,6 +35,15 @@ impl PyTimeDelta {
 
     pub fn micros(self) -> i64 {
         self.micros
+    }
+
+    /// `timedelta(hours=hours)`; `None` past what a microsecond count in an
+    /// `i64` holds, which is far past any date [`PyDateTime::py_add`] can
+    /// reach.
+    pub fn checked_from_hours(hours: i64) -> Option<Self> {
+        hours
+            .checked_mul(3600 * MICROS_PER_SECOND)
+            .map(Self::from_micros)
     }
 
     /// `delta.total_seconds()`: the microseconds over a million, rounded
@@ -266,6 +276,35 @@ impl PyDateTime {
         Ok(PyTimeDelta::from_micros(
             self.clock_micros() - other.clock_micros(),
         ))
+    }
+
+    /// `self + delta`: the same offset, the wall clock moved. Outside years
+    /// 1 to 9999 it is Python's `OverflowError`.
+    pub fn py_add(&self, delta: PyTimeDelta) -> Result<PyDateTime, PyErr> {
+        let overflow = || PyErr::Overflow("date value out of range".into());
+        let total = self
+            .local_micros()
+            .checked_add(delta.micros)
+            .ok_or_else(overflow)?;
+        let days = total.div_euclid(MICROS_PER_DAY);
+        let rest = total.rem_euclid(MICROS_PER_DAY);
+        if days < 1 || days > i64::from(ordinal(9999, 12, 31)) {
+            return Err(overflow());
+        }
+        let (year, month, day) = civil_from_days(days - 719_163);
+        let seconds = rest / MICROS_PER_SECOND;
+        // Every field is in range: the date was checked above, and `rest`
+        // is less than one day.
+        Ok(PyDateTime {
+            year,
+            month: month as u32,
+            day: day as u32,
+            hour: (seconds / 3600) as u32,
+            minute: (seconds / 60 % 60) as u32,
+            second: (seconds % 60) as u32,
+            microsecond: (rest % MICROS_PER_SECOND) as u32,
+            offset: self.offset,
+        })
     }
 
     /// `timestamp()` of an aware value: seconds since the Unix epoch.

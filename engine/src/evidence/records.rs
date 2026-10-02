@@ -10,8 +10,9 @@
 //! count: an older one is never brought back in its place.
 
 use super::error::{PyClass, ReadError};
-use super::py::{self, compiled, get, is_engine_value, item, or_default, text, Read};
-use super::rules::{CHECKLIST_END, CHECKLIST_START};
+use super::py::{self, compiled, text, Read};
+use crate::policy::{is_engine, CHECKLIST_END, CHECKLIST_START};
+use crate::pycompat::object::{get, getitem, or_default, str_method};
 use crate::pycompat::ops::{py_compare, py_contains, py_eq, Compare};
 use crate::pycompat::re::fullmatch_pattern;
 use crate::pycompat::text::{py_lstrip, py_splitlines};
@@ -80,7 +81,7 @@ pub fn validate_state(state: &PyValue) -> Result<(), ReadError> {
     if entries.len() != KEYS.len() || !KEYS.iter().all(|key| entries.contains_key(*key)) {
         return Err(schema());
     }
-    let field = |key: &str| item(state, key);
+    let field = |key: &str| getitem(state, key);
     if !matches!(field("version")?, PyValue::Int(v) if v.as_i64() == Some(1)) {
         return Err(schema());
     }
@@ -180,7 +181,7 @@ fn engine_words(comment: &PyValue) -> Read<bool> {
     if none(edited_at) && none(editor) {
         return Ok(true);
     }
-    is_engine_value(editor)
+    Ok(is_engine(editor)?)
 }
 
 /// `_text(_written_at(comment), "comment write time")`: when a comment was
@@ -273,15 +274,15 @@ pub fn parse_controller_state(comments: &[PyValue]) -> Result<Option<Record>, Re
                 "Controller state read without who last edited it",
             ));
         }
-        if !is_engine_value(Some(item(comment, "user")?))? {
+        if !is_engine(Some(getitem(comment, "user")?))? {
             continue;
         }
-        let body = item(comment, "body")?;
+        let body = getitem(comment, "body")?;
         if !holds(body, STATE_MARKER)? {
             continue;
         }
         if !engine_words(comment)? {
-            found.push((written_at(comment)?, item(comment, "id")?.clone(), None));
+            found.push((written_at(comment)?, getitem(comment, "id")?.clone(), None));
             continue;
         }
         let body = body_text(body)?;
@@ -295,7 +296,7 @@ pub fn parse_controller_state(comments: &[PyValue]) -> Result<Option<Record>, Re
         validate_state(&state)?;
         found.push((
             written_at(comment)?,
-            item(comment, "id")?.clone(),
+            getitem(comment, "id")?.clone(),
             Some(state),
         ));
     }
@@ -320,15 +321,15 @@ pub fn parse_controller_diff(
     let wanted = PyValue::Int(number.clone());
     let mut found: Vec<(String, PyValue, PyValue)> = Vec::new();
     for comment in comments {
-        if !is_engine_value(Some(item(comment, "user")?))?
-            || !holds(item(comment, "body")?, DIFF_MARKER)?
+        if !is_engine(Some(getitem(comment, "user")?))?
+            || !holds(getitem(comment, "body")?, DIFF_MARKER)?
         {
             continue;
         }
         if !engine_words(comment)? {
             continue;
         }
-        let body = body_text(item(comment, "body")?)?;
+        let body = body_text(getitem(comment, "body")?)?;
         let [state] = marker_json(&STATE_PATTERN, body)[..] else {
             continue;
         };
@@ -355,10 +356,10 @@ pub fn parse_controller_diff(
             Err(error) if error.is(&[PyClass::ValueError, PyClass::TypeError]) => continue,
             Err(error) => return Err(error),
         }
-        if !py_eq(item(&diff, "number")?, &wanted) {
+        if !py_eq(getitem(&diff, "number")?, &wanted) {
             continue;
         }
-        found.push((written_at(comment)?, item(comment, "id")?.clone(), diff));
+        found.push((written_at(comment)?, getitem(comment, "id")?.clone(), diff));
     }
     Ok(newest(found)?.map(|(_, _, diff)| diff))
 }
@@ -439,7 +440,7 @@ pub fn current_checklist(body: &PyValue) -> Result<Option<String>, ReadError> {
     match or_default(Some(body)) {
         None => Ok(None),
         Some(value) => {
-            let text = py::str_method(value, "splitlines")?;
+            let text = str_method(value, "splitlines")?;
             Ok(split_checklist(text).1.map(str::to_owned))
         }
     }

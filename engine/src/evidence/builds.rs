@@ -1,7 +1,8 @@
 //! A head's build, as `green`, `running` or `failed`, from its checks.
 
 use super::error::ReadError;
-use super::py::{get, get_or_empty, item, or_default, str_method, text, Read};
+use super::py::{text, Read};
+use crate::pycompat::object::{get, getitem, or, or_default, str_method, EMPTY_DICT};
 use crate::pycompat::ops::{
     py_compare, py_contains, py_eq_str, py_hashable, py_in_str_set, py_same_element, Compare,
 };
@@ -48,8 +49,8 @@ impl Build {
 /// the workflow a check run belongs to, or nothing.
 fn workflow(node: &PyValue) -> Read<Option<&PyValue>> {
     let suite = get(node, "checkSuite")?;
-    let run = get_or_empty(suite, "workflowRun")?;
-    Ok(or_default(get_or_empty(run, "workflow")?))
+    let run = get(or(suite, &EMPTY_DICT), "workflowRun")?;
+    Ok(or_default(get(or(run, &EMPTY_DICT), "workflow")?))
 }
 
 /// `_ours(node)`: whether a check run is this controller reviewing the pull
@@ -64,7 +65,7 @@ fn ours(node: &PyValue) -> Read<bool> {
     let details = or_default(get(node, "detailsUrl")?)
         .cloned()
         .unwrap_or_else(|| PyValue::Str(String::new()));
-    let resource = match or_default(get_or_empty(suite, "resourcePath")?) {
+    let resource = match or_default(get(or(suite, &EMPTY_DICT), "resourcePath")?) {
         Some(value) => str_method(value, "endswith")?,
         None => "",
     };
@@ -104,10 +105,10 @@ pub fn build_verdict(nodes: &[PyValue]) -> Result<Build, ReadError> {
                 continue;
             }
             kind = "check";
-            workflow_path = or_default(get_or_empty(workflow(node)?, "resourcePath")?)
+            workflow_path = or_default(get(or(workflow(node)?, &EMPTY_DICT), "resourcePath")?)
                 .cloned()
                 .unwrap_or_else(|| PyValue::Str(String::new()));
-            name = text(Some(item(node, "name")?), "check name")?.to_owned();
+            name = text(Some(getitem(node, "name")?), "check name")?.to_owned();
             when = get(node, "startedAt")?;
             state = match or_default(get(node, "conclusion")?) {
                 Some(conclusion) => Some(conclusion),
@@ -119,7 +120,7 @@ pub fn build_verdict(nodes: &[PyValue]) -> Result<Build, ReadError> {
             }
             kind = "status";
             workflow_path = PyValue::Str(String::new());
-            name = text(Some(item(node, "context")?), "status context")?.to_owned();
+            name = text(Some(getitem(node, "context")?), "status context")?.to_owned();
             when = get(node, "createdAt")?;
             state = get(node, "state")?;
         }

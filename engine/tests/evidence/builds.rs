@@ -334,6 +334,37 @@ fn the_check_before_a_write_reads_the_build_afresh() {
 }
 
 #[test]
+fn a_check_cursor_that_comes_back_is_refused_not_followed_for_ever() {
+    // A cursor seen before leads only to pages already read. Followed, it
+    // keeps the run asking for ever: in Actions until the job times out, in
+    // a service until somebody notices. Six pages are offered, as Python's
+    // test offers them; a reader still asking after them is stopped there
+    // rather than hanging the suite, and fails this test.
+    let head = "a".repeat(40);
+    let mut pages: std::collections::VecDeque<Value> = [
+        ("a", "c1"),
+        ("b", "c2"),
+        ("c", "c1"),
+        ("d", "c2"),
+        ("e", "c1"),
+        ("f", "c2"),
+    ]
+    .into_iter()
+    .map(|(name, cursor)| rollup(json!([ci(name, "SUCCESS", "1")]), &head, true, Some(cursor)))
+    .collect();
+    let mut api = api(move |_| match pages.pop_front() {
+        Some(page) => ok(page),
+        None => Err(TransportError::Refused(
+            "asked past the six pages offered".into(),
+        )),
+    });
+    assert_eq!(
+        github_error(api.build_state(&int(1), &head)),
+        "Check pagination did not advance"
+    );
+}
+
+#[test]
 fn more_checks_with_nowhere_to_read_them_from_is_refused() {
     // Asking for the next page without a cursor would ask for the first page
     // again, for ever.

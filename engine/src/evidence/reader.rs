@@ -10,17 +10,17 @@
 use super::builds::{build_verdict, Build};
 use super::client::Client;
 use super::error::{KeyOrTypeAs, PyClass, ReadError};
-use super::py::{
-    dict, get, get_or_empty, is_engine_value, item, iterate, iterate_or_empty, list, login,
-    optional, or_default, str_method, str_value, text, Read,
-};
+use super::py::{dict, list, login, optional, str_value, text, Read};
 use super::queries;
 use super::records::{
     parse_controller_diff, parse_controller_state, utc_timestamp, EDITOR_UNKNOWN,
 };
-use super::rules::{finding_severities, BOT_LOGINS};
 use super::transport::{Method, Transport};
+use crate::policy::{finding_severities, is_engine};
 use crate::pycompat::hashlib::sha256_hexdigest;
+use crate::pycompat::object::{
+    get, getitem, iterate, or, or_default, str_method, EMPTY_DICT, EMPTY_LIST,
+};
 use crate::pycompat::ops::{
     py_compare_sequences, py_eq, py_eq_str, py_hashable, py_in_str_set, py_same_element, Compare,
 };
@@ -32,6 +32,15 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::hash::Hash;
+
+/// `BOT_LOGINS`: accounts whose access is never read, the review bots and
+/// the engine.
+const BOT_LOGINS: &[&str] = &[
+    "coderabbitai[bot]",
+    "coderabbitai",
+    "thepastaclaw",
+    "github-actions[bot]",
+];
 
 /// A pull request's comments and its latest inactive transition, as
 /// [`GitHub::histories`] reads them for many pull requests at once.
@@ -137,27 +146,27 @@ fn graphql_login(author: &PyValue) -> Read<String> {
 /// the `ghost` user's, as the listing names it, rather than a failure of the
 /// whole history read for every pull request beside it.
 fn graphql_comment(comment: &PyValue) -> Read<PyValue> {
-    let edited_at = item(comment, "lastEditedAt")?;
-    let author = item(comment, "author")?;
+    let edited_at = getitem(comment, "lastEditedAt")?;
+    let author = getitem(comment, "author")?;
     let mut out = PyDict::new();
-    out.insert("id".into(), item(comment, "databaseId")?.clone());
+    out.insert("id".into(), getitem(comment, "databaseId")?.clone());
     let user = match author {
         PyValue::None => "ghost".to_owned(),
         author => graphql_login(author)?,
     };
     out.insert("user".into(), str_value(user));
-    out.insert("body".into(), item(comment, "body")?.clone());
+    out.insert("body".into(), getitem(comment, "body")?.clone());
     out.insert(
         "created_at".into(),
         str_value(text(
-            Some(item(comment, "createdAt")?),
+            Some(getitem(comment, "createdAt")?),
             "comment creation time",
         )?),
     );
     out.insert(
         "updated_at".into(),
         str_value(text(
-            Some(item(comment, "updatedAt")?),
+            Some(getitem(comment, "updatedAt")?),
             "comment update time",
         )?),
     );
@@ -167,7 +176,7 @@ fn graphql_comment(comment: &PyValue) -> Read<PyValue> {
     };
     out.insert("edited_at".into(), edited);
     let editor = match or_default(get(comment, "editor")?) {
-        Some(_) => str_value(graphql_login(item(comment, "editor")?)?),
+        Some(_) => str_value(graphql_login(getitem(comment, "editor")?)?),
         None => PyValue::None,
     };
     out.insert("edited_by".into(), editor);
@@ -178,8 +187,8 @@ fn graphql_comment(comment: &PyValue) -> Read<PyValue> {
 /// `int`, no id twice.
 fn checked_comments(comments: &[PyValue]) -> Read<()> {
     let valid = |c: &PyValue| {
-        matches!(item(c, "body"), Ok(PyValue::Str(_)))
-            && matches!(item(c, "id"), Ok(PyValue::Int(_)))
+        matches!(getitem(c, "body"), Ok(PyValue::Str(_)))
+            && matches!(getitem(c, "id"), Ok(PyValue::Int(_)))
     };
     if !comments.iter().all(valid) {
         return Err(ReadError::github("Invalid comment identity or body"));
@@ -234,50 +243,53 @@ pub fn pr_identity(raw: &PyValue) -> Result<PyValue, ReadError> {
 
 fn identity(raw: &PyValue) -> Read<PyDict> {
     let mut result = PyDict::new();
-    let number = item(raw, "number")?;
+    let number = getitem(raw, "number")?;
     result.insert("number".into(), number.clone());
-    result.insert("author".into(), str_value(login(item(raw, "user")?)?));
-    let bot = get_or_empty(get(raw, "user")?, "type")?.is_some_and(|t| py_eq_str(t, "Bot"));
+    result.insert("author".into(), str_value(login(getitem(raw, "user")?)?));
+    let bot = get(or(get(raw, "user")?, &EMPTY_DICT), "type")?.is_some_and(|t| py_eq_str(t, "Bot"));
     result.insert("author_is_bot".into(), PyValue::Bool(bot));
     let body = or_default(get(raw, "body")?)
         .cloned()
         .unwrap_or_else(|| str_value(""));
     result.insert("body".into(), body);
     let mut labels = Vec::new();
-    for label in iterate_or_empty(get(raw, "labels")?)? {
-        labels.push(str_value(text(Some(item(&label, "name")?), "label name")?));
+    for label in iterate(or(get(raw, "labels")?, &EMPTY_LIST))? {
+        labels.push(str_value(text(
+            Some(getitem(&label, "name")?),
+            "label name",
+        )?));
     }
     result.insert("labels".into(), list(labels));
     let mut assignees = Vec::new();
-    for user in iterate_or_empty(get(raw, "assignees")?)? {
+    for user in iterate(or(get(raw, "assignees")?, &EMPTY_LIST))? {
         assignees.push(str_value(login(&user)?));
     }
     result.insert("assignees".into(), list(assignees));
-    let head = text(Some(item(item(raw, "head")?, "sha")?), "head SHA")?;
+    let head = text(Some(getitem(getitem(raw, "head")?, "sha")?), "head SHA")?;
     result.insert("head".into(), str_value(head));
-    let base = item(raw, "base")?;
+    let base = getitem(raw, "base")?;
     result.insert(
         "base".into(),
-        str_value(text(Some(item(base, "ref")?), "base branch")?),
+        str_value(text(Some(getitem(base, "ref")?), "base branch")?),
     );
-    let base = item(raw, "base")?;
+    let base = getitem(raw, "base")?;
     result.insert(
         "base_sha".into(),
-        str_value(text(Some(item(base, "sha")?), "base SHA")?),
+        str_value(text(Some(getitem(base, "sha")?), "base SHA")?),
     );
     result.insert(
         "created_at".into(),
-        str_value(text(Some(item(raw, "created_at")?), "PR creation time")?),
+        str_value(text(Some(getitem(raw, "created_at")?), "PR creation time")?),
     );
-    let draft = item(raw, "draft")?;
+    let draft = getitem(raw, "draft")?;
     result.insert("draft".into(), draft.clone());
-    let state = item(raw, "state")?;
+    let state = getitem(raw, "state")?;
     result.insert("state".into(), state.clone());
     result.insert(
         "url".into(),
-        str_value(text(Some(item(raw, "html_url")?), "PR URL")?),
+        str_value(text(Some(getitem(raw, "html_url")?), "PR URL")?),
     );
-    let title = item(raw, "title")?;
+    let title = getitem(raw, "title")?;
     result.insert("title".into(), title.clone());
     let numbered = matches!(number, PyValue::Int(n) if *n >= PyInt::from(1));
     if !numbered || !matches!(draft, PyValue::Bool(_)) {
@@ -425,19 +437,22 @@ impl<T: Transport> GitHub<T> {
             let mut comments = Vec::with_capacity(raws.len());
             for raw in &raws {
                 let mut comment = PyDict::new();
-                comment.insert("id".into(), item(raw, "id")?.clone());
-                comment.insert("user".into(), str_value(login(item(raw, "user")?)?));
-                comment.insert("body".into(), item(raw, "body")?.clone());
+                comment.insert("id".into(), getitem(raw, "id")?.clone());
+                comment.insert("user".into(), str_value(login(getitem(raw, "user")?)?));
+                comment.insert("body".into(), getitem(raw, "body")?.clone());
                 comment.insert(
                     "created_at".into(),
                     str_value(text(
-                        Some(item(raw, "created_at")?),
+                        Some(getitem(raw, "created_at")?),
                         "comment creation time",
                     )?),
                 );
                 comment.insert(
                     "updated_at".into(),
-                    str_value(text(Some(item(raw, "updated_at")?), "comment update time")?),
+                    str_value(text(
+                        Some(getitem(raw, "updated_at")?),
+                        "comment update time",
+                    )?),
                 );
                 comment.insert("edited_by".into(), str_value(EDITOR_UNKNOWN));
                 comments.push(dict(comment));
@@ -508,7 +523,7 @@ impl<T: Transport> GitHub<T> {
             return Err(ReadError::github("GraphQL history query failed"));
         }
         only_not_found(&response, "GraphQL history query failed")?;
-        let repository = match get(item(&response, "data")?, "repository")? {
+        let repository = match get(getitem(&response, "data")?, "repository")? {
             Some(repository @ PyValue::Dict(_)) => repository,
             _ => {
                 return Err(ReadError::github(
@@ -533,9 +548,9 @@ impl<T: Transport> GitHub<T> {
     }
 
     fn history_of(&mut self, number: &PyInt, node: &PyValue) -> Read<Option<History>> {
-        let connection = item(node, "comments")?;
-        let total = item(connection, "totalCount")?;
-        let nodes = item(connection, "nodes")?;
+        let connection = getitem(node, "comments")?;
+        let total = getitem(connection, "totalCount")?;
+        let nodes = getitem(connection, "nodes")?;
         let (PyValue::Int(total), PyValue::List(window)) = (total, nodes) else {
             return Err(ReadError::github("Incomplete comment connection"));
         };
@@ -560,14 +575,14 @@ impl<T: Transport> GitHub<T> {
             .map(graphql_comment)
             .collect::<Read<Vec<_>>>()?;
         checked_comments(&comments)?;
-        let events = item(item(node, "timelineItems")?, "nodes")?;
+        let events = getitem(getitem(node, "timelineItems")?, "nodes")?;
         let PyValue::List(events) = events else {
             return Err(ReadError::github("Incomplete pull request timeline"));
         };
         let lifecycle_at = match events.first() {
             Some(event) => Some(
                 text(
-                    Some(item(event, "createdAt")?),
+                    Some(getitem(event, "createdAt")?),
                     "inactive lifecycle timestamp",
                 )?
                 .to_owned(),
@@ -593,6 +608,7 @@ impl<T: Transport> GitHub<T> {
     fn comment_pages(&mut self, number: &PyInt) -> Read<Option<Vec<PyValue>>> {
         let mut nodes = Vec::new();
         let mut after = PyValue::None;
+        let mut seen: HashSet<String> = HashSet::new();
         let mut total;
         loop {
             let variables = self.variables(vec![
@@ -605,15 +621,18 @@ impl<T: Transport> GitHub<T> {
             }
             only_not_found(&response, "GraphQL comment query failed")?;
             let page = (|| -> Read<Option<[PyValue; 4]>> {
-                let pull = item(item(item(&response, "data")?, "repository")?, "pullRequest")?;
+                let pull = getitem(
+                    getitem(getitem(&response, "data")?, "repository")?,
+                    "pullRequest",
+                )?;
                 if matches!(pull, PyValue::None) {
                     return Ok(None);
                 }
-                let connection = item(pull, "comments")?;
-                let total = item(connection, "totalCount")?.clone();
-                let page = item(connection, "nodes")?.clone();
-                let more = item(item(connection, "pageInfo")?, "hasNextPage")?.clone();
-                let cursor = item(item(connection, "pageInfo")?, "endCursor")?.clone();
+                let connection = getitem(pull, "comments")?;
+                let total = getitem(connection, "totalCount")?.clone();
+                let page = getitem(connection, "nodes")?.clone();
+                let more = getitem(getitem(connection, "pageInfo")?, "hasNextPage")?.clone();
+                let cursor = getitem(getitem(connection, "pageInfo")?, "endCursor")?.clone();
                 Ok(Some([total, page, more, cursor]))
             })()
             .key_or_type_as("Incomplete comment page")?;
@@ -627,11 +646,11 @@ impl<T: Transport> GitHub<T> {
                 return Err(incomplete());
             };
             // More to read must come with somewhere new to read it from, or
-            // the same page could be asked for again for ever.
+            // the same pages could be asked for again for ever: a cursor seen
+            // before leads back to them.
             if more
                 && (page.is_empty()
-                    || !matches!(&cursor, PyValue::Str(c) if !c.is_empty())
-                    || py_eq(&cursor, &after))
+                    || !matches!(&cursor, PyValue::Str(c) if !c.is_empty() && !seen.contains(c)))
             {
                 return Err(incomplete());
             }
@@ -639,6 +658,9 @@ impl<T: Transport> GitHub<T> {
             nodes.extend(page);
             if !more {
                 break;
+            }
+            if let PyValue::Str(c) = &cursor {
+                seen.insert(c.clone());
             }
             after = cursor;
         }
@@ -697,6 +719,9 @@ impl<T: Transport> GitHub<T> {
         }
         let mut nodes = Vec::new();
         let mut cursor = PyValue::None;
+        // Python's set of cursors: hashed on the way in, and matched as a
+        // set matches, the same object or an equal one.
+        let mut seen: Vec<PyValue> = Vec::new();
         loop {
             let variables = self.variables(vec![
                 ("number", PyValue::Int(number.clone())),
@@ -707,14 +732,17 @@ impl<T: Transport> GitHub<T> {
                 return Err(ReadError::github("Build state query failed"));
             }
             let commits = (|| -> Read<&PyValue> {
-                let pull = item(item(item(&response, "data")?, "repository")?, "pullRequest")?;
-                item(item(pull, "commits")?, "nodes")
+                let pull = getitem(
+                    getitem(getitem(&response, "data")?, "repository")?,
+                    "pullRequest",
+                )?;
+                Ok(getitem(getitem(pull, "commits")?, "nodes")?)
             })()
             .key_or_type_as("Build state unavailable")?;
             if !commits.truthy() {
                 return Err(ReadError::github("Build state unavailable"));
             }
-            let commit = item(first(commits)?, "commit")?;
+            let commit = getitem(first(commits)?, "commit")?;
             if !get(commit, "oid")?.is_some_and(|oid| py_eq_str(oid, head)) {
                 return Ok(Build::Running);
             }
@@ -727,9 +755,9 @@ impl<T: Transport> GitHub<T> {
                 }
                 Some(rollup) => rollup,
             };
-            let connection = item(rollup, "contexts")?;
-            let page = item(connection, "nodes")?;
-            let info = item(connection, "pageInfo")?;
+            let connection = getitem(rollup, "contexts")?;
+            let page = getitem(connection, "nodes")?;
+            let info = getitem(connection, "pageInfo")?;
             let (PyValue::List(page), PyValue::Dict(_)) = (page, info) else {
                 return Err(ReadError::github("Incomplete check connection"));
             };
@@ -738,9 +766,14 @@ impl<T: Transport> GitHub<T> {
                 break;
             }
             cursor = get(info, "endCursor")?.cloned().unwrap_or(PyValue::None);
-            if !cursor.truthy() {
+            // A cursor seen before leads back to pages already read.
+            if !cursor.truthy() || {
+                py_hashable(&cursor)?;
+                seen.iter().any(|old| py_same_element(old, &cursor))
+            } {
                 return Err(ReadError::github("Check pagination did not advance"));
             }
+            seen.push(cursor.clone());
         }
         let verdict = build_verdict(&nodes)?;
         self.builds.insert(head.to_owned(), verdict);
@@ -778,7 +811,7 @@ impl<T: Transport> GitHub<T> {
         let PyValue::Dict(mut result) = pr_identity(&raw)? else {
             return Err(ReadError::github("Incomplete PR identity"));
         };
-        let count = item(&raw, "changed_files")?;
+        let count = getitem(&raw, "changed_files")?;
         if !matches!(count, PyValue::Int(c) if *c >= PyInt::from(0) && *c <= PyInt::from(3000)) {
             return Err(ReadError::github(
                 "Changed-file count unavailable or above GitHub's 3000-file limit",
@@ -791,7 +824,7 @@ impl<T: Transport> GitHub<T> {
         // listed twice, removed and added, while GitHub counts the path once.
         let mut paths = HashSet::new();
         for file in &files {
-            paths.insert(text(Some(item(file, "filename")?), "changed-file path")?);
+            paths.insert(text(Some(getitem(file, "filename")?), "changed-file path")?);
         }
         if !matches!(count, PyValue::Int(c) if *c == PyInt::from(paths.len() as i64)) {
             return Err(ReadError::github("Incomplete changed-file list"));
@@ -818,7 +851,7 @@ impl<T: Transport> GitHub<T> {
             .client
             .pages(&format!("{}/pulls/{number}/reviews", self.root))?
         {
-            let state = text(Some(item(&review, "state")?), "review state")?;
+            let state = text(Some(getitem(&review, "state")?), "review state")?;
             if ![
                 "APPROVED",
                 "CHANGES_REQUESTED",
@@ -834,18 +867,21 @@ impl<T: Transport> GitHub<T> {
                 continue;
             }
             let mut entry = PyDict::new();
-            entry.insert("id".into(), item(&review, "id")?.clone());
-            entry.insert("user".into(), str_value(login(item(&review, "user")?)?));
+            entry.insert("id".into(), getitem(&review, "id")?.clone());
+            entry.insert("user".into(), str_value(login(getitem(&review, "user")?)?));
             entry.insert("state".into(), str_value(state));
             entry.insert(
                 "commit_id".into(),
-                str_value(text(Some(item(&review, "commit_id")?), "review commit")?),
+                str_value(text(Some(getitem(&review, "commit_id")?), "review commit")?),
             );
             entry.insert(
                 "submitted_at".into(),
-                str_value(text(Some(item(&review, "submitted_at")?), "review time")?),
+                str_value(text(
+                    Some(getitem(&review, "submitted_at")?),
+                    "review time",
+                )?),
             );
-            entry.insert("body".into(), item(&review, "body")?.clone());
+            entry.insert("body".into(), getitem(&review, "body")?.clone());
             reviews.push(dict(entry));
         }
         let valid = |r: &PyValue| {
@@ -882,18 +918,21 @@ impl<T: Transport> GitHub<T> {
         let build = self.build_state(number, &head)?;
         let ready = self.ready_published(&head)?;
         let mut requested = Vec::new();
-        for user in iterate(item(&raw, "requested_reviewers")?)? {
+        for user in iterate(getitem(&raw, "requested_reviewers")?)? {
             requested.push(str_value(login(&user)?));
         }
         let mut labels = Vec::new();
-        for label in iterate(item(&raw, "labels")?)? {
-            labels.push(str_value(text(Some(item(&label, "name")?), "label name")?));
+        for label in iterate(getitem(&raw, "labels")?)? {
+            labels.push(str_value(text(
+                Some(getitem(&label, "name")?),
+                "label name",
+            )?));
         }
 
         let record = parse_controller_state(&comments)?;
         if let Some(record) = &record {
             if !py_eq(
-                item(&record.state, "number")?,
+                getitem(&record.state, "number")?,
                 &PyValue::Int(number.clone()),
             ) {
                 return Err(ReadError::github("Controller state belongs to another PR"));
@@ -1063,7 +1102,7 @@ impl<T: Transport> GitHub<T> {
         let mut stamps = Vec::with_capacity(ours.len());
         for status in ours {
             stamps.push(text(
-                Some(item(status, "created_at")?),
+                Some(getitem(status, "created_at")?),
                 "status creation time",
             )?);
         }
@@ -1152,7 +1191,10 @@ fn engine_status(status: &PyValue) -> Read<bool> {
     if !get(status, "context")?.is_some_and(|c| py_eq_str(c, "PR Hygiene")) {
         return Ok(false);
     }
-    is_engine_value(get_or_empty(get(status, "creator")?, "login")?)
+    Ok(is_engine(get(
+        or(get(status, "creator")?, &EMPTY_DICT),
+        "login",
+    )?)?)
 }
 
 /// A changed file as the snapshot keeps it: what it is, what happened to
@@ -1168,7 +1210,7 @@ fn normalized_file(file: &PyValue) -> Read<PyValue> {
     let mut normalized = PyDict::new();
     normalized.insert(
         "filename".into(),
-        str_value(text(Some(item(file, "filename")?), "changed-file path")?),
+        str_value(text(Some(getitem(file, "filename")?), "changed-file path")?),
     );
     let status = get(file, "status")?;
     let renamed = status.is_some_and(|s| py_eq_str(s, "renamed"));
@@ -1180,7 +1222,7 @@ fn normalized_file(file: &PyValue) -> Read<PyValue> {
             normalized.insert(
                 "previous_filename".into(),
                 str_value(text(
-                    Some(item(file, "previous_filename")?),
+                    Some(getitem(file, "previous_filename")?),
                     "rename source path",
                 )?),
             );
@@ -1218,9 +1260,12 @@ fn thread_page(
     emptied: &mut usize,
     seen: &mut HashSet<String>,
 ) -> Read<Option<String>> {
-    let pull = item(item(item(response, "data")?, "repository")?, "pullRequest")?;
-    let connection = item(pull, "reviewThreads")?;
-    let count = match item(connection, "totalCount")? {
+    let pull = getitem(
+        getitem(getitem(response, "data")?, "repository")?,
+        "pullRequest",
+    )?;
+    let connection = getitem(pull, "reviewThreads")?;
+    let count = match getitem(connection, "totalCount")? {
         PyValue::Int(count)
             if *count >= PyInt::from(0) && total.as_ref().is_none_or(|known| known == count) =>
         {
@@ -1233,16 +1278,16 @@ fn thread_page(
         }
     };
     *total = Some(count);
-    let PyValue::List(nodes) = item(connection, "nodes")? else {
+    let PyValue::List(nodes) = getitem(connection, "nodes")? else {
         return Err(ReadError::github("Missing review thread nodes"));
     };
     for node in nodes.iter() {
-        let comments = item(item(node, "comments")?, "nodes")?;
-        let opening = item(item(node, "opening")?, "nodes")?;
+        let comments = getitem(getitem(node, "comments")?, "nodes")?;
+        let opening = getitem(getitem(node, "opening")?, "nodes")?;
         let (PyValue::List(comments), PyValue::List(opening)) = (comments, opening) else {
             return Err(ReadError::github("Incomplete review thread"));
         };
-        if !matches!(item(node, "isResolved")?, PyValue::Bool(_)) {
+        if !matches!(getitem(node, "isResolved")?, PyValue::Bool(_)) {
             return Err(ReadError::github("Incomplete review thread"));
         }
         let Some(first_voice) = comments.first() else {
@@ -1251,7 +1296,7 @@ fn thread_page(
             continue;
         };
         let opening_body = match opening.first() {
-            Some(first) => match item(first, "body")? {
+            Some(first) => match getitem(first, "body")? {
                 PyValue::Str(body) => body.clone(),
                 _ => return Err(ReadError::github("Incomplete review thread")),
             },
@@ -1259,50 +1304,53 @@ fn thread_page(
         };
         // Whoever opened the thread names it; whoever spoke in it can be
         // objecting.
-        let author = login(item(first_voice, "author")?)?;
+        let author = login(getitem(first_voice, "author")?)?;
         let mut thread = PyDict::new();
         thread.insert(
             "id".into(),
-            str_value(text(Some(item(node, "id")?), "thread identity")?),
+            str_value(text(Some(getitem(node, "id")?), "thread identity")?),
         );
-        thread.insert("is_resolved".into(), item(node, "isResolved")?.clone());
+        thread.insert("is_resolved".into(), getitem(node, "isResolved")?.clone());
         thread.insert("author".into(), str_value(author.as_str()));
         thread.insert(
             "created_at".into(),
             str_value(text(
-                Some(item(first_voice, "createdAt")?),
+                Some(getitem(first_voice, "createdAt")?),
                 "thread creation time",
             )?),
         );
         let mut voices = Vec::with_capacity(comments.len());
         for comment in comments.iter() {
             let mut voice = PyDict::new();
-            voice.insert("user".into(), str_value(login(item(comment, "author")?)?));
+            voice.insert(
+                "user".into(),
+                str_value(login(getitem(comment, "author")?)?),
+            );
             voice.insert(
                 "created_at".into(),
                 str_value(text(
-                    Some(item(comment, "createdAt")?),
+                    Some(getitem(comment, "createdAt")?),
                     "thread comment time",
                 )?),
             );
             voices.push(dict(voice));
         }
         thread.insert("voices".into(), list(voices));
-        let severities = finding_severities(&author, &opening_body)
+        let severities = finding_severities(&str_value(author.as_str()), &str_value(opening_body))?
             .into_iter()
             .map(str_value)
             .collect();
         thread.insert("severities".into(), list(severities));
         results.push(dict(thread));
     }
-    let info = item(connection, "pageInfo")?;
-    let PyValue::Bool(more) = item(info, "hasNextPage")? else {
+    let info = getitem(connection, "pageInfo")?;
+    let PyValue::Bool(more) = getitem(info, "hasNextPage")? else {
         return Err(ReadError::github("Missing review-thread pagination state"));
     };
     if !more {
         return Ok(None);
     }
-    let cursor = text(Some(item(info, "endCursor")?), "review-thread cursor")?.to_owned();
+    let cursor = text(Some(getitem(info, "endCursor")?), "review-thread cursor")?.to_owned();
     if !seen.insert(cursor.clone()) {
         return Err(ReadError::github(
             "Review-thread pagination did not advance",
@@ -1327,7 +1375,7 @@ fn users_to_vouch_for(
     threads: &[PyValue],
     comments: &[PyValue],
 ) -> Read<Vec<PyValue>> {
-    let fallback = item(policy, "fallback")?;
+    let fallback = getitem(policy, "fallback")?;
     let wrapped;
     let fallback = if matches!(fallback, PyValue::Dict(_)) {
         fallback
@@ -1339,7 +1387,7 @@ fn users_to_vouch_for(
     };
     let mut groups: Vec<&PyValue> = Vec::new();
     for file in files {
-        let filename = item(file, "filename")?;
+        let filename = getitem(file, "filename")?;
         let previous = get(file, "previous_filename")?.unwrap_or(filename);
         let mut paths = vec![filename];
         if !py_eq(previous, filename) {
@@ -1355,7 +1403,7 @@ fn users_to_vouch_for(
         add_users(&mut users, get(group, "owners")?.unwrap_or(&empty))?;
         add_users(&mut users, get(group, "reviewers")?.unwrap_or(&empty))?;
     }
-    let field = |entry: &PyValue, key: &str| -> Read<PyValue> { Ok(item(entry, key)?.clone()) };
+    let field = |entry: &PyValue, key: &str| -> Read<PyValue> { Ok(getitem(entry, key)?.clone()) };
     let mut named = Vec::new();
     for review in reviews {
         named.push(field(review, "user")?);
@@ -1364,7 +1412,7 @@ fn users_to_vouch_for(
         named.push(field(thread, "author")?);
     }
     for comment in comments {
-        let body = str_method(item(comment, "body")?, "strip")?;
+        let body = str_method(getitem(comment, "body")?, "strip")?;
         if py_strip(body) == "/skip-bots" {
             named.push(field(comment, "user")?);
         }
@@ -1377,10 +1425,10 @@ fn users_to_vouch_for(
 /// for prefix in area["paths"])), None)`.
 fn area_of<'a>(policy: &'a PyValue, path: &PyValue) -> Read<Option<&'a PyValue>> {
     let type_error = |detail: &str| ReadError::exception(PyClass::TypeError, detail);
-    for area in iterate(item(policy, "areas")?)? {
+    for area in iterate(getitem(policy, "areas")?)? {
         // Only a list's items can be dicts: a dict's keys and a string's
         // characters have no `["paths"]`, and raise here.
-        let prefixes = iterate(item(&area, "paths")?)?;
+        let prefixes = iterate(getitem(&area, "paths")?)?;
         for prefix in prefixes {
             let PyValue::Str(prefix) = prefix.as_ref() else {
                 return Err(type_error(

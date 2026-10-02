@@ -1289,6 +1289,20 @@ fn a_long_conversation_read_short_or_malformed_is_refused() {
         (
             pages(vec![
                 (None, first.clone()),
+                (
+                    Some("c1"),
+                    page_with(&all[100..110], 150, Some("c2"), json!({})),
+                ),
+                (
+                    Some("c2"),
+                    page_with(&all[110..120], 150, Some("c1"), json!({})),
+                ),
+            ]),
+            "a cursor that comes back",
+        ),
+        (
+            pages(vec![
+                (None, first.clone()),
                 (Some("c1"), page_with(&[], 150, Some("c2"), json!({}))),
                 (Some("c2"), page_with(rest, 150, None, json!({}))),
             ]),

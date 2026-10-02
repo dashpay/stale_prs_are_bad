@@ -7,8 +7,10 @@
 //!
 //! - [`value`]: [`PyValue`], what `json.loads` returns, with insertion-ordered
 //!   dicts and integers of any size;
-//! - [`error`]: [`PyErr`], the exceptions the engine catches;
+//! - [`error`]: [`PyErr`], the exceptions the engine raises or catches;
 //! - [`json`]: `json.loads`, `JSONDecoder().raw_decode` and `json.dumps`;
+//! - [`object`]: `==`, `<`, `str()`, subscripts, `.get`, iteration and `in`,
+//!   each raising the exception Python raises on the wrong type;
 //! - [`text`]: `str` methods that are Unicode-aware in Python;
 //! - [`re`]: `re`'s character classes as Rust `regex` classes;
 //! - [`datetime`]: `datetime.fromisoformat`, `isoformat` and comparisons;
@@ -25,6 +27,7 @@ pub mod datetime;
 pub mod error;
 pub mod hashlib;
 pub mod json;
+pub mod object;
 pub mod ops;
 pub mod re;
 #[rustfmt::skip]

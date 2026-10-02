@@ -10,7 +10,7 @@ use pr_hygiene_engine::evidence::records::{
     current_checklist, parse_controller_diff, parse_controller_state, split_checklist,
     validate_diff, Record,
 };
-use pr_hygiene_engine::evidence::rules::{CHECKLIST_END, CHECKLIST_START, ENGINE_LOGINS};
+use pr_hygiene_engine::policy::{CHECKLIST_END, CHECKLIST_START, ENGINE_LOGINS};
 
 fn state(overrides: Value) -> Value {
     merged(
