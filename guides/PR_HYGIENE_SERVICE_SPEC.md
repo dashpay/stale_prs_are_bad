@@ -1,6 +1,6 @@
 # Spec: PR Hygiene as one service with an API
 
-Status: draft revision 7, 2026-10-02 — after simplicity, reliability/migration
+Status: draft revision 8, 2026-10-02 — after simplicity, reliability/migration
 and security reviews; the owner's decisions (**Rust**, a **public API**,
 **GitHub sign-in open to anyone** that personalises the page); then a
 Rust-port review and a public-API/privacy review. Replaces the delivery parts of `DASHBOARD_V2_SPEC.md`
@@ -359,57 +359,87 @@ note for infra.
 
 ## 6b. Step 1a-5 in detail — sign-in and your own speed
 
-**Schema v2 (analyzer).** Bumps `schema_version` to 2; the service accepts
-1 and 2 during the change.
-- `author_id` on every PR and `id` on every person: GitHub's numeric user
-  id (`databaseId`), read with the author and, for people known only by
-  login (policy rosters, engine reviewers), by one batched GraphQL lookup per
-  run. People are keyed by id; a renamed login keeps its history.
-- `reviews` on every PR: decisive reviews only (approve, changes requested)
-  with reviewer id, login, state and time — what review wait is measured to.
-- `closed`: PRs merged or closed in the last 30 days with author id,
-  `created_at`, the time it was first ready for review, and `merged_at` or
-  `closed_at` — what cycle time is measured on. One extra GraphQL list per
-  repository, ordered by update time, stopping at the window.
+(Revised after a security/privacy/metrics review.)
 
-**Speed (service).** Computed on request for the signed-in person only,
-from what the service has recorded since it started (no year-long backfill
-in this step; the page says from when):
-- *Review wait you gave*: per PR that entered Review asking you, from that
-  stage entry (`stage_changes`) to your first decisive review after it.
-- *Self-review turnaround*: the length of each Self-review interval on your
-  PRs (`stage_changes`).
-- *Cycle time*: first ready-for-review to merge, on your merged PRs.
-- Monthly medians with n; months with n < 3 show n only.
-Nothing per person is stored beyond `stage_changes` and the snapshots
-already kept; speed is never cached or served to anyone else.
+**Data (analyzer), additive — `schema_version` stays 1** (every new field
+is optional, and the page refuses unknown versions):
+- `author_id` on every PR, from the PR's own author node.
+- `reviews` on every PR: decisive reviews only — approved, changes
+  requested, dismissed — read with `reviews(states: …)` so bot comments
+  cannot push them past the page, with reviewer id, login, state and time.
+- `closed`: PRs merged or closed in the last 30 days, each with author id,
+  `created_at`, first ready-for-review time, `merged_at`/`closed_at` and its
+  decisive reviews (an approval followed by a merge within 15 minutes is in
+  no open snapshot). A one-time backfill mode reads a year of them.
+- Ids on people looked up from roster logins are for display only; speed
+  joins only on ids GitHub supplies with the event itself (a PR's author,
+  a review's author), so a re-registered login cannot inherit history.
 
-**Sign-in.** A separate GitHub App with **no permissions** (user-to-server
-sign-in only): `GET /auth/login` sets a short-lived, `__Host-` pre-login
-cookie holding `state` and a PKCE verifier and redirects to GitHub;
-`GET /auth/callback` checks `state` against the cookie, exchanges the code
-with the verifier and the client secret, calls `/user` once, discards the
-token, and creates a server-side session (random 256-bit id; the cookie
-`__Host-prh_session` is Secure, HttpOnly, SameSite=Lax, 30 days; the row
-holds user id, login and expiry only). `POST /auth/logout` (Origin checked)
-deletes the row. `GET /api/v1/me` and `GET /api/v1/me/speed`: `no-store`,
-same-origin, never behind a CDN cache. `POST /api/v1/me/opt-out` hides the
-person from People and stops speed being computed for them; `DELETE
-/api/v1/me` removes their sessions and opt-out record. Expired sessions are
-purged daily. No email is requested.
+**Speed inputs (service), append-only, keyed by GitHub user id, kept 13
+months** (and stated on the privacy page): `pr_authors` (PR → author id),
+`asks` (PR, person id, first asked, ended, how it ended: answered, covered
+by a co-approver, left review), `reviews` (PR, reviewer id, state, time),
+`merges` (PR, first ready, merged). Recorded at ingest from `asks`,
+`reviews`, `closed`; a PR that leaves the snapshot is closed from
+`closed_at`. Intervals already running when first seen with no recorded
+start, and intervals spanning a stale repository's gap, are excluded.
 
-**Page.** Me: signed out — "Sign in with GitHub" (saying it reads only your
-public profile) and a login search to anyone's public page; signed in —
-your People page plus a speed panel ("Only shown to you here. Built from
+**Speed (computed on request, for the signed-in person only):**
+- *Review wait you gave*: from when **you** were first asked on a PR to
+  your first decisive review. Shown as asked N · answered M · still open K;
+  only answered asks are timed (an ask covered by a co-approver or ended by
+  the PR leaving review is counted, not timed), so leaving hard PRs does not
+  look fast.
+- *Your turn*: on your PRs, the total time per turn spent in the author's
+  stages (self-review, answering an objection, a failed build), unbroken
+  runs merged across bot bounces.
+- *Cycle time*: first ready-for-review to merge on your merged PRs,
+  labelled as including other people's review time.
+- Rolling 3-month medians by month with n; a month with n < 3 shows n.
+- At launch: a year of cycle time from the backfill; review wait and your
+  turn from the engine's record revisions as far back as they survive
+  (about mid-September 2026), and forward from then.
+
+**Sign-in.** A separate **public** GitHub App with **no permissions**
+(a private App only lets its own organisation's members sign in):
+- `GET /auth/login`: a `__Host-` pre-login cookie (SameSite=Lax — a Strict
+  cookie is not sent on the way back from github.com — 10 minutes, single
+  use) holding `state` and a PKCE verifier; redirect to
+  `github.com/login/oauth/authorize` with `client_id`, the fixed
+  `redirect_uri`, `state`, `code_challenge`, `code_challenge_method=S256`.
+- `GET /auth/callback`: `state` must match the cookie; POST the code to
+  `/login/oauth/access_token` with `client_id`, `client_secret`,
+  `redirect_uri` and `code_verifier`, treating an `error` field in a 200
+  body as failure; `GET /user` once; revoke the token
+  (`DELETE /applications/{client_id}/token`); create the session. Errors
+  redirect to a fixed `/#/me?signin=failed`, never reflecting GitHub's text
+  and never honouring a return URL.
+- Sessions: random 256-bit id, stored hashed, holding user id, login and
+  expiry; cookie `__Host-prh_session` (Secure, HttpOnly, SameSite=Lax, 30
+  days); a few per user at most; expired rows purged daily.
+- Every state-changing route — `POST /auth/logout`,
+  `POST /api/v1/me/opt-out`, `DELETE /api/v1/me` — requires an exact
+  `Origin` equal to the service's own (missing is refused). `/auth/*` and
+  `/api/v1/me*` live outside the public router: no CORS, `private,
+  no-store`, `Vary: Cookie`, no ETag.
+- **Opt-out** deletes the person's speed inputs and stops recording them;
+  the public queue, a mirror of GitHub, is unchanged. The opt-out itself is
+  kept (the user id only) so it is honoured. **Delete** removes sessions and
+  speed inputs and keeps the opt-out if there is one.
+- No revocation webhook in this step: sessions hold no GitHub token.
+
+**Page.** Me: signed out — "Sign in with GitHub" (reads only your public
+profile) and a login search to anyone's public page; signed in — your
+People page plus the speed panel ("Only shown to you here. Built from
 public GitHub activity, so not secret; we don't publish or rank it."), and
 sign out / opt out / delete. A privacy page states the source (GitHub, not
-you), what is kept and for how long (sessions 30 days; stage history 13
-months), and how to opt out or delete. Logout and opt-out are fetch POSTs
-(the page's CSP has `form-action 'none'`).
+you), what is kept and for how long (sessions 30 days; speed inputs and
+stage history 13 months; backups no longer), and how to opt out or delete.
+State changes are fetch POSTs (the page's CSP has `form-action 'none'`).
 
-**Increments:** 1a-5a schema v2 in the analyzer (+ service accepts both);
-1a-5b sign-in and sessions; 1a-5c speed; 1a-5d the page's Me and privacy
-page.
+**Increments:** 1a-5a the analyzer's additive fields and backfill mode;
+1a-5b sign-in, sessions, the `/me` routes and the speed-input tables;
+1a-5c speed; 1a-5d the page's Me and the privacy page.
 
 ## 7. Open PRs
 
