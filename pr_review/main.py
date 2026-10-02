@@ -24,8 +24,14 @@ NUDGES_PER_RUN = 1
 
 
 
+def clock():
+    """The current instant. The engine reads the time here and nowhere else,
+    so a recording can fix it for a whole run and a replay can restore it."""
+    return datetime.now(timezone.utc)
+
+
 def utc_now():
-    return datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+    return clock().isoformat(timespec='seconds').replace('+00:00', 'Z')
 
 
 def context_fingerprint(prs, author):
@@ -91,7 +97,7 @@ def periodic_batch(prs, size, epoch_seconds=None, cadence=SWEEP_SECONDS):
     ordered = sorted(prs, key=lambda p: p['number'])
     if not ordered:
         return []
-    seconds = datetime.now(timezone.utc).timestamp() if epoch_seconds is None else epoch_seconds
+    seconds = clock().timestamp() if epoch_seconds is None else epoch_seconds
     start = (int(seconds // cadence) * size) % len(ordered)
     return [ordered[(start + offset) % len(ordered)] for offset in range(min(size, len(ordered)))]
 
@@ -879,7 +885,11 @@ def evaluate_snapshots(policy, context, candidates, snapshots, now, payload=None
     return rows
 
 
-def run(argv=None):
+def run(argv=None, recording=None):
+    """The command line. `recording` is passed only by `pr_review.conformance`,
+    once it stands between the engine and GitHub: there a dry sync walks the
+    write path as `--apply` would, and the recorder answers every write itself
+    without sending it."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['validate', 'codeowners', 'report', 'sync'])
     parser.add_argument('--repo', default='dashpay/platform')
@@ -896,6 +906,9 @@ def run(argv=None):
     parser.add_argument('--format', choices=['markdown', 'json'], default='markdown')
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--record', type=Path, metavar='DIR',
+                        help='record a report or a dry sync at the GitHub boundary into DIR; '
+                             'writes are captured and never sent (see conformance/README.md)')
     args = parser.parse_args(argv)
     if args.pr is not None and args.pr <= 0:
         parser.error('--pr must be positive')
@@ -913,12 +926,24 @@ def run(argv=None):
                        or os.environ.get('GITHUB_REPOSITORY') != args.repo
                        or os.environ.get('PR_REVIEW_AUTOMATION_ENABLED') != 'true'):
         parser.error('apply is restricted to the enabled repository Actions workflow')
+    if (args.record is not None or recording is not None) and (args.apply or args.command not in {'report', 'sync'}):
+        parser.error('--record captures a report or a dry sync, and never runs with --apply')
+    if args.record is not None and recording is None:
+        from . import conformance
+        return conformance.record(args, sys.argv[1:] if argv is None else list(argv), sys.modules[__name__])
+    if recording is not None and not recording.captures_writes():
+        raise RuntimeError('A recording that does not hold the GitHub boundary must not run the engine')
+    # Inside a recording a sync takes the write path, so that what it would
+    # write is captured; the recorder sends none of it.
+    apply = args.apply or (recording is not None and args.command == 'sync')
     repository_root = args.repository_root.resolve() if args.repository_root else None
     policy = None
     try:
         registry = load_registry(args.policies_root)
         source = args.policy or policy_path(args.policies_root, entry_for(registry, args.repo))
         policy = json.loads(source.read_text())
+        if recording is not None:
+            recording.loaded_policy(policy)
         validate_policy(policy, repository_root if args.command == 'validate' else None)
         if repository_root is not None and args.command != 'validate':
             # The dedicated validate step reports a missing directory. Failing
@@ -930,7 +955,7 @@ def run(argv=None):
         if policy['repository'] != args.repo:
             raise ValueError('Repository must match the registered policy')
     except (ValueError, OSError):
-        if args.apply:
+        if apply:
             # A PR event is not permission to turn a configuration failure into
             # a repository-wide status sweep. Batch/full runs have no validated
             # target set yet; fail the job without changing any PR status.
@@ -955,7 +980,7 @@ def run(argv=None):
         return 0
 
     api = GitHub(args.repo)
-    context, candidates, snapshots = collect(api, policy, args.pr, apply=args.apply,
+    context, candidates, snapshots = collect(api, policy, args.pr, apply=apply,
                                            reconcile_author=args.command == 'sync', batch_size=args.batch_size,
                                            waiting_on_build=args.waiting_on_build)
     now = utc_now()
@@ -969,7 +994,7 @@ def run(argv=None):
     for pr, result in zip(snapshots, rows):
         if args.command == 'sync':
             try:
-                if args.apply:
+                if apply:
                     if not checked_labels:
                         # Say once which labels are missing. A POST creates one
                         # as a side effect, in a default colour — ugly, but a
@@ -982,7 +1007,7 @@ def run(argv=None):
                                 print(f'Label {label} does not exist in {args.repo}; create it', file=sys.stderr)
                         checked_labels.append(True)
                     nudged += nudge(api, pr, result, NUDGES_PER_RUN - nudged)
-                written = publish(api, policy, pr, result, context, args.apply, candidates=candidates)
+                written = publish(api, policy, pr, result, context, apply, candidates=candidates)
                 if written:
                     for candidate in candidates:
                         if candidate['number'] == pr['number']:
@@ -994,7 +1019,7 @@ def run(argv=None):
                 # became the gate.
                 failed.append(pr['number'])
                 print(f"PR #{pr['number']}: {error}", file=sys.stderr)
-                if args.apply:
+                if apply:
                     try:
                         api.post_status(pr['head'], 'error', 'Policy reconciliation failed; inspect workflow log')
                     except GitHubError:
@@ -1004,7 +1029,7 @@ def run(argv=None):
     # A sweep tidies what it passes; a run aimed at one pull request does not
     # go looking through the repository.
     if args.pr is None:
-        clear_marks(api, policy, context, args.apply and args.command == 'sync')
+        clear_marks(api, policy, context, apply and args.command == 'sync')
     rows.sort(key=lambda r: (r['state'] != 'ready-for-human', r.get('ready_since') or now, r['number']))
     if args.format == 'json':
         print(json.dumps({'generated_at': now, 'pull_requests': selected_rows(rows, args.user)}, indent=2))

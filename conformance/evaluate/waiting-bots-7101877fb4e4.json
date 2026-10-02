@@ -1,0 +1,163 @@
+{
+ "policy": {
+  "version": 1,
+  "repository": "dashpay/platform",
+  "max_active_prs": 5,
+  "target_branches": [
+   "v4.2-dev"
+  ],
+  "fallback": {
+   "owners": [
+    "fallback"
+   ],
+   "reviewers": []
+  },
+  "areas": [
+   {
+    "id": "drive",
+    "paths": [
+     "packages/drive/"
+    ],
+    "owners": [
+     "owner"
+    ],
+    "reviewers": [
+     "reviewer"
+    ]
+   }
+  ],
+  "bot_timeouts": {
+   "nudge_after_hours": 1,
+   "waive_after_hours": 48
+  }
+ },
+ "pr": {
+  "number": 1,
+  "author": "owner",
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base": "v4.2-dev",
+  "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": "2026-09-10T00:00:00Z",
+  "draft": false,
+  "state": "open",
+  "url": "url",
+  "title": "title",
+  "files": [
+   {
+    "filename": "packages/drive/a.rs",
+    "status": "modified",
+    "content": "cccccccccccccccccccccccccccccccccccccccc",
+    "shape": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   }
+  ],
+  "reviews": [],
+  "comments": [],
+  "threads": [],
+  "requested_reviewers": [],
+  "permissions": {
+   "owner": "write",
+   "reviewer": "write",
+   "fallback": "write"
+  },
+  "controller_state": null,
+  "labels": [],
+  "complete": true,
+  "build": "green",
+  "controller_diff": {
+   "number": 1,
+   "diff": "2cebcbc1c42b7c0fc5955831c7eb9783fc57c86059c9dbadbdbf1a5900aa528b",
+   "diff_heads": [
+    "ffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "diff_seen": "2026-09-11T09:00:00Z"
+  },
+  "head_seen_at": "2026-09-11T13:00:00Z"
+ },
+ "admitted_at": "2026-09-11T12:00:00Z",
+ "now": "2026-09-11T12:00:00Z",
+ "telemetry_states": null,
+ "result": {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "author": "owner",
+  "title": "title",
+  "url": "url",
+  "state": "waiting-bots",
+  "status": "pending",
+  "blockers": [
+   "coderabbitai has not reported for the current head",
+   "thepastaclaw has not reported for the current head"
+  ],
+  "reviewers": [],
+  "objectors": [],
+  "areas": [
+   "drive"
+  ],
+  "ready_since": null,
+  "admitted_at": "2026-09-11T12:00:00Z",
+  "bot_completed_at": null,
+  "self_reviewed_at": null,
+  "nudge": [
+   "coderabbitai",
+   "thepastaclaw"
+  ],
+  "waived": [],
+  "approvals": [],
+  "objections": [],
+  "checklist": [
+   {
+    "item": "bots",
+    "done": false,
+    "lines": [
+     "coderabbitai not yet",
+     "thepastaclaw not yet"
+    ],
+    "skippable": true
+   },
+   {
+    "item": "self_review",
+    "done": false,
+    "bot_author": false,
+    "on_their_behalf": [],
+    "address": []
+   },
+   {
+    "item": "slot",
+    "done": true,
+    "limit": 5
+   },
+   {
+    "item": "build",
+    "done": true,
+    "state": "green",
+    "latched": false
+   },
+   {
+    "item": "approvals",
+    "done": true,
+    "areas": [
+     {
+      "area": "drive",
+      "files": [
+       "packages/drive/a.rs"
+      ],
+      "approvers": [],
+      "approved_by": [],
+      "owned": true
+     }
+    ],
+    "awaiting": []
+   }
+  ],
+  "reviewed_heads": [
+   "ffffffffffffffffffffffffffffffffffffffff",
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "reviewed_since": "2026-09-11T09:00:00Z",
+  "receipts": {}
+ },
+ "tests": [
+  "test_policy.PolicyTests.test_a_bot_asked_about_this_work_is_not_asked_again_on_the_next_commit"
+ ],
+ "python_exception_text": false
+}

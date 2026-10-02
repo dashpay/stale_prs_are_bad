@@ -1,0 +1,151 @@
+{
+ "policy": {
+  "version": 1,
+  "repository": "dashpay/platform",
+  "max_active_prs": 5,
+  "target_branches": [
+   "v4.2-dev"
+  ],
+  "fallback": {
+   "owners": [
+    "fallback"
+   ],
+   "reviewers": []
+  },
+  "areas": [
+   {
+    "id": "drive",
+    "paths": [
+     "packages/drive/"
+    ],
+    "owners": [
+     "owner"
+    ],
+    "reviewers": [
+     "reviewer"
+    ]
+   }
+  ]
+ },
+ "pr": {
+  "number": 1,
+  "author": "owner",
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base": "v4.2-dev",
+  "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": "2026-09-10T00:00:00Z",
+  "draft": false,
+  "state": "open",
+  "url": "url",
+  "title": "title",
+  "files": [
+   {
+    "filename": "packages/drive/a.rs"
+   }
+  ],
+  "reviews": [],
+  "comments": [
+   {
+    "id": 3,
+    "user": "owner",
+    "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "created_at": "2026-09-11T11:00:00Z",
+    "updated_at": "2026-09-11T11:00:00Z"
+   }
+  ],
+  "threads": [],
+  "requested_reviewers": [],
+  "permissions": {
+   "owner": "write",
+   "reviewer": "write",
+   "fallback": "write"
+  },
+  "controller_state": null,
+  "labels": [],
+  "complete": true,
+  "build": "green"
+ },
+ "admitted_at": "2026-09-11T12:00:00Z",
+ "now": "2026-09-11T12:00:00Z",
+ "telemetry_states": null,
+ "result": {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "author": "owner",
+  "title": "title",
+  "url": "url",
+  "state": "waiting-bots",
+  "status": "pending",
+  "blockers": [
+   "coderabbitai has not reported for the current head",
+   "thepastaclaw has not reported for the current head"
+  ],
+  "reviewers": [],
+  "objectors": [],
+  "areas": [
+   "drive"
+  ],
+  "ready_since": null,
+  "admitted_at": "2026-09-11T12:00:00Z",
+  "bot_completed_at": null,
+  "self_reviewed_at": null,
+  "nudge": [],
+  "waived": [],
+  "approvals": [],
+  "objections": [],
+  "checklist": [
+   {
+    "item": "bots",
+    "done": false,
+    "lines": [
+     "coderabbitai not yet",
+     "thepastaclaw not yet"
+    ],
+    "skippable": true
+   },
+   {
+    "item": "self_review",
+    "done": true,
+    "bot_author": false,
+    "on_their_behalf": [],
+    "address": []
+   },
+   {
+    "item": "slot",
+    "done": true,
+    "limit": 5
+   },
+   {
+    "item": "build",
+    "done": true,
+    "state": "green",
+    "latched": false
+   },
+   {
+    "item": "approvals",
+    "done": true,
+    "areas": [
+     {
+      "area": "drive",
+      "files": [
+       "packages/drive/a.rs"
+      ],
+      "approvers": [],
+      "approved_by": [],
+      "owned": true
+     }
+    ],
+    "awaiting": []
+   }
+  ],
+  "reviewed_heads": [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "reviewed_since": null,
+  "receipts": {}
+ },
+ "tests": [
+  "test_policy.PolicyTests.test_the_check_passes_in_exactly_one_state"
+ ],
+ "python_exception_text": false
+}

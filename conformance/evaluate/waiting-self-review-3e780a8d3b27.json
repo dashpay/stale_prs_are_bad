@@ -1,0 +1,222 @@
+{
+ "policy": {
+  "version": 1,
+  "repository": "dashpay/rust-dashcore",
+  "max_active_prs": 5,
+  "target_branches": [
+   "dev"
+  ],
+  "required_bots": [
+   "coderabbitai"
+  ],
+  "bot_timeouts": {
+   "nudge_after_hours": 6,
+   "waive_after_hours": 16
+  },
+  "fallback": {
+   "owners": [
+    "QuantumExplorer",
+    "xdustinface"
+   ],
+   "reviewers": [
+    "ZocoLini"
+   ]
+  },
+  "areas": [
+   {
+    "id": "dash-spv",
+    "paths": [
+     "dash-spv/"
+    ],
+    "owners": [
+     "QuantumExplorer",
+     "xdustinface"
+    ],
+    "reviewers": [
+     "ZocoLini"
+    ],
+    "metadata": {
+     "scope_note": "Only the visible crate column is mapped; cropped protocol column is unconfirmed."
+    }
+   },
+   {
+    "id": "key-wallet",
+    "paths": [
+     "key-wallet/"
+    ],
+    "owners": [
+     "QuantumExplorer",
+     "xdustinface"
+    ],
+    "reviewers": [
+     "ZocoLini"
+    ],
+    "metadata": {
+     "scope_note": "Only the visible crate column is mapped; cropped protocol column is unconfirmed."
+    }
+   },
+   {
+    "id": "key-wallet-manager",
+    "paths": [
+     "key-wallet-manager/"
+    ],
+    "owners": [
+     "QuantumExplorer",
+     "xdustinface"
+    ],
+    "reviewers": [
+     "ZocoLini"
+    ],
+    "metadata": {
+     "scope_note": "Only the visible crate column is mapped; cropped protocol column is unconfirmed."
+    }
+   },
+   {
+    "id": "github",
+    "paths": [
+     ".github/"
+    ],
+    "owners": [
+     "ktechmidas"
+    ],
+    "reviewers": [
+     "shumkov"
+    ]
+   }
+  ]
+ },
+ "pr": {
+  "number": 1,
+  "author": "ZocoLini",
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base": "dev",
+  "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": "2026-09-10T00:00:00Z",
+  "draft": false,
+  "state": "open",
+  "url": "url",
+  "title": "title",
+  "files": [
+   {
+    "filename": "key-wallet-manager/src/lib.rs"
+   }
+  ],
+  "reviews": [
+   {
+    "id": 1,
+    "user": "thepastaclaw",
+    "state": "COMMENTED",
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "submitted_at": "2026-09-11T10:00:00Z",
+    "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+   },
+   {
+    "id": 2,
+    "user": "coderabbitai[bot]",
+    "state": "APPROVED",
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "submitted_at": "2026-09-11T10:00:00Z",
+    "body": ""
+   }
+  ],
+  "comments": [],
+  "threads": [],
+  "requested_reviewers": [],
+  "permissions": {
+   "owner": "write",
+   "reviewer": "write",
+   "fallback": "write",
+   "QuantumExplorer": "admin",
+   "xdustinface": "admin",
+   "ZocoLini": "write"
+  },
+  "controller_state": null,
+  "labels": [],
+  "complete": true,
+  "build": "green"
+ },
+ "admitted_at": "2026-09-11T12:00:00Z",
+ "now": "2026-09-11T12:00:00Z",
+ "telemetry_states": null,
+ "result": {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "author": "ZocoLini",
+  "title": "title",
+  "url": "url",
+  "state": "waiting-self-review",
+  "status": "pending",
+  "blockers": [
+   "Author must post /self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "reviewers": [],
+  "objectors": [],
+  "areas": [
+   "key-wallet-manager"
+  ],
+  "ready_since": null,
+  "admitted_at": "2026-09-11T12:00:00Z",
+  "bot_completed_at": "2026-09-11T10:00:00Z",
+  "self_reviewed_at": null,
+  "nudge": [],
+  "waived": [],
+  "approvals": [],
+  "objections": [],
+  "checklist": [
+   {
+    "item": "bots",
+    "done": true,
+    "lines": [
+     "coderabbitai ✓"
+    ],
+    "skippable": false
+   },
+   {
+    "item": "self_review",
+    "done": false,
+    "bot_author": false,
+    "on_their_behalf": [],
+    "address": []
+   },
+   {
+    "item": "slot",
+    "done": true,
+    "limit": 5
+   },
+   {
+    "item": "build",
+    "done": true,
+    "state": "green",
+    "latched": false
+   },
+   {
+    "item": "approvals",
+    "done": false,
+    "areas": [
+     {
+      "area": "key-wallet-manager",
+      "files": [
+       "key-wallet-manager/src/lib.rs"
+      ],
+      "approvers": [
+       "QuantumExplorer",
+       "xdustinface"
+      ],
+      "approved_by": [],
+      "owned": false
+     }
+    ],
+    "awaiting": []
+   }
+  ],
+  "reviewed_heads": [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "reviewed_since": null,
+  "receipts": {}
+ },
+ "tests": [
+  "test_repositories.RepositoryConfigurationTests.test_rust_dashcore_crates_are_owned_by_the_repository_wildcard"
+ ],
+ "python_exception_text": false
+}

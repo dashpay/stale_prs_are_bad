@@ -1,0 +1,180 @@
+{
+ "policy": {
+  "version": 1,
+  "repository": "dashpay/platform",
+  "max_active_prs": 5,
+  "target_branches": [
+   "v4.2-dev"
+  ],
+  "fallback": {
+   "owners": [
+    "fallback"
+   ],
+   "reviewers": []
+  },
+  "areas": [
+   {
+    "id": "drive",
+    "paths": [
+     "packages/drive/"
+    ],
+    "owners": [
+     "owner"
+    ],
+    "reviewers": [
+     "reviewer"
+    ]
+   }
+  ]
+ },
+ "pr": {
+  "number": 1,
+  "author": "owner",
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base": "v4.2-dev",
+  "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": "2026-09-10T00:00:00Z",
+  "draft": false,
+  "state": "open",
+  "url": "url",
+  "title": "title",
+  "files": [
+   {
+    "filename": "packages/drive/a.rs"
+   }
+  ],
+  "reviews": [
+   {
+    "id": 1,
+    "user": "thepastaclaw",
+    "state": "COMMENTED",
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "submitted_at": "2026-09-11T10:00:00Z",
+    "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+   }
+  ],
+  "comments": [
+   {
+    "id": 1,
+    "user": "coderabbitai[bot]",
+    "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- recent_review_start -->\nNo actionable comments were generated.\n<details><summary>⚙️ Run configuration</summary>\nRun ID: d5a7d983\n</details>\n<!-- recent_review_end -->\n<!-- walkthrough_start -->\n| Layer / File(s) | Summary |\n| :--- | :--- |\n| `a.rs` | Adds a field and its tests. |\n<!-- walkthrough_end -->\n<!-- final_review_risk_start -->\n**Merge Risk:** Minimal\n<!-- final_review_risk_coverage:{\"sourceCommitId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"coveredCommitId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"reviewed\"} -->\n\n<!-- final_review_risk_end -->\n<!-- pre_merge_checks_walkthrough_start -->\n<summary>🚥 Pre-merge checks | ✅ Passed</summary>\n\n| Check name | Status | Explanation |\n| :---: | :--- | :--- |\n| Title check | ✅ Passed | It reads well. |\n<!-- pre_merge_checks_walkthrough_end -->\n<!-- tips_start -->\n<details><summary>🪧 Tips</summary>\nChat with CodeRabbit.\n</details>\n<!-- tips_end -->\n",
+    "created_at": "2026-09-11T09:00:00Z",
+    "updated_at": "2026-09-11T09:00:00Z"
+   },
+   {
+    "id": 3,
+    "user": "owner",
+    "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "created_at": "2026-09-11T11:00:00Z",
+    "updated_at": "2026-09-11T11:00:00Z"
+   }
+  ],
+  "threads": [],
+  "requested_reviewers": [],
+  "permissions": {
+   "owner": "write",
+   "reviewer": "write",
+   "fallback": "write"
+  },
+  "controller_state": null,
+  "labels": [],
+  "complete": true,
+  "build": "green"
+ },
+ "admitted_at": "2026-09-11T12:00:00Z",
+ "now": "2026-09-11T12:00:00Z",
+ "telemetry_states": null,
+ "result": {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "author": "owner",
+  "title": "title",
+  "url": "url",
+  "state": "ready-to-merge",
+  "status": "success",
+  "blockers": [
+   "All policy requirements are satisfied"
+  ],
+  "reviewers": [],
+  "objectors": [],
+  "areas": [
+   "drive"
+  ],
+  "ready_since": null,
+  "admitted_at": "2026-09-11T12:00:00Z",
+  "bot_completed_at": "2026-09-11T10:00:00Z",
+  "self_reviewed_at": "2026-09-11T11:00:00Z",
+  "nudge": [],
+  "waived": [],
+  "approvals": [
+   {
+    "area": "drive",
+    "files": [
+     "packages/drive/a.rs"
+    ],
+    "approvers": [],
+    "approved_by": [],
+    "owned": true
+   }
+  ],
+  "objections": [],
+  "checklist": [
+   {
+    "item": "bots",
+    "done": true,
+    "lines": [
+     "coderabbitai ✓",
+     "thepastaclaw ✓"
+    ],
+    "skippable": false
+   },
+   {
+    "item": "self_review",
+    "done": true,
+    "bot_author": false,
+    "on_their_behalf": [],
+    "address": []
+   },
+   {
+    "item": "slot",
+    "done": true,
+    "limit": 5
+   },
+   {
+    "item": "build",
+    "done": true,
+    "state": "green",
+    "latched": false
+   },
+   {
+    "item": "approvals",
+    "done": true,
+    "areas": [
+     {
+      "area": "drive",
+      "files": [
+       "packages/drive/a.rs"
+      ],
+      "approvers": [],
+      "approved_by": [],
+      "owned": true
+     }
+    ],
+    "awaiting": []
+   }
+  ],
+  "reviewed_heads": [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "reviewed_since": null,
+  "receipts": {
+   "37f955fe857ff80d7ff6098ed8c6c86022697ddcfb7c6bff945e8d55df5bf5e8": "2026-09-11T09:00:00Z"
+  }
+ },
+ "tests": [
+  "test_policy.PolicyTests.test_a_check_that_fails_is_the_bot_speaking_again",
+  "test_policy.PolicyTests.test_a_cosmetic_edit_is_not_the_bot_speaking_again",
+  "test_policy.PolicyTests.test_a_new_finding_is_the_bot_speaking_again"
+ ],
+ "python_exception_text": false
+}
