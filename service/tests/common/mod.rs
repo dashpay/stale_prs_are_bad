@@ -27,8 +27,12 @@ use tower::ServiceExt;
 pub const AUDIENCE: &str = "https://pr-hygiene.example.org";
 pub const KID: &str = "test-key";
 pub const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+/// The scheduled workflow: `workflow_ref` of every job in its run.
 pub const WORKFLOW: &str =
     "dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene.yml@refs/heads/master";
+/// The reusable post workflow it calls: `job_workflow_ref` of that job only.
+pub const POST_WORKFLOW: &str =
+    "dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene-post.yml@refs/heads/master";
 pub const PLATFORM: &str = "dashpay/platform";
 pub const DASHCORE: &str = "dashpay/rust-dashcore";
 
@@ -86,6 +90,7 @@ pub fn config() -> IngestConfig {
         repository_owner_id: 11_511_719,
         git_ref: "refs/heads/master".into(),
         workflow_ref: WORKFLOW.into(),
+        job_workflow_ref: POST_WORKFLOW.into(),
         body_limit: 1024 * 1024,
         job_timeout_secs: 1800,
     }
@@ -146,7 +151,7 @@ pub fn claims() -> Value {
         "ref_type": "branch",
         "workflow": "PR Hygiene",
         "workflow_ref": WORKFLOW,
-        "job_workflow_ref": WORKFLOW,
+        "job_workflow_ref": POST_WORKFLOW,
         "event_name": "schedule",
         "runner_environment": "github-hosted",
         "run_id": "123",

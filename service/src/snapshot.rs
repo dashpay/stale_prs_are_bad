@@ -3,10 +3,19 @@
 //! arrives with a token, bound to the run that minted the token.
 
 use crate::oidc::{Verified, CLOCK_SKEW};
-use chrono::TimeDelta;
+use chrono::{DateTime, TimeDelta, Utc};
 use pr_hygiene::dashboard::{Dashboard, PersonOut, PrOut, SCHEMA_VERSION};
 use std::collections::HashSet;
 use std::time::Duration;
+
+/// No time in a snapshot predates GitHub's pull requests.
+const EARLIEST: DateTime<Utc> = DateTime::from_timestamp(946_684_800, 0).expect("2000-01-01");
+
+/// How long after `generated_at` — stamped when the analyzer starts — the
+/// times it reads may lie: a PR can be updated, or move stage, while the
+/// run is still reading. Longer than any run (the analyze job times out
+/// after 20 minutes); nothing later is data.
+const RUN_ALLOWANCE: TimeDelta = TimeDelta::hours(1);
 
 const MAX_REPOS: usize = 64;
 const MAX_PRS: usize = 10_000;
@@ -30,17 +39,41 @@ fn invalid<T>(why: impl Into<String>) -> Result<T, Invalid> {
     Err(Invalid(why.into()))
 }
 
-/// Read and check a snapshot. Diagnostics are shortened; nothing else is
-/// changed.
-pub fn parse(body: &[u8]) -> Result<Dashboard, Invalid> {
+/// Read and check a snapshot received at `now`. Diagnostics are shortened;
+/// nothing else is changed.
+pub fn parse(body: &[u8], now: DateTime<Utc>) -> Result<Dashboard, Invalid> {
     if body.is_empty() {
         return invalid("empty body");
     }
     let mut d: Dashboard =
         serde_json::from_slice(body).map_err(|e| Invalid(format!("not a snapshot: {e}")))?;
     shorten_diagnostics(&mut d);
-    validate(&d)?;
+    validate(&d, now)?;
     Ok(d)
+}
+
+/// Every time in range: none before 2000, none after the run that read it
+/// (and `generated_at` itself not after `now`). Besides being nonsense, a
+/// time past year 9999 cannot be stored and read back, and one stored PR
+/// would fail every read of it from then on.
+fn times(d: &Dashboard, now: DateTime<Utc>) -> Result<(), Invalid> {
+    let skew = TimeDelta::from_std(CLOCK_SKEW).expect("a minute fits");
+    if d.generated_at < EARLIEST || d.generated_at > now + skew {
+        return invalid("generated_at is out of range");
+    }
+    let latest = d.generated_at + RUN_ALLOWANCE;
+    for p in &d.prs {
+        for (field, at) in [
+            ("created_at", p.created_at),
+            ("updated_at", p.updated_at),
+            ("since", p.since),
+        ] {
+            if at.is_some_and(|at| at < EARLIEST || at > latest) {
+                return invalid(format!("prs[{}]: {field} is out of range", p.key));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn shorten_diagnostics(d: &mut Dashboard) {
@@ -82,13 +115,14 @@ pub fn bind(d: &Dashboard, token: &Verified, job_timeout: Duration) -> Result<()
     Ok(())
 }
 
-pub fn validate(d: &Dashboard) -> Result<(), Invalid> {
+pub fn validate(d: &Dashboard, now: DateTime<Utc>) -> Result<(), Invalid> {
     if d.schema_version != SCHEMA_VERSION {
         return invalid(format!(
             "schema_version {} is not {SCHEMA_VERSION}",
             d.schema_version
         ));
     }
+    times(d, now)?;
     if let Some(commit) = &d.commit {
         // A full id when posted (it must equal the token's); an abbreviated
         // one is accepted from a local import.
@@ -319,7 +353,7 @@ mod tests {
         shorten_diagnostics(&mut d);
         let error = d.repos[0].fetch_error.as_deref().unwrap();
         assert_eq!(error.chars().count(), MAX_DIAGNOSTIC + 1);
-        assert!(validate(&d).is_ok());
+        assert!(validate(&d, d.generated_at).is_ok());
     }
 
     /// The service files a repository's data under the spelling the
@@ -328,11 +362,11 @@ mod tests {
     #[test]
     fn a_pr_under_another_spelling_of_its_repository_is_refused() {
         let mut d = crate::testdata::fixture();
-        assert!(validate(&d).is_ok());
+        assert!(validate(&d, d.generated_at).is_ok());
         let pr = &mut d.prs[0];
         pr.repo = "Dashpay/Platform".into();
         pr.key = format!("Dashpay/Platform#{}", pr.number);
-        assert!(validate(&d).is_err());
+        assert!(validate(&d, d.generated_at).is_err());
     }
 
     /// However long the configured job timeout, binding a snapshot to its

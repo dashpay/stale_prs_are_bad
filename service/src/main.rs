@@ -111,8 +111,8 @@ async fn shutdown() {
 fn import(db: &Path, file: &Path) -> anyhow::Result<()> {
     let raw =
         std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
-    let d =
-        snapshot::parse(raw.as_bytes()).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+    let d = snapshot::parse(raw.as_bytes(), Utc::now())
+        .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
     let mut store = Store::open(db)?;
     match store.ingest(&d, &raw, None, Utc::now())? {
         Outcome::Stored {

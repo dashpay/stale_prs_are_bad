@@ -11,6 +11,7 @@ use base64::Engine;
 use common::*;
 use http_body::Frame;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
+use pr_hygiene::dashboard::Dashboard;
 use pr_hygiene_service::oidc::KEY_REFRESH_INTERVAL;
 use serde_json::{json, Value};
 use std::convert::Infallible;
@@ -55,6 +56,19 @@ async fn the_scheduled_run_on_master_is_stored() {
     );
 }
 
+/// Every job of the scheduled workflow carries the same repository, branch,
+/// event and caller workflow — the Pages job included, which holds
+/// `id-token: write` and runs third-party actions. Only the post workflow's
+/// own code may post: its `job_workflow_ref` is what tells them apart.
+#[tokio::test]
+async fn a_token_from_another_job_of_the_same_workflow_is_forbidden() {
+    let app = app();
+    let caller_job = sign(&with(claims(), "job_workflow_ref", json!(WORKFLOW)));
+    let (status, body) = post(&app, Some(&caller_job), common::body(&snapshot(5))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body["error"].as_str().unwrap().contains("job_workflow_ref"));
+}
+
 /// Each claim that says where the token was minted, wrong on its own.
 #[tokio::test]
 async fn a_token_minted_anywhere_else_is_forbidden() {
@@ -80,6 +94,11 @@ async fn a_token_minted_anywhere_else_is_forbidden() {
         ("a re-run", "run_attempt", json!("2")),
         ("another workflow", "workflow_ref", json!(other)),
         ("another job workflow", "job_workflow_ref", json!(other)),
+        (
+            "the post workflow from another branch",
+            "job_workflow_ref",
+            json!("dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene-post.yml@refs/heads/feature"),
+        ),
         (
             "the workflow on another branch",
             "workflow_ref",
@@ -336,7 +355,20 @@ async fn a_snapshot_dated_outside_its_run_is_refused() {
     let app = app();
     let (status, body) = post(&app, Some(&token()), common::body(&snapshot(-5))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(body["error"].as_str().unwrap().contains("after its token"));
+    assert!(body["error"].as_str().unwrap().contains("generated_at"));
+    // Not in the future, but generated after its token was minted.
+    let now = now();
+    let earlier = sign(&with(
+        with(claims(), "iat", json!(now - 240)),
+        "nbf",
+        json!(now - 245),
+    ));
+    let (status, body) = post(&app, Some(&earlier), common::body(&snapshot(1))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("after its token"),
+        "{body}"
+    );
     let (status, body) = post(&app, Some(&token()), common::body(&snapshot(31))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     // Inside the window: up to the job timeout before the token.
@@ -393,6 +425,55 @@ async fn a_token_is_good_for_one_post() {
         "{body}"
     );
     assert_eq!(get_json(&app, "/api/v1/prs").await.1, before);
+}
+
+/// A time the store cannot write and read back would make every later read
+/// of that PR fail; a time before GitHub or after the run is not data.
+#[tokio::test]
+async fn a_snapshot_with_a_time_out_of_range_is_refused_and_reads_stay_healthy() {
+    use chrono::TimeZone;
+    let app = app();
+    ingest(&app, &snapshot(10)).await;
+    let far_future = chrono::Utc.with_ymd_and_hms(10_000, 1, 1, 0, 0, 0).unwrap();
+    let long_ago = chrono::Utc.with_ymd_and_hms(1999, 12, 31, 0, 0, 0).unwrap();
+    let cases: Vec<(&str, Dashboard)> = vec![
+        ("a stage entry past year 9999", {
+            let mut d = snapshot(5);
+            pr_mut(&mut d, 3000).since = Some(far_future);
+            d
+        }),
+        ("a stage entry before 2000", {
+            let mut d = snapshot(5);
+            pr_mut(&mut d, 3000).since = Some(long_ago);
+            d
+        }),
+        ("an update a day after the run", {
+            let mut d = snapshot(5);
+            let at = d.generated_at + chrono::TimeDelta::days(1);
+            pr_mut(&mut d, 3000).updated_at = Some(at);
+            d
+        }),
+        ("a PR created past year 9999", {
+            let mut d = snapshot(5);
+            pr_mut(&mut d, 3000).created_at = Some(far_future);
+            d
+        }),
+    ];
+    for (what, d) in cases {
+        let (status, body) = post(&app, Some(&token()), common::body(&d)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{what}: {body}");
+        let (status, body) = get_json(&app, "/api/v1/prs/dashpay/platform/3000").await;
+        assert_eq!(status, StatusCode::OK, "{what}: {body}");
+    }
+    // A PR updated while the run was still reading is real data.
+    let mut d = snapshot(5);
+    let at = d.generated_at + chrono::TimeDelta::minutes(10);
+    pr_mut(&mut d, 3000).updated_at = Some(at);
+    ingest(&app, &d).await;
+}
+
+fn pr_mut(d: &mut Dashboard, number: u64) -> &mut pr_hygiene::dashboard::PrOut {
+    d.prs.iter_mut().find(|p| p.number == number).unwrap()
 }
 
 #[tokio::test]

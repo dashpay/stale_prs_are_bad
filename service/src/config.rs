@@ -62,13 +62,25 @@ pub struct IngestConfig {
     )]
     pub git_ref: String,
 
-    /// The only workflow (and job workflow) that may post, at that branch.
+    /// The only workflow whose run may post, at that branch: the scheduled
+    /// workflow that calls the post workflow.
     #[arg(
         long,
         env = "PR_HYGIENE_WORKFLOW_REF",
         default_value = "dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene.yml@refs/heads/master"
     )]
     pub workflow_ref: String,
+
+    /// The only code that may hold a posting token: the reusable post
+    /// workflow. Every job of the calling workflow shares its other claims —
+    /// including the Pages job, which needs `id-token: write` and runs
+    /// third-party actions — but only the post workflow's job carries this.
+    #[arg(
+        long,
+        env = "PR_HYGIENE_JOB_WORKFLOW_REF",
+        default_value = "dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene-post.yml@refs/heads/master"
+    )]
+    pub job_workflow_ref: String,
 
     /// Largest snapshot accepted, in bytes. A five-repository snapshot with
     /// 139 open PRs measured 109 KB; the default leaves ample headroom.

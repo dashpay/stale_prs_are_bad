@@ -217,7 +217,7 @@ async fn ingest_checked(
         Err(e) if e.downcast_ref::<LengthLimitError>().is_some() => return Err(too_large()),
         Err(_) => return Err(ApiError::bad_request("could not read the body")),
     };
-    let d = snapshot::parse(&bytes).map_err(|e| ApiError::bad_request(e.0))?;
+    let d = snapshot::parse(&bytes, Utc::now()).map_err(|e| ApiError::bad_request(e.0))?;
     snapshot::bind(&d, &verified, state.ingest.job_timeout())
         .map_err(|e| ApiError::bad_request(e.0))?;
     let raw = String::from_utf8(bytes.to_vec())

@@ -254,6 +254,7 @@ pub struct Verifier {
     repository_owner_id: String,
     git_ref: String,
     workflow_ref: String,
+    job_workflow_ref: String,
 }
 
 impl Verifier {
@@ -274,6 +275,7 @@ impl Verifier {
             repository_owner_id: cfg.repository_owner_id.to_string(),
             git_ref: cfg.git_ref.clone(),
             workflow_ref: cfg.workflow_ref.clone(),
+            job_workflow_ref: cfg.job_workflow_ref.clone(),
         }
     }
 
@@ -283,8 +285,9 @@ impl Verifier {
 
     pub async fn verify(&self, token: &str) -> Result<Verified, AuthError> {
         let unauthenticated = |why: &str| AuthError::Unauthenticated(format!("token: {why}"));
-        // The header is read unverified only to choose the key; the
-        // algorithm is pinned before any key is used.
+        // The header is read unverified only to choose the key. The
+        // algorithm is pinned before any key is looked up, so a token
+        // signed any other way cannot even make the service refetch keys.
         let header = jsonwebtoken::decode_header(token)
             .map_err(|_| unauthenticated("not a JWT with a supported algorithm"))?;
         if header.alg != Algorithm::RS256 {
@@ -326,8 +329,8 @@ impl Verifier {
     }
 
     /// Where the token was minted: this repository, its default branch, the
-    /// one workflow, a GitHub-hosted runner, the first attempt of a scheduled
-    /// or manual run.
+    /// one workflow, inside the post workflow's job, on a GitHub-hosted
+    /// runner, on the first attempt of a scheduled or manual run.
     fn check_origin(&self, c: &Claims) -> Result<(), AuthError> {
         let checks: [(&str, bool); 9] = [
             ("repository_id", c.repository_id == self.repository_id),
@@ -338,7 +341,10 @@ impl Verifier {
             ("ref", c.git_ref == self.git_ref),
             ("ref_type", c.ref_type == "branch"),
             ("workflow_ref", c.workflow_ref == self.workflow_ref),
-            ("job_workflow_ref", c.job_workflow_ref == self.workflow_ref),
+            (
+                "job_workflow_ref",
+                c.job_workflow_ref == self.job_workflow_ref,
+            ),
             ("event_name", EVENTS.contains(&c.event_name.as_str())),
             (
                 "runner_environment",
