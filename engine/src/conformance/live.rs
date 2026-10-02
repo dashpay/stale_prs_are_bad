@@ -658,74 +658,96 @@ fn answered_otherwise(python: Option<&Vec<PyValue>>, live: &Result<Reply, Transp
     !agreed || !python.iter().any(|answer| same(answer, &live))
 }
 
-/// Whether the pull requests `author` has open moved between Python's
-/// reads and the live ones, as the open listing answered: one opened,
-/// closed, pushed to, drafted or updated. Which of them are reconciled
-/// together, and when each was admitted, follow from them.
-fn author_moved(
-    repository: &str,
-    author: &str,
-    recorded: &HashMap<CallKey, Vec<PyValue>>,
-    log: &[Logged],
-) -> bool {
-    let author = author.to_lowercase();
-    listing_moved(
-        repository,
-        |pr| {
-            let login = field(pr, "user").and_then(|user| field(user, "login"));
-            matches!(login, Some(PyValue::Str(login)) if login.to_lowercase() == author)
-        },
-        recorded,
-        log,
-    )
+/// One pull request as an answer to the open listing gave it.
+struct Listed {
+    /// Its author's login, lowercased as `admit` groups them.
+    author: Option<String>,
+    number: Option<PyInt>,
+    /// What identifies its state: [`identity`].
+    identity: String,
 }
 
-/// Whether the open pull requests `which` picks out of the open listing
-/// moved between Python's reads and the live ones, as the listing
-/// answered: one of them opened, closed, pushed to, drafted or updated.
-fn listing_moved(
-    repository: &str,
-    which: impl Fn(&PyValue) -> bool,
-    recorded: &HashMap<CallKey, Vec<PyValue>>,
-    log: &[Logged],
-) -> bool {
-    let listing: CallKey = (
-        [
-            "--method".to_owned(),
-            "GET".to_owned(),
-            format!("repos/{repository}/pulls?state=open&per_page=100"),
-            "--paginate".to_owned(),
-            "--slurp".to_owned(),
-        ]
-        .to_vec(),
-        None,
-    );
-    let picked = |pages: &PyValue| -> BTreeSet<String> {
-        let mut found = BTreeSet::new();
-        let PyValue::List(pages) = pages else {
-            return found;
-        };
-        for page in pages.iter() {
-            let PyValue::List(page) = page else {
-                continue;
+/// Every answer to the open listing, Python's and the live run's, each
+/// read once into what tells whether a pull request in it moved.
+struct Listings(Vec<Vec<Listed>>);
+
+impl Listings {
+    fn of(repository: &str, recorded: &HashMap<CallKey, Vec<PyValue>>, log: &[Logged]) -> Self {
+        let listing: CallKey = (
+            [
+                "--method".to_owned(),
+                "GET".to_owned(),
+                format!("repos/{repository}/pulls?state=open&per_page=100"),
+                "--paginate".to_owned(),
+                "--slurp".to_owned(),
+            ]
+            .to_vec(),
+            None,
+        );
+        let listed = |pages: &PyValue| -> Vec<Listed> {
+            let PyValue::List(pages) = pages else {
+                return Vec::new();
             };
-            found.extend(page.iter().filter(|pr| which(pr)).filter_map(identity));
-        }
-        found
-    };
-    let live = log
-        .iter()
-        .filter(|logged| logged.key == listing)
-        .filter_map(|logged| answer_value(&logged.answer));
-    let seen: BTreeSet<BTreeSet<String>> = recorded
-        .get(&listing)
-        .into_iter()
-        .flatten()
-        .cloned()
-        .chain(live)
-        .map(|pages| picked(&pages))
-        .collect();
-    seen.len() > 1
+            let mut found = Vec::new();
+            for page in pages.iter() {
+                let PyValue::List(page) = page else {
+                    continue;
+                };
+                for pr in page.iter() {
+                    let Some(identity) = identity(pr) else {
+                        continue;
+                    };
+                    let login = field(pr, "user").and_then(|user| field(user, "login"));
+                    found.push(Listed {
+                        author: match login {
+                            Some(PyValue::Str(login)) => Some(login.to_lowercase()),
+                            _ => None,
+                        },
+                        number: number_of(pr),
+                        identity,
+                    });
+                }
+            }
+            found
+        };
+        let python = recorded.get(&listing).into_iter().flatten().map(listed);
+        let live = log
+            .iter()
+            .filter(|logged| logged.key == listing)
+            .filter_map(|logged| answer_value(&logged.answer))
+            .map(|pages| listed(&pages));
+        Listings(python.chain(live).collect())
+    }
+
+    /// Whether the open pull requests `which` picks moved between Python's
+    /// reads and the live ones, as the listing answered: one of them
+    /// opened, closed, pushed to, drafted or updated.
+    fn moved(&self, which: impl Fn(&Listed) -> bool) -> bool {
+        let seen: BTreeSet<BTreeSet<&str>> = self
+            .0
+            .iter()
+            .map(|answer| {
+                answer
+                    .iter()
+                    .filter(|pr| which(pr))
+                    .map(|pr| pr.identity.as_str())
+                    .collect()
+            })
+            .collect();
+        seen.len() > 1
+    }
+
+    /// Whether the pull requests `author` has open moved. Which of them are
+    /// reconciled together, and when each was admitted, follow from them.
+    fn author_moved(&self, author: &str) -> bool {
+        let author = author.to_lowercase();
+        self.moved(|pr| pr.author.as_deref() == Some(author.as_str()))
+    }
+
+    /// Whether pull request `number` moved, as its line in the listing.
+    fn number_moved(&self, number: &PyInt) -> bool {
+        self.moved(|pr| pr.number.as_ref() == Some(number))
+    }
 }
 
 /// Whether a read failed live, every time it was asked, where Python's
@@ -1169,20 +1191,21 @@ pub fn live_run<T: Transport>(
             "a live read failed where Python's was answered",
         );
     }
+    let listings = Listings::of(repository, &recorded, &observed.log);
     // Whether each author's open pull requests moved: which of them are
     // reconciled together, and each one's admission, follow from them.
     let mut authors: HashMap<String, bool> = HashMap::new();
     let mut author_of_moved = |pr: &PyValue| match field(pr, "author") {
         Some(PyValue::Str(author)) => *authors
             .entry(author.to_lowercase())
-            .or_insert_with(|| author_moved(repository, author, &recorded, &observed.log)),
+            .or_insert_with(|| listings.author_moved(author)),
         _ => false,
     };
     // Whether the open pull requests whose moving changes which the run
     // decides moved: the author's, for one author's run; anyone's, for a
     // run of every pull request.
     let scope_moved = match &synced {
-        Synced::All => listing_moved(repository, |_| true, &recorded, &observed.log),
+        Synced::All => listings.moved(|_| true),
         Synced::Pr(_) => python_prs.first().is_some_and(|pr| author_of_moved(pr)),
     };
     let run = match outcome {
@@ -1373,12 +1396,7 @@ pub fn live_run<T: Transport>(
             .elsewhere
             .iter()
             .find(|(target, _)| match target {
-                Target::Number(n) => !listing_moved(
-                    repository,
-                    |pr| number_of(pr).as_ref() == Some(n),
-                    &recorded,
-                    &observed.log,
-                ),
+                Target::Number(n) => !listings.number_moved(n),
                 _ => !any_moved,
             });
         let outcome = match unmoved {
@@ -1809,19 +1827,25 @@ mod tests {
         let recorded = recorded_answers(&calls(&[
             r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/pulls?state=open&per_page=100", "--paginate", "--slurp"], "stdin": null, "exit": 0, "stdout": "[[{\"number\": 1, \"user\": {\"login\": \"Alice\"}, \"updated_at\": \"t1\"}, {\"number\": 2, \"user\": {\"login\": \"bob\"}, \"updated_at\": \"t1\"}]]", "stderr": ""}"#,
         ]));
-        let same = listing(
+        let read = |live: Logged| Listings::of("a/b", &recorded, &[live]);
+        let same = read(listing(
             r#"[{"number": 1, "user": {"login": "Alice"}, "updated_at": "t1"}, {"number": 2, "user": {"login": "bob"}, "updated_at": "t9"}]"#,
-        );
-        assert!(
-            !author_moved("a/b", "alice", &recorded, &[same]),
-            "bob's is not hers"
-        );
-        let opened = listing(
+        ));
+        assert!(!same.author_moved("alice"), "bob's is not hers");
+        assert!(same.author_moved("bob"));
+        assert!(same.moved(|_| true), "anyone's did");
+        assert!(!same.number_moved(&PyInt::from(1)));
+        assert!(same.number_moved(&PyInt::from(2)));
+        let opened = read(listing(
             r#"[{"number": 1, "user": {"login": "Alice"}, "updated_at": "t1"}, {"number": 3, "user": {"login": "alice"}, "updated_at": "t2"}]"#,
-        );
-        assert!(author_moved("a/b", "alice", &recorded, &[opened]));
-        let closed = listing(r#"[{"number": 2, "user": {"login": "bob"}, "updated_at": "t1"}]"#);
-        assert!(author_moved("a/b", "alice", &recorded, &[closed]));
+        ));
+        assert!(opened.author_moved("alice"));
+        let closed = read(listing(
+            r#"[{"number": 2, "user": {"login": "bob"}, "updated_at": "t1"}]"#,
+        ));
+        assert!(closed.author_moved("alice"));
+        assert!(closed.number_moved(&PyInt::from(1)), "closed: gone from it");
+        assert!(!closed.number_moved(&PyInt::from(2)));
     }
 
     #[test]
