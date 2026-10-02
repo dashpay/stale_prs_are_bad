@@ -393,109 +393,83 @@ on dispatch, on `master` only, with the read-only App token that
 `pr-hygiene.yml`'s export uses.
 
 **What it records.** The governed repositories are taken in turn, starting
-from a different one each run. For each, the Python engine records:
+from a different one each run. For each, the Python engine records the JSON
+`report`, a dry `sync --batch-size 6` (the hourly sweep), and a dry
+`sync --pr N` (the path the service runs) for one pull request of each of
+three authors. The authors are read from the report and rotate with the run.
+A budget of 1 000 requests bounds the run. Requests are counted from the
+recordings, one per page of a paginated read (`differential --requests`),
+and a dry run that wrote no recording is charged its estimate. Before each
+step the job weighs its estimate against what is left: eight requests per
+open pull request for a report (which reads about six), 150 for a sweep and
+60 for a one-author sync. A step that does not fit is skipped, and its
+repository comes first in a later run. A step's real cost is not capped once
+it runs, so the budget sits well below 1 500, where the last step admitted
+could cost a third more than its estimate and still stay under. The App's
+remaining REST and GraphQL limits are logged before and after, and read
+again before each repository: recording stops when either is below 1 000
+plus what that repository is expected to cost. GraphQL's limit is counted in
+points, which the budget does not see.
 
-- `report --format json`, every open pull request the policy governs;
-- `sync --batch-size 6`, dry: the hourly sweep;
-- `sync --pr N`, dry: the one-author path the service runs, for one pull
-  request of each of three authors. The authors and their pull requests are
-  read from the report's verdicts and rotate with the run, so every author
-  comes round.
+**What it compares.** Python first replays every recording against itself;
+a failure there is the recorder's, not the port's. Then
+`cargo run -p pr-hygiene-engine --bin differential -- DIR...` compares each
+recording:
 
-A budget bounds the run: 1 200 requests to GitHub, counted from the
-recordings themselves, with one request per page of a paginated read (the
-tool's `--requests`). Before each step the job compares what is left with
-that step's estimate: eight requests per open pull request for a report, 150
-for a sweep, 60 for a one-author sync. A step that would not fit is
-skipped, and a repository skipped this run comes first in a later one. A
-report reads about six requests per pull request (the pull request, files,
-reviews, threads, statuses and checks), so the governed repositories' reports
-together cost roughly six times their open pull requests. The job logs the
-App's remaining REST and GraphQL limits before and after. When either is
-below the budget plus a reserve of 1 000, nothing is recorded.
+- **snapshots**: every `pr` Python's `evaluate` saw, rebuilt from the
+  recorded reads alone (the evidence tests' driver), compared exactly;
+- **evaluations**: the port's `evaluate` on each recorded evaluation's
+  arguments, compared exactly with Python's result, except for a reason that
+  carries a Python exception's text. This is the evaluate-case gate's
+  exclusion, decided from the engine's source as `conformance.py` decides
+  it;
+- **verdicts**: each row of `verdicts.json`, against the port's result plus
+  what `evaluate_snapshots` adds: the repository, and the shared-head
+  override where Python's row shows it.
 
-**What it compares.** Python first replays every recording against itself
-(`conformance replay`). A failure there is the recorder's or the Python
-engine's, not the port's. Then the engine's `differential` tool compares
-each recording:
+A read the port needs and the recording lacks counts as a missing read, and
+fails the run. Writes, canonical outputs, the printed report and the clock
+log are not compared yet. The deliberate divergences above have no category
+yet, so one would show as a plain difference. Formats 1 and 2 both load.
 
-```sh
-cargo run -q -p pr-hygiene-engine --bin differential -- DIR...
-```
-
-- **Snapshots**: every `pr` Python's `evaluate` saw, rebuilt from the
-  recorded reads alone and compared exactly. The evidence tests run the same
-  driver.
-- **Evaluations**: the port's `evaluate` on each recorded evaluation's own
-  arguments, compared exactly with Python's result. The one exclusion is the
-  evaluate-case gate's: a reason that carries a Python exception's text. The
-  tool decides which reasons those are from the engine's source, as
-  `conformance.python_exception_text` does, and a test holds that rule to
-  every evaluate case's mark.
-- **Verdicts**: each row of `verdicts.json`, compared with the port's result
-  plus what `evaluate_snapshots` adds. That is the repository, and the
-  shared-head override where Python's row shows it, since which heads are
-  shared comes from the open listing and not from `evaluate`.
-
-Reads the port needs that the recording lacks are counted as missing reads,
-and any count above zero fails the run. Writes, canonical outputs, the
-printed report and the clock log are not compared yet. A deliberate
-divergence listed above has no category of its own yet, so it shows as a
-plain difference.
-
-Formats 1 and 2 both load. The tool exits 0 when every recording matched, 1
-on any difference or unreadable recording, and 2 when it could not run.
-
-**What it never outputs.** Recordings are written to a mode-700 directory
-under the runner's temporary directory. The job's last step deletes them,
-pass or fail, and no artifact, cache or upload holds one. The engine's
-printed report and its stderr go to `/dev/null`, and Python's replay shows
-only its line per recording and its total. The tool prints counts, field
-paths and case indices. It never prints a title, body, login, permission
-level or error message, any of which a recording can hold. A key that is
-data is written `*` (a login under `permissions`, a digest under
-`receipts`), and a key the tool does not know as a field is written `?`. The
-job summary holds the counts table only.
+**What it never outputs.** Recordings live in a mode-700 directory under the
+runner's temporary directory and are deleted by the job's last step, pass or
+fail. No artifact, cache or upload holds one. The engine's printed report
+and stderr go to `/dev/null`, and Python's replay shows only its line per
+recording. The tool prints counts, field paths and case indices, never a
+title, body, login, permission level or error message. A key that is data is
+written `*` (a login under `permissions`) and an unknown key `?`. The job
+summary holds the counts table only.
 
 **Reading a red run.**
 
-- *A dry run wrote no recording*: the recorder refused a call, or the engine
-  exited before it ran. This is Python's problem.
-- *Python's own replay failed*: the same recording replayed differently in
-  Python. This is the recorder or the engine, not the port.
-- *The Rust engine differed*: the categories table names the layer, the
-  field path (`[]` is any list item), the kind of difference and the cases.
-  The kinds are value, type, length, missing, extra, key order, exception
-  text on one side only, and own words where Python raised. Cases are
-  indices into `evaluations.jsonl` for snapshots and evaluations, and into
-  `verdicts.json` for verdicts.
-  - A snapshot that differs while its evaluation matches is the reader
-    (`evidence`).
+- *wrote no recording*: the recorder refused a call or the engine stopped
+  before it ran. This is Python's problem.
+- *Python's own replay failed*: the recorder or the Python engine, not the
+  port.
+- *The Rust engine differed*: the categories table gives the layer, the field
+  path, the kind (value, type, length, missing, extra, key order, exception
+  text) and the case indices. Cases index `evaluations.jsonl` for snapshots
+  and evaluations, and `verdicts.json` for verdicts.
+  - A snapshot that differs under a matching evaluation is the reader.
   - An evaluation that differs is `policy`.
-  - *Read not in the recording* is a request the port wrote differently
-    from Python, byte for byte, or one Python never made.
+  - *Read not in the recording* is a request written differently from
+    Python's, or one Python never made.
 
-  The recordings of a red run are gone by the time anyone looks. To
-  reproduce one, record the same command locally with a read-only token (see
-  Recording), redact it into `conformance/live/`, and run `differential` or
-  the ignored evidence test on the redacted copy.
+  The recordings are gone by then. To reproduce, record the same command
+  locally with a read-only token, redact it into `conformance/live/`, and run
+  the tool on the redacted copy.
 
-**Phase 2, after the reconcile layer.** The same tool replays each sync
-recording through the Rust reconcile layer, over a replay transport that
-answers writes as the recorder did. It then compares:
-
-- the ordered writes: method, path, and body as a JSON value;
-- the canonical outputs (`outputs.json`), the printed report, and the clock
-  reads;
-- the verdict rows, now from the port's own `evaluate_snapshots`, with no
-  override taken from Python's row.
-
-The live half follows. Rust reads the same pull requests over HTTP, and its
-snapshots are compared with Python's recorded ones. A pull request whose
-evidence print equals Python's last real record must produce no would-be
-write. Any difference is run again with Python's clock, status page and
-`admitted_at` substituted, and only a difference that then vanishes is
-categorised (clock, telemetry or admission).
+**Phase 2, after the reconcile layer.** The tool replays each sync through
+the Rust reconcile layer, answering writes as the recorder did. It compares
+the ordered writes (method, path, and body as JSON), `outputs.json`, the
+printed report and the clock reads, and builds verdict rows from the port's
+own `evaluate_snapshots`. Then the live half: Rust reads the same pull
+requests over HTTP and its snapshots are compared with Python's. A pull
+request whose evidence print equals its last real record must produce no
+write. A difference is run again with Python's clock, status page and
+`admitted_at` substituted, and only one that then vanishes is categorised
+(clock, telemetry or admission).
 
 ## What another engine must match exactly
 

@@ -16,9 +16,10 @@ name: Engine differential
 
 on:
   schedule:
-    # Every six hours at :40 (03:40, 09:40, 15:40, 21:40 UTC), away from
-    # pr-hygiene.yml's quarter-hours and its full runs, which spend the same
-    # App's rate limit.
+    # Every six hours at :40 (03:40, 09:40, 15:40, 21:40 UTC). It starts away
+    # from pr-hygiene.yml's quarter-hours and full runs, which spend the same
+    # App's rate limit, but may run past the next quarter-hour; the limit is
+    # read again before each repository.
     - cron: "40 3,9,15,21 * * *"
   workflow_dispatch:
 
@@ -33,8 +34,10 @@ concurrency:
 jobs:
   differential:
     name: Replay live recordings through the Rust engine
-    # Master only: the job mints a token from the App's key. A dispatch on any
-    # other branch is skipped.
+    # Master only, so that a dispatch on another branch does not run by
+    # mistake. This is not a boundary: whoever can push a branch can edit this
+    # file there, and the App's key is a repository secret, as it is for
+    # pr-hygiene.yml. An environment only master may use would be one.
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -42,15 +45,18 @@ jobs:
       # Requests to GitHub this run's recordings may spend, counted from the
       # recordings themselves, a paginated read once per page. Every step is
       # weighed against what is left before it runs, with the estimates
-      # below, and skipped when it would not fit.
-      REQUEST_BUDGET: "1200"
-      # The run starts only when the App has this many requests left beyond
-      # the budget, in both REST and GraphQL, so that pr-hygiene.yml's runs
-      # on the same installation are never starved.
+      # below, and skipped when it would not fit. A step's real cost is not
+      # capped once it runs, so the budget sits well below 1 500: a step
+      # admitted last and costing a third more than its estimate stays under.
+      REQUEST_BUDGET: "1000"
+      # Before each repository the App must have this many requests left
+      # beyond what that repository is expected to cost, in both REST and
+      # GraphQL, so that pr-hygiene.yml's runs on the same installation are
+      # never starved.
       RATE_RESERVE: "1000"
       # A report reads about six requests per open pull request (the pull
       # request, files, reviews, threads, statuses, checks), more where a
-      # list runs past one page.
+      # list runs past one page; eight leaves room for that.
       PER_OPEN_PR: "8"
       # A sweep of six pull requests: their snapshots, their write paths
       # (identity re-reads, labels), and the final re-check of a ready one.
@@ -67,8 +73,9 @@ jobs:
         with:
           persist-credentials: false
 
-      # Built before any token exists: the build runs dependencies' build
-      # scripts, and a failure here spends nothing.
+      # Built first, so that a failure spends nothing. Dependencies' build
+      # scripts run here, before the token is minted, though like any step
+      # they could leave something behind for the steps after them.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 2026-09
 
@@ -135,33 +142,29 @@ jobs:
           limits=$(remaining)
           read -r core graphql <<<"$limits"
           echo "App rate limit remaining before: core $core, graphql $graphql"
-          floor=$(( REQUEST_BUDGET + RATE_RESERVE ))
-          if (( core < floor || graphql < floor )); then
-            echo "::warning::The App has fewer than $floor requests left; nothing is recorded this run"
-            echo "No recordings this run: the App had $core REST and $graphql GraphQL requests left." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
 
-          # One dry run of the engine, recorded into $1; the rest of the
-          # arguments are its command line.
+          # One dry run of the engine, expected to cost $1 and recorded into
+          # $2; the rest of the arguments are its command line. A dry run that
+          # writes no recording may still have read, so it is charged its
+          # estimate, and a recording the tool cannot count the whole budget.
           record() {
-            local into=$1 status=0 requests
-            shift
+            local estimate=$1 into=$2 status=0 requests
+            shift 2
             python3 -m pr_review.main "$@" --record "$into" > /dev/null 2>&1 || status=$?
             if [ ! -f "$into/recording.json" ]; then
               echo "::warning::$* wrote no recording (exit $status)"
               rm -rf "$into"
               unwritten=$(( unwritten + 1 ))
+              spent=$(( spent + estimate ))
               return 0
             fi
-            # A recording the tool cannot count spends the rest of the budget.
-            requests=$("$tool" --requests "$into") || requests=$REQUEST_BUDGET
+            requests=$(env -u GH_TOKEN "$tool" --requests "$into") || requests=$REQUEST_BUDGET
             spent=$(( spent + requests ))
             recorded=$(( recorded + 1 ))
             echo "$*: $requests requests, engine exit $status; $spent spent"
           }
 
-          listed=$(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))")
+          listed=$(env -u GH_TOKEN python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))")
           read -r -a repos <<<"$listed"
           count=${#repos[@]}
           slot=$(( $(date -u +%s) / 21600 ))
@@ -176,18 +179,27 @@ jobs:
               continue
             fi
             spent=$(( spent + open / 100 + 1 ))
-            if (( spent + open * PER_OPEN_PR + PER_SWEEP > REQUEST_BUDGET )); then
+            planned=$(( open * PER_OPEN_PR + PER_SWEEP ))
+            if (( spent + planned > REQUEST_BUDGET )); then
               echo "$repo: not recorded this run; its report and sweep would pass the budget ($open open, $spent spent)"
               continue
             fi
-            record "$dir/report" report --repo "$repo" --format json
-            record "$dir/sync-batch" sync --repo "$repo" --batch-size 6
+            # pr-hygiene.yml may be spending the same limit right now.
+            limits=$(remaining)
+            read -r core graphql <<<"$limits"
+            if (( core < RATE_RESERVE + planned || graphql < RATE_RESERVE + planned )); then
+              echo "::warning::The App has $core REST and $graphql GraphQL requests left; recording stops here"
+              echo "Recording stopped early: the App had $core REST and $graphql GraphQL requests left." >> "$GITHUB_STEP_SUMMARY"
+              break
+            fi
+            record $(( open * PER_OPEN_PR )) "$dir/report" report --repo "$repo" --format json
+            record "$PER_SWEEP" "$dir/sync-batch" sync --repo "$repo" --batch-size 6
             if [ ! -f "$dir/report/verdicts.json" ]; then
               continue
             fi
             # One pull request per author, for a few authors, both chosen by
             # the run's slot. Only numbers come out: never who wrote them.
-            numbers=$(python3 - "$dir/report/verdicts.json" "$slot" "$AUTHORS_PER_REPOSITORY" <<'PY'
+            numbers=$(env -u GH_TOKEN python3 - "$dir/report/verdicts.json" "$slot" "$AUTHORS_PER_REPOSITORY" <<'PY'
           import json
           import sys
 
@@ -207,7 +219,7 @@ jobs:
                 echo "$repo: budget reached; no more one-author syncs this run"
                 break
               fi
-              record "$dir/sync-pr-$number" sync --repo "$repo" --pr "$number"
+              record "$PER_SAMPLE" "$dir/sync-pr-$number" sync --repo "$repo" --pr "$number"
             done
           done
 
@@ -227,7 +239,8 @@ jobs:
           # its line per recording and its total are shown; the lines under a
           # failure can quote what was read.
           set +e
-          python3 -m pr_review.conformance replay "$root" 2>/dev/null | grep -E '^(ok  |FAIL|[0-9]+ recording)'
+          python3 -m pr_review.conformance replay "$root" 2>/dev/null \
+            | grep -E '^(ok  |FAIL) [^ ]+: [0-9]+ calls, |^[0-9]+ recording\(s\), '
           python_status=${PIPESTATUS[0]}
           "$GITHUB_WORKSPACE/target/release/differential" --summary "$GITHUB_STEP_SUMMARY" "$root"
           rust_status=$?
