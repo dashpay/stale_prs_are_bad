@@ -594,3 +594,12 @@ write. A difference is run again with Python's clock, status page and
   a bot such as `github-actions` that opens a thread is looked up as a person
   (a 404, read as unknown access, which lets its thread count as an objection).
   No live verdict depends on this today.
+- **Two runs to settle, in two places.** A head the engine has never posted a
+  status for has no `head_seen_at`; the run's first status gives it one, and
+  `fingerprint` holds it, so the re-check before a success finds the evidence
+  changed and posts `Review evidence changed; reconciliation required`. The
+  next run publishes the verdict. And `evaluate` starts a pull request's
+  waiting time (`ready_since`) only from a previous record's admission, so the
+  run that first asks for a review writes a record without it, and the next
+  run refreshes that record in place and posts the status again. Copied as it
+  is, and fixed once, after cut-over.
