@@ -6,6 +6,9 @@
 #
 # A Python dict keeps insertion order when a key is deleted; IndexMap's
 # swap_remove forms move the last entry into the gap. Use shift_remove.
+#
+# Python's sorted() and list.sort() are stable: equal keys keep their order.
+# The unstable sorts may reorder them. Use sort, sort_by or sort_by_key.
 disallowed-methods = [
     { path = "std::iter::Iterator::max", reason = "keeps the last of equals; use pycompat::py_max_by" },
     { path = "std::iter::Iterator::max_by", reason = "keeps the last of equals; use pycompat::py_max_by" },
@@ -21,4 +24,7 @@ disallowed-methods = [
     { path = "indexmap::map::IndexMap::swap_remove_entry", reason = "reorders the map; a Python dict keeps order, use shift_remove_entry" },
     { path = "indexmap::map::IndexMap::swap_remove_full", reason = "reorders the map; a Python dict keeps order, use shift_remove_full" },
     { path = "indexmap::map::IndexMap::swap_remove_index", reason = "reorders the map; a Python dict keeps order, use shift_remove_index" },
+    { path = "slice::sort_unstable", reason = "may reorder equal elements; Python's sort is stable, use sort" },
+    { path = "slice::sort_unstable_by", reason = "may reorder equal elements; Python's sort is stable, use sort_by" },
+    { path = "slice::sort_unstable_by_key", reason = "may reorder equal elements; Python's sort is stable, use sort_by_key" },
 ]
