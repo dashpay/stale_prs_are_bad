@@ -1,0 +1,38 @@
+[package]
+name = "pr-hygiene-service"
+version = "0.1.0"
+edition = "2021"
+description = "Read-only PR Hygiene service: ingests the analyzer's dashboard data and serves the public API"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "pr-hygiene-service"
+path = "src/main.rs"
+
+[dependencies]
+pr-hygiene = { path = ".." }
+anyhow = "1.0"
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+http-body-util = "0.1"
+# Verification only: RS256 signatures checked against GitHub's public keys.
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tower-http = { version = "0.6", features = ["timeout"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+base64 = "0.22"
+http-body = "1"
+rand = "0.8"
+rsa = "0.9"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
