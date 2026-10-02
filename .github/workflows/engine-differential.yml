@@ -1,0 +1,245 @@
+name: Engine differential
+
+# The Rust engine's shadow on live data. With a read-only token, the Python
+# engine records dry runs against the governed repositories: the report the
+# dashboard exports, the hourly sweep, and the one-author path the service
+# will run. The Rust port replays each recording and must rebuild the same
+# snapshots and reach the same evaluations and verdicts.
+#
+# A recording holds what only a collaborator may see (permission levels, the
+# collaborator listing), so recordings never leave this job. They are written
+# to a mode-700 directory under the runner's temporary directory, read by the
+# two replays and deleted at the end, pass or fail. Nothing is uploaded or
+# cached. Only counts, field paths and case indices are printed, and the job
+# summary holds the counts table. conformance/README.md says how to read a
+# red run.
+
+on:
+  schedule:
+    # Every six hours at :40 (03:40, 09:40, 15:40, 21:40 UTC), away from
+    # pr-hygiene.yml's quarter-hours and its full runs, which spend the same
+    # App's rate limit.
+    - cron: "40 3,9,15,21 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run at a time; a run waiting for its turn is replaced by a newer one.
+  group: engine-differential
+  cancel-in-progress: false
+
+jobs:
+  differential:
+    name: Replay live recordings through the Rust engine
+    # Master only: the job mints a token from the App's key. A dispatch on any
+    # other branch is skipped.
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Requests to GitHub this run's recordings may spend, counted from the
+      # recordings themselves, a paginated read once per page. Every step is
+      # weighed against what is left before it runs, with the estimates
+      # below, and skipped when it would not fit.
+      REQUEST_BUDGET: "1200"
+      # The run starts only when the App has this many requests left beyond
+      # the budget, in both REST and GraphQL, so that pr-hygiene.yml's runs
+      # on the same installation are never starved.
+      RATE_RESERVE: "1000"
+      # A report reads about six requests per open pull request (the pull
+      # request, files, reviews, threads, statuses, checks), more where a
+      # list runs past one page.
+      PER_OPEN_PR: "8"
+      # A sweep of six pull requests: their snapshots, their write paths
+      # (identity re-reads, labels), and the final re-check of a ready one.
+      PER_SWEEP: "150"
+      # One author's `sync --pr`: their histories, one snapshot, its write
+      # path, and the re-check when it is ready.
+      PER_SAMPLE: "60"
+      # Authors sampled per repository per run, one pull request each,
+      # rotating with the run so that every author comes round.
+      AUTHORS_PER_REPOSITORY: "3"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Built before any token exists: the build runs dependencies' build
+      # scripts, and a failure here spends nothing.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 2026-09
+
+      - name: Build the replay tool
+        run: cargo build --release --locked -p pr-hygiene-engine --bin differential
+
+      # The Python the engine runs on in every governed repository, and the
+      # one its conformance corpus is made with.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: List governed repositories
+        id: registry
+        run: echo "names=$(python3 -c "import json; print(','.join(e['repository'].split('/')[1] for e in json.load(open('policies/repositories.json'))['repositories']))")" >> "$GITHUB_OUTPUT"
+
+      # The token pr-hygiene.yml's export uses: the same App, the governed
+      # repositories only, read access only. The recorder sends no write; the
+      # token makes sure none could be sent.
+      - name: Create selected-repository read token
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.PR_REVIEW_APP_ID }}
+          private-key: ${{ secrets.PR_REVIEW_APP_PRIVATE_KEY }}
+          owner: dashpay
+          repositories: ${{ steps.registry.outputs.names }}
+          permission-contents: read
+          permission-pull-requests: read
+          permission-issues: read
+          permission-metadata: read
+
+      # Repositories are taken in turn from a different one each run, and each
+      # gets its report, its sweep and a few one-author syncs while the budget
+      # lasts; a repository that does not fit is first in a later run. What the
+      # engine prints, and anything it says on stderr, goes to /dev/null: it
+      # names pull requests and people.
+      - name: Record dry runs of the Python engine
+        id: record
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          root="$RUNNER_TEMP/differential"
+          mkdir -m 700 "$root"
+          tool="$GITHUB_WORKSPACE/target/release/differential"
+          spent=0
+          recorded=0
+          unwritten=0
+
+          remaining() {
+            gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.graphql.remaining)"'
+          }
+          finish() {
+            echo "recorded=$recorded" >> "$GITHUB_OUTPUT"
+            echo "Requests the recordings made: $spent of a budget of $REQUEST_BUDGET"
+            echo "App rate limit remaining after (core graphql): $(remaining || echo unknown)"
+          }
+          trap finish EXIT
+
+          limits=$(remaining)
+          read -r core graphql <<<"$limits"
+          echo "App rate limit remaining before: core $core, graphql $graphql"
+          floor=$(( REQUEST_BUDGET + RATE_RESERVE ))
+          if (( core < floor || graphql < floor )); then
+            echo "::warning::The App has fewer than $floor requests left; nothing is recorded this run"
+            echo "No recordings this run: the App had $core REST and $graphql GraphQL requests left." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # One dry run of the engine, recorded into $1; the rest of the
+          # arguments are its command line.
+          record() {
+            local into=$1 status=0 requests
+            shift
+            python3 -m pr_review.main "$@" --record "$into" > /dev/null 2>&1 || status=$?
+            if [ ! -f "$into/recording.json" ]; then
+              echo "::warning::$* wrote no recording (exit $status)"
+              rm -rf "$into"
+              unwritten=$(( unwritten + 1 ))
+              return 0
+            fi
+            # A recording the tool cannot count spends the rest of the budget.
+            requests=$("$tool" --requests "$into") || requests=$REQUEST_BUDGET
+            spent=$(( spent + requests ))
+            recorded=$(( recorded + 1 ))
+            echo "$*: $requests requests, engine exit $status; $spent spent"
+          }
+
+          listed=$(python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))")
+          read -r -a repos <<<"$listed"
+          count=${#repos[@]}
+          slot=$(( $(date -u +%s) / 21600 ))
+          for (( i = 0; i < count; i++ )); do
+            repo=${repos[$(( (slot + i) % count ))]}
+            dir="$root/${repo#*/}"
+            mkdir "$dir"
+            # What the report will cost scales with the open pull requests:
+            # one listing request per hundred of them tells how many.
+            if ! open=$(gh api "repos/$repo/pulls?state=open&per_page=100" --paginate --jq length | awk '{ n += $1 } END { print n + 0 }'); then
+              echo "::warning::$repo: could not count its open pull requests; skipped"
+              continue
+            fi
+            spent=$(( spent + open / 100 + 1 ))
+            if (( spent + open * PER_OPEN_PR + PER_SWEEP > REQUEST_BUDGET )); then
+              echo "$repo: not recorded this run; its report and sweep would pass the budget ($open open, $spent spent)"
+              continue
+            fi
+            record "$dir/report" report --repo "$repo" --format json
+            record "$dir/sync-batch" sync --repo "$repo" --batch-size 6
+            if [ ! -f "$dir/report/verdicts.json" ]; then
+              continue
+            fi
+            # One pull request per author, for a few authors, both chosen by
+            # the run's slot. Only numbers come out: never who wrote them.
+            numbers=$(python3 - "$dir/report/verdicts.json" "$slot" "$AUTHORS_PER_REPOSITORY" <<'PY'
+          import json
+          import sys
+
+          rows = json.load(open(sys.argv[1]))
+          slot, wanted = int(sys.argv[2]), int(sys.argv[3])
+          by_author = {}
+          for row in rows:
+              by_author.setdefault(str(row.get('author') or '').lower(), []).append(row['number'])
+          authors = sorted(by_author)
+          for k in range(min(wanted, len(authors))):
+              numbers = sorted(by_author[authors[(slot * wanted + k) % len(authors)]])
+              print(numbers[slot % len(numbers)])
+          PY
+            )
+            for number in $numbers; do
+              if (( spent + PER_SAMPLE > REQUEST_BUDGET )); then
+                echo "$repo: budget reached; no more one-author syncs this run"
+                break
+              fi
+              record "$dir/sync-pr-$number" sync --repo "$repo" --pr "$number"
+            done
+          done
+
+          if (( unwritten > 0 )); then
+            echo "::error::$unwritten dry run(s) wrote no recording; the recorder refused or the engine exited before it ran"
+            exit 1
+          fi
+
+      # No token here: both replays answer every read from the recordings.
+      - name: Replay with Python, then with the Rust engine
+        if: ${{ !cancelled() && steps.record.outputs.recorded != '' && steps.record.outputs.recorded != '0' }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/differential"
+          # Python checked against itself first: a recording it cannot replay
+          # is the recorder's or the engine's problem, not the port's. Only
+          # its line per recording and its total are shown; the lines under a
+          # failure can quote what was read.
+          set +e
+          python3 -m pr_review.conformance replay "$root" 2>/dev/null | grep -E '^(ok  |FAIL|[0-9]+ recording)'
+          python_status=${PIPESTATUS[0]}
+          "$GITHUB_WORKSPACE/target/release/differential" --summary "$GITHUB_STEP_SUMMARY" "$root"
+          rust_status=$?
+          set -e
+          if (( python_status != 0 )); then
+            echo "::error::Python's own replay of a recording failed: the recorder or the Python engine, not the port"
+          fi
+          if (( rust_status != 0 )); then
+            echo "::error::The Rust engine differed from Python; the categories above say where"
+          fi
+          (( python_status == 0 && rust_status == 0 ))
+
+      - name: Delete the recordings
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/differential"

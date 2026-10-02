@@ -240,7 +240,8 @@ key for key and in its order. It asks each read as `gh api` with the exact
 arguments and stdin Python sent, so a request written one byte differently
 is one the recording does not hold. The same test runs over `conformance/live`
 when asked (`cargo test -p pr-hygiene-engine --test evidence -- --ignored`),
-and refuses a recording that was not redacted.
+and refuses a recording that was not redacted. Its driver is the engine's
+`conformance` module, which the differential job (below) runs too.
 
 ## Evaluate cases
 
@@ -383,6 +384,118 @@ hold, and fails closed or fails the run rather than guess:
 - **Sorting values that cannot be compared**: under 64 items the port asks `<`
   of the same pairs as CPython and raises where it raises; past that CPython
   merges runs and may meet a different incomparable pair first.
+
+## The differential job
+
+`.github/workflows/engine-differential.yml` is the Rust engine's shadow on
+live data. It runs every six hours (03:40, 09:40, 15:40 and 21:40 UTC) and
+on dispatch, on `master` only, with the read-only App token that
+`pr-hygiene.yml`'s export uses.
+
+**What it records.** The governed repositories are taken in turn, starting
+from a different one each run. For each, the Python engine records:
+
+- `report --format json`, every open pull request the policy governs;
+- `sync --batch-size 6`, dry: the hourly sweep;
+- `sync --pr N`, dry: the one-author path the service runs, for one pull
+  request of each of three authors. The authors and their pull requests are
+  read from the report's verdicts and rotate with the run, so every author
+  comes round.
+
+A budget bounds the run: 1 200 requests to GitHub, counted from the
+recordings themselves, with one request per page of a paginated read (the
+tool's `--requests`). Before each step the job compares what is left with
+that step's estimate: eight requests per open pull request for a report, 150
+for a sweep, 60 for a one-author sync. A step that would not fit is
+skipped, and a repository skipped this run comes first in a later one. A
+report reads about six requests per pull request (the pull request, files,
+reviews, threads, statuses and checks), so the governed repositories' reports
+together cost roughly six times their open pull requests. The job logs the
+App's remaining REST and GraphQL limits before and after. When either is
+below the budget plus a reserve of 1 000, nothing is recorded.
+
+**What it compares.** Python first replays every recording against itself
+(`conformance replay`). A failure there is the recorder's or the Python
+engine's, not the port's. Then the engine's `differential` tool compares
+each recording:
+
+```sh
+cargo run -q -p pr-hygiene-engine --bin differential -- DIR...
+```
+
+- **Snapshots**: every `pr` Python's `evaluate` saw, rebuilt from the
+  recorded reads alone and compared exactly. The evidence tests run the same
+  driver.
+- **Evaluations**: the port's `evaluate` on each recorded evaluation's own
+  arguments, compared exactly with Python's result. The one exclusion is the
+  evaluate-case gate's: a reason that carries a Python exception's text. The
+  tool decides which reasons those are from the engine's source, as
+  `conformance.python_exception_text` does, and a test holds that rule to
+  every evaluate case's mark.
+- **Verdicts**: each row of `verdicts.json`, compared with the port's result
+  plus what `evaluate_snapshots` adds. That is the repository, and the
+  shared-head override where Python's row shows it, since which heads are
+  shared comes from the open listing and not from `evaluate`.
+
+Reads the port needs that the recording lacks are counted as missing reads,
+and any count above zero fails the run. Writes, canonical outputs, the
+printed report and the clock log are not compared yet. A deliberate
+divergence listed above has no category of its own yet, so it shows as a
+plain difference.
+
+Formats 1 and 2 both load. The tool exits 0 when every recording matched, 1
+on any difference or unreadable recording, and 2 when it could not run.
+
+**What it never outputs.** Recordings are written to a mode-700 directory
+under the runner's temporary directory. The job's last step deletes them,
+pass or fail, and no artifact, cache or upload holds one. The engine's
+printed report and its stderr go to `/dev/null`, and Python's replay shows
+only its line per recording and its total. The tool prints counts, field
+paths and case indices. It never prints a title, body, login, permission
+level or error message, any of which a recording can hold. A key that is
+data is written `*` (a login under `permissions`, a digest under
+`receipts`), and a key the tool does not know as a field is written `?`. The
+job summary holds the counts table only.
+
+**Reading a red run.**
+
+- *A dry run wrote no recording*: the recorder refused a call, or the engine
+  exited before it ran. This is Python's problem.
+- *Python's own replay failed*: the same recording replayed differently in
+  Python. This is the recorder or the engine, not the port.
+- *The Rust engine differed*: the categories table names the layer, the
+  field path (`[]` is any list item), the kind of difference and the cases.
+  The kinds are value, type, length, missing, extra, key order, exception
+  text on one side only, and own words where Python raised. Cases are
+  indices into `evaluations.jsonl` for snapshots and evaluations, and into
+  `verdicts.json` for verdicts.
+  - A snapshot that differs while its evaluation matches is the reader
+    (`evidence`).
+  - An evaluation that differs is `policy`.
+  - *Read not in the recording* is a request the port wrote differently
+    from Python, byte for byte, or one Python never made.
+
+  The recordings of a red run are gone by the time anyone looks. To
+  reproduce one, record the same command locally with a read-only token (see
+  Recording), redact it into `conformance/live/`, and run `differential` or
+  the ignored evidence test on the redacted copy.
+
+**Phase 2, after the reconcile layer.** The same tool replays each sync
+recording through the Rust reconcile layer, over a replay transport that
+answers writes as the recorder did. It then compares:
+
+- the ordered writes: method, path, and body as a JSON value;
+- the canonical outputs (`outputs.json`), the printed report, and the clock
+  reads;
+- the verdict rows, now from the port's own `evaluate_snapshots`, with no
+  override taken from Python's row.
+
+The live half follows. Rust reads the same pull requests over HTTP, and its
+snapshots are compared with Python's recorded ones. A pull request whose
+evidence print equals Python's last real record must produce no would-be
+write. Any difference is run again with Python's clock, status page and
+`admitted_at` substituted, and only a difference that then vanishes is
+categorised (clock, telemetry or admission).
 
 ## What another engine must match exactly
 
