@@ -5,14 +5,15 @@
 //!
 //! ```text
 //! differential-live [--budget N] [--report-prs K] [--slot S]
-//!                   [--summary FILE] [--spent FILE]
+//!                   [--summary FILE] [--spent FILE] [--coverage FILE]
 //!                   [--repositories FILE] [--python-source DIR] DIR...
 //! ```
 //!
 //! Each `DIR` is a recording, or a directory searched for recordings. A
 //! report has `K` of its pull requests read live (2 unless given), chosen
-//! by the slot `S` so that each comes round; a one-author `sync --pr N` is
-//! run whole, live; anything else is not read. The live reads may make `N`
+//! by the slot `S` so that each comes round; a sync, of one author
+//! (`sync --pr N`) or of every pull request (`sync`), is run whole, live;
+//! anything else is not read. The live reads may make `N`
 //! requests in all (unlimited unless given); a recording whose reads would
 //! pass that is skipped. See `pr_hygiene_service::differential`.
 //!
@@ -27,7 +28,10 @@
 //! layers, field paths and kinds, and nothing a recording or a live answer
 //! holds. No log is set up, so nothing the reader logs is printed either.
 //! `--summary FILE` appends the counts table alone to `FILE`; `--spent
-//! FILE` writes how many requests the live reads made, as one number.
+//! FILE` writes how many requests the live reads made, as one number;
+//! `--coverage FILE` writes, for each sync of every pull request, one line
+//! of counts — the repository's full coverage — and leaves `FILE` alone
+//! where there was none.
 //!
 //! Exit status: 0 when every recording read live matched, or differed only
 //! where a difference is explained or a pull request moved; 1 when any
@@ -45,12 +49,13 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
-const USAGE: &str = "usage: differential-live [--budget N] [--report-prs K] [--slot S] [--summary FILE] [--spent FILE] [--repositories FILE] [--python-source DIR] DIR...";
+const USAGE: &str = "usage: differential-live [--budget N] [--report-prs K] [--slot S] [--summary FILE] [--spent FILE] [--coverage FILE] [--repositories FILE] [--python-source DIR] DIR...";
 
 struct Options {
     settings: Settings,
     summary: Option<PathBuf>,
     spent: Option<PathBuf>,
+    coverage: Option<PathBuf>,
     repositories: PathBuf,
     python_source: PathBuf,
     paths: Vec<PathBuf>,
@@ -67,6 +72,7 @@ fn options() -> Result<Option<Options>, String> {
         },
         summary: None,
         spent: None,
+        coverage: None,
         repositories: root.join("policies/repositories.json"),
         python_source: root.join("pr_review"),
         paths: Vec::new(),
@@ -89,6 +95,9 @@ fn options() -> Result<Option<Options>, String> {
             }
             Some("--spent") => {
                 options.spent = Some(args.next().ok_or("--spent needs a file")?.into())
+            }
+            Some("--coverage") => {
+                options.coverage = Some(args.next().ok_or("--coverage needs a file")?.into())
             }
             Some("--repositories") => {
                 options.repositories = args.next().ok_or("--repositories needs a file")?.into()
@@ -190,6 +199,10 @@ fn run(options: Options) -> anyhow::Result<bool> {
     if let Some(spent) = &options.spent {
         std::fs::write(spent, format!("{}\n", outcome.spent))
             .with_context(|| format!("writing {}", spent.display()))?;
+    }
+    if let (Some(path), Some(coverage)) = (&options.coverage, outcome.coverage()) {
+        std::fs::write(path, format!("{coverage}\n"))
+            .with_context(|| format!("writing {}", path.display()))?;
     }
     Ok(outcome.clean())
 }

@@ -10,7 +10,7 @@ use pr_hygiene_engine::reconcile::Command;
 /// admission of a ready-to-merge pull request, one that asks a reviewer,
 /// one whose author is told their move, a draft with a stale checklist,
 /// and one rebased off the policy still wearing the engine's marks.
-fn mixed() -> (PyValue, Fake) {
+pub fn mixed() -> (PyValue, Fake) {
     let mut fake = Fake::new(LATER);
     fake.add(Pr::new(1, "owner", HEAD));
     let mut asks = Pr::new(2, "reviewer", &"b".repeat(40));

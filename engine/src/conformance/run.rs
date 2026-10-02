@@ -477,14 +477,23 @@ fn reads_value(reads: &[(String, usize)]) -> PyValue {
     )
 }
 
-/// The pull request a recorded `sync --pr N` named; `None` for any other
-/// command.
-pub(super) fn synced_pr(meta: &PyValue) -> Option<PyInt> {
+/// What a recorded sync reconciled, as a live run can run it again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Synced {
+    /// `sync`: every open pull request the policy governs.
+    All,
+    /// `sync --pr N`: that pull request's author, as an event runs it.
+    Pr(PyInt),
+}
+
+/// What a recorded sync reconciled; `None` for a report, a sweep's batch,
+/// or anything the port does not run.
+pub(super) fn synced(meta: &PyValue) -> Option<Synced> {
     let args = argv(meta).ok()?;
-    if args.command == Command::Sync {
-        args.pr
-    } else {
-        None
+    match (args.command, args.pr, args.batch_size) {
+        (Command::Sync, Some(n), _) => Some(Synced::Pr(n)),
+        (Command::Sync, None, None) => Some(Synced::All),
+        _ => None,
     }
 }
 
@@ -774,5 +783,32 @@ mod tests {
         .unwrap();
         let args = argv(&meta).unwrap();
         assert_eq!((args.batch_size, args.json), (Some(3), true));
+    }
+
+    #[test]
+    fn a_live_run_is_made_of_a_sync_of_every_pull_request_or_of_one_and_nothing_else() {
+        let of = |argv: &str| synced(&py_loads(&format!(r#"{{"argv": {argv}}}"#)).unwrap());
+        assert_eq!(
+            of(r#"["sync", "--repo", "a/b", "--format", "json"]"#),
+            Some(Synced::All)
+        );
+        assert_eq!(
+            of(r#"["sync", "--repo", "a/b", "--pr", "7"]"#),
+            Some(Synced::Pr(PyInt::from(7)))
+        );
+        // A sweep's batch is chosen by the hour, which a live run does not
+        // share; a report writes nothing to hold; a build scan is not ported.
+        assert_eq!(
+            of(r#"["sync", "--repo", "a/b", "--batch-size", "6"]"#),
+            None
+        );
+        assert_eq!(
+            of(r#"["report", "--repo", "a/b", "--format", "json"]"#),
+            None
+        );
+        assert_eq!(
+            of(r#"["sync", "--repo", "a/b", "--waiting-on-build"]"#),
+            None
+        );
     }
 }
