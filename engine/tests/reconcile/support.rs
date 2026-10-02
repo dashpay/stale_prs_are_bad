@@ -6,6 +6,7 @@ pub use pr_hygiene_engine::evidence::{
 };
 pub use pr_hygiene_engine::pycompat::{py_dumps, py_loads, PyDateTime, PyInt, PyValue};
 pub use pr_hygiene_engine::reconcile::{Clock, ClockSite};
+pub use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
