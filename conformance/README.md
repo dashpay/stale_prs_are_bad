@@ -196,7 +196,8 @@ be yours). Files are named
 same file on every harvest; the engine clock is fixed at `2026-10-01T00:00:00Z`
 during a harvest for the few tests that leave it running. A case is kept only
 if it replays from its JSON exactly. Re-harvest whenever `evaluate` or its
-tests change, and commit the difference.
+tests change, and commit the difference: CI harvests into a scratch directory
+and fails on any difference from what is committed.
 
 `evaluate` is replaced before the engine or any test is imported, so every
 name it is bound to is the observing one and the engine carries no hook for

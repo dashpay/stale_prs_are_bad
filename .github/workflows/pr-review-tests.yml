@@ -33,6 +33,14 @@ jobs:
       - name: Unit tests
         working-directory: proposed
         run: python3 -m unittest discover -s pr_review/tests -v
+      - name: The committed conformance corpus is what a fresh harvest writes
+        # A change to the engine or its tests that changes a case has to carry
+        # the re-harvested corpus with it, or another engine is held to answers
+        # this one no longer gives.
+        working-directory: proposed
+        run: |
+          python3 -m pr_review.conformance harvest "$RUNNER_TEMP/evaluate"
+          diff -r conformance/evaluate "$RUNNER_TEMP/evaluate"
       - name: Clone the default branch of every governed repository
         # Policies are read live by callers. Catch missing paths before rollout,
         # instead of discovering them in a repository's reconciliation jobs.
