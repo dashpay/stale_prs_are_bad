@@ -4,6 +4,9 @@
 //! under `/api/v1`. It holds no credential with access to any repository.
 //! It calls GitHub only to fetch GitHub's public token-signing keys and,
 //! when sign-in is on, to sign people in through an App with no permissions.
+//!
+//! `reader` is how the review engine will read GitHub, through a read-only
+//! App, from a process of its own: the server never holds that App's key.
 
 pub mod api;
 pub mod app;
@@ -12,6 +15,7 @@ pub mod config;
 pub mod digest;
 pub mod github;
 pub mod oidc;
+pub mod reader;
 pub mod snapshot;
 pub mod speed;
 pub mod store;

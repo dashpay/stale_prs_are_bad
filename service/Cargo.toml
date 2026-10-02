@@ -12,17 +12,23 @@ path = "src/main.rs"
 
 [dependencies]
 pr-hygiene = { path = ".." }
+# The review engine, which reads GitHub through the reader's transport.
+pr-hygiene-engine = { path = "../engine" }
 anyhow = "1.0"
 axum = "0.8"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 http-body-util = "0.1"
-# Verification only: RS256 signatures checked against GitHub's public keys.
+# RS256 both ways: GitHub's OIDC tokens checked against its public keys,
+# and the reader App's tokens signed with its private key.
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 # Session ids, sign-in state and PKCE verifiers, from the OS's generator.
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Reads the reader App's private key from its PEM file. Already built, with
+# its `pem` feature, as jsonwebtoken's RSA backend.
+rsa = "0.9"
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -32,9 +38,11 @@ tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal
 tower-http = { version = "0.6", features = ["fs", "set-header", "timeout"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Wipes the reader App's key file text once the key is read. Already built
+# for rsa and jsonwebtoken, which wipe their own copies.
+zeroize = "1"
 
 [dev-dependencies]
 http-body = "1"
-rsa = "0.9"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }

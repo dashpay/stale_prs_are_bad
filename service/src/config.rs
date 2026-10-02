@@ -1,5 +1,6 @@
 //! Configuration, read from the environment (or the matching flags).
 
+use crate::reader::AppKey;
 use clap::Args;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -229,6 +230,67 @@ impl SignInArgs {
     }
 }
 
+/// The read-only GitHub App the engine reads evidence through. All of it
+/// unset leaves the reader off; part of it set is a mistake, refused at
+/// start-up.
+///
+/// These belong to the process that runs the engine, the only one that
+/// holds the App's key: the internet-facing server never reads them.
+#[derive(Debug, Clone, Args)]
+pub struct ReaderArgs {
+    /// The reader App's numeric App id.
+    #[arg(long, env = "PR_HYGIENE_READER_APP_ID")]
+    pub reader_app_id: Option<u64>,
+
+    /// A file holding the reader App's private key, in PEM, such as a
+    /// mounted secret. Read once at start-up and held in memory only.
+    #[arg(long, env = "PR_HYGIENE_READER_APP_KEY_FILE")]
+    pub reader_app_key_file: Option<PathBuf>,
+
+    /// The numeric id of the App's installation on the governed
+    /// repositories.
+    #[arg(long, env = "PR_HYGIENE_READER_INSTALLATION_ID")]
+    pub reader_installation_id: Option<u64>,
+}
+
+/// The reader App, configured and its key read.
+#[derive(Debug, Clone)]
+pub struct ReaderConfig {
+    pub app_id: u64,
+    pub installation_id: u64,
+    pub key: AppKey,
+}
+
+impl ReaderArgs {
+    /// `None` when the reader is off: nothing of it is configured.
+    pub fn resolve(&self) -> anyhow::Result<Option<ReaderConfig>> {
+        let (app_id, path, installation_id) = match (
+            self.reader_app_id,
+            &self.reader_app_key_file,
+            self.reader_installation_id,
+        ) {
+            (None, None, None) => return Ok(None),
+            (Some(app_id), Some(path), Some(installation_id)) => (app_id, path, installation_id),
+            _ => anyhow::bail!(
+                "the reader needs PR_HYGIENE_READER_APP_ID, PR_HYGIENE_READER_APP_KEY_FILE and \
+                 PR_HYGIENE_READER_INSTALLATION_ID together, or none of them"
+            ),
+        };
+        // Wiped once read: the key itself lives on only in `AppKey`.
+        let pem = zeroize::Zeroizing::new(
+            std::fs::read_to_string(path)
+                .map_err(|e| anyhow::anyhow!("reading {}: {}", path.display(), e.kind()))?,
+        );
+        let key = AppKey::from_pem(&pem)
+            .map_err(|e| anyhow::anyhow!("PR_HYGIENE_READER_APP_KEY_FILE: {e}"))?;
+        Ok(Some(ReaderConfig {
+            app_id,
+            installation_id,
+            key,
+        }))
+    }
+}
+
 /// GitHub's client ids are short and alphanumeric, older ones with a dot
 /// (`Iv23li…`, `Iv1.8a61…`); anything else would need escaping in the
 /// revocation URL's path. Starting alphanumeric, it can never be a `.` or
@@ -341,6 +403,68 @@ mod tests {
         ] {
             assert!(!is_origin(bad), "{bad}");
         }
+    }
+
+    fn reader(app_id: Option<u64>, key: Option<PathBuf>, installation: Option<u64>) -> ReaderArgs {
+        ReaderArgs {
+            reader_app_id: app_id,
+            reader_app_key_file: key,
+            reader_installation_id: installation,
+        }
+    }
+
+    #[test]
+    fn the_reader_is_off_when_nothing_is_set_and_refused_when_half_set() {
+        assert!(reader(None, None, None).resolve().unwrap().is_none());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("key.pem");
+        std::fs::write(&path, &crate::reader::mock::test_key().pem).unwrap();
+        for half in [
+            reader(Some(1), None, None),
+            reader(None, Some(path.clone()), None),
+            reader(None, None, Some(2)),
+            reader(Some(1), Some(path.clone()), None),
+            reader(None, Some(path.clone()), Some(2)),
+        ] {
+            assert!(half.resolve().is_err(), "{half:?}");
+        }
+        let on = reader(Some(1), Some(path), Some(2))
+            .resolve()
+            .unwrap()
+            .unwrap();
+        assert_eq!((on.app_id, on.installation_id), (1, 2));
+    }
+
+    #[test]
+    fn the_reader_key_is_refused_without_quoting_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = reader(Some(1), Some(dir.path().join("absent.pem")), Some(2));
+        assert!(missing.resolve().is_err());
+        let path = dir.path().join("key.pem");
+        let pem = crate::reader::mock::test_key().pem.replace("MII", "XYZ");
+        std::fs::write(&path, &pem).unwrap();
+        let error = reader(Some(1), Some(path), Some(2)).resolve().unwrap_err();
+        let text = format!("{error:#} {error:?}");
+        let line = pem.lines().nth(3).unwrap();
+        assert!(!text.contains(line), "{text}");
+        assert!(text.contains("not an RSA private key"), "{text}");
+    }
+
+    #[test]
+    fn the_reader_key_is_never_printed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("key.pem");
+        let pem = &crate::reader::mock::test_key().pem;
+        std::fs::write(&path, pem).unwrap();
+        let on = reader(Some(1), Some(path), Some(2))
+            .resolve()
+            .unwrap()
+            .unwrap();
+        let printed = format!("{on:?}");
+        for line in pem.lines().skip(1).take(3) {
+            assert!(!printed.contains(line), "{printed}");
+        }
+        assert!(printed.contains("AppKey(..)"), "{printed}");
     }
 
     #[test]
