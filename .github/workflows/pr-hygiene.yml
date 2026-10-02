@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Render the report as a run artifact only; push nothing and skip Pages
+        description: Render the dashboard data as a run artifact only; push nothing and skip Pages
         type: boolean
         default: false
 
@@ -105,7 +105,18 @@ jobs:
           # only read public ones.
           GITHUB_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
           GITHUB_SHA: ${{ github.sha }}
-        run: ../target/release/pr-hygiene --config ../.pr-hygiene.yml --policies-root ../policies --policy-state ../policy-state --out index.md
+        # dashboard.json goes outside the data checkout: it is published, not
+        # committed, so a run that changes no history adds no commit for it.
+        run: ../target/release/pr-hygiene --config ../.pr-hygiene.yml --policies-root ../policies --policy-state ../policy-state --out index.md --json-out ../dashboard.json
+
+      - name: Hand the dashboard data to the publish job
+        if: ${{ !inputs.dry_run }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dashboard-data
+          path: dashboard.json
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Render report without writing anything
         if: ${{ inputs.dry_run }}
@@ -113,15 +124,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
           GITHUB_SHA: ${{ github.sha }}
-        run: ../target/release/pr-hygiene --config ../.pr-hygiene.yml --policies-root ../policies --policy-state ../policy-state --dry-run > ../dry-run-index.md
+        run: ../target/release/pr-hygiene --config ../.pr-hygiene.yml --policies-root ../policies --policy-state ../policy-state --dry-run --json-out ../dashboard.json > ../dry-run-index.md
 
       - name: Upload dry-run report
         if: ${{ inputs.dry_run }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dry-run-report
-          path: dry-run-index.md
+          path: |
+            dry-run-index.md
+            dashboard.json
           retention-days: 7
+          if-no-files-found: error
 
       - name: Commit changes
         if: ${{ !inputs.dry_run }}
@@ -158,28 +172,29 @@ jobs:
         with:
           persist-credentials: false
 
-      # Pull the data branch AFTER the analyze job's push so we publish the fresh report.
-      - name: Checkout data branch
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Download the dashboard data
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          ref: data
-          path: data
-          persist-credentials: false
+          name: dashboard-data
+          path: data-artifact
 
+      # The page and its data only: no fixtures, no check script, no Jekyll —
+      # the page is plain files and must be served exactly as written.
       - name: Assemble site
-        run: cp data/index.md docs/index.md
+        run: |
+          set -euo pipefail
+          bash site/check.sh
+          mkdir -p _site
+          cp site/index.html site/app.js site/style.css _site/
+          cp -R site/js site/vendor _site/
+          rm -f _site/vendor/VERSIONS
+          cp data-artifact/dashboard.json _site/dashboard.json
 
       - name: Configure Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
         with:
           # Enables Pages on the repo if it isn't already enabled. Idempotent.
           enablement: true
-
-      - name: Build site with Jekyll
-        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1.0.13
-        with:
-          source: ./docs
-          destination: ./_site
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1

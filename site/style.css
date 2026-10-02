@@ -1,0 +1,411 @@
+/* Colour roles. Lateness is blue (on time), amber (late) and crimson (very
+   late), stepped per mode so every mark clears 3:1 on its surface and the
+   three stay apart under protanopia and deuteranopia; a shape (circle,
+   triangle, diamond) always rides with the colour. Stage colours are the
+   eight categorical slots in a fixed order, each mode its own validated step. */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --neutral: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --wash: rgba(11, 11, 11, 0.04);
+  --link: #1c5cab;
+  --hatch: rgba(11, 11, 11, 0.12);
+
+  --late-ok: #2a78d6;
+  --late-late: #b57600;
+  --late-very-late: #a3214f;
+  --untimed: #52514e;
+  --over: #b42828;
+  --warn-bg: #fff4d6;
+  --warn-ink: #5c4300;
+  --error-bg: #fde8e8;
+
+  --stage-draft: #2a78d6;
+  --stage-not-governed: #eb6834;
+  --stage-bots: #1baf7a;
+  --stage-self-review: #eda100;
+  --stage-ci: #e87ba4;
+  --stage-queued: #008300;
+  --stage-review: #4a3aa7;
+  --stage-mergeable: #e34948;
+  --stage-blocked: #898781;
+  --stage-unknown: #c3c2b7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --neutral: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --wash: rgba(255, 255, 255, 0.05);
+    --link: #86b6ef;
+    --hatch: rgba(255, 255, 255, 0.14);
+    --late-ok: #3987e5;
+    --late-late: #fab219;
+    --late-very-late: #e66767;
+    --untimed: #c3c2b7;
+    --over: #f08a8a;
+    --warn-bg: #3a2f10;
+    --warn-ink: #ffe3a3;
+    --error-bg: #3d1a1a;
+
+    --stage-draft: #3987e5;
+    --stage-not-governed: #d95926;
+    --stage-bots: #199e70;
+    --stage-self-review: #c98500;
+    --stage-ci: #d55181;
+    --stage-queued: #008300;
+    --stage-review: #9085e9;
+    --stage-mergeable: #e66767;
+    --stage-blocked: #898781;
+    --stage-unknown: #5d5c57;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a { color: var(--link); }
+main:focus, h2[tabindex="-1"]:focus { outline: none; }
+a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+code {
+  font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--wash);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  /* Long area ids wrap inside their cell instead of widening the table. */
+  overflow-wrap: anywhere;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.loading, .muted { color: var(--ink-2); }
+.sub { color: var(--ink-2); margin: 4px 0 12px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Header and navigation */
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+.top h1 { font-size: 20px; margin: 0; }
+.top .sub { margin: 2px 0 0; }
+.asof { white-space: nowrap; }
+nav { display: flex; gap: 4px; }
+nav a {
+  padding: 6px 12px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--ink-2);
+}
+nav a:hover { background: var(--wash); }
+nav a[aria-current="page"] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--border); font-weight: 600; }
+
+/* Banners */
+.banner {
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  overflow-wrap: anywhere;
+}
+.banner-error { background: var(--error-bg); color: var(--ink); }
+
+/* Filters: one row above everything they scope */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+.field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.field label { font-size: 12px; color: var(--ink-2); }
+.field-check { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 6px; }
+.field-check label { font-size: 14px; color: var(--ink); }
+select, input[type="search"] {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  max-width: 100%;
+}
+input[type="search"] { width: 220px; }
+/* A long area or repository name must not stretch its menu across the row. */
+.filters select { max-width: 15em; }
+input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+.card h2 { font-size: 16px; margin: 0 0 4px; }
+
+/* Whose-move tiles */
+.tiles {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--ink);
+  text-decoration: none;
+}
+.tile:hover { background: var(--wash); }
+.tile-active { box-shadow: inset 0 0 0 2px var(--link); }
+.tile-zero { color: var(--ink-2); }
+.tile-zero .tile-value { color: var(--ink-2); }
+.tile-label { font-size: 13px; color: var(--ink-2); }
+.tile-value { font-size: 28px; font-weight: 600; line-height: 1.1; }
+.tile-sub { font-size: 12px; color: var(--ink-2); }
+.tile-late { font-size: 12px; display: inline-flex; align-items: center; gap: 2px; }
+.tiles-heading { font-size: 14px; margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--grid); }
+.tiles-heading + .sub { margin-bottom: 0; }
+.tile-parked { background: var(--wash); }
+.hatched {
+  background-image: repeating-linear-gradient(45deg, var(--hatch) 0 1px, transparent 1px 7px);
+}
+
+/* Legend and status marks */
+.legend {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.legend li { display: inline-flex; align-items: center; gap: 6px; }
+.mark { flex: none; vertical-align: -1px; overflow: visible; }
+.mark > * { stroke: none; }
+.mark-opened > * { fill: var(--surface); stroke: var(--neutral); stroke-width: 1.5; }
+.mark-ok > * { fill: var(--late-ok); }
+.mark-late > * { fill: var(--late-late); }
+.mark-very-late > * { fill: var(--late-very-late); }
+.mark-untimed > * { fill: var(--untimed); }
+
+/* Aging plot */
+.aging { margin: 0; }
+.plot-holder { width: 100%; min-height: 60px; }
+.plot-holder svg { display: block; max-width: 100%; height: auto; overflow: visible; --plot-background: var(--surface); }
+.aging figcaption { margin: 6px 0 0; font-size: 12px; }
+
+/* Tables: scroll inside their own box, never the page */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+caption { text-align: left; color: var(--ink-2); padding-bottom: 4px; }
+th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+th { font-weight: 600; color: var(--ink-2); white-space: nowrap; font-size: 12px; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:hover { background: var(--wash); }
+td.empty { color: var(--ink-2); padding: 12px 8px; }
+button.sort {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+button.sort:hover { color: var(--ink); text-decoration: underline; }
+th[aria-sort] { color: var(--ink); }
+
+/* Wide enough for a repository name on one line; anything longer wraps
+   rather than widening the table. */
+.col-repo { min-width: 8.5em; overflow-wrap: anywhere; }
+.pr-cell, .pr { display: flex; flex-direction: column; gap: 1px; min-width: 200px; max-width: 460px; }
+.pr-title { color: var(--ink); overflow-wrap: anywhere; }
+/* Text from the data is isolated, so a direction override inside a title or
+   blocker cannot reorder the page's own words around it. */
+.pr-title, .err, .next span, .blockers li, .asks li, .part li, code, .person, .tile-sub span, .person-title h2 { unicode-bidi: isolate; }
+.nolink { color: var(--ink-2); }
+.next { display: block; min-width: 180px; max-width: 340px; overflow-wrap: anywhere; color: var(--ink-2); }
+.blockers { margin: 4px 0 0; padding-left: 16px; }
+.asks { margin: 4px 0 0; padding-left: 16px; color: var(--ink); }
+.asks li, .blockers li { overflow-wrap: anywhere; }
+.legend-rules { margin: 0 0 8px; font-size: 12px; }
+.person { display: inline-flex; align-items: center; gap: 6px; }
+.person > a, .person > span:not(.avatar):not(.bot) { overflow-wrap: anywhere; min-width: 0; }
+.bot { font-size: 13px; }
+.avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; background: var(--wash); }
+.avatar-none { display: inline-block; }
+.time { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 4px; white-space: nowrap; }
+.basis { color: var(--ink-2); font-size: 12px; }
+.late-label { font-size: 12px; font-weight: 600; }
+.stage {
+  display: inline-block;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.stage-unknown { background-image: repeating-linear-gradient(45deg, var(--hatch) 0 1px, transparent 1px 6px); }
+.badges, .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.badge, .chip {
+  display: inline-block;
+  white-space: nowrap;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.badge-bad { color: var(--ink); border-color: var(--late-very-late); }
+.chip-over { color: var(--over); border-color: var(--over); font-weight: 600; }
+.over { color: var(--over); font-weight: 600; }
+
+/* Stage bars in the people tables */
+.stack-cell { display: flex; flex-direction: column; gap: 3px; min-width: 160px; }
+.stack { display: flex; gap: 2px; height: 10px; }
+.seg { display: block; min-width: 3px; height: 100%; }
+.seg:last-child { border-radius: 0 4px 4px 0; }
+.stack-text { font-size: 12px; color: var(--ink-2); }
+.seg-draft { background: var(--stage-draft); }
+.seg-not-governed { background: var(--stage-not-governed); }
+.seg-bots { background: var(--stage-bots); }
+.seg-self-review { background: var(--stage-self-review); }
+.seg-ci { background: var(--stage-ci); }
+.seg-queued { background: var(--stage-queued); }
+.seg-review { background: var(--stage-review); }
+.seg-mergeable { background: var(--stage-mergeable); }
+.seg-blocked { background: var(--stage-blocked); }
+.seg-unknown { background: var(--stage-unknown) repeating-linear-gradient(45deg, var(--hatch) 0 1px, transparent 1px 4px); }
+
+/* Person page */
+.person-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.person-title h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+.person-title .avatar { width: 32px; height: 32px; }
+.kind { color: var(--ink-2); }
+.areas h3 { font-size: 13px; margin: 12px 0 4px; color: var(--ink-2); font-weight: 600; }
+.areas ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.areas li { overflow-wrap: anywhere; }
+.part { margin: 0; padding-left: 16px; min-width: 160px; }
+.part li { overflow-wrap: anywhere; }
+.wip { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.wip li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.wip-repo { min-width: 120px; }
+.meter { display: inline-flex; gap: 2px; }
+.slot { width: 14px; height: 10px; border-radius: 2px; background: var(--grid); }
+.slot-used { background: var(--stage-draft); }
+.slot-over { background: var(--over); }
+button.linkish {
+  font: inherit;
+  color: var(--link);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* "Who are you?" picker */
+.picker {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px;
+}
+.pick {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  color: var(--ink);
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.pick:hover { background: var(--wash); }
+
+@media (max-width: 560px) {
+  .page { padding: 12px 16px; }
+  .card { padding: 12px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tile-value { font-size: 24px; }
+  input[type="search"] { width: 100%; }
+  .filters .field { flex: 1 1 140px; }
+  .filters .field-check { flex: 0 0 auto; }
+  .filters select { width: 100%; max-width: 100%; }
+  /* Rows become cards: each cell carries its column name, so nothing hides
+     behind a sideways scroll. Sortable headers stay as a row of buttons. */
+  .table-scroll table, .table-scroll tbody, .table-scroll tr { display: block; width: 100%; }
+  .table-scroll thead tr { display: flex; flex-wrap: wrap; gap: 2px 14px; border-bottom: 1px solid var(--grid); padding-bottom: 4px; }
+  .table-scroll thead tr::before { content: "Sort by"; color: var(--ink-2); font-size: 12px; padding: 2px 0; }
+  .table-scroll th { border: 0; padding: 2px 0; }
+  .table-scroll .th-plain, .table-scroll.unsorted thead { display: none; }
+  .table-scroll tbody tr { border-bottom: 1px solid var(--grid); padding: 8px 0; }
+  .table-scroll td { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 8px; border: 0; padding: 2px 0; text-align: left; }
+  .table-scroll td::before { content: attr(data-label); color: var(--ink-2); font-size: 12px; padding-top: 1px; }
+  .table-scroll td.empty { display: block; }
+  .table-scroll td.empty::before { content: none; }
+  /* The PR link already names the repository. */
+  .table-scroll .col-repo { display: none; }
+  .pr-cell, .pr, .next, .part, .stack-cell { min-width: 0; }
+}
+
+@media (forced-colors: active) {
+  .seg, .slot-used, .mark > * { forced-color-adjust: none; }
+}

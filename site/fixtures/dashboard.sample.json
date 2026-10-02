@@ -1,0 +1,1067 @@
+{
+ "schema_version": 1,
+ "generated_at": "2026-09-30T12:00:00.000000Z",
+ "commit": "<script>alert('commit')</script>",
+ "repos": [
+  {
+   "repo": "example/alpha",
+   "engine_state_available": true,
+   "fetch_error": null,
+   "slot_limit": 5
+  },
+  {
+   "repo": "example/beta",
+   "engine_state_available": true,
+   "fetch_error": "<img src=x onerror=alert('fetch')> HTTP 502",
+   "slot_limit": 5
+  },
+  {
+   "repo": "example/gamma",
+   "engine_state_available": false,
+   "fetch_error": null,
+   "slot_limit": 3
+  }
+ ],
+ "idle_days": 14,
+ "stages": [
+  {
+   "stage": "draft",
+   "owner": "author",
+   "late_hours": null,
+   "entry_recorded": false,
+   "in_flow": false
+  },
+  {
+   "stage": "bots",
+   "owner": "bots",
+   "late_hours": [
+    24.0,
+    48.0
+   ],
+   "entry_recorded": false,
+   "in_flow": true
+  },
+  {
+   "stage": "self-review",
+   "owner": "author",
+   "late_hours": [
+    72.0,
+    168.0
+   ],
+   "entry_recorded": false,
+   "in_flow": true
+  },
+  {
+   "stage": "ci",
+   "owner": "nobody",
+   "late_hours": [
+    6.0,
+    24.0
+   ],
+   "entry_recorded": false,
+   "in_flow": true
+  },
+  {
+   "stage": "queued",
+   "owner": "nobody",
+   "late_hours": null,
+   "entry_recorded": false,
+   "in_flow": true
+  },
+  {
+   "stage": "review",
+   "owner": "reviewers",
+   "late_hours": [
+    24.0,
+    72.0
+   ],
+   "entry_recorded": true,
+   "in_flow": true
+  },
+  {
+   "stage": "mergeable",
+   "owner": "author",
+   "late_hours": [
+    24.0,
+    72.0
+   ],
+   "entry_recorded": false,
+   "in_flow": true
+  },
+  {
+   "stage": "blocked",
+   "owner": "maintainers",
+   "late_hours": [
+    24.0,
+    72.0
+   ],
+   "entry_recorded": false,
+   "in_flow": true
+  },
+  {
+   "stage": "not-governed",
+   "owner": "author",
+   "late_hours": null,
+   "entry_recorded": false,
+   "in_flow": false
+  },
+  {
+   "stage": "unknown",
+   "owner": "nobody",
+   "late_hours": null,
+   "entry_recorded": false,
+   "in_flow": false
+  }
+ ],
+ "prs": [
+  {
+   "key": "example/alpha#101",
+   "repo": "example/alpha",
+   "number": 101,
+   "title": "feat: add widget caching",
+   "author": "alice",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-08-31T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "review",
+   "engine_state": "ready-for-human",
+   "next_action": "Human approval or objection resolution is required",
+   "blockers": [
+    "Human approval or objection resolution is required"
+   ],
+   "since": "2026-09-28T12:00:00Z",
+   "since_basis": "engine",
+   "lateness": "late",
+   "asks": [
+    {
+     "area": "core",
+     "approvers": [
+      "bob",
+      "carol"
+     ]
+    },
+    {
+     "area": "fallback",
+     "approvers": [
+      "dave"
+     ]
+    },
+    {
+     "area": "drive",
+     "approvers": []
+    }
+   ],
+   "objectors": [
+    "erin"
+   ],
+   "areas": [
+    "core",
+    "fallback",
+    "drive"
+   ],
+   "unresolved_comments": 2,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#102",
+   "repo": "example/alpha",
+   "number": 102,
+   "title": "<img src=x onerror=alert(1)>",
+   "author": "bob",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-08-31T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "review",
+   "engine_state": "ready-for-human",
+   "next_action": "Human approval or objection resolution is required",
+   "blockers": [
+    "Human approval or objection resolution is required"
+   ],
+   "since": "2026-09-25T12:00:00Z",
+   "since_basis": "engine",
+   "lateness": "very-late",
+   "asks": [
+    {
+     "area": "<script>alert(\"area\")</script>",
+     "approvers": [
+      "alice"
+     ]
+    }
+   ],
+   "objectors": [],
+   "areas": [
+    "<script>alert(\"area\")</script>"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#103",
+   "repo": "example/alpha",
+   "number": 103,
+   "title": "chore: bump the frobnicator",
+   "author": "helperbot",
+   "author_kind": "bot",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-08-31T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "review",
+   "engine_state": "ready-for-human",
+   "next_action": "Human approval or objection resolution is required",
+   "blockers": [
+    "Human approval or objection resolution is required"
+   ],
+   "since": "2026-09-30T07:12:00Z",
+   "since_basis": "engine",
+   "lateness": "ok",
+   "asks": [
+    {
+     "area": "core",
+     "approvers": [
+      "alice",
+      "carol"
+     ]
+    }
+   ],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#104",
+   "repo": "example/alpha",
+   "number": 104,
+   "title": "fix: javascript:alert(document.domain)",
+   "author": "alice",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-18T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "self-review",
+   "engine_state": "waiting-author",
+   "next_action": "javascript:alert(document.domain)",
+   "blockers": [
+    "javascript:alert(document.domain)",
+    "<b>bold</b> blocker that must stay literal"
+   ],
+   "since": "2026-09-18T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 3,
+   "ci_failing": true,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#105",
+   "repo": "example/alpha",
+   "number": 105,
+   "title": "wip: try a new parser",
+   "author": "erin",
+   "author_kind": "human",
+   "draft": true,
+   "base": "main",
+   "created_at": "2026-08-01T12:00:00Z",
+   "updated_at": "2026-08-21T12:00:00Z",
+   "idle": true,
+   "stage": "draft",
+   "engine_state": "draft",
+   "next_action": "Draft PR does not occupy a review slot",
+   "blockers": [
+    "Draft PR does not occupy a review slot"
+   ],
+   "since": "2026-08-01T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#106",
+   "repo": "example/alpha",
+   "number": 106,
+   "title": "refactor: old branch work",
+   "author": "erin",
+   "author_kind": "human",
+   "draft": false,
+   "base": "feature/old",
+   "created_at": "2026-07-02T12:00:00Z",
+   "updated_at": "2026-09-10T12:00:00Z",
+   "idle": true,
+   "stage": "not-governed",
+   "engine_state": null,
+   "next_action": null,
+   "blockers": [],
+   "since": "2026-07-02T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": true,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#107",
+   "repo": "example/alpha",
+   "number": 107,
+   "title": "docs: generated changelog",
+   "author": "helperbot",
+   "author_kind": "bot",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-27T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "bots",
+   "engine_state": "waiting-bots",
+   "next_action": "revbot has not reported for the current head",
+   "blockers": [
+    "revbot has not reported for the current head"
+   ],
+   "since": "2026-09-27T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#108",
+   "repo": "example/alpha",
+   "number": 108,
+   "title": "test: widen property tests",
+   "author": "alice",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-30T09:36:00Z",
+   "updated_at": "2026-09-30T12:00:00Z",
+   "idle": false,
+   "stage": "ci",
+   "engine_state": "waiting-build",
+   "next_action": null,
+   "blockers": [],
+   "since": "2026-09-30T09:36:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#109",
+   "repo": "example/alpha",
+   "number": 109,
+   "title": "feat: sixth thing at once",
+   "author": "alice",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-22T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "queued",
+   "engine_state": "too-many-open-prs",
+   "next_action": "Author has too many open PRs",
+   "blockers": [
+    "Author has too many open PRs"
+   ],
+   "since": "2026-09-22T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#110",
+   "repo": "example/alpha",
+   "number": 110,
+   "title": "fix: off-by-one in pager",
+   "author": "alice",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-26T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "mergeable",
+   "engine_state": "ready-to-merge",
+   "next_action": null,
+   "blockers": [],
+   "since": "2026-09-26T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#111",
+   "repo": "example/alpha",
+   "number": 111,
+   "title": "ci: new matrix",
+   "author": "alice",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-24T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "blocked",
+   "engine_state": "configuration-error",
+   "next_action": "Policy file is invalid",
+   "blockers": [
+    "Policy file is invalid"
+   ],
+   "since": "2026-09-24T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#112",
+   "repo": "example/alpha",
+   "number": 112,
+   "title": "build(deps): bump left-pad",
+   "author": "dependabot[bot]",
+   "author_kind": "bot",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-29T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "bots",
+   "engine_state": "waiting-bots",
+   "next_action": null,
+   "blockers": [],
+   "since": "2026-09-29T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#113",
+   "repo": "example/alpha",
+   "number": 113,
+   "title": "feat: export as CSV",
+   "author": "carol",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-20T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "self-review",
+   "engine_state": "waiting-self-review",
+   "next_action": "Author must post /self-reviewed 0123abc after bot completion",
+   "blockers": [
+    "Author must post /self-reviewed 0123abc after bot completion"
+   ],
+   "since": "2026-09-20T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core",
+    "generated-protocol-bindings-for-every-supported-platform-sdk"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": true,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#115",
+   "repo": "example/alpha",
+   "number": 115,
+   "title": "fix: settle the cache key format",
+   "author": "carol",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-08-31T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "review",
+   "engine_state": "ready-for-human",
+   "next_action": "Human approval or objection resolution is required",
+   "blockers": [
+    "Human approval or objection resolution is required"
+   ],
+   "since": "2026-09-29T00:00:00Z",
+   "since_basis": "engine",
+   "lateness": "late",
+   "asks": [],
+   "objectors": [
+    "dave"
+   ],
+   "areas": [
+    "core",
+    "generated-protocol-bindings-for-every-supported-platform-sdk"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#116",
+   "repo": "example/alpha",
+   "number": 116,
+   "title": "chore: regenerate bindings",
+   "author": "helperbot",
+   "author_kind": "bot",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-08-31T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "review",
+   "engine_state": "ready-for-human",
+   "next_action": "Human approval or objection resolution is required",
+   "blockers": [
+    "Human approval or objection resolution is required"
+   ],
+   "since": "2026-09-26T12:00:00Z",
+   "since_basis": "engine",
+   "lateness": "very-late",
+   "asks": [
+    {
+     "area": "generated-protocol-bindings-for-every-supported-platform-sdk",
+     "approvers": [
+      "grace"
+     ]
+    }
+   ],
+   "objectors": [],
+   "areas": [
+    "generated-protocol-bindings-for-every-supported-platform-sdk"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#200",
+   "repo": "example/alpha",
+   "number": 200,
+   "title": "From the engine only",
+   "author": "newcomer",
+   "author_kind": "human",
+   "draft": false,
+   "base": null,
+   "created_at": null,
+   "updated_at": null,
+   "idle": false,
+   "stage": "self-review",
+   "engine_state": "waiting-self-review",
+   "next_action": "Author must post /self-reviewed 4567def after bot completion",
+   "blockers": [
+    "Author must post /self-reviewed 4567def after bot completion"
+   ],
+   "since": null,
+   "since_basis": null,
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": false
+  },
+  {
+   "key": "example/alpha#0",
+   "repo": "example/alpha",
+   "number": 0,
+   "title": "a PR number that must not become a link",
+   "author": "frank",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-28T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "unknown",
+   "engine_state": null,
+   "next_action": null,
+   "blockers": [],
+   "since": "2026-09-28T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/alpha#114",
+   "repo": "example/alpha",
+   "number": 114,
+   "title": "a stage and lateness this page does not know",
+   "author": "frank",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-27T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "constructor",
+   "engine_state": null,
+   "next_action": null,
+   "blockers": [],
+   "since": "2026-09-27T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": "__proto__",
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "example/gamma#7",
+   "repo": "example/gamma",
+   "number": 7,
+   "title": "feat: gamma without engine verdicts",
+   "author": "frank",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-15T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "unknown",
+   "engine_state": null,
+   "next_action": null,
+   "blockers": [],
+   "since": "2026-09-15T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "core"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  },
+  {
+   "key": "evil/\"><script>alert(3)</script>#1",
+   "repo": "evil/\"><script>alert(3)</script>",
+   "number": 1,
+   "title": "repo outside the list: no link",
+   "author": "\"><img src=x onerror=alert(2)>",
+   "author_kind": "human",
+   "draft": false,
+   "base": "main",
+   "created_at": "2026-09-25T12:00:00Z",
+   "updated_at": "2026-09-29T12:00:00Z",
+   "idle": false,
+   "stage": "unknown",
+   "engine_state": null,
+   "next_action": null,
+   "blockers": [],
+   "since": "2026-09-25T12:00:00Z",
+   "since_basis": "opened",
+   "lateness": null,
+   "asks": [],
+   "objectors": [],
+   "areas": [
+    "javascript:alert(document.domain)"
+   ],
+   "unresolved_comments": 0,
+   "ci_failing": false,
+   "merge_conflict": false,
+   "changes_requested": false,
+   "tracked": true
+  }
+ ],
+ "people": [
+  {
+   "login": "\"><img src=x onerror=alert(2)>",
+   "kind": "human",
+   "roles": [],
+   "owes": [],
+   "authored": [
+    "evil/\"><script>alert(3)</script>#1"
+   ],
+   "wip": {},
+   "areas": {}
+  },
+  {
+   "login": "alice",
+   "kind": "human",
+   "roles": [],
+   "owes": [
+    {
+     "pr": "example/alpha#102",
+     "areas": [
+      {
+       "area": "<script>alert(\"area\")</script>",
+       "others": []
+      }
+     ],
+     "rereview": false
+    },
+    {
+     "pr": "example/alpha#103",
+     "areas": [
+      {
+       "area": "core",
+       "others": [
+        "carol"
+       ]
+      }
+     ],
+     "rereview": false
+    }
+   ],
+   "authored": [
+    "example/alpha#101",
+    "example/alpha#104",
+    "example/alpha#108",
+    "example/alpha#109",
+    "example/alpha#110",
+    "example/alpha#111"
+   ],
+   "wip": {
+    "example/alpha": 6
+   },
+   "areas": {
+    "example/alpha": [
+     "core",
+     "<script>alert(\"area\")</script>"
+    ],
+    "example/gamma": [
+     "fallback"
+    ]
+   }
+  },
+  {
+   "login": "bob",
+   "kind": "human",
+   "roles": [],
+   "owes": [
+    {
+     "pr": "example/alpha#101",
+     "areas": [
+      {
+       "area": "core",
+       "others": [
+        "carol"
+       ]
+      }
+     ],
+     "rereview": false
+    }
+   ],
+   "authored": [
+    "example/alpha#102"
+   ],
+   "wip": {
+    "example/alpha": 1
+   },
+   "areas": {
+    "example/alpha": [
+     "core"
+    ]
+   }
+  },
+  {
+   "login": "carol",
+   "kind": "human",
+   "roles": [],
+   "owes": [
+    {
+     "pr": "example/alpha#101",
+     "areas": [
+      {
+       "area": "core",
+       "others": [
+        "bob"
+       ]
+      }
+     ],
+     "rereview": false
+    },
+    {
+     "pr": "example/alpha#103",
+     "areas": [
+      {
+       "area": "core",
+       "others": [
+        "alice"
+       ]
+      }
+     ],
+     "rereview": false
+    }
+   ],
+   "authored": [
+    "example/alpha#113",
+    "example/alpha#115"
+   ],
+   "wip": {
+    "example/alpha": 2
+   },
+   "areas": {
+    "example/alpha": [
+     "core"
+    ]
+   }
+  },
+  {
+   "login": "dave",
+   "kind": "human",
+   "roles": [],
+   "owes": [
+    {
+     "pr": "example/alpha#101",
+     "areas": [
+      {
+       "area": "fallback",
+       "others": []
+      }
+     ],
+     "rereview": false
+    },
+    {
+     "pr": "example/alpha#115",
+     "areas": [],
+     "rereview": true
+    }
+   ],
+   "authored": [],
+   "wip": {},
+   "areas": {
+    "example/alpha": [
+     "fallback"
+    ]
+   }
+  },
+  {
+   "login": "grace",
+   "kind": "human",
+   "roles": [],
+   "owes": [
+    {
+     "pr": "example/alpha#116",
+     "areas": [
+      {
+       "area": "generated-protocol-bindings-for-every-supported-platform-sdk",
+       "others": []
+      }
+     ],
+     "rereview": false
+    }
+   ],
+   "authored": [],
+   "wip": {},
+   "areas": {
+    "example/alpha": [
+     "docs",
+     "generated-protocol-bindings-for-every-supported-platform-sdk"
+    ]
+   }
+  },
+  {
+   "login": "dependabot[bot]",
+   "kind": "bot",
+   "roles": [
+    "author-bot"
+   ],
+   "owes": [],
+   "authored": [
+    "example/alpha#112"
+   ],
+   "wip": {
+    "example/alpha": 1
+   },
+   "areas": {}
+  },
+  {
+   "login": "erin",
+   "kind": "human",
+   "roles": [],
+   "owes": [
+    {
+     "pr": "example/alpha#101",
+     "areas": [],
+     "rereview": true
+    }
+   ],
+   "authored": [
+    "example/alpha#105",
+    "example/alpha#106"
+   ],
+   "wip": {},
+   "areas": {}
+  },
+  {
+   "login": "frank",
+   "kind": "human",
+   "roles": [],
+   "owes": [],
+   "authored": [
+    "example/alpha#0",
+    "example/alpha#114",
+    "example/gamma#7"
+   ],
+   "wip": {
+    "example/gamma": 1
+   },
+   "areas": {}
+  },
+  {
+   "login": "helperbot",
+   "kind": "bot",
+   "roles": [
+    "author-bot"
+   ],
+   "owes": [],
+   "authored": [
+    "example/alpha#103",
+    "example/alpha#107",
+    "example/alpha#116"
+   ],
+   "wip": {
+    "example/alpha": 3
+   },
+   "areas": {}
+  },
+  {
+   "login": "newcomer",
+   "kind": "human",
+   "roles": [],
+   "owes": [],
+   "authored": [
+    "example/alpha#200"
+   ],
+   "wip": {
+    "example/alpha": 1
+   },
+   "areas": {}
+  },
+  {
+   "login": "revbot",
+   "kind": "bot",
+   "roles": [
+    "review-bot"
+   ],
+   "owes": [],
+   "authored": [],
+   "wip": {},
+   "areas": {}
+  }
+ ]
+}
