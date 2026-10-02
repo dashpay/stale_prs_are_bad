@@ -25,9 +25,10 @@
 //!   order: only its instant may differ. Every other difference fails.
 //! - **Moved during the read.** A pull request whose `updated_at` or head
 //!   moved between Python's reads and the live ones, or whose head's checks
-//!   or statuses answered otherwise — which GitHub records without moving
-//!   the pull request's `updated_at`, as a build finishes — is
-//!   [`Outcome::Moved`]: counted, and no failure.
+//!   or statuses answered otherwise, a comment of which was edited, or a
+//!   review thread of which was replied to — which GitHub records without
+//!   moving the pull request's `updated_at` — is [`Outcome::Moved`]:
+//!   counted, and no failure. Each excuses only what it feeds.
 //!
 //! What a live run would write is never sent. [`Observed`] answers every
 //! call that is not a read itself, as a failure, and never passes it on;
@@ -631,23 +632,155 @@ fn is_build_of(key: &CallKey, number: &PyInt) -> bool {
     is_build && of_number
 }
 
-/// How a pull request changed between Python's reads and the live ones.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Motion {
-    /// Not that either read shows.
-    Still,
+/// How a pull request changed between Python's reads and the live ones, by
+/// what shows it. Each excuses only what it feeds; none at all is still.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct Motion {
+    /// Its own read answered another update time, head, base, draft or
+    /// open state: everything about it is excused.
+    pull: bool,
     /// Its head's checks or statuses answered otherwise: a build finished,
     /// a status was posted. GitHub records neither as an update of the pull
-    /// request. Only what those answers feed is excused: the build, when
-    /// the head was first seen, whether a verdict was published on it.
-    Checks,
-    /// Its own read answered another update time, head, base, draft or
-    /// open state.
-    Pull,
+    /// request. Excused: [`CHECK_FIELDS`].
+    checks: bool,
+    /// A comment on it was edited after Python read it: its update time is
+    /// later live than in Python's read. GitHub moves the comment's update
+    /// time and not the pull request's. Excused: [`COMMENT_FIELDS`].
+    comments: bool,
+    /// One of its review threads was opened or replied to after Python's
+    /// run began: a voice in it, absent from Python's read, created after
+    /// the recording's instant. Excused: [`THREAD_FIELDS`].
+    threads: bool,
 }
 
 /// The fields of a snapshot read from its head's checks and statuses.
 const CHECK_FIELDS: [&str; 3] = ["pr.build", "pr.head_seen_at", "pr.ready_published"];
+
+/// The fields of a snapshot read from its comments: the comments, and the
+/// engine's record and diff record, which are comments.
+const COMMENT_FIELDS: [&str; 4] = [
+    "pr.comments",
+    "pr.controller_state",
+    "pr.controller_comment_id",
+    "pr.controller_diff",
+];
+
+/// The fields of a snapshot read from its review threads: the threads, and
+/// the permissions of everyone who spoke in one.
+const THREAD_FIELDS: [&str; 2] = ["pr.threads", "pr.permissions"];
+
+impl Motion {
+    const STILL: Motion = Motion {
+        pull: false,
+        checks: false,
+        comments: false,
+        threads: false,
+    };
+
+    /// Whether anything shows it moved.
+    fn moved(self) -> bool {
+        self != Motion::STILL
+    }
+
+    /// Both motions at once.
+    fn and(self, other: Motion) -> Motion {
+        Motion {
+            pull: self.pull || other.pull,
+            checks: self.checks || other.checks,
+            comments: self.comments || other.comments,
+            threads: self.threads || other.threads,
+        }
+    }
+
+    /// Whether a snapshot difference at `path` follows from the motion.
+    fn excuses(self, path: &str) -> bool {
+        let under = |fields: &[&str]| fields.iter().any(|f| path.starts_with(f));
+        self.pull
+            || (self.checks && under(&CHECK_FIELDS))
+            || (self.comments && under(&COMMENT_FIELDS))
+            || (self.threads && under(&THREAD_FIELDS))
+    }
+}
+
+/// An instant GitHub wrote, as a comparable instant; `None` for anything
+/// else.
+fn instant(value: Option<&PyValue>) -> Option<PyDateTime> {
+    match value {
+        Some(PyValue::Str(text)) => PyDateTime::fromisoformat(&text.replace('Z', "+00:00")).ok(),
+        _ => None,
+    }
+}
+
+/// Whether `a` is an instant later than `b`; never where either is none or
+/// the two cannot be compared.
+fn later(a: Option<PyDateTime>, b: Option<PyDateTime>) -> bool {
+    matches!((a, b), (Some(a), Some(b)) if a.py_cmp(&b) == Ok(std::cmp::Ordering::Greater))
+}
+
+/// How a pull request's discussion moved between Python's snapshot of it
+/// and the live one: a comment edited, a review thread opened or replied
+/// to. `since` is the instant Python's run began.
+///
+/// A comment is held to its own update time as Python read it, not to the
+/// recording's instant: Python read each comment minutes into its run, and
+/// an edit made between the run's start and that read is already in what
+/// Python read, so only an update time later than Python's own copy of it
+/// shows an edit Python did not see. A review thread carries no update
+/// time, only when each voice in it was created, so a reply shows only as
+/// a voice Python's read lacks, created after Python's run began; a thread
+/// resolved or unresolved shows no time at all, and is not excused.
+fn discussion(python: &PyValue, live: &PyValue, since: Option<PyDateTime>) -> Motion {
+    let by_id = |pr: &PyValue, list: &str| -> HashMap<String, PyValue> {
+        let mut found = HashMap::new();
+        if let Some(PyValue::List(items)) = field(pr, list) {
+            for item in items.iter() {
+                if let Some(id) =
+                    field(item, "id").and_then(|id| py_dumps(id, false, None, None).ok())
+                {
+                    found.insert(id, item.clone());
+                }
+            }
+        }
+        found
+    };
+    let updated = |comment: &PyValue| {
+        instant(field(comment, "updated_at")).or_else(|| instant(field(comment, "edited_at")))
+    };
+    let python_comments = by_id(python, "comments");
+    let comments = by_id(live, "comments").iter().any(|(id, comment)| {
+        let Some(read) = python_comments.get(id) else {
+            return false;
+        };
+        later(updated(comment), updated(read))
+    });
+    let after_start = |voice: &PyValue| later(instant(field(voice, "created_at")), since);
+    let voices = |thread: &PyValue| -> Vec<PyValue> {
+        match field(thread, "voices") {
+            Some(PyValue::List(voices)) => voices.iter().cloned().collect(),
+            _ => Vec::new(),
+        }
+    };
+    let python_threads = by_id(python, "threads");
+    let threads = by_id(live, "threads").iter().any(|(id, thread)| {
+        let now = voices(thread);
+        match python_threads.get(id) {
+            // Opened since: every voice in it is new.
+            None => !now.is_empty() && now.iter().all(after_start),
+            // Replied to since: Python's voices, in order, then new ones.
+            Some(read) => {
+                let then = voices(read);
+                now.len() > then.len()
+                    && now.iter().zip(&then).all(|(a, b)| same(a, b))
+                    && now[then.len()..].iter().all(after_start)
+            }
+        }
+    });
+    Motion {
+        comments,
+        threads,
+        ..Motion::STILL
+    }
+}
 
 /// How pull request `number` moved between Python's reads and the live
 /// ones. `heads` are the heads either side saw.
@@ -679,7 +812,10 @@ fn motion(
         .filter_map(|pull| identity(&pull))
         .collect();
     if identities.len() > 1 {
-        return Motion::Pull;
+        return Motion {
+            pull: true,
+            ..Motion::STILL
+        };
     }
     let statuses: Vec<String> = heads
         .iter()
@@ -697,10 +833,13 @@ fn motion(
             continue;
         }
         if answered_otherwise(recorded.get(&logged.key), &logged.answer) {
-            return Motion::Checks;
+            return Motion {
+                checks: true,
+                ..Motion::STILL
+            };
         }
     }
-    Motion::Still
+    Motion::STILL
 }
 
 /// Whether a live answer is none of Python's to the same read, or Python's
@@ -952,25 +1091,20 @@ fn snapshot_check(
         index,
         outcome: Outcome::Moved,
     };
-    match (motion, snapshot) {
-        (Motion::Pull, _) => moved,
-        (_, Err(error)) => Check::failed(
+    match snapshot {
+        _ if motion.pull => moved,
+        Err(error) => Check::failed(
             Layer::LiveSnapshot,
             index,
             live_failure(&error),
             error.to_string(),
         ),
-        (Motion::Still, Ok(snapshot)) => Check::new(
-            Layer::LiveSnapshot,
-            index,
-            differences(&snapshot, python, "pr"),
-        ),
-        (Motion::Checks, Ok(snapshot)) => {
+        Ok(snapshot) => {
             let left: Vec<Difference> = differences(&snapshot, python, "pr")
                 .into_iter()
-                .filter(|d| !CHECK_FIELDS.iter().any(|f| d.path.starts_with(f)))
+                .filter(|d| !motion.excuses(&d.path))
                 .collect();
-            if left.is_empty() {
+            if left.is_empty() && motion.moved() {
                 moved
             } else {
                 Check::new(Layer::LiveSnapshot, index, left)
@@ -1065,13 +1199,17 @@ pub fn live_snapshots<T: Transport>(
         ));
         return live;
     }
+    let since = instant(field(&recording.meta, "clock"));
     for (index, number, pr, snapshot) in read {
         let heads: Vec<&str> = [head_of(pr), snapshot.as_ref().ok().and_then(|s| head_of(s))]
             .into_iter()
             .flatten()
             .collect();
-        let motion = motion(repository, number, &heads, &recorded, &observed.log);
-        if motion != Motion::Still {
+        let mut motion = motion(repository, number, &heads, &recorded, &observed.log);
+        if let Ok(snapshot) = &snapshot {
+            motion = motion.and(discussion(pr, snapshot, since));
+        }
+        if motion.moved() {
             live.moved += 1;
         }
         checks.push(snapshot_check(index, motion, snapshot, pr));
@@ -1390,7 +1528,7 @@ pub fn live_run<T: Transport>(
             let pr_moved = match &synced {
                 Synced::Pr(number) => {
                     let heads: Vec<&str> = python_prs.iter().filter_map(|pr| head_of(pr)).collect();
-                    motion(repository, number, &heads, &recorded, &observed.log) != Motion::Still
+                    motion(repository, number, &heads, &recorded, &observed.log).moved()
                 }
                 Synced::All => false,
             };
@@ -1403,25 +1541,29 @@ pub fn live_run<T: Transport>(
         }
     };
     let live_numbers: Vec<Option<PyInt>> = run.snapshots.iter().map(number_of).collect();
-    // How each pull request either side decided moved, under either head.
+    // How each pull request either side decided moved, under either head,
+    // and, where both decided it, in its discussion.
+    let since = instant(field(&recording.meta, "clock"));
     let mut motions: HashMap<PyInt, Motion> = HashMap::new();
     for n in python_numbers.iter().chain(&live_numbers).flatten() {
         if motions.contains_key(n) {
             continue;
         }
-        let heads: Vec<&str> = python_prs
+        let is_n = |pr: &&PyValue| number_of(pr).as_ref() == Some(n);
+        let python_of_n: Vec<&PyValue> = python_prs.iter().copied().filter(is_n).collect();
+        let live_of_n: Vec<&PyValue> = run.snapshots.iter().filter(is_n).collect();
+        let heads: Vec<&str> = python_of_n
             .iter()
-            .copied()
-            .chain(&run.snapshots)
-            .filter(|pr| number_of(pr).as_ref() == Some(n))
-            .filter_map(head_of)
+            .chain(&live_of_n)
+            .filter_map(|pr| head_of(pr))
             .collect();
-        motions.insert(
-            n.clone(),
-            motion(repository, n, &heads, &recorded, &observed.log),
-        );
+        let mut moved = motion(repository, n, &heads, &recorded, &observed.log);
+        if let (Some(python), Some(live)) = (python_of_n.first(), live_of_n.first()) {
+            moved = moved.and(discussion(python, live, since));
+        }
+        motions.insert(n.clone(), moved);
     }
-    live.moved = motions.values().filter(|m| **m != Motion::Still).count();
+    live.moved = motions.values().filter(|m| m.moved()).count();
     let any_moved = scope_moved || live.moved > 0;
     if python_numbers != live_numbers {
         // A pull request Python could not read, and so did not decide, is
@@ -1454,7 +1596,7 @@ pub fn live_run<T: Transport>(
     // A pull request moved when it did, or when its author's others did: a
     // verdict, and what a run writes, follow from them too.
     let mut pr_moved = |number: &PyInt, pr: &PyValue| {
-        motions.get(number).is_some_and(|m| *m != Motion::Still) || author_of_moved(pr)
+        motions.get(number).is_some_and(|m| m.moved()) || author_of_moved(pr)
     };
     let checks = &mut live.comparison.checks;
     for (index, evaluation) in python.iter().enumerate() {
@@ -1464,7 +1606,7 @@ pub fn live_run<T: Transport>(
         let Some(&at) = live_at.get(number) else {
             continue;
         };
-        let motion = motions.get(number).copied().unwrap_or(Motion::Still);
+        let motion = motions.get(number).copied().unwrap_or_default();
         let (snapshot, verdict) = (&run.snapshots[at], &run.verdicts[at]);
         let wanted = field(evaluation, "pr").unwrap_or(&PyValue::None);
         checks.push(snapshot_check(index, motion, Ok(snapshot.clone()), wanted));
@@ -1892,6 +2034,88 @@ mod tests {
         lines.iter().map(|line| format!("{line}\n")).collect()
     }
 
+    const STILL: Motion = Motion::STILL;
+    const PULL: Motion = Motion {
+        pull: true,
+        ..Motion::STILL
+    };
+    const CHECKS: Motion = Motion {
+        checks: true,
+        ..Motion::STILL
+    };
+
+    #[test]
+    fn a_comment_moved_when_its_update_time_is_later_than_pythons_read_of_it() {
+        let pr = |updated: &str, body: &str| {
+            py_loads(&format!(
+                r#"{{"comments": [{{"id": 7, "body": "{body}", "updated_at": "{updated}", "edited_at": null}}], "threads": []}}"#
+            ))
+            .unwrap()
+        };
+        let python = pr("2026-09-11T11:00:00Z", "summary");
+        let since = instant(Some(&s("2026-09-12T10:00:00Z")));
+        // Edited after Python read it: later than Python's own copy, even
+        // if not later than the instant Python's run began.
+        let edited = discussion(
+            &python,
+            &pr("2026-09-11T12:00:00Z", "summary, again"),
+            since,
+        );
+        assert!(edited.comments && !edited.threads, "{edited:?}");
+        // The same update time: no edit since Python's read.
+        let same = discussion(
+            &python,
+            &pr("2026-09-11T11:00:00Z", "summary, again"),
+            since,
+        );
+        assert_eq!(same, STILL);
+        // An update time that is not one: nothing shown.
+        let unreadable = discussion(&python, &pr("soon", "summary, again"), since);
+        assert_eq!(unreadable, STILL);
+        // Only what comments feed is excused.
+        assert!(edited.excuses("pr.comments[0].body"));
+        assert!(edited.excuses("pr.controller_state.state"));
+        assert!(!edited.excuses("pr.reviews[0].state"));
+        assert!(!edited.excuses("pr.threads[0].is_resolved"));
+    }
+
+    #[test]
+    fn a_review_thread_moved_when_a_voice_absent_from_pythons_read_came_after_its_run_began() {
+        let pr = |voices: &str, resolved: bool| {
+            py_loads(&format!(
+                r#"{{"comments": [], "threads": [{{"id": "T1", "is_resolved": {resolved}, "voices": [{voices}]}}]}}"#
+            ))
+            .unwrap()
+        };
+        let first = r#"{"user": "a", "created_at": "2026-09-11T11:00:00Z"}"#;
+        let python = pr(first, false);
+        let since = instant(Some(&s("2026-09-12T10:00:00Z")));
+        let replied = pr(
+            &format!(r#"{first}, {{"user": "b", "created_at": "2026-09-12T10:02:00Z"}}"#),
+            false,
+        );
+        let moved = discussion(&python, &replied, since);
+        assert!(moved.threads && !moved.comments, "{moved:?}");
+        assert!(moved.excuses("pr.threads[0].voices"));
+        assert!(moved.excuses("pr.permissions.*"));
+        // A voice Python's read lacks from before its run began is not a
+        // reply since: Python should have read it.
+        let older = pr(
+            &format!(r#"{first}, {{"user": "b", "created_at": "2026-09-12T09:00:00Z"}}"#),
+            false,
+        );
+        assert_eq!(discussion(&python, &older, since), STILL);
+        // Resolved or unresolved shows no time: not excused.
+        assert_eq!(discussion(&python, &pr(first, true), since), STILL);
+        // A thread opened since Python's run began.
+        let opened = py_loads(
+            r#"{"comments": [], "threads": [{"id": "T2", "is_resolved": false, "voices": [{"user": "c", "created_at": "2026-09-12T10:01:00Z"}]}]}"#,
+        )
+        .unwrap();
+        let none = py_loads(r#"{"comments": [], "threads": []}"#).unwrap();
+        assert!(discussion(&none, &opened, since).threads);
+    }
+
     fn logged(path: &str, body: &str) -> Logged {
         Logged {
             key: gh_arguments(&rest(Method::Get, path, None)).unwrap(),
@@ -1911,26 +2135,17 @@ mod tests {
             "repos/a/b/pulls/1",
             r#"{"updated_at": "t1", "head": {"sha": "h1"}, "base": {"repo": {"pushed_at": "y"}}}"#,
         );
-        assert_eq!(
-            motion("a/b", &n, &["h1"], &recorded, &[still]),
-            Motion::Still
-        );
+        assert_eq!(motion("a/b", &n, &["h1"], &recorded, &[still]), STILL);
         let updated = logged(
             "repos/a/b/pulls/1",
             r#"{"updated_at": "t2", "head": {"sha": "h1"}}"#,
         );
-        assert_eq!(
-            motion("a/b", &n, &["h1"], &recorded, &[updated]),
-            Motion::Pull
-        );
+        assert_eq!(motion("a/b", &n, &["h1"], &recorded, &[updated]), PULL);
         let pushed = logged(
             "repos/a/b/pulls/1",
             r#"{"updated_at": "t1", "head": {"sha": "h2"}}"#,
         );
-        assert_eq!(
-            motion("a/b", &n, &["h1"], &recorded, &[pushed]),
-            Motion::Pull
-        );
+        assert_eq!(motion("a/b", &n, &["h1"], &recorded, &[pushed]), PULL);
     }
 
     #[test]
@@ -1954,28 +2169,19 @@ mod tests {
             "repos/a/b/commits/h1/statuses?per_page=100",
             r#"[{"id": 1}]"#,
         );
-        assert_eq!(
-            motion("a/b", &n, &["h1"], &recorded, &[same]),
-            Motion::Still
-        );
+        assert_eq!(motion("a/b", &n, &["h1"], &recorded, &[same]), STILL);
         let posted = listing(
             "repos/a/b/commits/h1/statuses?per_page=100",
             r#"[{"id": 2}, {"id": 1}]"#,
         );
-        assert_eq!(
-            motion("a/b", &n, &["h1"], &recorded, &[posted]),
-            Motion::Checks
-        );
+        assert_eq!(motion("a/b", &n, &["h1"], &recorded, &[posted]), CHECKS);
         // Any other read answering otherwise is a difference to report, not
         // a move to excuse.
         let files = listing(
             "repos/a/b/pulls/1/files?per_page=100",
             r#"[{"filename": "b"}]"#,
         );
-        assert_eq!(
-            motion("a/b", &n, &["h1"], &recorded, &[files]),
-            Motion::Still
-        );
+        assert_eq!(motion("a/b", &n, &["h1"], &recorded, &[files]), STILL);
     }
 
     #[test]
@@ -1987,15 +2193,15 @@ mod tests {
         for (live, moved) in [
             (
                 r#"{"updated_at": "t1", "head": {"sha": "h1"}, "base": {"ref": "dev", "sha": "b1"}, "draft": false}"#,
-                Motion::Still,
+                STILL,
             ),
             (
                 r#"{"updated_at": "t1", "head": {"sha": "h1"}, "base": {"ref": "dev", "sha": "b2"}, "draft": false}"#,
-                Motion::Pull,
+                PULL,
             ),
             (
                 r#"{"updated_at": "t1", "head": {"sha": "h1"}, "base": {"ref": "dev", "sha": "b1"}, "draft": true}"#,
-                Motion::Pull,
+                PULL,
             ),
         ] {
             let read = logged("repos/a/b/pulls/1", live);
@@ -2051,12 +2257,12 @@ mod tests {
         let built =
             py_loads(r#"{"number": 1, "build": "green", "head_seen_at": "t", "draft": false}"#)
                 .unwrap();
-        let check = snapshot_check(0, Motion::Checks, Ok(built), &python);
+        let check = snapshot_check(0, CHECKS, Ok(built), &python);
         assert!(matches!(check.outcome, Outcome::Moved), "{check:?}");
         let drafted =
             py_loads(r#"{"number": 1, "build": "green", "head_seen_at": null, "draft": true}"#)
                 .unwrap();
-        let check = snapshot_check(0, Motion::Checks, Ok(drafted), &python);
+        let check = snapshot_check(0, CHECKS, Ok(drafted), &python);
         let Outcome::Differs(left) = check.outcome else {
             panic!("{check:?}")
         };
