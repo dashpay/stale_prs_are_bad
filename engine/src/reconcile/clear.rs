@@ -119,7 +119,9 @@ impl<T: Transport> Reconciler<'_, T> {
             Err(_) => return Ok(false),
         };
         let PyValue::Dict(fields) = pr else {
-            return Ok(false);
+            return Err(ReadError::NotPorted(
+                "a listed pull request that is not a dict".into(),
+            ));
         };
         let mut with: PyDict = fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         with.insert("comments".into(), PyValue::List(PyList::from(comments)));

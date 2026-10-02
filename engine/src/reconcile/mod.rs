@@ -8,7 +8,7 @@
 //!   engine's marks off pull requests it no longer governs.
 //! - `writes`: the statuses, comments, labels, descriptions and reviewer
 //!   requests, as methods of the evidence layer's
-//!   [`GitHub`](crate::evidence::GitHub), beside its reads and caches.
+//!   [`GitHub`], beside its reads and caches.
 //! - [`text`]: the words written for people — the description's checklist,
 //!   the move comment, what a pull request still needs.
 //! - [`state`]: what the engine remembers on a pull request and how it
@@ -29,6 +29,7 @@ mod clear;
 mod clock;
 mod collect;
 mod publish;
+mod recheck;
 mod run;
 pub mod state;
 pub mod telemetry;
@@ -69,6 +70,10 @@ pub enum Selection<'s> {
 }
 
 /// One run's reads, writes, clock and log.
+///
+/// Everything it borrows is the run's own: a service builds it, its
+/// reader and its clock inside the blocking task that runs the
+/// reconciliation, and returns the [`Run`].
 pub struct Reconciler<'a, T> {
     api: &'a mut GitHub<T>,
     clock: &'a mut dyn Clock,
@@ -76,6 +81,7 @@ pub struct Reconciler<'a, T> {
 }
 
 impl<'a, T: Transport> Reconciler<'a, T> {
+    /// The engine over `api`'s reads and writes, telling the time by `clock`.
     pub fn new(api: &'a mut GitHub<T>, clock: &'a mut dyn Clock) -> Self {
         Reconciler {
             api,
@@ -84,6 +90,7 @@ impl<'a, T: Transport> Reconciler<'a, T> {
         }
     }
 
+    /// The reader and writer the run goes through, with its caches.
     pub fn api(&mut self) -> &mut GitHub<T> {
         self.api
     }

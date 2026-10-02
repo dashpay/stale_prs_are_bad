@@ -28,9 +28,10 @@ pub enum ReadError {
     /// own text.
     #[error("{class:?}: {detail}")]
     Exception { class: PyClass, detail: String },
-    /// The transport would not make a call: a read a recording does not
-    /// hold, or a write to a transport that only reads. Nothing catches it;
-    /// it stops the run, as the recorder's own error stops Python's.
+    /// The transport would not make a call: a read or a write a recording
+    /// does not hold, or a write to a transport that only reads. Nothing
+    /// catches it; it stops the run, as the recorder's own error stops
+    /// Python's.
     #[error("{0}")]
     Refused(String),
     /// Something Python would have done that the port refuses rather than

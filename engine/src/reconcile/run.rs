@@ -39,8 +39,10 @@ pub struct RunOptions<'s> {
     pub telemetry: &'s mut dyn FnMut() -> PyValue,
 }
 
-/// What one run decided and did.
+/// What one run decided and did. A run some pull request of which could
+/// not be reconciled is still a `Run`: [`Run::failure`] says so.
 #[derive(Debug, Clone)]
+#[must_use = "a run can fail after every pull request had its turn: check `Run::failure`"]
 pub struct Run {
     /// The instant every verdict was decided at.
     pub generated_at: String,
@@ -141,8 +143,10 @@ pub fn evaluate_snapshots(
         let n = number(pr)?;
         let admitted = admissions.get(&n).unwrap_or(&PyValue::None);
         let wanted = PyValue::Int(n.clone());
+        // The last entry for a number, as a dict keeps it.
         let state = states
             .iter()
+            .rev()
             .find(|(number, _)| py_eq(number, &wanted))
             .map_or(&PyValue::None, |(_, state)| state);
         let mut result = evaluate(policy, pr, admitted, &s(now), state)?;
@@ -196,6 +200,12 @@ impl<T: Transport> Reconciler<'_, T> {
     /// request its turn even after one fails — then, on a run not aimed at
     /// one pull request, take the engine's marks off the pull requests it
     /// no longer governs. `policy` is one `validate_policy` accepted.
+    ///
+    /// A pull request whose reconciliation failed does not stop the run, and
+    /// does not make it an `Err`: every other one still has its turn, and
+    /// the run comes back with [`Run::failure`] set and no report. An `Err`
+    /// is a run that could not decide at all, or an error Python does not
+    /// catch.
     pub fn run(&mut self, policy: &PyValue, options: RunOptions<'_>) -> Result<Run, ReadError> {
         let RunOptions {
             command,
@@ -207,7 +217,8 @@ impl<T: Transport> Reconciler<'_, T> {
         } = options;
         let sync = command == Command::Sync;
         let aimed = matches!(selection, Selection::Pr(_));
-        let collected = self.collect(policy, &mut selection, apply, sync)?;
+        // A report never writes, whatever it is asked.
+        let collected = self.collect(policy, &mut selection, apply && sync, sync)?;
         let (context, mut candidates, snapshots) =
             (collected.prs, collected.candidates, collected.snapshots);
         let now = self.utc_now(ClockSite::Run);
@@ -219,7 +230,6 @@ impl<T: Transport> Reconciler<'_, T> {
         } else {
             PyValue::None
         };
-        let mut log = Vec::new();
         let verdicts = evaluate_snapshots(
             policy,
             &context,
@@ -227,18 +237,12 @@ impl<T: Transport> Reconciler<'_, T> {
             &snapshots,
             &now,
             &payload,
-            &mut log,
+            &mut self.log,
         )?;
-        for line in log {
-            self.say(line);
-        }
         let mut nudged = 0;
         let mut failed = Vec::new();
         let mut checked_labels = false;
-        for (pr, result) in snapshots.iter().zip(&verdicts) {
-            if !sync {
-                continue;
-            }
+        for (pr, result) in snapshots.iter().zip(&verdicts).filter(|_| sync) {
             let reconciled = (|| -> Result<(), ReadError> {
                 if apply {
                     if !checked_labels {

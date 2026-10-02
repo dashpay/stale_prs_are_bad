@@ -7,7 +7,7 @@ use super::{except_github, ClockSite, Reconciler, Selection};
 use crate::evidence::records::{parse_controller_diff, parse_controller_state};
 use crate::evidence::{History, ReadError, Transport};
 use crate::policy::{admit, effective_admission, governs};
-use crate::pycompat::object::{get, getitem, iterate};
+use crate::pycompat::object::{getitem, iterate};
 use crate::pycompat::ops::{py_eq, py_eq_str};
 use crate::pycompat::{PyDict, PyInt, PyValue};
 
@@ -133,10 +133,13 @@ impl<T: Transport> Reconciler<'_, T> {
             }
             Selection::Pr(n) => {
                 let wanted = PyValue::Int(n.clone());
-                let listed = prs.iter().find(|pr| {
-                    get(pr, "number")
-                        .is_ok_and(|found| found.is_some_and(|found| py_eq(found, &wanted)))
-                });
+                let mut listed = None;
+                for pr in &prs {
+                    if py_eq(getitem(pr, "number")?, &wanted) {
+                        listed = Some(pr);
+                        break;
+                    }
+                }
                 let principal = match listed.filter(|pr| pr.truthy()) {
                     Some(pr) => pr.clone(),
                     None => self.api.pull(n)?,
@@ -307,7 +310,8 @@ impl<T: Transport> Reconciler<'_, T> {
     /// cannot merge, or on a head another pull request shares, which a
     /// commit-scoped status cannot isolate. `policy` is what was read
     /// before validation failed, if anything; `target_url` is where the
-    /// status links.
+    /// status links. Only a run that applies calls this: a preview revokes
+    /// nothing.
     pub fn mark_configuration_error(
         &mut self,
         policy: Option<&PyValue>,

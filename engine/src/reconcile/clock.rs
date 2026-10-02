@@ -6,7 +6,13 @@
 //! it, so a replay can compare the two logs read for read.
 
 use crate::pycompat::{PyDateTime, PyTimeDelta};
+use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// The Unix epoch, in UTC.
+static EPOCH: LazyLock<PyDateTime> = LazyLock::new(|| {
+    PyDateTime::fromisoformat("1970-01-01T00:00:00+00:00").expect("a constant instant parses")
+});
 
 /// Where the engine reads the clock: the Python function that asks for
 /// `clock()` there, by its name in a recording's `clock_reads`.
@@ -55,9 +61,7 @@ impl Clock for SystemClock {
             .map_or(0, |since| {
                 i64::try_from(since.as_micros()).unwrap_or(i64::MAX)
             });
-        let epoch = PyDateTime::fromisoformat("1970-01-01T00:00:00+00:00")
-            .expect("a constant instant parses");
-        epoch
+        EPOCH
             .py_add(PyTimeDelta::from_micros(micros))
             .expect("the system clock reads a year before 10000")
     }

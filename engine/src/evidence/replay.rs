@@ -146,7 +146,7 @@ struct Answers {
 
 /// One recorded write: the `gh api` command, and the answer the recorder
 /// made for it.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct RecordedWrite {
     ordinal: usize,
     arguments: Vec<String>,
@@ -247,6 +247,18 @@ impl ReplayTransport {
             value => Some(string(value, "stdin", line)?),
         };
         if kind != "read" {
+            // The recorder answers every write with a success of its own
+            // making; a write recorded as failing is one no replay here can
+            // answer as GitHub did, and is refused rather than taken as a
+            // success.
+            if entry.contains_key("raised")
+                || !matches!(entry.get("exit"), Some(PyValue::Int(exit)) if exit.is_zero())
+            {
+                return Err(RecordingError {
+                    line,
+                    problem: "a write recorded as failing is not replayed".into(),
+                });
+            }
             self.writes.push_back(RecordedWrite {
                 ordinal,
                 arguments,
@@ -343,11 +355,13 @@ impl ReplayTransport {
         if was != now {
             return Err(differs("body", &was, &now));
         }
-        let Some(recorded) = self.writes.pop_front() else {
-            return Err(TransportError::Refused("no recorded write".into()));
-        };
-        self.served.push(recorded.ordinal);
-        Ok(Reply::Text(recorded.stdout))
+        let ordinal = recorded.ordinal;
+        let answer = self
+            .writes
+            .pop_front()
+            .map_or_else(String::new, |recorded| recorded.stdout);
+        self.served.push(ordinal);
+        Ok(Reply::Text(answer))
     }
 }
 

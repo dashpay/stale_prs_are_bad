@@ -4,39 +4,32 @@
 //! evidence are read again and found unchanged. And `nudge`: asking a
 //! review bot to look at a head.
 
-use super::state::{
-    admission_fingerprint, bot_comments, context_fingerprint, diff_record, same, same_admissions,
-    state_record, visible,
-};
+use super::state::{bot_comments, context_fingerprint, diff_record, same, state_record, visible};
 use super::text::{checklist_block, move_state, move_text, POINTER};
-use super::values::{list, lower, number, one_of, prefix, s, shown, text};
+use super::values::{list, number, one_of, prefix, s, shown, text};
 use super::writes::BODY_LIMIT;
-use super::{except_github, ClockSite, Reconciler, WAIVED_LABEL};
+use super::{except_github, Reconciler, WAIVED_LABEL};
 use crate::evidence::records::{current_checklist, DIFF_MARKER, STATE_MARKER};
 use crate::evidence::{ReadError, Transport};
 use crate::policy::{
-    admit, evaluate, fingerprint, governs, machine_author, LABEL_FOR_STATE, MOVE_MARKER,
-    NUDGE_MARKER, RETIRED_LABELS, STATE_LABELS,
+    fingerprint, machine_author, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
+    STATE_LABELS,
 };
 use crate::pycompat::object::{get, get_or, getitem, iterate, or, EMPTY_LIST, NONE};
 use crate::pycompat::ops::{py_compare, py_contains, py_eq, py_eq_str, Compare};
 use crate::pycompat::text::py_len;
 use crate::pycompat::{PyDict, PyValue};
 
-/// The fields of a pull request whose change under a run means its
-/// verdict no longer applies.
-const IDENTITY: [&str; 5] = ["head", "base", "base_sha", "draft", "state"];
-
 /// The most reviewers GitHub lets a pull request have requested at once.
 const REVIEWER_CAP: usize = 15;
 
 /// What one publication works from: the pull request, its verdict and the
 /// admission context it was decided in.
-struct Publication<'p> {
-    policy: &'p PyValue,
-    pr: &'p PyValue,
-    result: &'p PyValue,
-    context: String,
+pub(super) struct Publication<'p> {
+    pub(super) policy: &'p PyValue,
+    pub(super) pr: &'p PyValue,
+    pub(super) result: &'p PyValue,
+    pub(super) context: String,
 }
 
 impl<T: Transport> Reconciler<'_, T> {
@@ -210,9 +203,11 @@ impl<T: Transport> Reconciler<'_, T> {
         let fits = match &block {
             None => true,
             Some(block) => {
+                // `len(body) - len(current) + len(block) + 2 <= limit`, with
+                // nothing subtracted: the block now is part of the body.
                 let body_length = py_len(text(&body_now, "body")?);
                 let current_length = current.as_deref().map_or(0, py_len);
-                body_length - current_length + py_len(block) + 2 <= BODY_LIMIT
+                body_length + py_len(block) + 2 <= BODY_LIMIT + current_length
             }
         };
         let stale_block = block.is_none() && current.is_some();
@@ -510,125 +505,5 @@ impl<T: Transport> Reconciler<'_, T> {
         }
         self.finish(&publication, &expected)?;
         Ok(Some(desired))
-    }
-
-    /// `identity_matches()`: the pull request read again, and its head,
-    /// base, draft state and open state as the verdict saw them.
-    fn identity_matches(&mut self, pr: &PyValue) -> Result<bool, ReadError> {
-        let current = self.api.pull(&number(pr)?)?;
-        for key in IDENTITY {
-            if !py_eq(get_or(&current, key, &NONE)?, get_or(pr, key, &NONE)?) {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
-    /// `admission_valid(expected)`: whether this author's admission is still
-    /// what the verdict was decided under — the same pull requests open,
-    /// the same admissions recorded, and this one's slot the same.
-    fn admission_valid(
-        &mut self,
-        publication: &Publication<'_>,
-        expected: &[PyValue],
-    ) -> Result<bool, ReadError> {
-        let Publication {
-            policy, pr, result, ..
-        } = *publication;
-        let current_prs = self.api.open_prs()?;
-        let author = getitem(pr, "author")?;
-        if context_fingerprint(&current_prs, author)? != publication.context {
-            return Ok(false);
-        }
-        // Only this author's histories can change this pull request's
-        // admission.
-        let mut relevant = Vec::new();
-        for p in &current_prs {
-            if governs(policy, getitem(p, "base")?)?
-                && lower(getitem(p, "author")?)? == lower(author)?
-            {
-                relevant.push(p.clone());
-            }
-        }
-        let histories = self.load_histories(&relevant)?;
-        let mut baseline = Vec::new();
-        for p in expected {
-            if lower(getitem(p, "author")?)? == lower(author)? {
-                baseline.push(p);
-            }
-        }
-        if !same_admissions(
-            &admission_fingerprint(&histories)?,
-            &admission_fingerprint(baseline)?,
-        ) {
-            return Ok(false);
-        }
-        let admitted_at = get_or(result, "admitted_at", &NONE)?;
-        let now = if admitted_at.truthy() {
-            admitted_at.clone()
-        } else {
-            s(self.utc_now(ClockSite::AdmissionValid))
-        };
-        let slots = admit(policy, &list(histories), &now)?;
-        let slot = slots.get(&number(pr)?).unwrap_or(&PyValue::None);
-        Ok(py_eq(slot, admitted_at))
-    }
-
-    /// `finish(expected)`: the status a success needs, posted only after
-    /// the admission is checked again and the evidence read afresh, with
-    /// every cache dropped, and decided the same. Admission history reads
-    /// can be slow, so the evidence is read after them, and a dismissed
-    /// approval is not reused from before them.
-    fn finish(
-        &mut self,
-        publication: &Publication<'_>,
-        expected: &[PyValue],
-    ) -> Result<(), ReadError> {
-        let Publication {
-            policy, pr, result, ..
-        } = *publication;
-        let valid_admission = self.admission_valid(publication, expected)?;
-        self.api.forget_cached_access();
-        let n = number(pr)?;
-        let last = self.api.snapshot(&n, policy, None)?;
-        let head = text(getitem(pr, "head")?, "head")?.to_owned();
-        if !valid_admission || fingerprint(&last)? != fingerprint(pr)? {
-            self.api.post_status(
-                &head,
-                "pending",
-                "Review evidence changed; reconciliation required",
-                None,
-            )?;
-            return Ok(());
-        }
-        let now = s(self.utc_now(ClockSite::Finish));
-        let check = evaluate(
-            policy,
-            &last,
-            get_or(result, "admitted_at", &NONE)?,
-            &now,
-            &PyValue::None,
-        )?;
-        let check_status = check
-            .get("status")
-            .ok_or_else(|| crate::pycompat::PyErr::Key("status".into()))?;
-        if py_eq_str(getitem(result, "status")?, "success") && !py_eq_str(check_status, "success") {
-            self.api.post_status(
-                &head,
-                "pending",
-                "Policy changed; reconciliation required",
-                None,
-            )?;
-            return Ok(());
-        }
-        self.post_verdict(&head, result)
-    }
-
-    /// `api.post_status(pr['head'], result['status'], result['state'])`.
-    fn post_verdict(&mut self, head: &str, result: &PyValue) -> Result<(), ReadError> {
-        let status = text(getitem(result, "status")?, "status")?;
-        let state = text(getitem(result, "state")?, "state")?;
-        self.api.post_status(head, status, state, None)?;
-        Ok(())
     }
 }

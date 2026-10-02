@@ -43,7 +43,8 @@ impl<T: Transport> GitHub<T> {
         format!("repos/{}", self.repo())
     }
 
-    fn write(
+    /// One request, read or write, uncached.
+    fn request(
         &mut self,
         method: Method,
         path: String,
@@ -105,7 +106,7 @@ impl<T: Transport> GitHub<T> {
             }
         }
         let path = format!("{}/statuses/{}", self.root(), py_quote(head));
-        let written = self.write(Method::Post, path, Some(PyValue::Dict(payload.clone())))?;
+        let written = self.request(Method::Post, path, Some(PyValue::Dict(payload.clone())))?;
         if !matches!(written, PyValue::Dict(_)) {
             return Err(ReadError::GitHub(
                 "Commit status was not acknowledged".into(),
@@ -154,12 +155,12 @@ impl<T: Transport> GitHub<T> {
         payload.insert("body".into(), s(state_comment_body(state, body, diff)?));
         let root = self.root();
         let result = match comment_id {
-            None => self.write(
+            None => self.request(
                 Method::Post,
                 format!("{root}/issues/{number}/comments"),
                 Some(PyValue::Dict(payload)),
             )?,
-            Some(id) => self.write(
+            Some(id) => self.request(
                 Method::Patch,
                 format!("{root}/issues/comments/{}", super::values::shown(id)),
                 Some(PyValue::Dict(payload)),
@@ -176,7 +177,7 @@ impl<T: Transport> GitHub<T> {
     /// `GitHub.comment(number, body)`: a new comment.
     pub fn comment(&mut self, number: &PyInt, body: &str) -> Result<PyValue, ReadError> {
         let path = format!("{}/issues/{number}/comments", self.root());
-        self.write(Method::Post, path, Some(body_payload(body)))
+        self.request(Method::Post, path, Some(body_payload(body)))
     }
 
     /// `GitHub.edit_comment(comment_id, body)`.
@@ -186,7 +187,7 @@ impl<T: Transport> GitHub<T> {
             self.root(),
             super::values::shown(comment_id)
         );
-        self.write(Method::Patch, path, Some(body_payload(body)))
+        self.request(Method::Patch, path, Some(body_payload(body)))
     }
 
     /// `GitHub.delete_comment(comment_id)`.
@@ -196,21 +197,21 @@ impl<T: Transport> GitHub<T> {
             self.root(),
             super::values::shown(comment_id)
         );
-        self.write(Method::Delete, path, None)
+        self.request(Method::Delete, path, None)
     }
 
     /// `GitHub.remove_checklist(number)`: the engine's block out of the
     /// description, and nothing else. Whether there was one to take out.
     pub fn remove_checklist(&mut self, number: &PyInt) -> Result<bool, ReadError> {
         let path = format!("{}/pulls/{number}", self.root());
-        let current = self.write(Method::Get, path.clone(), None)?;
+        let current = self.request(Method::Get, path.clone(), None)?;
         let body = body_of(&current)?;
         let (head, block, tail) = split_checklist(body);
         if block.is_none() {
             return Ok(false);
         }
         let kept = py_rstrip(&format!("{}{tail}", py_rstrip(head))).to_owned();
-        self.write(Method::Patch, path, Some(body_payload(&kept)))?;
+        self.request(Method::Patch, path, Some(body_payload(&kept)))?;
         Ok(true)
     }
 
@@ -223,8 +224,8 @@ impl<T: Transport> GitHub<T> {
     /// else byte for byte — whatever follows the block is someone else's,
     /// CodeRabbit appends its own, and stays where it was.
     pub fn set_checklist(&mut self, number: &PyInt, block: &str) -> Result<bool, ReadError> {
-        let start = CHECKLIST_START.len() as isize;
-        let end = CHECKLIST_END.len() as isize;
+        let start = py_len(CHECKLIST_START) as isize;
+        let end = py_len(CHECKLIST_END) as isize;
         if py_slice(block, Some(start), None).contains(CHECKLIST_START)
             || py_slice(block, None, Some(-end)).contains(CHECKLIST_END)
         {
@@ -233,7 +234,7 @@ impl<T: Transport> GitHub<T> {
             ));
         }
         let path = format!("{}/pulls/{number}", self.root());
-        let current = self.write(Method::Get, path.clone(), None)?;
+        let current = self.request(Method::Get, path.clone(), None)?;
         let body = body_of(&current)?.to_owned();
         let (head, _, tail) = split_checklist(&body);
         let wanted = if py_strip(head).is_empty() {
@@ -249,7 +250,7 @@ impl<T: Transport> GitHub<T> {
         if normalise(&body) == normalise(&wanted) {
             return Ok(false);
         }
-        self.write(Method::Patch, path, Some(body_payload(&wanted)))?;
+        self.request(Method::Patch, path, Some(body_payload(&wanted)))?;
         Ok(true)
     }
 
@@ -265,14 +266,14 @@ impl<T: Transport> GitHub<T> {
         let worn = py_contains(current_labels, &s(label))?;
         let root = self.root();
         if enabled && !worn {
-            return self.write(
+            return self.request(
                 Method::Post,
                 format!("{root}/issues/{number}/labels"),
                 Some(labels_payload(label)),
             );
         }
         if !enabled && worn {
-            return self.write(
+            return self.request(
                 Method::Delete,
                 format!("{root}/issues/{number}/labels/{label}"),
                 None,
@@ -298,7 +299,7 @@ impl<T: Transport> GitHub<T> {
         let root = self.root();
         if let Some(wanted) = wanted {
             if !py_contains(current_labels, &s(wanted))? {
-                self.write(
+                self.request(
                     Method::Post,
                     format!("{root}/issues/{number}/labels"),
                     Some(labels_payload(wanted)),
@@ -312,7 +313,7 @@ impl<T: Transport> GitHub<T> {
             }
             seen.push(label);
             if py_contains(current_labels, &s(*label))? && Some(*label) != wanted {
-                self.write(
+                self.request(
                     Method::Delete,
                     format!("{root}/issues/{number}/labels/{label}"),
                     None,
@@ -337,7 +338,7 @@ impl<T: Transport> GitHub<T> {
             PyValue::List(PyList::from(users.to_vec())),
         );
         let path = format!("{}/pulls/{number}/requested_reviewers", self.root());
-        self.write(Method::Post, path, Some(PyValue::Dict(payload)))
+        self.request(Method::Post, path, Some(PyValue::Dict(payload)))
     }
 }
 
