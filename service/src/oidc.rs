@@ -10,7 +10,7 @@
 use crate::config::{IngestConfig, GITHUB_ISSUER, GITHUB_JWKS_URL};
 use chrono::{DateTime, TimeDelta, Utc};
 use jsonwebtoken::errors::ErrorKind;
-use jsonwebtoken::jwk::{AlgorithmParameters, JwkSet, KeyAlgorithm, PublicKeyUse};
+use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, KeyAlgorithm, PublicKeyUse};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -38,40 +38,71 @@ const EVENTS: &[&str] = &["schedule", "workflow_dispatch"];
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// The largest key set read. GitHub's holds a handful of keys with their
+/// certificates, a few kilobytes; a response far larger is not a key set.
+pub const MAX_JWKS_BYTES: usize = 64 * 1024;
+
 /// Where the signing keys come from: GitHub in production, a fixed set in
-/// tests.
+/// tests. A source returns the key set document as served.
 pub trait KeySource: Send + Sync {
-    fn fetch(&self) -> BoxFuture<'_, anyhow::Result<JwkSet>>;
+    fn fetch(&self) -> BoxFuture<'_, anyhow::Result<Vec<u8>>>;
 }
 
 /// GitHub's published key set, from its fixed URL.
 pub struct GithubKeys {
     client: reqwest::Client,
+    url: String,
 }
 
 impl GithubKeys {
     pub fn new() -> anyhow::Result<Self> {
+        Self::at(GITHUB_JWKS_URL)
+    }
+
+    /// Another URL, for testing the fetch itself; production code has no
+    /// way to point the service at other keys.
+    #[cfg(test)]
+    fn with_url(url: &str) -> anyhow::Result<Self> {
+        Self::at(url)
+    }
+
+    fn at(url: &str) -> anyhow::Result<Self> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent("pr-hygiene-service")
             .build()?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            url: url.to_string(),
+        })
     }
 }
 
 impl KeySource for GithubKeys {
-    fn fetch(&self) -> BoxFuture<'_, anyhow::Result<JwkSet>> {
+    fn fetch(&self) -> BoxFuture<'_, anyhow::Result<Vec<u8>>> {
         Box::pin(async move {
-            let set = self
+            let mut res = self
                 .client
-                .get(GITHUB_JWKS_URL)
+                .get(&self.url)
                 .send()
                 .await?
-                .error_for_status()?
-                .json::<JwkSet>()
-                .await?;
-            Ok(set)
+                .error_for_status()?;
+            let too_large = || anyhow::anyhow!("key set larger than {MAX_JWKS_BYTES} bytes");
+            if res
+                .content_length()
+                .is_some_and(|n| n > MAX_JWKS_BYTES as u64)
+            {
+                return Err(too_large());
+            }
+            let mut body = Vec::new();
+            while let Some(chunk) = res.chunk().await? {
+                if body.len() + chunk.len() > MAX_JWKS_BYTES {
+                    return Err(too_large());
+                }
+                body.extend_from_slice(&chunk);
+            }
+            Ok(body)
         })
     }
 }
@@ -140,9 +171,13 @@ impl KeyCache {
             return false;
         }
         *last = Some(Instant::now());
-        match self.source.fetch().await {
-            Ok(set) => {
-                let by_kid = usable_keys(&set);
+        match self
+            .source
+            .fetch()
+            .await
+            .and_then(|body| usable_keys(&body))
+        {
+            Ok(by_kid) => {
                 if by_kid.is_empty() {
                     tracing::warn!(
                         "signing key set has no usable RS256 key; keeping the keys held"
@@ -177,12 +212,20 @@ impl KeyCache {
     }
 }
 
-/// RSA signing keys with an id. Anything else in the set — a symmetric key
-/// above all, which would turn a public key into a shared secret — is
-/// ignored.
-fn usable_keys(set: &JwkSet) -> HashMap<String, DecodingKey> {
-    set.keys
-        .iter()
+/// RSA signing keys with an id, from a key set document. Each key is read
+/// on its own: one of a type this service does not know cannot cost it the
+/// rest. Anything but an RSA signing key — a symmetric key above all, which
+/// would turn a public key into a shared secret — is ignored.
+fn usable_keys(body: &[u8]) -> anyhow::Result<HashMap<String, DecodingKey>> {
+    #[derive(Deserialize)]
+    struct Set {
+        keys: Vec<serde_json::Value>,
+    }
+    let set: Set = serde_json::from_slice(body)?;
+    Ok(set
+        .keys
+        .into_iter()
+        .filter_map(|key| serde_json::from_value::<Jwk>(key).ok())
         .filter_map(|jwk| {
             let kid = jwk.common.key_id.clone()?;
             if !matches!(jwk.common.key_algorithm, None | Some(KeyAlgorithm::RS256)) {
@@ -200,7 +243,7 @@ fn usable_keys(set: &JwkSet) -> HashMap<String, DecodingKey> {
             let key = DecodingKey::from_rsa_components(&rsa.n, &rsa.e).ok()?;
             Some((kid, key))
         })
-        .collect()
+        .collect())
 }
 
 /// The claims checked. GitHub sends ids and the attempt number as strings;
@@ -414,17 +457,116 @@ mod tests {
         assert!(issued_at(i64::MAX, now).is_err());
     }
 
+    const GOOD: &str =
+        r#"{"kty": "RSA", "kid": "good", "alg": "RS256", "use": "sig", "n": "sXch", "e": "AQAB"}"#;
+
+    fn set(keys: &[&str]) -> Vec<u8> {
+        format!(r#"{{"keys": [{}]}}"#, keys.join(",")).into_bytes()
+    }
+
     #[test]
     fn only_rsa_signing_keys_with_an_id_are_kept() {
-        let set: JwkSet = serde_json::from_value(serde_json::json!({"keys": [
-            {"kty": "oct", "kid": "shared", "k": "c2VjcmV0"},
-            {"kty": "RSA", "kid": "enc", "use": "enc", "n": "sXch", "e": "AQAB"},
-            {"kty": "RSA", "n": "sXch", "e": "AQAB"},
-            {"kty": "RSA", "kid": "rs512", "alg": "RS512", "n": "sXch", "e": "AQAB"},
-            {"kty": "RSA", "kid": "good", "alg": "RS256", "use": "sig", "n": "sXch", "e": "AQAB"},
-        ]}))
+        let keys = usable_keys(&set(&[
+            r#"{"kty": "oct", "kid": "shared", "k": "c2VjcmV0"}"#,
+            r#"{"kty": "RSA", "kid": "enc", "use": "enc", "n": "sXch", "e": "AQAB"}"#,
+            r#"{"kty": "RSA", "n": "sXch", "e": "AQAB"}"#,
+            r#"{"kty": "RSA", "kid": "rs512", "alg": "RS512", "n": "sXch", "e": "AQAB"}"#,
+            GOOD,
+        ]))
         .unwrap();
-        let keys = usable_keys(&set);
         assert_eq!(keys.keys().collect::<Vec<_>>(), vec!["good"]);
+    }
+
+    /// GitHub may add a key this service cannot read — a new type, or a
+    /// field in a shape the library rejects (a numeric `kid` fails the whole
+    /// set if it is parsed as one); the keys it does know must still load.
+    #[test]
+    fn a_key_this_service_cannot_read_does_not_cost_the_rest() {
+        let keys = usable_keys(&set(&[
+            r#"{"kty": "AKP", "kid": "pq", "alg": "ML-DSA-65", "pub": "AAAA"}"#,
+            r#"{"kty": "RSA", "kid": 7, "n": "sXch", "e": "AQAB"}"#,
+            r#"{"kty": "RSA", "kid": "half"}"#,
+            r#"{"kty": "EC", "kid": "ec", "crv": "P-999", "x": "AA", "y": "AA"}"#,
+            GOOD,
+        ]))
+        .unwrap();
+        assert_eq!(keys.keys().collect::<Vec<_>>(), vec!["good"]);
+    }
+
+    struct Fixed(Vec<u8>);
+
+    impl KeySource for Fixed {
+        fn fetch(&self) -> BoxFuture<'_, anyhow::Result<Vec<u8>>> {
+            Box::pin(async move { Ok(self.0.clone()) })
+        }
+    }
+
+    /// A key set with nothing usable in it leaves nothing to verify with:
+    /// every token is refused, not waved through.
+    #[tokio::test]
+    async fn a_key_set_with_no_usable_key_fails_closed() {
+        let only_shared = set(&[r#"{"kty": "oct", "kid": "shared", "k": "c2VjcmV0"}"#]);
+        let cache = KeyCache::with_refresh_interval(Box::new(Fixed(only_shared)), Duration::ZERO);
+        assert!(matches!(cache.key("shared").await, KeyLookup::Unavailable));
+        assert_eq!(cache.state().keys, 0);
+        let garbage =
+            KeyCache::with_refresh_interval(Box::new(Fixed(b"<html>".to_vec())), Duration::ZERO);
+        assert!(matches!(garbage.key("good").await, KeyLookup::Unavailable));
+    }
+
+    /// Serves `body` once on a local port; returns its URL.
+    async fn serve(body: axum::body::Body) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let body = std::sync::Arc::new(std::sync::Mutex::new(Some(body)));
+        let app = axum::Router::new().route(
+            "/jwks",
+            axum::routing::get(move || {
+                let body = body.lock().unwrap().take().unwrap_or_default();
+                async move { body }
+            }),
+        );
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        format!("http://{addr}/jwks")
+    }
+
+    /// An endless stream of bytes, with no length declared.
+    struct Endless;
+
+    impl http_body::Body for Endless {
+        type Data = axum::body::Bytes;
+        type Error = std::convert::Infallible;
+
+        fn poll_frame(
+            self: Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+            std::task::Poll::Ready(Some(Ok(http_body::Frame::data(
+                axum::body::Bytes::from_static(&[b' '; 8192]),
+            ))))
+        }
+    }
+
+    #[tokio::test]
+    async fn an_oversized_key_set_is_not_read_past_the_limit() {
+        let declared = serve(axum::body::Body::from(" ".repeat(MAX_JWKS_BYTES + 1))).await;
+        let err = GithubKeys::with_url(&declared)
+            .unwrap()
+            .fetch()
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("larger"), "{err}");
+
+        let streamed = serve(axum::body::Body::new(Endless)).await;
+        let err = GithubKeys::with_url(&streamed)
+            .unwrap()
+            .fetch()
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("larger"), "{err}");
+
+        let fine = serve(axum::body::Body::from(set(&[GOOD]))).await;
+        let body = GithubKeys::with_url(&fine).unwrap().fetch().await.unwrap();
+        assert_eq!(usable_keys(&body).unwrap().len(), 1);
     }
 }

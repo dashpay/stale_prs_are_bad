@@ -511,6 +511,21 @@ async fn without_signing_keys_every_token_is_refused() {
     assert_eq!(ready["jwks"]["keys"], 0);
 }
 
+/// A token not signed with RS256 is refused on its header alone: its key id
+/// is never looked up, so it cannot even spend the service's one key
+/// refetch a minute.
+#[tokio::test]
+async fn a_token_with_another_algorithm_costs_no_key_fetch() {
+    let app = app();
+    let mut header = Header::new(Algorithm::HS256);
+    header.kid = Some("made-up".into());
+    let hs256 =
+        jsonwebtoken::encode(&header, &claims(), &EncodingKey::from_secret(b"guess")).unwrap();
+    let (status, body) = post(&app, Some(&hs256), common::body(&snapshot(5))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(app.keys.fetches.load(Ordering::SeqCst), 0);
+}
+
 /// Tokens with made-up key ids must not make the service hammer GitHub: an
 /// unknown key id refetches the key set at most once a minute.
 #[tokio::test]

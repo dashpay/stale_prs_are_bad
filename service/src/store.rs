@@ -487,6 +487,27 @@ mod tests {
         assert_eq!(count(&db, "SELECT count(*) FROM snapshots"), 2);
     }
 
+    /// A token lives minutes; its id need not be kept for ever, or the
+    /// table would grow by one row every run.
+    #[test]
+    fn spent_token_ids_are_forgotten_after_a_day() {
+        let mut db = db();
+        let posted = |db: &mut Db, d: &Dashboard, jti: &str| {
+            let raw = serde_json::to_string(d).unwrap();
+            db.store.ingest(d, &raw, Some(jti), d.generated_at).unwrap()
+        };
+        stored(&posted(&mut db, &snapshot(0), "monday"));
+        stored(&posted(&mut db, &snapshot(15), "monday-later"));
+        assert_eq!(count(&db, "SELECT count(*) FROM used_tokens"), 2);
+        let two_days = 2 * 24 * 60;
+        stored(&posted(&mut db, &snapshot(two_days), "wednesday"));
+        assert_eq!(
+            count(&db, "SELECT count(*) FROM used_tokens"),
+            1,
+            "only the token used within the day is remembered"
+        );
+    }
+
     /// A PR's history is answered as of the view being served, so the same
     /// snapshot (and ETag) never gains rows from a later ingest.
     #[test]

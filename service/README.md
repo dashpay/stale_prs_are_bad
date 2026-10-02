@@ -173,9 +173,10 @@ first snapshot, every endpoint answers 503.
 Plain text for the `/prs` skill and Slack, versioned on its first line
 (`PR Hygiene digest v1 for <login>`): generation time and commit; each
 repository's freshness and mode, the stale ones named; reviews owed, oldest
-first, each with author, how long it has waited, the person's part in the
-engine's own words (``files with no dedicated owner (you or bob)``,
-``re-review or resolve your objection``) and the PR's URL; their PRs with
+first, each with author, how long it has waited, what it still needs and
+the person's part in the engine's own words (``needs `dpp`: alice or bob ·
+re-review or resolve: carol; your part: `dpp` (you or bob)``) and the PR's
+URL; their PRs with
 stage, whose move it is, the engine's next action and URL; open PRs per
 repository against its slot limit. Text from GitHub has control characters
 replaced and `&`, `<`, `>` escaped, so it cannot start a line, mention a

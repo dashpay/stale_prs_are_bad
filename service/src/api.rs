@@ -2,14 +2,14 @@
 //! view in the store: no request reaches GitHub, and an unknown login or PR
 //! is a 404, never a lookup.
 //!
-//! Each response carries an ETag naming the snapshot (and this service's
-//! version) it was built from; the same snapshot always gives the same
-//! bytes, so a matching `If-None-Match` is answered 304.
+//! Each response carries a strong ETag: a hash of its exact bytes. A
+//! matching `If-None-Match` is answered 304. Nothing else goes into the
+//! tag, so a restored backup or a redeploy can never pair an old tag with
+//! new bytes.
 
 use crate::app::{ApiError, AppState};
 use crate::digest;
 use crate::snapshot::{is_login, is_repo};
-use crate::view::View;
 use axum::extract::rejection::{PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
@@ -17,7 +17,9 @@ use axum::response::{IntoResponse, Response};
 use pr_hygiene::dashboard::{Lateness, PrOut, Stage};
 use serde::Deserialize;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::fmt::Write;
 use std::sync::Arc;
 
 /// Headers on every public response: readable from any origin, never a
@@ -49,32 +51,57 @@ pub async fn public_headers(mut res: Response) -> Response {
     res
 }
 
-fn etag(view: &View) -> String {
-    format!("\"{}-{}\"", view.version, env!("CARGO_PKG_VERSION"))
+/// `OPTIONS` on any public endpoint: a browser asks before a cross-origin
+/// GET that carries `If-None-Match`, which is not a CORS-safelisted header.
+pub async fn preflight() -> Response {
+    (
+        StatusCode::NO_CONTENT,
+        [
+            (header::ACCESS_CONTROL_ALLOW_METHODS, "GET, OPTIONS"),
+            (header::ACCESS_CONTROL_ALLOW_HEADERS, "If-None-Match"),
+            (header::ACCESS_CONTROL_MAX_AGE, "86400"),
+        ],
+    )
+        .into_response()
 }
 
-/// 304 when the client already holds this snapshot's response.
-fn not_modified(headers: &HeaderMap, view: &View) -> Option<Response> {
-    let tag = etag(view);
-    let matches = headers
+/// A strong validator for exactly these bytes.
+fn etag(body: &[u8]) -> String {
+    let mut tag = String::with_capacity(66);
+    tag.push('"');
+    for byte in Sha256::digest(body) {
+        // Writing to a String cannot fail.
+        let _ = write!(tag, "{byte:02x}");
+    }
+    tag.push('"');
+    tag
+}
+
+/// `body` with its ETag, or a bodiless 304 when the client already holds it.
+fn cacheable(headers: &HeaderMap, content_type: &'static str, body: Vec<u8>) -> Response {
+    let tag = etag(&body);
+    let held = headers
         .get_all(header::IF_NONE_MATCH)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(','))
         .map(str::trim)
         .any(|t| t == "*" || t == tag || t.strip_prefix("W/") == Some(tag.as_str()));
-    matches.then(|| with_etag(StatusCode::NOT_MODIFIED.into_response(), &tag))
-}
-
-fn with_etag(mut res: Response, tag: &str) -> Response {
-    if let Ok(value) = HeaderValue::from_str(tag) {
+    let mut res = if held {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        ([(header::CONTENT_TYPE, content_type)], body).into_response()
+    };
+    if let Ok(value) = HeaderValue::from_str(&tag) {
         res.headers_mut().insert(header::ETAG, value);
     }
     res
 }
 
-fn json_response(view: &View, body: serde_json::Value) -> Response {
-    with_etag(axum::Json(body).into_response(), &etag(view))
+fn json_response(headers: &HeaderMap, body: &serde_json::Value) -> Response {
+    // Serializing a `Value` cannot fail.
+    let bytes = serde_json::to_vec(body).unwrap_or_default();
+    cacheable(headers, "application/json", bytes)
 }
 
 fn text_response(status: StatusCode, body: String) -> Response {
@@ -130,9 +157,6 @@ pub async fn prs(
     let q = query(q)?;
     q.check()?;
     let view = state.view().await?;
-    if let Some(res) = not_modified(&headers, &view) {
-        return Ok(res);
-    }
     let owed: Option<HashSet<&str>> = q.reviewer.as_deref().map(|login| {
         view.person(login)
             .map(|p| p.owes.iter().map(|o| o.pr.as_str()).collect())
@@ -160,8 +184,8 @@ pub async fn prs(
         })
         .collect();
     Ok(json_response(
-        &view,
-        json!({
+        &headers,
+        &json!({
             "generated_at": view.generated_at,
             "stale_repos": view.stale_repos(),
             "prs": prs,
@@ -194,17 +218,14 @@ pub async fn pr(
             "{repo}#{number} is not an open PR here"
         )));
     };
-    if let Some(res) = not_modified(&headers, &view) {
-        return Ok(res);
-    }
     let stored_repo = pr.repo.clone();
     let as_of = view.version;
     let changes = state
         .read(move |reader| reader.stage_changes(&stored_repo, number, as_of))
         .await?;
     Ok(json_response(
-        &view,
-        json!({
+        &headers,
+        &json!({
             "generated_at": view.generated_at,
             "stale": view.repo(&pr.repo).is_some_and(|r| r.stale),
             "pr": pr,
@@ -222,14 +243,11 @@ pub async fn people(
 ) -> Result<Response, ApiError> {
     query(q)?;
     let view = state.view().await?;
-    if let Some(res) = not_modified(&headers, &view) {
-        return Ok(res);
-    }
     let mut people: Vec<_> = view.people.iter().collect();
     people.sort_by_key(|p| p.login.to_ascii_lowercase());
     Ok(json_response(
-        &view,
-        json!({
+        &headers,
+        &json!({
             "generated_at": view.generated_at,
             "stale_repos": view.stale_repos(),
             "people": people,
@@ -276,20 +294,21 @@ pub async fn person(
                 .into_response(),
         });
     };
-    if let Some(res) = not_modified(&headers, &view) {
-        return Ok(res);
-    }
     if format == Format::Text {
         let body = digest::person(&view, person);
-        return Ok(with_etag(text_response(StatusCode::OK, body), &etag(&view)));
+        return Ok(cacheable(
+            &headers,
+            "text/plain; charset=utf-8",
+            body.into_bytes(),
+        ));
     }
     let owes: Vec<_> = digest::owed_oldest_first(&view, person)
         .into_iter()
         .map(|(o, pr)| json!({ "pr": pr, "areas": o.areas, "rereview": o.rereview }))
         .collect();
     Ok(json_response(
-        &view,
-        json!({
+        &headers,
+        &json!({
             "generated_at": view.generated_at,
             "stale_repos": view.stale_repos(),
             "person": person,
@@ -307,12 +326,9 @@ pub async fn repos(
 ) -> Result<Response, ApiError> {
     query(q)?;
     let view = state.view().await?;
-    if let Some(res) = not_modified(&headers, &view) {
-        return Ok(res);
-    }
     Ok(json_response(
-        &view,
-        json!({
+        &headers,
+        &json!({
             "generated_at": view.generated_at,
             "received_at": view.received_at,
             "commit": view.commit,
@@ -330,12 +346,9 @@ pub async fn stages(
 ) -> Result<Response, ApiError> {
     query(q)?;
     let view = state.view().await?;
-    if let Some(res) = not_modified(&headers, &view) {
-        return Ok(res);
-    }
     Ok(json_response(
-        &view,
-        json!({
+        &headers,
+        &json!({
             "idle_days": view.idle_days,
             "stages": view.stages,
         }),

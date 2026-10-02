@@ -126,6 +126,19 @@ pub fn needs(pr: &PrOut) -> String {
     }
 }
 
+/// The engine's `review_text`: everything the PR still needs, then this
+/// person's part of it — so a reviewer sees who else is asked, not only
+/// their own share.
+pub fn review_text(pr: &PrOut, owed: &Owed) -> String {
+    let text = format!("needs {}", needs(pr));
+    let part = your_part(owed);
+    if part.is_empty() {
+        text
+    } else {
+        format!("{text}; your part: {part}")
+    }
+}
+
 /// The engine's `age`: whole hours, as days and hours from a day on.
 fn age(since: DateTime<Utc>, now: DateTime<Utc>) -> String {
     let hours = (now - since).num_hours().max(0);
@@ -258,12 +271,7 @@ pub fn person(view: &View, person: &PersonOut) -> String {
         let _ = writeln!(out, "{}. {} {}", i + 1, pr.key, clean(&pr.title));
         let author = pr.author.as_deref().map_or("unknown".to_string(), clean);
         let _ = writeln!(out, "   Author: {author}. Waiting: {}.", waiting(pr, now));
-        let part = your_part(o);
-        if part.is_empty() {
-            let _ = writeln!(out, "   Needs: {}", needs(pr));
-        } else {
-            let _ = writeln!(out, "   Your part: {part}");
-        }
+        let _ = writeln!(out, "   Next: {}", review_text(pr, o));
         let _ = writeln!(out, "   {}", url(pr));
     }
 
@@ -364,6 +372,8 @@ mod tests {
             r#"parts.append(f"{area_name(area['area'], code)}: {' or '.join(area['approvers']) or 'nobody may approve'}")"#,
             "parts.append('re-review or resolve: ' + ', '.join(result['objectors']))",
             "return f'{hours // 24}d {hours % 24}h' if hours >= 24 else f'{hours}h'",
+            "text = 'needs ' + (' · '.join(asks(row)) or 'an owner')",
+            "return text + (f'; your part: {part}' if part else '')",
         ] {
             assert!(
                 engine.contains(fragment),
@@ -391,6 +401,49 @@ mod tests {
             needs(&pr),
             "`dpp`: Alice or Carol · `drive`: nobody may approve · re-review or resolve: bob, dave"
         );
+    }
+
+    fn pr_asking(asks: serde_json::Value, objectors: &[&str]) -> PrOut {
+        serde_json::from_value(serde_json::json!({
+            "key": "dashpay/platform#1", "repo": "dashpay/platform", "number": 1, "title": "t",
+            "author": "dave", "author_kind": "human", "draft": false, "base": "v3",
+            "created_at": null, "updated_at": null, "idle": false, "stage": "review",
+            "engine_state": "ready-for-human", "next_action": null, "blockers": [],
+            "since": null, "since_basis": null, "lateness": null,
+            "asks": asks, "objectors": objectors, "areas": [], "unresolved_comments": 0,
+            "ci_failing": false, "merge_conflict": false, "changes_requested": false,
+            "tracked": true
+        }))
+        .unwrap()
+    }
+
+    /// The strings `pr_review/tests/test_main.py` and `test_aggregate.py`
+    /// expect of the engine's `review_text` for the same PR and reviewer.
+    #[test]
+    fn review_text_is_worded_as_the_engines() {
+        let core = pr_asking(
+            serde_json::json!([{"area": "core", "approvers": ["alice", "carol"]}]),
+            &[],
+        );
+        assert_eq!(
+            review_text(&core, &owed(&[("core", &["carol"])], false)),
+            "needs `core`: alice or carol; your part: `core` (you or carol)"
+        );
+        let dpp = pr_asking(
+            serde_json::json!([{"area": "dpp", "approvers": ["Alice", "Carol"]}]),
+            &[],
+        );
+        assert_eq!(
+            review_text(&dpp, &owed(&[("dpp", &["Carol"])], false)),
+            "needs `dpp`: Alice or Carol; your part: `dpp` (you or Carol)"
+        );
+        // Asked for nothing of their own: what the PR needs, alone.
+        assert_eq!(
+            review_text(&dpp, &owed(&[], false)),
+            "needs `dpp`: Alice or Carol"
+        );
+        let nothing = pr_asking(serde_json::json!([]), &[]);
+        assert_eq!(review_text(&nothing, &owed(&[], false)), "needs an owner");
     }
 
     #[test]

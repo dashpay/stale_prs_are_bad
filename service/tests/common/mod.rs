@@ -9,7 +9,6 @@ use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::{DateTime, TimeDelta, Utc};
-use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use pr_hygiene::dashboard::Dashboard;
 use pr_hygiene_service::app::{self, AppState};
@@ -67,11 +66,11 @@ pub struct TestKeys {
 struct Source(Arc<TestKeys>);
 
 impl KeySource for Source {
-    fn fetch(&self) -> BoxFuture<'_, anyhow::Result<JwkSet>> {
+    fn fetch(&self) -> BoxFuture<'_, anyhow::Result<Vec<u8>>> {
         Box::pin(async move {
             self.0.fetches.fetch_add(1, Ordering::SeqCst);
             anyhow::ensure!(!self.0.failing.load(Ordering::SeqCst), "GitHub is down");
-            Ok(serde_json::from_value(key().jwks.clone())?)
+            Ok(serde_json::to_vec(&key().jwks)?)
         })
     }
 }

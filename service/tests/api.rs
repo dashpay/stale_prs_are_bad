@@ -120,21 +120,70 @@ async fn responses_are_public_cacheable_and_revalidated_by_snapshot() {
             .body(Body::empty())
             .unwrap()
     };
-    let res = send(&app, revalidate("/api/v1/prs?stage=review", &etag)).await;
-    assert_eq!(
-        res.status(),
-        StatusCode::NOT_MODIFIED,
-        "same snapshot, any filter"
-    );
+    let res = send(&app, revalidate("/api/v1/prs", &etag)).await;
+    assert_eq!(res.status(), StatusCode::NOT_MODIFIED);
     assert_eq!(res.headers()[header::ETAG], etag.as_str());
     assert_eq!(res.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
     assert!(text_body(res).await.is_empty());
+    // Other bytes, another tag: a filtered list is not the full one.
+    let res = send(&app, revalidate("/api/v1/prs?stage=review", &etag)).await;
+    assert_eq!(res.status(), StatusCode::OK);
 
     // A new snapshot: the old tag no longer matches.
     ingest(&app, &snapshot(4)).await;
     let res = send(&app, revalidate("/api/v1/prs", &etag)).await;
     assert_eq!(res.status(), StatusCode::OK);
     assert_ne!(res.headers()[header::ETAG], etag.as_str());
+}
+
+/// A restored backup, or a fresh database, numbers its snapshots from the
+/// start again. A tag must name the bytes, not the row, or a client would
+/// keep data that has since changed under the same tag.
+#[tokio::test]
+async fn a_tag_names_the_bytes_not_the_snapshot_row() {
+    let first = app();
+    ingest(&first, &snapshot(5)).await;
+    let restored = app();
+    let mut other = snapshot(5);
+    other.prs.retain(|p| p.repo != PLATFORM);
+    ingest(&restored, &other).await;
+    let tag = |res: &axum::response::Response| res.headers()[header::ETAG].clone();
+    let a = get(&first, "/api/v1/prs").await;
+    let b = get(&restored, "/api/v1/prs").await;
+    assert_ne!(tag(&a), tag(&b), "both are snapshot 1, with different PRs");
+}
+
+/// A browser sends `If-None-Match` across origins only after asking.
+#[tokio::test]
+async fn a_cross_origin_preflight_is_answered() {
+    let app = ingested().await;
+    for uri in [
+        "/api/v1/prs",
+        "/api/v1/prs/dashpay/platform/3000",
+        "/api/v1/people",
+        "/api/v1/people/alice",
+        "/api/v1/repos",
+        "/api/v1/stages",
+    ] {
+        let req = Request::options(uri)
+            .header(header::ORIGIN, "https://elsewhere.example")
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "if-none-match")
+            .body(Body::empty())
+            .unwrap();
+        let res = send(&app, req).await;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT, "{uri}");
+        let h = res.headers();
+        assert_eq!(h[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*", "{uri}");
+        assert!(h[header::ACCESS_CONTROL_ALLOW_HEADERS]
+            .to_str()
+            .unwrap()
+            .contains("If-None-Match"));
+        assert!(h[header::ACCESS_CONTROL_ALLOW_METHODS]
+            .to_str()
+            .unwrap()
+            .contains("GET"));
+    }
 }
 
 #[tokio::test]
@@ -217,6 +266,17 @@ async fn one_pr_comes_with_its_recorded_stage_changes() {
     );
     let (status, _) = get_json(&app, "/api/v1/prs/dashpay/platform/4").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// GitHub's own URLs ignore the case of owner and repository; a link
+/// copied with other capitals reaches the same PR and its history.
+#[tokio::test]
+async fn a_pr_is_found_whatever_the_case_of_its_repository() {
+    let app = ingested().await;
+    let (status, body) = get_json(&app, "/api/v1/prs/DashPay/Platform/3000").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["pr"]["key"], "dashpay/platform#3000");
+    assert_eq!(body["stage_changes"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -330,7 +390,9 @@ async fn the_digest_says_what_is_owed_in_the_engines_words() {
         "Reviews you owe: 1, oldest first",
         "1. dashpay/platform#3000 ",
         "   Author: carol. Waiting: ",
-        "   Your part: files with no dedicated owner (you or QuantumExplorer) · re-review or resolve your objection",
+        "   Next: needs `drive`: nobody may approve · files with no dedicated owner: \
+         QuantumExplorer or alice · re-review or resolve: alice; your part: files with no \
+         dedicated owner (you or QuantumExplorer) · re-review or resolve your objection",
         "   https://github.com/dashpay/platform/pull/3000",
         "Your PRs: 4",
         "   Stage: self-review (your move). In it: not recorded.",

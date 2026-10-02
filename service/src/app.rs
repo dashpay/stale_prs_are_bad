@@ -90,12 +90,18 @@ impl AppState {
 
 pub fn router(state: Arc<AppState>) -> Router {
     let public = Router::new()
-        .route("/api/v1/prs", get(api::prs))
-        .route("/api/v1/prs/{owner}/{repo}/{number}", get(api::pr))
-        .route("/api/v1/people", get(api::people))
-        .route("/api/v1/people/{login}", get(api::person))
-        .route("/api/v1/repos", get(api::repos))
-        .route("/api/v1/stages", get(api::stages))
+        .route("/api/v1/prs", get(api::prs).options(api::preflight))
+        .route(
+            "/api/v1/prs/{owner}/{repo}/{number}",
+            get(api::pr).options(api::preflight),
+        )
+        .route("/api/v1/people", get(api::people).options(api::preflight))
+        .route(
+            "/api/v1/people/{login}",
+            get(api::person).options(api::preflight),
+        )
+        .route("/api/v1/repos", get(api::repos).options(api::preflight))
+        .route("/api/v1/stages", get(api::stages).options(api::preflight))
         .layer(middleware::map_response(api::public_headers));
     Router::new()
         .merge(public)
