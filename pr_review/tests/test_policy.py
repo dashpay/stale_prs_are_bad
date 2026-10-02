@@ -325,7 +325,8 @@ class PolicyTests(unittest.TestCase):
         _, pr = fixture()
         pr['comments'] = [dict(pr['comments'][0], updated_at='2026-09-11T11:30:00Z')]
         graphql = dict(pr, comments=[dict(pr['comments'][0], edited_by='coderabbitai')])
-        rest = dict(pr, comments=[dict(pr['comments'][0], edited_by=None)])
+        from pr_review.github import EDITOR_UNKNOWN
+        rest = dict(pr, comments=[dict(pr['comments'][0], edited_by=EDITOR_UNKNOWN)])
         self.assertEqual(fingerprint(graphql), fingerprint(rest))
         later = dict(pr, comments=[dict(pr['comments'][0], updated_at='2026-09-11T12:00:00Z')])
         self.assertNotEqual(fingerprint(pr), fingerprint(later), 'an edit is still noticed')

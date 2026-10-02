@@ -1153,9 +1153,10 @@ class StaleMarkTests(unittest.TestCase):
     def test_a_record_this_controller_refreshed_is_set_aside(self):
         # Records are rewritten in place, and an edited record is believed
         # only when this controller is who edited it. The comments listing
-        # does not say who edited a comment; read from there, the current
-        # record would be ignored and never set aside, and the pull request
-        # would come back still holding its old slot and review clock.
+        # does not say who edited a comment, so the record reader refuses
+        # what it read; read from there, the record would never be set aside,
+        # and the pull request would come back holding its old slot and
+        # review clock.
         held = self.held(updated='2026-09-11T13:00:00Z')
         bot = {'login': 'github-actions', '__typename': 'Bot'}
         node = {'databaseId': 7, 'body': held['body'], 'createdAt': held['created_at'],

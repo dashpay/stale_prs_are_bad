@@ -75,10 +75,8 @@ class BuildVerdictTests(unittest.TestCase):
         forged = self.record('2026-09-11T12:00:00Z', 'llbartekll',
                              admitted_at='2026-01-01T00:00:00Z', state='ready-for-human')
         self.assertEqual(parse_controller_state([forged]), (None, None))
-        # An editor this route could not name is nobody known, and the bare
-        # name is one a person can register.
-        for editor in (None, 'github-actions'):
-            self.assertEqual(parse_controller_state([dict(forged, edited_by=editor)]), (None, None), repr(editor))
+        # The bare name is one a person can register.
+        self.assertEqual(parse_controller_state([dict(forged, edited_by='github-actions')]), (None, None))
         # Ignored, not refused: refusing it would hand anyone with write
         # access a configuration error on any pull request, one edit away.
         broken = dict(forged, body=forged['body'].replace('"version":1', '"version":2'))
@@ -95,6 +93,16 @@ class BuildVerdictTests(unittest.TestCase):
         # would give up every pull request's slot and review clock each run.
         refreshed = self.record('2026-09-11T12:00:00Z', 'github-actions[bot]', state='ready-for-human')
         state, comment_id = parse_controller_state([refreshed])
+        self.assertEqual((comment_id, state['state']), (1, 'ready-for-human'))
+
+    def test_a_record_nobody_edited_is_read_though_its_update_time_moved(self):
+        # GitHub moves a comment's update time for changes that are not
+        # edits, and names no editor for them. Who edited the record decides,
+        # not when it was last touched: a record nobody edited is this
+        # controller's own words, and ignoring it gives up the pull request's
+        # slot and review clock for nothing.
+        touched = self.record('2026-09-11T12:00:00Z', None, state='ready-for-human')
+        state, comment_id = parse_controller_state([touched])
         self.assertEqual((comment_id, state['state']), (1, 'ready-for-human'))
 
     def test_a_diff_timestamp_that_is_not_one_is_refused(self):
@@ -515,7 +523,26 @@ class GitHubTests(unittest.TestCase):
                       "created_at": "2026-09-01T00:00:00Z", "updated_at": "2026-09-01T00:05:00Z"}]
         with patch.object(self.api, "pages", side_effect=lambda path: rest_page):
             per_pr = self.api.comments(1)
-        self.assertEqual(batched, per_pr)
+        # Who last edited a comment is the one thing the listing cannot say,
+        # and it says so. The print leaves the editor out, so both still agree.
+        self.assertEqual([dict(c, edited_by=None) for c in per_pr], batched)
+        from pr_review.policy import fingerprint
+        self.assertEqual(fingerprint({"comments": batched}), fingerprint({"comments": per_pr}))
+
+    def test_comments_read_without_their_editors_are_refused_by_the_record_reader(self):
+        # The comments listing names no editor. Read from there, a record a
+        # collaborator edited looks like one nobody edited, and their
+        # admission or their `ready-for-human` would be believed; so the
+        # record reader refuses what this route read rather than guess.
+        body = GitHub.state_comment_body(
+            {"version": 1, "number": 1, "head": "a" * 40, "admitted_at": "2026-01-01T00:00:00Z",
+             "ready_since": None, "state": "ready-for-human", "evidence": "c" * 64, "context": "d" * 64}, "text")
+        listing = [{"id": 1, "user": {"login": "github-actions[bot]"}, "body": body,
+                    "created_at": "2026-09-11T10:00:00Z", "updated_at": "2026-09-11T12:00:00Z"}]
+        with patch.object(self.api, "pages", return_value=listing):
+            rest = self.api.comments(1)
+        with self.assertRaises(GitHubError):
+            parse_controller_state(rest)
 
     def test_should_refuse_truncated_changed_files(self):
         request, pages = self.snapshot_fixture(files=[])
