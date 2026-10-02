@@ -6,19 +6,25 @@ repository posts the analyzer's `dashboard.json` to it, through the reusable
 each repository's last good data in SQLite and serves it, publicly, as JSON
 and as a plain-text digest.
 
-It holds **no GitHub credential** and **never calls GitHub**, except to fetch
-GitHub's public token-signing keys from
-`https://token.actions.githubusercontent.com/.well-known/jwks`.
+It holds **no credential with access to any repository** and calls GitHub
+only to fetch GitHub's public token-signing keys from
+`https://token.actions.githubusercontent.com/.well-known/jwks` and, when
+[sign-in](#sign-in-with-github) is on, to sign people in through a GitHub
+App with no permissions.
 
 ## What it never does
 
-- Write anything to GitHub, or read anything from it but those public keys.
+- Write anything to GitHub, or read anything from it but those public keys
+  and, at sign-in, the id and login of the person signing in.
 - Accept data from anything but the post workflow's job, called by the one
   scheduled workflow on `master`, on a GitHub-hosted runner, on the first
   attempt of a scheduled or manual run.
 - Look anything up for a public request: every answer comes from the
   database; an unknown login or PR is a 404.
-- Set a cookie, or log an `Authorization` header, a cookie or a client address.
+- Set a cookie on a public response; keep a GitHub token past the sign-in
+  that obtained it.
+- Log an `Authorization` header, a cookie, a session id, a sign-in code or
+  token, the client secret or a client address.
 
 ## Running it
 
@@ -28,8 +34,8 @@ GitHub's public token-signing keys from
 | Process | `pr-hygiene-service serve`, as uid 65532 |
 | Port | 8080, plain HTTP; terminate TLS in front of it |
 | Volume | `/data`, holding `pr-hygiene.sqlite3` and its `-wal`/`-shm` files. Must be a **local** volume: SQLite's WAL mode needs real file locks, so not NFS or SMB. The service refuses to start if WAL cannot be enabled. |
-| Outbound | HTTPS to `token.actions.githubusercontent.com` only |
-| Inbound | `POST /ingest` from GitHub-hosted runners, so reachable from the internet over HTTPS (runners have no fixed addresses; GitHub publishes their changing ranges under `actions` in `https://api.github.com/meta`, should you allowlist); `GET /api/v1/*` from anyone |
+| Outbound | HTTPS to `token.actions.githubusercontent.com`; with sign-in on, also `github.com` and `api.github.com` |
+| Inbound | `POST /ingest` from GitHub-hosted runners, so reachable from the internet over HTTPS (runners have no fixed addresses; GitHub publishes their changing ranges under `actions` in `https://api.github.com/meta`, should you allowlist); `GET /api/v1/*` from anyone; with sign-in on, `/auth/*` and `/api/v1/me*` from browsers |
 
 ### Environment
 
@@ -46,7 +52,15 @@ GitHub's public token-signing keys from
 | `PR_HYGIENE_JOB_WORKFLOW_REF` | `dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene-post.yml@refs/heads/master` | The only code that may hold a posting token (the token's `job_workflow_ref`): the reusable post workflow. Every other job of the caller — the Pages deploy, which also holds `id-token: write`, included — carries the caller's ref here and is refused. |
 | `PR_HYGIENE_BODY_LIMIT` | `1048576` | Largest snapshot accepted, in bytes. Five repositories with 139 open PRs measured 109 KB. |
 | `PR_HYGIENE_JOB_TIMEOUT_SECS` | `1800` | How long before the token was minted the snapshot may have been generated: the analyze job's `timeout-minutes` (20) plus the post job's start-up. 60 to 86400. |
+| `PR_HYGIENE_SIGNIN_CLIENT_ID` | — | The sign-in App's **client id** (`Iv23li…`, not its numeric App id). See [sign-in](#sign-in-with-github). |
+| `PR_HYGIENE_SIGNIN_CLIENT_SECRET_FILE` | — | A file holding the sign-in App's client secret, e.g. a mounted secret. Preferred. |
+| `PR_HYGIENE_SIGNIN_CLIENT_SECRET` | — | The client secret itself, instead of the file (not both). |
+| `PR_HYGIENE_PUBLIC_ORIGIN` | — | The origin the page is served from, exactly as a browser writes it: `https://hygiene.dash.org` — lower case, no default port, no path, no trailing slash (`http://` only for `localhost`). GitHub returns people to `<origin>/auth/callback`, and every request that changes something must carry exactly this `Origin`. |
 | `RUST_LOG` | `info` | Log filter. |
+
+The three sign-in settings (id, one of the secret's two sources, origin) are
+set together or not at all: none turns sign-in off, part of them stops the
+service at start-up.
 
 ### Turning on the post from GitHub Actions
 
@@ -89,7 +103,11 @@ limit, and nothing else. The reverse proxy that terminates TLS must also:
 - time out slow and idle connections (request headers within about 10 s);
 - cap connections, and rate-limit `/api/v1/*` per client;
 - pass `POST /ingest` through unbuffered or with a body limit no larger
-  than the service's, and never log its `Authorization` header.
+  than the service's, and never log its `Authorization` header;
+- never log `Cookie` or `Set-Cookie` headers, nor the query string of
+  `/auth/callback` (it carries GitHub's one-time code); rate-limit
+  `/auth/login` per client;
+- pass the `Origin` header through unchanged.
 
 ### Health
 
@@ -126,6 +144,95 @@ Raw snapshots are kept 30 days, then cleared at the next ingest (their
 metadata stays). Each repository's last good data and the view are kept
 until replaced. Stage changes are kept; they name PRs and stages, no person.
 The ids of tokens that have posted are kept a day, long after any expires.
+
+Sign-in keeps (see [what is stored](#what-is-stored)): sessions until they
+expire, 30 days after sign-in; sign-ins under way 10 minutes; opt-outs
+until further notice. Expired sessions and abandoned sign-ins are deleted
+at start-up and daily after. Backups hold them too, for the backups' own
+retention.
+
+## Sign in with GitHub
+
+Optional; off until configured. Signing in only tells the page who you are:
+`GET /api/v1/me` then answers with your GitHub id, login and public People
+entry. Everything else stays public and needs no sign-in.
+
+### Creating the sign-in App
+
+A **separate, public GitHub App** — not the App that posts statuses, and
+public because a private App lets only its own organisation's members sign
+in. In the organisation's settings → Developer settings → GitHub Apps → New:
+
+- **Homepage URL**: the service's origin, e.g. `https://hygiene.dash.org`.
+- **Callback URL**: `<origin>/auth/callback`, exactly, and no other.
+- **Expire user authorization tokens**: on (the service revokes each token
+  at once anyway). **Request user authorization (OAuth) during
+  installation**: off. **Enable Device Flow**: off.
+- **Webhook**: inactive.
+- **Permissions**: none at all — repository, organisation and account. The
+  authorisation screen then asks for nothing beyond the public profile, and
+  no email.
+- **Where can this GitHub App be installed?**: Any account. It never needs
+  installing: signing in is a user authorisation, not an installation.
+
+Then generate a **client secret**, and give the service the client id, the
+secret (best as a file: `PR_HYGIENE_SIGNIN_CLIENT_SECRET_FILE`) and
+`PR_HYGIENE_PUBLIC_ORIGIN`. The page must be served from that origin
+(`PR_HYGIENE_SITE_DIR`), as the cookies are bound to it.
+
+### How a sign-in goes
+
+1. `GET /auth/login` stores a random `state` and PKCE verifier under a
+   random id, sets that id in the `__Host-prh_prelogin` cookie (`Secure`,
+   `HttpOnly`, `SameSite=Lax`, `Path=/`, 10 minutes) and redirects to
+   `https://github.com/login/oauth/authorize` with `client_id`, the fixed
+   `redirect_uri`, `state`, `code_challenge` and
+   `code_challenge_method=S256`. No scopes.
+2. GitHub sends the browser to `GET /auth/callback?code=…&state=…`. The
+   pre-login named by the cookie is deleted at once, so it is good for one
+   try; `state` must equal it. The code is exchanged with the client id and
+   secret, `redirect_uri` and the PKCE verifier (an `error` in GitHub's 200
+   answer is a failure); `GET https://api.github.com/user` is read once for
+   the id and login; the token is revoked (`DELETE
+   /applications/{client_id}/token`; if that fails it is logged and the
+   sign-in goes on — the token reads only public data and expires); the
+   session is created.
+3. Success redirects to `/#/me` with the `__Host-prh_session` cookie
+   (`Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, 30 days). Any failure
+   redirects to `/#/me?signin=failed`: GitHub's error text is never shown,
+   and no request can choose where a sign-in goes or ends.
+
+Calls to GitHub time out after 8 s, follow no redirects and read at most
+64 KB.
+
+### Routes
+
+None of these are public API: no CORS headers, `Cache-Control: private,
+no-store`, `Vary: Cookie`, no ETag. With sign-in off, each answers 404.
+
+| Route | |
+|---|---|
+| `GET /auth/login` | Start a sign-in (above). |
+| `GET /auth/callback` | Finish it (above). |
+| `GET /api/v1/me` | `{"id", "login", "person"}` — `person` is the `/api/v1/people/{login}` entry, or `null` when the data does not name you; 401 signed out. |
+| `POST /auth/logout` | End this browser's session, on the server too. 204. |
+| `POST /api/v1/me/opt-out` | Opt out: no speed is computed for you and its inputs are deleted; the public queue, a mirror of GitHub, is unchanged. You stay signed in. 204; 401 signed out. |
+| `DELETE /api/v1/me` | Delete your account: every session of yours, in every browser, and your speed inputs. An opt-out is kept, so it is still honoured. 204; 401 signed out. |
+
+The three that change something require an `Origin` header exactly equal to
+`PR_HYGIENE_PUBLIC_ORIGIN`; a missing or different one is a 403. The page
+calls them with `fetch` (its CSP has `form-action 'none'`).
+
+### What is stored
+
+| Table | Holds | Kept |
+|---|---|---|
+| `prelogins` | SHA-256 of the pre-login cookie's id; the `state` and PKCE verifier; when | until used, at most 10 minutes; at most 10 000 at once, oldest dropped first |
+| `sessions` | SHA-256 of the session cookie's id (never the id); GitHub user id and login; created and expiry | 30 days; at most 5 per person, oldest dropped first |
+| `opt_outs` | GitHub user id; when | until further notice, through account deletion |
+
+No GitHub token, email or name is stored. Speed inputs are not recorded
+yet; opting out and deleting your account will delete them once they are.
 
 ## Ingest
 
