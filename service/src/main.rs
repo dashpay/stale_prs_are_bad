@@ -1,9 +1,14 @@
 use anyhow::Context;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
+use pr_hygiene_service::app::{self, AppState};
+use pr_hygiene_service::config::ServeConfig;
+use pr_hygiene_service::oidc::{GithubKeys, KeyCache};
 use pr_hygiene_service::snapshot;
-use pr_hygiene_service::store::{Outcome, Store};
+use pr_hygiene_service::store::{Outcome, Reader, Store};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -15,6 +20,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Serve the public API and accept snapshots at /ingest.
+    Serve(ServeConfig),
     /// Store a snapshot from a file, with no token: for trying the service
     /// locally and for restoring data. It needs write access to the database
     /// file itself, so it gives nothing to anyone who can only reach the
@@ -32,7 +39,8 @@ enum Command {
     },
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -42,8 +50,62 @@ fn main() -> anyhow::Result<()> {
         .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stdout()))
         .init();
     match Cli::parse().command {
+        Command::Serve(cfg) => serve(cfg).await,
         Command::Import { db, file } => import(&db, &file),
     }
+}
+
+async fn serve(cfg: ServeConfig) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !cfg.ingest.audience.trim().is_empty(),
+        "PR_HYGIENE_OIDC_AUDIENCE must name this service"
+    );
+    let store = Store::open(&cfg.db)?;
+    let reader = Reader::open(&cfg.db)?;
+    let keys = Arc::new(KeyCache::new(Box::new(GithubKeys::new()?)));
+    tokio::spawn(keep_keys_fresh(keys.clone()));
+    let state = Arc::new(AppState::new(cfg.ingest, keys, store, reader));
+    let listener = tokio::net::TcpListener::bind(cfg.bind)
+        .await
+        .with_context(|| format!("binding {}", cfg.bind))?;
+    tracing::info!(addr = %cfg.bind, db = %cfg.db.display(), "listening");
+    axum::serve(listener, app::router(state))
+        .with_graceful_shutdown(shutdown())
+        .await?;
+    Ok(())
+}
+
+/// Load the signing keys at start-up, retrying each minute until they load,
+/// then refetch hourly so a key GitHub has retired stops being trusted. An
+/// unknown key id between refetches triggers one of its own.
+async fn keep_keys_fresh(keys: Arc<KeyCache>) {
+    loop {
+        keys.refresh().await;
+        let wait = if keys.state().keys == 0 { 60 } else { 3600 };
+        tokio::time::sleep(Duration::from_secs(wait)).await;
+    }
+}
+
+async fn shutdown() {
+    let interrupt = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        () = interrupt => {},
+        () = terminate => {},
+    }
+    tracing::info!("shutting down");
 }
 
 fn import(db: &Path, file: &Path) -> anyhow::Result<()> {
@@ -61,17 +123,10 @@ fn import(db: &Path, file: &Path) -> anyhow::Result<()> {
             "stored snapshot {snapshot} ({} PRs, {} people); stale: {}; stage changes: {stage_changes}",
             d.prs.len(),
             d.people.len(),
-            if stale.is_empty() {
-                "none".to_string()
-            } else {
-                stale.join(", ")
-            }
+            if stale.is_empty() { "none".to_string() } else { stale.join(", ") }
         ),
         Outcome::NotNewer { latest } => {
-            println!(
-                "not stored: generated at {}, not after the latest ({latest})",
-                d.generated_at
-            )
+            println!("not stored: generated at {}, not after the latest ({latest})", d.generated_at)
         }
     }
     Ok(())

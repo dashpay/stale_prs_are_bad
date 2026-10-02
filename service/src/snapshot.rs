@@ -1,8 +1,12 @@
 //! What a snapshot must look like to be stored: the analyzer's schema, with
-//! every name in a known format and every text bounded.
+//! every name in a known format and every text bounded; and, when it
+//! arrives with a token, bound to the run that minted the token.
 
+use crate::oidc::{Verified, CLOCK_SKEW};
+use chrono::TimeDelta;
 use pr_hygiene::dashboard::{Dashboard, PersonOut, PrOut, SCHEMA_VERSION};
 use std::collections::HashSet;
+use std::time::Duration;
 
 const MAX_REPOS: usize = 64;
 const MAX_PRS: usize = 10_000;
@@ -50,6 +54,27 @@ fn shorten_diagnostics(d: &mut Dashboard) {
             }
         }
     }
+}
+
+/// The token's run produced this snapshot: the same commit, generated
+/// during that run — no earlier than the job could have started, no later
+/// than the token was minted. A captured snapshot replayed with a later
+/// token fails the first; a future-dated one, which would make every honest
+/// snapshot after it "not newer", fails the second.
+pub fn bind(d: &Dashboard, token: &Verified, job_timeout: Duration) -> Result<(), Invalid> {
+    match &d.commit {
+        Some(commit) if commit.eq_ignore_ascii_case(&token.sha) => {}
+        Some(_) => return invalid("snapshot commit is not the commit of the posting run"),
+        None => return invalid("snapshot names no commit"),
+    }
+    let delta = |d: Duration| TimeDelta::from_std(d).unwrap_or(TimeDelta::MAX);
+    if d.generated_at < token.issued_at - delta(job_timeout) {
+        return invalid("snapshot was generated before the posting run's job could have started");
+    }
+    if d.generated_at > token.issued_at + delta(CLOCK_SKEW) {
+        return invalid("snapshot is dated after its token was minted");
+    }
+    Ok(())
 }
 
 pub fn validate(d: &Dashboard) -> Result<(), Invalid> {

@@ -4,6 +4,11 @@
 //! under `/api/v1`. It holds no GitHub credential and never calls GitHub,
 //! except to fetch GitHub's public token-signing keys.
 
+pub mod api;
+pub mod app;
+pub mod config;
+pub mod digest;
+pub mod oidc;
 pub mod snapshot;
 pub mod store;
 pub mod view;
