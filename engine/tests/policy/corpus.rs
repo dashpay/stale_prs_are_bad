@@ -7,6 +7,7 @@
 //! of it, without sorting: every value, every string byte for byte, every
 //! list in order, and every map's keys in Python's order too.
 
+use pr_hygiene_engine::conformance::{set_aside_exception_text, OwnWords};
 use pr_hygiene_engine::policy::{admit, diff_print, evaluate, receipt_print};
 use pr_hygiene_engine::pycompat::{py_dumps, py_loads, PyDict, PyValue};
 use std::collections::BTreeSet;
@@ -45,26 +46,14 @@ fn dump(value: &PyValue) -> String {
     py_dumps(value, false, Some((",", ":")), None).expect("a result holds no float")
 }
 
-/// The blockers without the one carrying the text of a Python exception:
-/// the first that is not a waiver's note, as `conformance.py` finds it.
-fn without_exception_text(result: &mut PyValue) -> Option<String> {
-    let PyValue::Dict(entries) = result else {
-        return None;
-    };
-    let Some(PyValue::List(blockers)) = entries.get_mut("blockers") else {
-        return None;
-    };
-    let at = blockers
-        .iter()
-        .position(|b| !matches!(b, PyValue::Str(text) if text.starts_with("Proceeded without")))?;
-    match blockers.remove(at) {
-        PyValue::Str(text) => Some(text),
-        other => Some(format!("{other:?}")),
-    }
-}
-
 /// How the port's answer to an evaluate case differs from Python's.
-fn evaluate_case(path: &Path) -> Result<(), String> {
+///
+/// Where Python marked the case `python_exception_text`, its first reason
+/// is not compared, but the port must have raised where Python did — a
+/// reason in the same place — and that reason must not be one of the
+/// engine's own words, which would mean it stopped where Python raised.
+/// The differential job applies the same exclusion to live recordings.
+fn evaluate_case(path: &Path, own: &OwnWords) -> Result<(), String> {
     let case = read(path);
     let ours = evaluate(
         field(&case, "policy"),
@@ -77,21 +66,11 @@ fn evaluate_case(path: &Path) -> Result<(), String> {
     let mut ours = PyValue::Dict(ours);
     let mut python = field(&case, "result").clone();
     if field(&case, "python_exception_text").truthy() {
-        // Python's exception text is not compared, but the port must have
-        // raised one where Python did: a blocker in the same place.
-        let theirs = without_exception_text(&mut python);
-        let mine = without_exception_text(&mut ours);
-        if theirs.is_some() != mine.is_some() {
-            return Err(format!("exception text: python {theirs:?}, ours {mine:?}"));
-        }
-        // Nor may the port's be one of the engine's own reasons, which would
-        // mean it stopped where Python raised.
-        if let Some(own) = mine
-            .as_deref()
-            .and_then(|mine| own_words().into_iter().find(|own| mine.starts_with(own)))
-        {
+        if let Err(problem) = set_aside_exception_text(&mut ours, &mut python, own) {
             return Err(format!(
-                "exception text {mine:?} is the engine's own {own:?}"
+                "exception text: {problem:?}\n  ours   {}\n  python {}",
+                dump(&ours),
+                dump(&python)
             ));
         }
     }
@@ -100,34 +79,23 @@ fn evaluate_case(path: &Path) -> Result<(), String> {
 
 /// The engine's own words, as `conformance.py` tells them from a Python
 /// exception's: the reasons `evaluate` stops with (its `_OWN_BLOCKERS`) and
-/// the start of every message `policy.py` raises.
-fn own_words() -> Vec<String> {
+/// every message `policy.py` raises.
+fn own_words() -> OwnWords {
     let source = |name: &str| {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../pr_review")
             .join(name);
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     };
-    let conformance = source("conformance.py");
-    let start = conformance
-        .find("_OWN_BLOCKERS = (")
-        .expect("conformance.py names _OWN_BLOCKERS");
-    let end = start + conformance[start..].find(")\n").expect("the tuple ends");
-    let literal = regex::Regex::new(r"'([^']*)'").expect("a pattern");
-    let raised = regex::Regex::new(r"raise ValueError\(f?'([^'{]*)").expect("a pattern");
-    let policy = source("policy.py");
-    let words: Vec<String> = literal
-        .captures_iter(&conformance[start..end])
-        .chain(raised.captures_iter(&policy))
-        .map(|caps| caps[1].to_owned())
-        .filter(|word| !word.is_empty())
-        .collect();
+    let own = OwnWords::from_sources(&source("conformance.py"), &source("policy.py"))
+        .expect("the engine's own words are read");
+    let (reasons, raised) = own.counts();
     assert!(
-        words.len() > 30,
+        reasons + raised > 30,
         "only {} of the engine's own words",
-        words.len()
+        reasons + raised
     );
-    words
+    own
 }
 
 fn compare(ours: &PyValue, python: &PyValue) -> Result<(), String> {
@@ -201,7 +169,29 @@ fn pending() -> BTreeSet<String> {
 }
 
 #[test]
+fn the_exception_text_rule_read_from_the_source_is_pythons() {
+    // Live recordings carry no `python_exception_text` mark: the
+    // differential job decides it from the engine's source, as
+    // `conformance.python_exception_text` does. On every case Python
+    // marked, and every case it did not, the two must agree.
+    let own = own_words();
+    let mut marked = 0;
+    let mut disagree = Vec::new();
+    for case in cases_in("evaluate") {
+        let case_file = read(&conformance().join(&case));
+        let python = field(&case_file, "python_exception_text").truthy();
+        marked += usize::from(python);
+        if own.python_exception_text(field(&case_file, "result")) != python {
+            disagree.push(format!("{case}: python says {python}"));
+        }
+    }
+    assert!(marked > 0, "some case carries exception text");
+    assert!(disagree.is_empty(), "{}", disagree.join("\n"));
+}
+
+#[test]
 fn the_corpus_matches_python_but_for_the_pending_cases() {
+    let own = own_words();
     let pending = pending();
     let mut problems = Vec::new();
     let mut counts = Vec::new();
@@ -214,7 +204,7 @@ fn the_corpus_matches_python_but_for_the_pending_cases() {
             seen.insert(case.clone());
             let path = conformance().join(case);
             let outcome = match dir {
-                "evaluate" => evaluate_case(&path),
+                "evaluate" => evaluate_case(&path, &own),
                 _ => function_case(&dir["functions/".len()..], &path),
             };
             match (outcome, pending.contains(case)) {

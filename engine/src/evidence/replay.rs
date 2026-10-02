@@ -145,6 +145,10 @@ type Command = (Vec<String>, Option<String>);
 #[derive(Debug, Default)]
 pub struct ReplayTransport {
     answers: IndexMap<Command, Answers>,
+    /// Reads refused because the recording does not hold them.
+    missing: usize,
+    /// Reads refused because they were asked more often than recorded.
+    exhausted: usize,
 }
 
 /// Why a recording could not be read.
@@ -252,6 +256,18 @@ impl ReplayTransport {
             .map(|answers| answers.recorded.len() - answers.served)
             .sum()
     }
+
+    /// How many reads were refused because the recording does not hold
+    /// them at all.
+    pub fn missing(&self) -> usize {
+        self.missing
+    }
+
+    /// How many reads were refused because they were asked more often than
+    /// the recording holds them.
+    pub fn exhausted(&self) -> usize {
+        self.exhausted
+    }
 }
 
 /// How a refusal names a call: the `gh api` command, and for GraphQL,
@@ -274,12 +290,14 @@ impl Transport for ReplayTransport {
             gh_arguments(call).map_err(|error| TransportError::Refused(error.to_string()))?;
         let key = (arguments, stdin);
         let Some(answers) = self.answers.get_mut(&key) else {
+            self.missing += 1;
             return Err(TransportError::Refused(format!(
                 "A read the recording does not hold: {}",
                 named(call, &key.0)
             )));
         };
         let Some(answer) = answers.recorded.get_mut(answers.served) else {
+            self.exhausted += 1;
             return Err(TransportError::Refused(format!(
                 "A read asked more often than the recording holds it ({} times): {}",
                 answers.recorded.len(),
