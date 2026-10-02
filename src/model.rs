@@ -229,7 +229,7 @@ pub struct AreaApproval {
     #[serde(default, deserialize_with = "null_as_default")]
     pub approved_by: Vec<String>,
     /// The author owns the area, so nobody's approval is needed for it.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub owned: bool,
 }
 

@@ -1151,7 +1151,7 @@ mod tests {
     fn a_null_in_the_engine_export_reads_as_empty() {
         let state: PolicyState = serde_json::from_value(serde_json::json!({
             "state": "ready-for-human", "title": null, "author": null, "areas": null,
-            "approvals": [{"area": "dpp", "approvers": null, "approved_by": null}],
+            "approvals": [{"area": "dpp", "approvers": null, "approved_by": null, "owned": null}],
             "objectors": null, "ready_since": null, "checklist": null
         }))
         .unwrap();
