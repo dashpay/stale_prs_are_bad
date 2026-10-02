@@ -3,10 +3,15 @@ use chrono::{DateTime, Utc};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
+use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use crate::model::{
     LastCommit, Mergeable, RawComment, RawPr, RawThread, Review, ReviewState, StatusState,
+};
+use crate::stages::{
+    CommentHistory, Coverage, Evidence, PrEvent, RepoEvidence, Revision, ENGINE_LOGIN,
+    RECORD_MARKER,
 };
 
 const GITHUB_API: &str = "https://api.github.com/graphql";
@@ -105,6 +110,68 @@ query PrHygieneMergeable($id: ID!) {
   node(id: $id) { ... on PullRequest { mergeable } }
 }
 "#;
+
+/// When each PR changed draft state or base or was reopened, and which
+/// comments the engine account wrote — not what they say. Kept out of the PR
+/// list query, the heaviest one; this costs one point a request.
+const STAGE_EVIDENCE_QUERY: &str = r#"
+query PrHygieneStageEvidence($ids: [ID!]!) {
+  rateLimit { remaining resetAt cost }
+  nodes(ids: $ids) {
+    ... on PullRequest {
+      number createdAt isDraft baseRefName
+      timelineItems(last: 100, itemTypes: [CONVERT_TO_DRAFT_EVENT, READY_FOR_REVIEW_EVENT,
+                    BASE_REF_CHANGED_EVENT, AUTOMATIC_BASE_CHANGE_SUCCEEDED_EVENT,
+                    REOPENED_EVENT]) {
+        pageInfo { hasPreviousPage }
+        nodes {
+          __typename
+          ... on ConvertToDraftEvent { createdAt }
+          ... on ReadyForReviewEvent { createdAt }
+          ... on BaseRefChangedEvent { createdAt previousRefName currentRefName }
+          ... on AutomaticBaseChangeSucceededEvent { createdAt oldBase newBase }
+          ... on ReopenedEvent { createdAt }
+        }
+      }
+      comments(last: 100) {
+        pageInfo { hasPreviousPage }
+        nodes { id createdAt author { login __typename } }
+      }
+    }
+  }
+}
+"#;
+
+/// What the engine account's comments say now, to find its record comments
+/// among them (it also posts bot nudges, and other workflows post as it).
+const ENGINE_COMMENTS_QUERY: &str = r#"
+query PrHygieneEngineComments($ids: [ID!]!) {
+  rateLimit { remaining resetAt cost }
+  nodes(ids: $ids) {
+    ... on IssueComment { createdAt lastEditedAt body author { login __typename } }
+  }
+}
+"#;
+
+/// Every revision of an edited record comment, newest first, the original
+/// among them.
+const COMMENT_HISTORY_QUERY: &str = r#"
+query PrHygieneCommentHistory($ids: [ID!]!) {
+  rateLimit { remaining resetAt cost }
+  nodes(ids: $ids) {
+    ... on IssueComment {
+      userContentEdits(first: 100) {
+        pageInfo { hasNextPage }
+        nodes { editedAt diff editor { login __typename } }
+      }
+    }
+  }
+}
+"#;
+
+/// Nodes per stage-evidence request. A batch that fails is tried again in
+/// halves before its nodes are given up.
+const EVIDENCE_NODES_PER_REQUEST: usize = 50;
 
 pub struct Fetcher {
     client: Client,
@@ -287,6 +354,68 @@ impl Fetcher {
         Ok(())
     }
 
+    /// What GitHub and the engine record about each PR's stage changes, for
+    /// the (node_id, number) pairs of the main fetch. What cannot be read is
+    /// lost for its own PRs only, and said in the result's `error`: a PR whose
+    /// comments could not be read keeps what its timeline says.
+    pub async fn fetch_stage_evidence(&self, prs: &[(String, u64)]) -> RepoEvidence {
+        let mut reads = StageReads::default();
+        let ids: Vec<String> = prs.iter().map(|(id, _)| id.clone()).collect();
+        let nodes = self.read_nodes(STAGE_EVIDENCE_QUERY, &ids).await;
+        reads.prs(prs, nodes);
+        let nodes = self
+            .read_nodes(ENGINE_COMMENTS_QUERY, &reads.engine_comment_ids())
+            .await;
+        reads.comments(nodes);
+        let nodes = self
+            .read_nodes(COMMENT_HISTORY_QUERY, &reads.edited_comment_ids())
+            .await;
+        reads.histories(nodes);
+        reads.finish()
+    }
+
+    /// Each id's node, `null` for one deleted meanwhile, or why it could not
+    /// be read. A batch that fails — a GraphQL timeout on a page too large to
+    /// answer in time is the usual cause — is tried again in halves before its
+    /// nodes are given up.
+    async fn read_nodes(&self, query: &str, ids: &[String]) -> Vec<NodeRead> {
+        let mut out = Vec::with_capacity(ids.len());
+        for batch in ids.chunks(EVIDENCE_NODES_PER_REQUEST) {
+            let halves = match self.nodes_page(query, batch).await {
+                Ok(nodes) => {
+                    out.extend(nodes.into_iter().map(Ok));
+                    continue;
+                }
+                Err(e) if batch.len() > 1 => {
+                    tracing::warn!(nodes = batch.len(), "retrying in halves: {e:#}");
+                    batch.split_at(batch.len() / 2)
+                }
+                Err(e) => {
+                    out.push(Err(format!("{e:#}")));
+                    continue;
+                }
+            };
+            for half in [halves.0, halves.1] {
+                match self.nodes_page(query, half).await {
+                    Ok(nodes) => out.extend(nodes.into_iter().map(Ok)),
+                    Err(e) => {
+                        let why = format!("{e:#}");
+                        out.extend(half.iter().map(|_| Err(why.clone())));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    async fn nodes_page(&self, query: &str, ids: &[String]) -> Result<Vec<Value>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let resp = self.execute_nodes(query, json!({ "ids": ids })).await?;
+        Ok(nodes_of(&resp, ids.len())?.clone())
+    }
+
     async fn fetch_extra_threads(&self, pr_id: &str) -> Result<Vec<RawThread>> {
         let mut out = Vec::new();
         let mut cursor: Option<String> = None;
@@ -332,6 +461,17 @@ impl Fetcher {
     }
 
     async fn execute(&self, query: &str, variables: Value) -> Result<Value> {
+        self.request(query, variables, false).await
+    }
+
+    /// As `execute`, for a `nodes(ids:)` query: a node deleted since its id
+    /// was read comes back `null` with a NOT_FOUND error, which is an answer
+    /// about that node, not a failed request.
+    async fn execute_nodes(&self, query: &str, variables: Value) -> Result<Value> {
+        self.request(query, variables, true).await
+    }
+
+    async fn request(&self, query: &str, variables: Value, missing_ok: bool) -> Result<Value> {
         let body = json!({ "query": query, "variables": variables });
         let mut attempt: u32 = 0;
         loop {
@@ -449,12 +589,25 @@ impl Fetcher {
                         tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
                         continue;
                     }
+                    if missing_ok && only_missing_nodes(errors) {
+                        return Ok(value);
+                    }
                     bail!("graphql errors: {errors:?}");
                 }
             }
             return Ok(value);
         }
     }
+}
+
+/// Whether every error says only that a node asked for by id no longer
+/// exists: NOT_FOUND at `nodes[i]` itself, not at a field inside a node.
+fn only_missing_nodes(errors: &[Value]) -> bool {
+    errors.iter().all(|e| {
+        let path = e.get("path").and_then(|p| p.as_array());
+        e.get("type").and_then(|t| t.as_str()) == Some("NOT_FOUND")
+            && path.is_some_and(|p| p.len() == 2 && p[0].as_str() == Some("nodes") && p[1].is_u64())
+    })
 }
 
 fn backoff_secs(attempt: u32) -> u64 {
@@ -702,14 +855,340 @@ fn parse_thread(node: &Value) -> Result<RawThread> {
     })
 }
 
+/// A node as read: the node (`null` when deleted meanwhile), or why it could
+/// not be read.
+pub type NodeRead = std::result::Result<Value, String>;
+
+/// Stage evidence assembled from its three reads, each a list of nodes in the
+/// order their ids were asked for: the PRs, then the engine account's comments
+/// on them, then the revisions of the record comments among those that were
+/// edited. A read that fails costs only its own PRs, and says so.
+#[derive(Default)]
+pub struct StageReads {
+    evidence: HashMap<u64, Evidence>,
+    asked: usize,
+    /// The engine account's comments, each with its PR.
+    engine_comments: Vec<(String, u64)>,
+    /// Edited record comments awaiting their revisions, with PR and author.
+    edited: Vec<(String, u64, Option<String>)>,
+    /// PRs a failed read left without evidence or with comments unread.
+    failed: BTreeSet<u64>,
+    reason: Option<String>,
+}
+
+impl StageReads {
+    pub fn prs(&mut self, asked: &[(String, u64)], nodes: Vec<NodeRead>) {
+        self.asked += asked.len();
+        for ((_, number), node) in zip_reads(asked, nodes) {
+            let parsed = node
+                .map_err(|why| format!("#{number}: {why}"))
+                .and_then(|node| {
+                    if node.is_null() {
+                        return Ok(None);
+                    }
+                    parse_evidence_node(&node, *number)
+                        .map(Some)
+                        .map_err(|e| format!("#{number}: {e:#}"))
+                });
+            match parsed {
+                Ok(Some((evidence, comments))) => {
+                    self.engine_comments
+                        .extend(comments.into_iter().map(|id| (id, *number)));
+                    self.evidence.insert(*number, evidence);
+                }
+                Ok(None) => {}
+                Err(why) => self.fail(*number, why),
+            }
+        }
+    }
+
+    pub fn engine_comment_ids(&self) -> Vec<String> {
+        self.engine_comments
+            .iter()
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    pub fn comments(&mut self, nodes: Vec<NodeRead>) {
+        let asked = std::mem::take(&mut self.engine_comments);
+        for ((id, number), node) in zip_reads(&asked, nodes) {
+            let parsed = node
+                .map_err(|why| format!("#{number}: {why}"))
+                .and_then(|node| {
+                    if node.is_null() {
+                        return Ok(None);
+                    }
+                    parse_engine_comment(&node)
+                        .map(Some)
+                        .map_err(|e| format!("#{number} comment {id}: {e:#}"))
+                });
+            match parsed {
+                Ok(Some(EngineComment::Other)) => {}
+                Ok(Some(EngineComment::Unedited(history))) => {
+                    if let Some(evidence) = self.evidence.get_mut(number) {
+                        evidence.comments.push(history);
+                    }
+                }
+                Ok(Some(EngineComment::Edited { author })) => {
+                    self.edited.push((id.clone(), *number, author));
+                }
+                // Deleted since it was listed: gone from the record, as the
+                // next run will find it.
+                Ok(None) => {}
+                Err(why) => {
+                    self.comments_unread(*number);
+                    self.fail(*number, why);
+                }
+            }
+        }
+    }
+
+    pub fn edited_comment_ids(&self) -> Vec<String> {
+        self.edited.iter().map(|(id, _, _)| id.clone()).collect()
+    }
+
+    pub fn histories(&mut self, nodes: Vec<NodeRead>) {
+        let asked = std::mem::take(&mut self.edited);
+        for ((id, number, author), node) in zip_reads(&asked, nodes) {
+            let parsed = node
+                .map_err(|why| format!("#{number}: {why}"))
+                .and_then(|node| {
+                    if node.is_null() {
+                        return Ok(None);
+                    }
+                    parse_revisions(&node, author.clone())
+                        .map(Some)
+                        .map_err(|e| format!("#{number} comment {id}: {e:#}"))
+                });
+            match parsed {
+                Ok(Some(history)) => {
+                    if let Some(evidence) = self.evidence.get_mut(number) {
+                        evidence.comments.push(history);
+                    }
+                }
+                Ok(None) => {}
+                Err(why) => {
+                    self.comments_unread(*number);
+                    self.fail(*number, why);
+                }
+            }
+        }
+    }
+
+    pub fn finish(self) -> RepoEvidence {
+        let error = self.reason.map(|reason| {
+            let reason: String = if reason.chars().count() > MAX_REASON_CHARS {
+                reason.chars().take(MAX_REASON_CHARS).chain(['…']).collect()
+            } else {
+                reason
+            };
+            format!(
+                "{} of {} PRs could not be read: {reason}",
+                self.failed.len(),
+                self.asked
+            )
+        });
+        RepoEvidence {
+            prs: self.evidence,
+            error,
+        }
+    }
+
+    fn comments_unread(&mut self, number: u64) {
+        if let Some(evidence) = self.evidence.get_mut(&number) {
+            evidence.comments_read = Coverage::Partial;
+        }
+    }
+
+    fn fail(&mut self, number: u64, why: String) {
+        tracing::warn!(pr = number, "stage evidence: {why}");
+        self.failed.insert(number);
+        self.reason.get_or_insert(why);
+    }
+}
+
+/// How much of a failed read's reason is kept for the page.
+const MAX_REASON_CHARS: usize = 300;
+
+/// Pair each id asked for with its node; a response that does not answer
+/// every id answers none.
+fn zip_reads<T>(asked: &[T], nodes: Vec<NodeRead>) -> impl Iterator<Item = (&T, NodeRead)> {
+    let nodes = if nodes.len() == asked.len() {
+        nodes
+    } else {
+        let why = format!("{} nodes for {} ids", nodes.len(), asked.len());
+        vec![Err(why); asked.len()]
+    };
+    asked.iter().zip(nodes)
+}
+
+/// The `nodes` of a `nodes(ids:)` response, one per id asked for.
+fn nodes_of(resp: &Value, asked: usize) -> Result<&Vec<Value>> {
+    let nodes = resp
+        .pointer("/data/nodes")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("response missing data.nodes"))?;
+    if nodes.len() != asked {
+        bail!("asked for {asked} nodes, got {}", nodes.len());
+    }
+    Ok(nodes)
+}
+
+/// One PR's draft, base and reopen events, oldest first, and the ids of the
+/// engine account's comments on it, read separately.
+fn parse_evidence_node(node: &Value, number: u64) -> Result<(Evidence, Vec<String>)> {
+    let events = node
+        .pointer("/timelineItems/nodes")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("timelineItems.nodes missing"))?
+        .iter()
+        .filter_map(|n| parse_stage_event(n).transpose())
+        .collect::<Result<Vec<_>>>()?;
+    let comments = node
+        .pointer("/comments/nodes")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("comments.nodes missing"))?;
+    let engine_comments = comments
+        .iter()
+        .filter(|c| author_login(c).is_some_and(|a| a.eq_ignore_ascii_case(ENGINE_LOGIN)))
+        .map(|c| string_field(c, "id"))
+        .collect::<Result<Vec<_>>>()?;
+    let earlier = |connection: &str| {
+        node.pointer(&format!("/{connection}/pageInfo/hasPreviousPage"))
+            .and_then(|v| v.as_bool())
+    };
+    let comments_read = match earlier("comments") {
+        Some(false) => Coverage::All,
+        // Only the newest comments were read: from the oldest of them on.
+        Some(true) => comments
+            .iter()
+            .map(|c| parse_datetime(c, "createdAt"))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .min()
+            .map_or(Coverage::Partial, Coverage::Since),
+        None => Coverage::Partial,
+    };
+    Ok((
+        Evidence {
+            number,
+            created_at: parse_datetime(node, "createdAt")?,
+            is_draft: node
+                .get("isDraft")
+                .and_then(|v| v.as_bool())
+                .ok_or_else(|| anyhow!("missing isDraft"))?,
+            base: string_field(node, "baseRefName")?,
+            events,
+            events_complete: earlier("timelineItems") == Some(false),
+            comments: vec![],
+            comments_read,
+        },
+        engine_comments,
+    ))
+}
+
+/// A draft, base or reopen event; `None` for an event type the query did not
+/// ask for.
+fn parse_stage_event(node: &Value) -> Result<Option<PrEvent>> {
+    let typename = node.get("__typename").and_then(|v| v.as_str());
+    let at = || parse_datetime(node, "createdAt");
+    Ok(Some(match typename {
+        Some("ConvertToDraftEvent") => PrEvent::ConvertedToDraft { at: at()? },
+        Some("ReadyForReviewEvent") => PrEvent::ReadyForReview { at: at()? },
+        Some("BaseRefChangedEvent") => PrEvent::BaseChanged {
+            at: at()?,
+            from: string_field(node, "previousRefName")?,
+            to: string_field(node, "currentRefName")?,
+        },
+        Some("AutomaticBaseChangeSucceededEvent") => PrEvent::BaseChanged {
+            at: at()?,
+            from: string_field(node, "oldBase")?,
+            to: string_field(node, "newBase")?,
+        },
+        Some("ReopenedEvent") => PrEvent::Reopened { at: at()? },
+        _ => return Ok(None),
+    }))
+}
+
+/// One of the engine account's comments, as it reads now.
+enum EngineComment {
+    /// Not a record comment: a bot nudge, or another workflow's.
+    Other,
+    /// A record comment never edited: its body is its only revision.
+    Unedited(CommentHistory),
+    /// A record comment whose revisions are read next.
+    Edited { author: Option<String> },
+}
+
+fn parse_engine_comment(node: &Value) -> Result<EngineComment> {
+    let body = string_field(node, "body")?;
+    if !body.contains(RECORD_MARKER) {
+        return Ok(EngineComment::Other);
+    }
+    let author = author_login(node);
+    // Read as never edited only where GitHub says so: a body taken for the
+    // whole history would give an entry from an incomplete read.
+    match node.get("lastEditedAt") {
+        Some(Value::Null) => {}
+        Some(_) => return Ok(EngineComment::Edited { author }),
+        None => bail!("missing lastEditedAt"),
+    }
+    Ok(EngineComment::Unedited(CommentHistory {
+        revisions: vec![Revision {
+            at: parse_datetime(node, "createdAt")?,
+            editor: author.clone(),
+            body: Some(body),
+        }],
+        author,
+        complete: true,
+    }))
+}
+
+/// Every revision of an edited comment, the original among them, oldest
+/// first, each with who wrote it.
+fn parse_revisions(node: &Value, author: Option<String>) -> Result<CommentHistory> {
+    let edits = node
+        .pointer("/userContentEdits/nodes")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("userContentEdits.nodes missing"))?;
+    if edits.is_empty() {
+        bail!("an edited comment lists no revisions");
+    }
+    // GitHub lists them newest first.
+    let revisions = edits
+        .iter()
+        .rev()
+        .map(|e| {
+            Ok(Revision {
+                at: parse_datetime(e, "editedAt")?,
+                editor: e.get("editor").and_then(actor_login),
+                body: e.get("diff").and_then(|v| v.as_str()).map(str::to_string),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let more = node
+        .pointer("/userContentEdits/pageInfo/hasNextPage")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    Ok(CommentHistory {
+        author,
+        revisions,
+        complete: !more,
+    })
+}
+
 /// The login of a node's `author`. A GitHub App account is named as REST, the
 /// engine and the config name it (`dependabot[bot]`), not by the bare slug
 /// GraphQL returns — on PRs, reviews and comments alike, so a bot's own
 /// replies on its own PR still read as the author's.
 fn author_login(node: &Value) -> Option<String> {
-    let author = node.get("author")?;
-    let login = author.get("login")?.as_str()?;
-    let is_bot = author.get("__typename").and_then(|v| v.as_str()) == Some("Bot");
+    actor_login(node.get("author")?)
+}
+
+/// An actor's login, a GitHub App account's in full, as `author_login`.
+fn actor_login(actor: &Value) -> Option<String> {
+    let login = actor.get("login")?.as_str()?;
+    let is_bot = actor.get("__typename").and_then(|v| v.as_str()) == Some("Bot");
     Some(if is_bot && !login.ends_with("[bot]") {
         format!("{login}[bot]")
     } else {
@@ -999,11 +1478,369 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(review.author.as_deref(), Some("dependabot[bot]"));
-        for query in [PR_LIST_QUERY, PR_THREADS_QUERY] {
+        for query in [
+            PR_LIST_QUERY,
+            PR_THREADS_QUERY,
+            STAGE_EVIDENCE_QUERY,
+            ENGINE_COMMENTS_QUERY,
+            COMMENT_HISTORY_QUERY,
+        ] {
             assert!(
-                !query.contains("author { login }"),
-                "every author asks for its type"
+                !query.contains("author { login }") && !query.contains("editor { login }"),
+                "every author and editor asks for its type"
             );
         }
+    }
+
+    fn evidence_node() -> Value {
+        json!({
+            "number": 42, "createdAt": "2026-09-01T00:00:00Z", "isDraft": false,
+            "baseRefName": "v5.0-dev",
+            "timelineItems": { "pageInfo": { "hasPreviousPage": false }, "nodes": [
+                { "__typename": "ConvertToDraftEvent", "createdAt": "2026-09-02T00:00:00Z" },
+                { "__typename": "ReadyForReviewEvent", "createdAt": "2026-09-03T00:00:00Z" },
+                { "__typename": "AutomaticBaseChangeSucceededEvent",
+                  "createdAt": "2026-09-04T00:00:00Z", "oldBase": "feat/x", "newBase": "v4.3-dev" },
+                { "__typename": "BaseRefChangedEvent", "createdAt": "2026-09-05T00:00:00Z",
+                  "previousRefName": "v4.3-dev", "currentRefName": "v5.0-dev" },
+                { "__typename": "ReopenedEvent", "createdAt": "2026-09-06T00:00:00Z" },
+                {}
+            ] },
+            "comments": { "pageInfo": { "hasPreviousPage": false }, "nodes": [
+                { "id": "IC_engine", "createdAt": "2026-09-02T00:00:00Z",
+                  "author": { "login": "github-actions", "__typename": "Bot" } },
+                { "id": "IC_person", "createdAt": "2026-09-03T00:00:00Z",
+                  "author": { "login": "github-actions", "__typename": "User" } },
+                { "id": "IC_ghost", "createdAt": "2026-09-04T00:00:00Z", "author": null }
+            ] }
+        })
+    }
+
+    fn at(s: &str) -> DateTime<Utc> {
+        s.parse().unwrap()
+    }
+
+    /// Only the engine's App account's comments are read further: a person
+    /// can paste the record marker, and an account named like the App is a
+    /// different account.
+    #[test]
+    fn stage_evidence_keeps_events_in_order_and_only_the_engines_comments() {
+        let (evidence, engine_comments) = parse_evidence_node(&evidence_node(), 42).unwrap();
+        assert_eq!(engine_comments, vec!["IC_engine"]);
+        assert_eq!(
+            evidence.events,
+            vec![
+                PrEvent::ConvertedToDraft {
+                    at: at("2026-09-02T00:00:00Z")
+                },
+                PrEvent::ReadyForReview {
+                    at: at("2026-09-03T00:00:00Z")
+                },
+                PrEvent::BaseChanged {
+                    at: at("2026-09-04T00:00:00Z"),
+                    from: "feat/x".into(),
+                    to: "v4.3-dev".into(),
+                },
+                PrEvent::BaseChanged {
+                    at: at("2026-09-05T00:00:00Z"),
+                    from: "v4.3-dev".into(),
+                    to: "v5.0-dev".into(),
+                },
+                PrEvent::Reopened {
+                    at: at("2026-09-06T00:00:00Z")
+                },
+            ],
+            "an event the query did not ask for is skipped"
+        );
+        assert!(evidence.events_complete);
+        assert_eq!(evidence.comments_read, Coverage::All);
+        assert!(evidence.comments.is_empty(), "comments come separately");
+
+        // Only the newest comments read: from the oldest of them on.
+        let mut node = evidence_node();
+        node["timelineItems"]["pageInfo"]["hasPreviousPage"] = json!(true);
+        node["comments"]["pageInfo"]["hasPreviousPage"] = json!(true);
+        let (evidence, _) = parse_evidence_node(&node, 42).unwrap();
+        assert!(!evidence.events_complete, "older events exist");
+        assert_eq!(
+            evidence.comments_read,
+            Coverage::Since(at("2026-09-02T00:00:00Z"))
+        );
+        node["comments"]["pageInfo"] = json!({});
+        let (evidence, _) = parse_evidence_node(&node, 42).unwrap();
+        assert_eq!(
+            evidence.comments_read,
+            Coverage::Partial,
+            "unknown is partial"
+        );
+    }
+
+    fn engine_comment_node(body: &str, edited: bool) -> Value {
+        json!({
+            "createdAt": "2026-09-02T00:00:00Z",
+            "lastEditedAt": if edited { json!("2026-09-04T00:00:00Z") } else { Value::Null },
+            "body": body,
+            "author": { "login": "github-actions", "__typename": "Bot" }
+        })
+    }
+
+    const RECORD: &str = "<!-- platform-pr-review-state-v1 {\"head\":\"h\",\"number\":42,\"state\":\"waiting-bots\"} -->";
+
+    /// Revisions are read only for the engine's record comments, and only
+    /// where there is more than the body already read.
+    #[test]
+    fn only_edited_record_comments_have_their_revisions_read() {
+        let nudge =
+            parse_engine_comment(&engine_comment_node("<!-- pr-hygiene-nudge v1 -->", true));
+        assert!(matches!(nudge.unwrap(), EngineComment::Other));
+        let EngineComment::Unedited(history) =
+            parse_engine_comment(&engine_comment_node(RECORD, false)).unwrap()
+        else {
+            panic!("an unedited record comment is its own history");
+        };
+        assert_eq!(history.author.as_deref(), Some(ENGINE_LOGIN));
+        assert_eq!(history.revisions.len(), 1);
+        assert_eq!(history.revisions[0].editor.as_deref(), Some(ENGINE_LOGIN));
+        assert_eq!(history.revisions[0].body.as_deref(), Some(RECORD));
+        assert!(history.complete);
+        assert!(matches!(
+            parse_engine_comment(&engine_comment_node(RECORD, true)).unwrap(),
+            EngineComment::Edited { .. }
+        ));
+        // Not said to be unedited is not read as unedited.
+        let mut unsure = engine_comment_node(RECORD, false);
+        unsure.as_object_mut().unwrap().remove("lastEditedAt");
+        assert!(parse_engine_comment(&unsure).is_err());
+    }
+
+    #[test]
+    fn a_comment_history_holds_every_revision_and_who_wrote_it() {
+        let bot = json!({ "login": "github-actions", "__typename": "Bot" });
+        let edited = parse_revisions(
+            &json!({ "userContentEdits": { "pageInfo": { "hasNextPage": true }, "nodes": [
+                { "editedAt": "2026-09-05T00:00:00Z", "diff": "ghost's", "editor": null },
+                { "editedAt": "2026-09-04T00:00:00Z", "diff": "admin's",
+                  "editor": { "login": "an-admin", "__typename": "User" } },
+                { "editedAt": "2026-09-03T00:00:00Z", "diff": null, "editor": bot },
+                { "editedAt": "2026-09-02T00:00:00Z", "diff": "original", "editor": bot }
+            ] } }),
+            Some(ENGINE_LOGIN.into()),
+        )
+        .unwrap();
+        let editors: Vec<Option<&str>> = edited
+            .revisions
+            .iter()
+            .map(|r| r.editor.as_deref())
+            .collect();
+        assert_eq!(
+            editors,
+            vec![
+                Some(ENGINE_LOGIN),
+                Some(ENGINE_LOGIN),
+                Some("an-admin"),
+                None
+            ],
+            "oldest first; an editor GitHub no longer names is nobody's"
+        );
+        assert_eq!(edited.revisions[0].body.as_deref(), Some("original"));
+        assert_eq!(edited.revisions[1].body, None, "a deleted revision");
+        assert!(!edited.complete, "older revisions exist");
+        assert!(
+            parse_revisions(
+                &json!({ "userContentEdits": { "pageInfo": { "hasNextPage": false }, "nodes": [] } }),
+                None
+            )
+            .is_err(),
+            "an edited comment with no revisions is not read as never edited"
+        );
+    }
+
+    /// A PR the reads could not make sense of costs that PR alone, and is
+    /// named in what the page is told.
+    #[test]
+    fn a_malformed_pr_costs_only_itself() {
+        let mut broken = evidence_node();
+        broken.as_object_mut().unwrap().remove("createdAt");
+        let mut reads = StageReads::default();
+        reads.prs(
+            &[
+                ("PR_42".into(), 42),
+                ("PR_43".into(), 43),
+                ("PR_44".into(), 44),
+            ],
+            vec![Ok(evidence_node()), Ok(broken), Ok(Value::Null)],
+        );
+        assert_eq!(reads.engine_comment_ids(), vec!["IC_engine"]);
+        let evidence = reads.finish();
+        assert_eq!(evidence.prs.len(), 1, "#43 malformed, #44 deleted");
+        let error = evidence.error.unwrap();
+        assert!(
+            error.starts_with("1 of 3 PRs could not be read: #43"),
+            "{error}"
+        );
+
+        // A response that does not answer every id answers none.
+        let mut reads = StageReads::default();
+        reads.prs(&[("PR_42".into(), 42)], vec![]);
+        assert!(reads.finish().error.is_some());
+    }
+
+    /// A GraphQL endpoint on localhost answering each request with what
+    /// `answer` makes of its body, recording the bodies it was sent.
+    fn serve(
+        answer: impl Fn(&Value) -> Value + Send + 'static,
+    ) -> (String, std::sync::Arc<std::sync::Mutex<Vec<Value>>>) {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/graphql", listener.local_addr().unwrap());
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let log = seen.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap() == 0 || line == "\r\n" {
+                        break;
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = v.trim().parse().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                let reply = answer(&request).to_string();
+                log.lock().unwrap().push(request);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+                     content-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                    reply.len()
+                )
+                .unwrap();
+            }
+        });
+        (url, seen)
+    }
+
+    fn ids(request: &Value) -> Vec<String> {
+        serde_json::from_value(request["variables"]["ids"].clone()).unwrap()
+    }
+
+    /// GitHub answers a `nodes` query naming a deleted node with that node
+    /// `null` and a NOT_FOUND error for its index: an answer, not a failure.
+    #[tokio::test]
+    async fn a_deleted_node_is_an_answer_not_a_failure() {
+        let (url, _) = serve(|_| {
+            json!({
+                "data": { "nodes": [null, { "body": "b" }] },
+                "errors": [{ "type": "NOT_FOUND", "path": ["nodes", 0], "message": "Not Found" }]
+            })
+        });
+        let fetcher = Fetcher::new("t").unwrap().with_endpoint(url);
+        let read = fetcher
+            .read_nodes(ENGINE_COMMENTS_QUERY, &["IC_gone".into(), "IC_here".into()])
+            .await;
+        assert_eq!(read, vec![Ok(Value::Null), Ok(json!({ "body": "b" }))]);
+        assert!(
+            fetcher
+                .execute(PR_MERGEABLE_QUERY, json!({}))
+                .await
+                .is_err(),
+            "outside a nodes query the same error fails the request"
+        );
+    }
+
+    /// A page GitHub cannot answer in time fails whole; in halves it mostly
+    /// can. A half that still fails costs its own PRs their comments, not
+    /// their timeline, and not the other PRs anything.
+    #[tokio::test]
+    async fn a_failed_batch_is_retried_in_halves_and_costs_only_its_own_prs() {
+        let (url, seen) = serve(|request| {
+            let query = request["query"].as_str().unwrap();
+            let ids = ids(request);
+            if query.contains("PrHygieneStageEvidence") {
+                let nodes: Vec<Value> = ids
+                    .iter()
+                    .map(|id| {
+                        let n: u64 = id.trim_start_matches("PR_").parse().unwrap();
+                        let mut node = evidence_node();
+                        node["number"] = json!(n);
+                        node["comments"]["nodes"][0]["id"] = json!(format!("IC_{n}"));
+                        node
+                    })
+                    .collect();
+                json!({ "data": { "nodes": nodes } })
+            } else if ids.iter().any(|id| id == "IC_43") {
+                json!({ "data": null, "errors": [{ "message":
+                    "Something went wrong while executing your query. This may be the result of a timeout." }] })
+            } else if query.contains("PrHygieneEngineComments") {
+                let nodes: Vec<Value> = ids
+                    .iter()
+                    .map(|_| engine_comment_node(RECORD, true))
+                    .collect();
+                json!({ "data": { "nodes": nodes } })
+            } else {
+                let nodes: Vec<Value> = ids
+                    .iter()
+                    .map(|_| json!({ "userContentEdits": { "pageInfo": { "hasNextPage": false }, "nodes": [
+                        { "editedAt": "2026-09-02T00:00:00Z", "diff": RECORD,
+                          "editor": { "login": "github-actions", "__typename": "Bot" } }
+                    ] } }))
+                    .collect();
+                json!({ "data": { "nodes": nodes } })
+            }
+        });
+        let fetcher = Fetcher::new("t").unwrap().with_endpoint(url);
+        let evidence = fetcher
+            .fetch_stage_evidence(&[("PR_42".into(), 42), ("PR_43".into(), 43)])
+            .await;
+        let asked: Vec<Vec<String>> = seen.lock().unwrap().iter().map(ids).collect();
+        assert_eq!(
+            asked,
+            vec![
+                vec!["PR_42", "PR_43"],
+                vec!["IC_42", "IC_43"],
+                vec!["IC_42"],
+                vec!["IC_43"],
+                vec!["IC_42"],
+            ]
+        );
+        let read = &evidence.prs[&42];
+        assert_eq!(read.comments.len(), 1);
+        assert_eq!(read.comments_read, Coverage::All);
+        let unread = &evidence.prs[&43];
+        assert_eq!(unread.comments_read, Coverage::Partial);
+        assert_eq!(unread.events.len(), 5, "its timeline still stands");
+        let error = evidence.error.unwrap();
+        assert!(
+            error.starts_with("1 of 2 PRs could not be read: #43"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn only_a_missing_node_is_tolerated_in_a_nodes_query() {
+        let missing = json!({ "type": "NOT_FOUND", "path": ["nodes", 1] });
+        let limited = json!({ "type": "RATE_LIMITED" });
+        let other = json!({ "message": "Something went wrong" });
+        // A field inside a node that could not be resolved is not a deleted
+        // node: reading on would quietly drop what that field held.
+        let inside = json!({ "type": "NOT_FOUND", "path": ["nodes", 1, "editor"] });
+        assert!(only_missing_nodes(&[missing.clone(), missing.clone()]));
+        assert!(!only_missing_nodes(&[missing.clone(), limited]));
+        assert!(!only_missing_nodes(&[missing.clone(), other]));
+        assert!(!only_missing_nodes(&[missing, inside]));
+    }
+
+    #[test]
+    fn a_nodes_response_must_answer_every_id() {
+        let resp = json!({ "data": { "nodes": [null, {}] } });
+        assert_eq!(nodes_of(&resp, 2).unwrap().len(), 2);
+        assert!(nodes_of(&resp, 3).is_err());
+        assert!(nodes_of(&json!({ "data": null }), 1).is_err());
     }
 }

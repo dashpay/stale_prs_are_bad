@@ -58,8 +58,9 @@ idle_days: 14
 
 # Hours a PR may sit in a stage before the dashboard marks it late, then
 # very late. Stages not listed (draft, queued, not governed) are never late,
-# and a stage can only be late where the time a PR entered it is recorded
-# (the review stage today); elsewhere the dashboard shows the PR's age.
+# and a PR can only be late where the time it entered its stage is recorded
+# (GitHub's timeline, the review engine's record comments); CI never is, as
+# a build re-run leaves no record. Elsewhere the dashboard shows the PR's age.
 lateness_hours:
   review: [24, 72]
   self-review: [72, 168]

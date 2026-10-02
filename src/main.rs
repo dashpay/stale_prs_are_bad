@@ -1,4 +1,4 @@
-use pr_hygiene::{analyzer, config, dashboard, fetcher, history, policy, renderer, scorer};
+use pr_hygiene::{analyzer, config, dashboard, fetcher, history, policy, renderer, scorer, stages};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -92,9 +92,12 @@ async fn main() -> Result<()> {
     // One repository failing to fetch must not blank the whole board: it is
     // rendered as unavailable and the run still exits non-zero at the end.
     let mut fetch_errors: HashMap<String, String> = HashMap::new();
+    // Only the dashboard data times stages; the report has no use for it.
+    let mut evidence: HashMap<String, stages::RepoEvidence> = HashMap::new();
     for repo in &repo_names {
-        match fetch_repo(&fetcher, repo).await {
-            Ok((raw_prs, default_branch)) => {
+        match fetch_repo(&fetcher, repo, args.json_out.is_some()).await {
+            Ok((raw_prs, default_branch, repo_evidence)) => {
+                evidence.extend(repo_evidence.map(|e| (repo.clone(), e)));
                 analyzed.extend(analyzer::analyze(
                     raw_prs,
                     &cfg,
@@ -157,6 +160,7 @@ async fn main() -> Result<()> {
         let board = dashboard::build(&dashboard::Inputs {
             scored: &scored,
             engine: &engine_states,
+            evidence: &evidence,
             policies: &policies,
             repos: &repos,
             cfg: &cfg,
@@ -213,11 +217,19 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Fetch one repository's open PRs and its default branch.
+/// One repository's open PRs, its default branch and, when asked for, what
+/// GitHub and the engine record about each PR's stage changes.
+type Fetched = (
+    Vec<pr_hygiene::model::RawPr>,
+    Option<String>,
+    Option<stages::RepoEvidence>,
+);
+
 async fn fetch_repo(
     fetcher: &fetcher::Fetcher,
     repo: &str,
-) -> Result<(Vec<pr_hygiene::model::RawPr>, Option<String>)> {
+    with_evidence: bool,
+) -> Result<Fetched> {
     let (owner, name) = config::repo_parts(repo)?;
     let (mut raw_prs, node_ids, default_branch) = fetcher.fetch_all_open_prs(owner, name).await?;
     fetcher
@@ -233,7 +245,19 @@ async fn fetch_repo(
         ),
     }
     tracing::info!(%repo, "fetched {} open PRs", raw_prs.len());
-    Ok((raw_prs, default_branch))
+    // Every open PR, those the board's own filters drop included: the
+    // engine's queue still shows them. A PR without evidence shows its age,
+    // which is no reason to fail the repository; the page says which.
+    let evidence = if with_evidence {
+        let evidence = fetcher.fetch_stage_evidence(&node_ids).await;
+        if let Some(error) = &evidence.error {
+            tracing::warn!(%repo, "stage entry times incomplete: {error}");
+        }
+        Some(evidence)
+    } else {
+        None
+    };
+    Ok((raw_prs, default_branch, evidence))
 }
 
 fn write_if_changed(path: &std::path::Path, contents: &str) -> Result<bool> {

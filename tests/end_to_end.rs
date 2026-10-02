@@ -369,10 +369,21 @@ fn end_to_end_pipeline_matches_snapshot() {
 
     insta::assert_snapshot!(md);
 
-    // The interactive dashboard's data, from the same inputs.
+    // The interactive dashboard's data, from the same inputs and what GitHub
+    // and the engine recorded about four platform PRs' stage changes. Reading
+    // rust-dashcore's failed, which its PRs and the page must say.
+    let unread = pr_hygiene::stages::RepoEvidence {
+        prs: HashMap::new(),
+        error: Some("2 of 2 PRs could not be read: #101: HTTP 502".into()),
+    };
+    let evidence = HashMap::from([
+        (PLATFORM.to_string(), stage_evidence()),
+        (DASHCORE.to_string(), unread),
+    ]);
     let board = dashboard::build(&dashboard::Inputs {
         scored: &scored,
         engine: &engine_states,
+        evidence: &evidence,
         policies: &policies,
         repos: &repos,
         cfg: &cfg,
@@ -392,5 +403,67 @@ fn end_to_end_pipeline_matches_snapshot() {
     );
     let alice = board.people.iter().find(|p| p.login == "alice").unwrap();
     assert!(alice.owes[0].rereview, "alice's own objection waits on her");
+
+    let pr = |number: u64| {
+        board
+            .prs
+            .iter()
+            .find(|p| p.repo == PLATFORM && p.number == number)
+            .unwrap_or_else(|| panic!("#{number} missing"))
+    };
+    let at = |s: &str| Some(s.parse::<chrono::DateTime<Utc>>().unwrap());
+    // Waiting on the bots since the engine recorded it, after the author's
+    // turn: thirty hours, past the one-day mark.
+    assert_eq!(pr(7000).stage, dashboard::Stage::Bots);
+    assert_eq!(pr(7000).since, at("2026-05-18T00:00:00Z"));
+    assert_eq!(pr(7000).since_basis, Some(dashboard::SinceBasis::Engine));
+    assert_eq!(pr(7000).lateness, Some(dashboard::Lateness::Late));
+    // The engine never wrote a record here; a person's comment is no record.
+    assert_eq!(pr(1234).since_basis, Some(dashboard::SinceBasis::Opened));
+    assert_eq!(
+        pr(6000).since,
+        at("2026-05-02T00:00:00Z"),
+        "made a draft again"
+    );
+    assert_eq!(
+        pr(2988).since,
+        at("2026-04-10T00:00:00Z"),
+        "moved off master"
+    );
+    // No evidence read for it: the review cycle's own start, as before.
+    assert_eq!(pr(3000).since, at("2026-05-17T06:00:00Z"));
     insta::assert_json_snapshot!("dashboard", board);
+}
+
+/// Stage evidence for four platform PRs as the three follow-up reads return
+/// it, assembled as the fetcher assembles it.
+fn stage_evidence() -> pr_hygiene::stages::RepoEvidence {
+    let fixture = load_fixture("stage_evidence.json");
+    let nodes = |read: &str| -> Vec<fetcher::NodeRead> {
+        fixture[read]["data"]["nodes"]
+            .as_array()
+            .expect(read)
+            .iter()
+            .cloned()
+            .map(Ok)
+            .collect()
+    };
+    let asked: Vec<(String, u64)> = [7000, 1234, 6000, 2988]
+        .into_iter()
+        .map(|n| (format!("PR_kw_{n}"), n))
+        .collect();
+    let mut reads = fetcher::StageReads::default();
+    reads.prs(&asked, nodes("evidence"));
+    // A person's comment is never read further, whatever it says.
+    assert_eq!(
+        reads.engine_comment_ids(),
+        vec!["IC_7000_record", "IC_7000_nudge"]
+    );
+    reads.comments(nodes("comments"));
+    // The nudge is no record; only the edited record has revisions to read.
+    assert_eq!(reads.edited_comment_ids(), vec!["IC_7000_record"]);
+    reads.histories(nodes("histories"));
+    let evidence = reads.finish();
+    assert_eq!(evidence.error, None);
+    evidence
 }

@@ -11,6 +11,7 @@ use crate::config::Config;
 use crate::model::{PolicyState, ScoredPr};
 use crate::policy::Policy;
 use crate::renderer::RepoStatus;
+use crate::stages::{self, Recorded, RepoEvidence, Standing};
 
 /// Bumped on any change a page built for the previous shape would misread.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -43,8 +44,10 @@ pub struct StageOut {
     pub owner: Owner,
     /// Hours to late and to very late; absent for a stage that is never late.
     pub late_hours: Option<[f64; 2]>,
-    /// Whether the time a PR entered this stage is recorded. Where it is not,
-    /// a PR shows its age instead and is never called late.
+    /// Whether the time a PR entered this stage can be read from a record.
+    /// Where it is not, or a PR's own record does not reach back to its
+    /// entry, the PR shows its age instead (`since_basis: opened`) and is
+    /// never called late.
     pub entry_recorded: bool,
     /// False for work parked outside the review flow — drafts, PRs off the
     /// governed branches, PRs with no verdict — which no one is asked to move
@@ -68,6 +71,11 @@ pub struct RepoOut {
     pub repo: String,
     pub engine_state_available: bool,
     pub fetch_error: Option<String>,
+    /// Why some PRs' entry into their stage could not be read. Those show their
+    /// age instead and are not called late, except a review, which keeps the
+    /// engine's own start; what GitHub's timeline says still stands. `null`
+    /// when nothing failed.
+    pub stage_times_error: Option<String>,
     /// Open review slots per author in this repository (the policy's
     /// `max_active_prs`); `wip` above it is over the limit.
     pub slot_limit: u32,
@@ -120,9 +128,12 @@ impl Stage {
         }
     }
 
-    /// Whether the engine records when a PR entered this stage.
+    /// Whether a PR's entry into this stage can be read from a record: GitHub's
+    /// timeline for a draft or a base change, the engine's record comment for
+    /// the rest. Not for a running build: a re-run on the same head leaves the
+    /// record as it was, so the build wait it shows may have ended long ago.
     fn entry_recorded(self) -> bool {
-        self == Stage::Review
+        !matches!(self, Stage::Ci | Stage::Unknown)
     }
 
     pub fn key(self) -> &'static str {
@@ -141,12 +152,15 @@ impl Stage {
     }
 }
 
-/// Where `since` comes from. Only an engine timestamp is precise enough to
-/// call a PR late; "opened" is shown as context and never coloured.
+/// Where `since` comes from. Only a recorded entry into the stage is precise
+/// enough to call a PR late; "opened" is shown as context and never coloured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SinceBasis {
+    /// When the PR entered its stage, as recorded: by the engine's record
+    /// comment, or by GitHub's timeline for a draft or a base change.
     Engine,
+    /// When the PR was opened: its entry into the stage is not recorded.
     Opened,
 }
 
@@ -253,6 +267,9 @@ pub struct PersonOut {
 pub struct Inputs<'a> {
     pub scored: &'a [ScoredPr],
     pub engine: &'a HashMap<String, HashMap<u64, PolicyState>>,
+    /// What GitHub and the engine record about each PR's stage changes, per
+    /// repository and number; a PR missing here shows its age.
+    pub evidence: &'a HashMap<String, RepoEvidence>,
     pub policies: &'a HashMap<String, Policy>,
     pub repos: &'a [RepoStatus],
     pub cfg: &'a Config,
@@ -285,6 +302,7 @@ pub fn build(inp: &Inputs<'_>) -> Dashboard {
                 repo: r.repo.clone(),
                 engine_state_available: r.engine_state_available,
                 fetch_error: r.fetch_error.clone(),
+                stage_times_error: inp.evidence.get(&r.repo).and_then(|e| e.error.clone()),
                 slot_limit: inp
                     .policies
                     .get(&r.repo)
@@ -338,7 +356,7 @@ fn tracked_pr(s: &ScoredPr, inp: &Inputs<'_>) -> PrOut {
         engine_available(inp, &raw.repo),
         state,
     );
-    let (since, since_basis) = match engine_since(stage, state) {
+    let (since, since_basis) = match entered(stage, state, &raw.repo, raw.number, inp) {
         Some(t) => (Some(t), Some(SinceBasis::Engine)),
         None => (Some(raw.created_at), Some(SinceBasis::Opened)),
     };
@@ -383,7 +401,7 @@ fn tracked_pr(s: &ScoredPr, inp: &Inputs<'_>) -> PrOut {
 fn engine_only_pr(repo: &str, number: u64, state: &PolicyState, inp: &Inputs<'_>) -> PrOut {
     let draft = state.state == "draft";
     let stage = stage(draft, true, true, Some(state));
-    let since = engine_since(stage, Some(state));
+    let since = entered(stage, Some(state), repo, number, inp);
     let since_basis = since.map(|_| SinceBasis::Engine);
     let author = (!state.author.is_empty()).then(|| state.author.clone());
     PrOut {
@@ -455,13 +473,48 @@ pub fn stage(
     }
 }
 
-/// When the current stage started, where the engine records it: the review
-/// cycle's `ready_since`.
-fn engine_since(stage: Stage, state: Option<&PolicyState>) -> Option<DateTime<Utc>> {
-    if stage != Stage::Review {
+/// When the PR entered its current stage, where that is recorded. A draft or
+/// a PR off the governed branches dates from GitHub's timeline; an engine
+/// stage from the engine's records, checked against the PR's state in the
+/// export. Where the records could not be read, only a review cycle has a
+/// start: the engine's own `ready_since`. Where they were read and do not
+/// show the PR in review, that `ready_since` is the time of the export, not
+/// of the review.
+fn entered(
+    stage: Stage,
+    state: Option<&PolicyState>,
+    repo: &str,
+    number: u64,
+    inp: &Inputs<'_>,
+) -> Option<DateTime<Utc>> {
+    if !stage.entry_recorded() {
         return None;
     }
-    state?
+    let evidence = inp.evidence.get(repo).and_then(|e| e.prs.get(&number));
+    let policy = inp.policies.get(repo);
+    let governs = |base: &str| policy.is_some_and(|p| p.governs(base));
+    let standing = match stage {
+        Stage::Draft => Standing::Draft,
+        Stage::NotGoverned => Standing::Ungoverned,
+        _ => {
+            let state = state?;
+            return match evidence.map(|e| stages::engine_since(e, &state.state, governs)) {
+                Some(Recorded::Since(at)) => Some(at),
+                Some(Recorded::Not) => None,
+                None | Some(Recorded::Unreadable) if stage == Stage::Review => ready_since(state),
+                None | Some(Recorded::Unreadable) => None,
+            };
+        }
+    };
+    // The timeline's own idea of where the PR stands must be the stage's: a
+    // PR changed between the two reads has no entry worth showing.
+    stages::standing_since(evidence?, governs)
+        .filter(|(now, _)| *now == standing)
+        .map(|(_, at)| at)
+}
+
+fn ready_since(state: &PolicyState) -> Option<DateTime<Utc>> {
+    state
         .ready_since
         .as_deref()
         .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
@@ -655,6 +708,7 @@ mod tests {
     use crate::model::{
         AnalyzedPr, AreaApproval, BySeverity, BySource, ChecklistItem, Mergeable, RawPr,
     };
+    use crate::stages::Evidence;
     use chrono::TimeZone;
 
     const REPO: &str = "dashpay/platform";
@@ -753,11 +807,27 @@ mod tests {
         scored: &[ScoredPr],
         engine: &HashMap<String, HashMap<u64, PolicyState>>,
     ) -> Dashboard {
+        board_with(scored, engine, vec![])
+    }
+
+    fn board_with(
+        scored: &[ScoredPr],
+        engine: &HashMap<String, HashMap<u64, PolicyState>>,
+        evidence: Vec<Evidence>,
+    ) -> Dashboard {
         let cfg = Config::default();
         let policies = policies();
+        let evidence = HashMap::from([(
+            REPO.to_string(),
+            RepoEvidence {
+                prs: evidence.into_iter().map(|e| (e.number, e)).collect(),
+                error: None,
+            },
+        )]);
         build(&Inputs {
             scored,
             engine,
+            evidence: &evidence,
             policies: &policies,
             repos: &[],
             cfg: &cfg,
@@ -1086,6 +1156,7 @@ mod tests {
         let d = build(&Inputs {
             scored: &[],
             engine: &HashMap::new(),
+            evidence: &HashMap::new(),
             policies: &policies,
             repos: &[],
             cfg: &cfg,
@@ -1113,7 +1184,14 @@ mod tests {
         assert!(review.entry_recorded);
         let queued = d.stages.iter().find(|s| s.stage == Stage::Queued).unwrap();
         assert_eq!(queued.late_hours, None, "queued is never late per PR");
-        assert!(d.stages.iter().filter(|s| s.entry_recorded).count() == 1);
+        assert!(queued.entry_recorded, "never late, still timed");
+        let unrecorded: Vec<Stage> = d
+            .stages
+            .iter()
+            .filter(|s| !s.entry_recorded)
+            .map(|s| s.stage)
+            .collect();
+        assert_eq!(unrecorded, vec![Stage::Ci, Stage::Unknown]);
         let parked: Vec<Stage> = d
             .stages
             .iter()
@@ -1144,6 +1222,229 @@ mod tests {
         ] {
             cfg.lateness_hours.insert("review".into(), hours);
             assert!(validate_lateness(&cfg).is_err(), "{hours:?}");
+        }
+    }
+
+    /// What GitHub and the engine recorded about PR `number`: opened thirty
+    /// days ago against `v5.0-dev`, with the engine's records written the
+    /// given numbers of hours before now.
+    fn recorded(number: u64, records: &[(i64, &str)]) -> Evidence {
+        Evidence {
+            number,
+            created_at: now() - chrono::Duration::days(30),
+            is_draft: false,
+            base: "v5.0-dev".into(),
+            events: vec![],
+            events_complete: true,
+            comments: vec![stages::CommentHistory {
+                author: Some(stages::ENGINE_LOGIN.into()),
+                revisions: records
+                    .iter()
+                    .map(|(hours_ago, state)| stages::Revision {
+                        at: now() - chrono::Duration::hours(*hours_ago),
+                        editor: Some(stages::ENGINE_LOGIN.into()),
+                        body: Some(format!(
+                            "<!-- platform-pr-review-state-v1 \
+                             {{\"head\":\"h\",\"number\":{number},\"state\":\"{state}\"}} -->\n\
+                             Your move."
+                        )),
+                    })
+                    .collect(),
+                complete: true,
+            }],
+            comments_read: stages::Coverage::All,
+        }
+    }
+
+    #[test]
+    fn every_engine_stage_is_timed_from_the_engines_records() {
+        let cases = [
+            (1, "waiting-bots", 30, Some(Lateness::Late)),
+            (2, "waiting-author", 200, Some(Lateness::VeryLate)),
+            (3, "too-many-open-prs", 500, None),
+        ];
+        let engine: HashMap<u64, PolicyState> = cases
+            .iter()
+            .map(|(n, state, _, _)| (*n, engine_state(state)))
+            .collect();
+        let scored: Vec<ScoredPr> = cases
+            .iter()
+            .map(|(n, state, _, _)| scored(*n, "alice", "v5.0-dev", Some(engine_state(state))))
+            .collect();
+        // Each was in another stage before it entered its own.
+        let evidence = cases
+            .iter()
+            .map(|(n, state, hours, _)| {
+                recorded(*n, &[(hours + 10, "ready-for-human"), (*hours, state)])
+            })
+            .collect();
+        let d = board_with(
+            &scored,
+            &HashMap::from([(REPO.to_string(), engine)]),
+            evidence,
+        );
+        for (pr, (_, state, hours, late)) in d.prs.iter().zip(cases) {
+            assert_eq!(pr.since_basis, Some(SinceBasis::Engine), "{state}");
+            assert_eq!(pr.since, Some(now() - chrono::Duration::hours(hours)));
+            // Queued is timed but never late per PR.
+            assert_eq!(pr.lateness, late, "{state}");
+        }
+    }
+
+    #[test]
+    fn a_state_the_engine_has_not_recorded_shows_the_pr_age() {
+        // The export says ready for review; the engine's last record is the
+        // self-review before it. When review began is not known — the
+        // export's `ready_since` for such a PR is the time of the export.
+        let state = ready(&["bob"], vec![], "2026-10-01T11:59:00Z");
+        let scored = vec![scored(1, "alice", "v5.0-dev", Some(state.clone()))];
+        let engine = HashMap::from([(REPO.to_string(), HashMap::from([(1, state)]))]);
+        let d = board_with(
+            &scored,
+            &engine,
+            vec![recorded(1, &[(48, "waiting-self-review")])],
+        );
+        assert_eq!(d.prs[0].stage, Stage::Review);
+        assert_eq!(d.prs[0].since_basis, Some(SinceBasis::Opened));
+        assert_eq!(d.prs[0].since, Some(now() - chrono::Duration::days(30)));
+        assert_eq!(d.prs[0].lateness, None);
+    }
+
+    #[test]
+    fn a_review_whose_records_could_not_all_be_read_keeps_the_engines_start() {
+        // Unread records may well show the review starting when the engine
+        // says; they are no evidence against it.
+        let state = ready(&["bob"], vec![], "2026-09-29T12:00:00Z");
+        let scored = vec![scored(1, "alice", "v5.0-dev", Some(state.clone()))];
+        let engine = HashMap::from([(REPO.to_string(), HashMap::from([(1, state)]))]);
+        let mut unread = recorded(1, &[(48, "ready-for-human")]);
+        unread.comments_read = stages::Coverage::Partial;
+        let d = board_with(&scored, &engine, vec![unread]);
+        assert_eq!(d.prs[0].since_basis, Some(SinceBasis::Engine));
+        assert_eq!(d.prs[0].since, Some(now() - chrono::Duration::days(2)));
+        assert_eq!(d.prs[0].lateness, Some(Lateness::Late));
+    }
+
+    #[test]
+    fn a_running_build_is_never_timed_from_the_build_wait() {
+        // Failed two days ago and re-run just now on the same head: the record
+        // still says the build wait began two days ago. A failed build is the
+        // author's move from the start of that wait.
+        let records = &[(60, "waiting-author"), (48, "waiting-build")];
+        let failed = PolicyState {
+            checklist: vec![ChecklistItem {
+                item: "build".into(),
+                state: Some(serde_json::json!("failed")),
+            }],
+            ..engine_state("waiting-build")
+        };
+        let engine = HashMap::from([(
+            REPO.to_string(),
+            HashMap::from([(1, engine_state("waiting-build")), (2, failed.clone())]),
+        )]);
+        let d = board_with(
+            &[
+                scored(1, "alice", "v5.0-dev", Some(engine_state("waiting-build"))),
+                scored(2, "alice", "v5.0-dev", Some(failed)),
+            ],
+            &engine,
+            vec![recorded(1, records), recorded(2, records)],
+        );
+        assert_eq!(d.prs[0].stage, Stage::Ci);
+        assert_eq!(d.prs[0].since_basis, Some(SinceBasis::Opened));
+        assert_eq!(d.prs[0].lateness, None);
+        assert_eq!(d.prs[1].stage, Stage::SelfReview);
+        assert_eq!(d.prs[1].since, Some(now() - chrono::Duration::hours(48)));
+        assert_eq!(d.prs[1].since_basis, Some(SinceBasis::Engine));
+    }
+
+    #[test]
+    fn a_pr_the_board_filtered_out_is_timed_too() {
+        let state = engine_state("waiting-bots");
+        let engine = HashMap::from([(REPO.to_string(), HashMap::from([(77, state)]))]);
+        let d = board_with(
+            &[],
+            &engine,
+            vec![recorded(
+                77,
+                &[(60, "waiting-author"), (30, "waiting-bots")],
+            )],
+        );
+        let pr = &d.prs[0];
+        assert!(!pr.tracked);
+        assert_eq!(pr.since, Some(now() - chrono::Duration::hours(30)));
+        assert_eq!(pr.lateness, Some(Lateness::Late));
+    }
+
+    #[test]
+    fn drafts_and_prs_off_the_governed_branches_date_from_github_events() {
+        let at = |hours: i64| now() - chrono::Duration::hours(hours);
+        let mut draft = scored(1, "alice", "v5.0-dev", None);
+        draft.pr.raw.is_draft = true;
+        let mut draft_evidence = recorded(1, &[]);
+        draft_evidence.is_draft = true;
+        draft_evidence.events = vec![
+            stages::PrEvent::ReadyForReview { at: at(100) },
+            stages::PrEvent::ConvertedToDraft { at: at(50) },
+        ];
+        let mut off_evidence = recorded(2, &[]);
+        off_evidence.base = "feat/x".into();
+        off_evidence.events = vec![stages::PrEvent::BaseChanged {
+            at: at(20),
+            from: "v5.0-dev".into(),
+            to: "feat/x".into(),
+        }];
+        // GitHub's timeline says this one is a draft; the PR list said it was
+        // not. One of the two reads is stale: no entry is shown.
+        let mut stale = recorded(3, &[]);
+        stale.is_draft = true;
+        stale.base = "feat/x".into();
+        let engine = HashMap::from([(REPO.to_string(), HashMap::new())]);
+        let d = board_with(
+            &[
+                draft,
+                scored(2, "alice", "feat/x", None),
+                scored(3, "alice", "feat/x", None),
+            ],
+            &engine,
+            vec![draft_evidence, off_evidence, stale],
+        );
+        assert_eq!(d.prs[0].stage, Stage::Draft);
+        assert_eq!(d.prs[0].since, Some(at(50)));
+        assert_eq!(d.prs[0].since_basis, Some(SinceBasis::Engine));
+        assert_eq!(d.prs[0].lateness, None, "no draft is late");
+        assert_eq!(d.prs[1].stage, Stage::NotGoverned);
+        assert_eq!(d.prs[1].since, Some(at(20)));
+        assert_eq!(d.prs[1].since_basis, Some(SinceBasis::Engine));
+        assert_eq!(d.prs[2].stage, Stage::NotGoverned);
+        assert_eq!(d.prs[2].since_basis, Some(SinceBasis::Opened));
+    }
+
+    /// The states timed as one stage must be one stage on the board, or a PR
+    /// could carry its entry into a stage it is no longer in.
+    #[test]
+    fn states_timed_as_one_stage_are_one_stage() {
+        let states = [
+            "draft",
+            "waiting-bots",
+            "waiting-author",
+            "waiting-self-review",
+            "waiting-build",
+            "too-many-open-prs",
+            "ready-for-human",
+            "ready-to-merge",
+            "configuration-error",
+        ];
+        for a in states {
+            for b in states {
+                if stages::same_stage(a, b) {
+                    assert_eq!(
+                        stage(false, true, true, Some(&engine_state(a))),
+                        stage(false, true, true, Some(&engine_state(b))),
+                        "{a} and {b}"
+                    );
+                }
+            }
         }
     }
 

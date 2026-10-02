@@ -11,12 +11,14 @@ expression: board
       "repo": "dashpay/platform",
       "engine_state_available": true,
       "fetch_error": null,
+      "stage_times_error": null,
       "slot_limit": 5
     },
     {
       "repo": "dashpay/rust-dashcore",
       "engine_state_available": false,
       "fetch_error": null,
+      "stage_times_error": "2 of 2 PRs could not be read: #101: HTTP 502",
       "slot_limit": 5
     }
   ],
@@ -26,7 +28,7 @@ expression: board
       "stage": "draft",
       "owner": "author",
       "late_hours": null,
-      "entry_recorded": false,
+      "entry_recorded": true,
       "in_flow": false
     },
     {
@@ -36,7 +38,7 @@ expression: board
         24.0,
         48.0
       ],
-      "entry_recorded": false,
+      "entry_recorded": true,
       "in_flow": true
     },
     {
@@ -46,7 +48,7 @@ expression: board
         72.0,
         168.0
       ],
-      "entry_recorded": false,
+      "entry_recorded": true,
       "in_flow": true
     },
     {
@@ -63,7 +65,7 @@ expression: board
       "stage": "queued",
       "owner": "nobody",
       "late_hours": null,
-      "entry_recorded": false,
+      "entry_recorded": true,
       "in_flow": true
     },
     {
@@ -83,7 +85,7 @@ expression: board
         24.0,
         72.0
       ],
-      "entry_recorded": false,
+      "entry_recorded": true,
       "in_flow": true
     },
     {
@@ -93,14 +95,14 @@ expression: board
         24.0,
         72.0
       ],
-      "entry_recorded": false,
+      "entry_recorded": true,
       "in_flow": true
     },
     {
       "stage": "not-governed",
       "owner": "author",
       "late_hours": null,
-      "entry_recorded": false,
+      "entry_recorded": true,
       "in_flow": false
     },
     {
@@ -217,8 +219,8 @@ expression: board
       "engine_state": null,
       "next_action": null,
       "blockers": [],
-      "since": "2026-03-20T00:00:00Z",
-      "since_basis": "opened",
+      "since": "2026-04-10T00:00:00Z",
+      "since_basis": "engine",
       "lateness": null,
       "asks": [],
       "objectors": [],
@@ -351,8 +353,8 @@ expression: board
       "engine_state": null,
       "next_action": null,
       "blockers": [],
-      "since": "2026-04-20T00:00:00Z",
-      "since_basis": "opened",
+      "since": "2026-05-02T00:00:00Z",
+      "since_basis": "engine",
       "lateness": null,
       "asks": [],
       "objectors": [],
@@ -381,9 +383,9 @@ expression: board
       "blockers": [
         "CodeRabbit review pending"
       ],
-      "since": "2026-05-10T00:00:00Z",
-      "since_basis": "opened",
-      "lateness": null,
+      "since": "2026-05-18T00:00:00Z",
+      "since_basis": "engine",
+      "lateness": "late",
       "asks": [],
       "objectors": [],
       "areas": [],
