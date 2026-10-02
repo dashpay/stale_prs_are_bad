@@ -463,10 +463,141 @@ def malformed_goldens(rng):
             changed = mutated(case[target], path, replacement)
             if replacement is DELETE and changed is None and path:
                 continue
-            entries.append({'base': f'evaluate/{base.name}', 'target': target, 'path': path,
-                            'value': replacement if replacement is DELETE else tag(replacement),
-                            'outcome': outcome(dict(case, **{target: changed}))})
+            entry = {'base': f'evaluate/{base.name}', 'target': target, 'path': path,
+                     'value': replacement if replacement is DELETE else tag(replacement),
+                     'outcome': outcome(dict(case, **{target: changed}))}
+            if target == 'pr':
+                entry['fingerprint'] = fingerprint_outcome(changed)
+            entries.append(entry)
     write_json('policy_malformed.json', entries)
+
+
+def fingerprint_outcome(pr):
+    try:
+        return policy.fingerprint(copy.deepcopy(pr))
+    except Exception as error:  # noqa: BLE001 - which class escapes is what is recorded
+        return {'raised': type(error).__name__}
+
+
+# --- what the corpus does not tell apart ------------------------------------------
+
+def variant_goldens():
+    """Inputs built to tell apart what the corpus cannot, with Python's answers:
+    which of two equal instants spelled differently is kept, what whitespace
+    `strip` removes around an attestation or a skip, the order `diff_print`
+    sorts files in, and `fingerprint` itself, which has no cases of its own:
+    every corpus snapshot's print, and snapshots that move it or should not."""
+    from pr_review.tests.test_bot_timeouts import ago, skip, waiting
+    from pr_review.tests.test_policy import HEAD, NOW, OLD_HEAD, fixture
+    entries = []
+
+    def evaluated(name, p, pr, admitted_at=NOW):
+        result = policy.evaluate(copy.deepcopy(p), copy.deepcopy(pr), admitted_at, NOW, None)
+        # Copied now: the cases below go on to change what they passed.
+        entries.append({'kind': 'evaluate', 'name': name, 'policy': copy.deepcopy(p), 'pr': copy.deepcopy(pr),
+                        'admitted_at': admitted_at, 'now': NOW, 'result': result})
+
+    # The bots' completion: the first of equal instants, in its own spelling.
+    for pasta, rabbit in [('2026-09-11T10:00:00+00:00', '2026-09-11T10:00:00Z'),
+                          ('2026-09-11T10:00:00Z', '2026-09-11T12:00:00+02:00')]:
+        p, pr = fixture()
+        pr['reviews'][0]['submitted_at'], pr['reviews'][1]['submitted_at'] = pasta, rabbit
+        evaluated(f'completion tie {pasta} {rabbit}', p, pr)
+    # The attestation: two at one instant.
+    for first, second in [('2026-09-11T11:00:00Z', '2026-09-11T13:00:00+02:00'),
+                          ('2026-09-11T11:00:00+00:00', '2026-09-11T11:00:00Z')]:
+        p, pr = fixture()
+        pr['comments'] = [dict(pr['comments'][0], id=3, created_at=first, updated_at=first),
+                          dict(pr['comments'][0], id=4, created_at=second, updated_at=second)]
+        evaluated(f'attestation tie {first} {second}', p, pr)
+    # Two writers skip the bots at one instant, spelled differently.
+    for order in (('reviewer', 'owner'), ('owner', 'reviewer')):
+        p, pr = waiting(1)
+        pr['comments'] = [skip(order[0], ago(0.5)), skip(order[1], ago(0.5).replace('Z', '+00:00'))]
+        evaluated(f'skip tie {order}', p, pr)
+    # A skip at the instant the waiver took effect: the earlier of the two
+    # is kept, the skip first among equals.
+    for spelling in ('+00:00', 'Z'):
+        p, pr = waiting(20)
+        p['required_bots'] = ['thepastaclaw']
+        pr['reviews'] = []
+        pr['comments'] = [skip('reviewer', ago(4).replace('Z', spelling))]
+        evaluated(f'skip at the waiver {spelling}', p, pr)
+    # Two notices of CodeRabbit's limit about one head, at one instant.
+    p, pr = waiting(2)
+    p['required_bots'] = ['coderabbitai']
+    pr['reviews'] = []
+    head_notice = ('<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n'
+                   f'> Reviewing files that changed between 4ab5161 and {HEAD}.\n'
+                   '<!-- end of auto-generated comment: rate limited by coderabbit.ai -->')
+    pr['comments'] = [dict(id=5, user='coderabbitai[bot]', body=head_notice, created_at=at, updated_at=at)
+                      for at in ('2026-09-11T11:30:00+02:00', ago(2.5))]
+    pr['head_seen_at'] = ago(3)
+    evaluated('two notices at one instant', p, pr)
+    # CodeRabbit's notice at the instant the head was seen, at another offset.
+    p, pr = waiting(2)
+    p['required_bots'] = ['coderabbitai']
+    pr['reviews'] = []
+    pr['head_seen_at'] = '2026-09-11T10:00:00Z'
+    notice = ('<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n'
+              f'> Reviewing files that changed between 4ab5161 and {HEAD}.\n'
+              '<!-- end of auto-generated comment: rate limited by coderabbit.ai -->')
+    for created in ('2026-09-11T12:00:00+02:00', '2026-09-11T10:00:00+00:00'):
+        pr['comments'] = [dict(id=5, user='coderabbitai[bot]', body=notice, created_at=created, updated_at=created)]
+        evaluated(f'rate limit tie {created}', p, pr)
+    # What strip() takes from around an attestation and a skip.
+    for body in [f' /self-reviewed {HEAD} \n', f'\x1c/self-reviewed {HEAD}\x1f', f'　/self-review {HEAD}　',
+                 f'​/self-reviewed {HEAD}', f'\x85/selfreview {HEAD}\x85', '\t/self reviewed\n',
+                 f'/self-reviewed\x1e{HEAD}', f'﻿/self-reviewed {HEAD}']:
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T10:30:00Z'
+        pr['comments'][0]['body'] = body
+        evaluated(f'attestation body {body!r}', p, pr)
+    for body in [' /skip-bots\n', '\x1c/skip-bots\x1d', '​/skip-bots', '　/skip-bots\x85', '/skip-bots᠎']:
+        p, pr = waiting(1)
+        pr['comments'] = [skip('reviewer', ago(0.5), body=body)]
+        evaluated(f'skip body {body!r}', p, pr)
+    # A diff carried across a push only if both prints sort the files alike.
+    unsorted = [{'filename': 'packages/drive/b.rs', 'status': 'modified', 'content': 'c' * 40, 'shape': 'a' * 64},
+                {'filename': 'packages/drive/a.rs', 'status': 'added', 'content': 'd' * 40, 'shape': 'b' * 64}]
+    p, pr = fixture()
+    pr['files'] = unsorted
+    pr['controller_diff'] = {'number': 1, 'diff': policy.diff_print({'files': unsorted[::-1]}),
+                             'diff_heads': [OLD_HEAD], 'diff_seen': '2026-09-11T09:00:00Z'}
+    pr['head_seen_at'] = '2026-09-11T13:00:00Z'
+    evaluated('carried across unsorted files', p, pr)
+
+    def printed(kind, pr, base=None):
+        function = policy.diff_print if kind == 'diff_print' else policy.fingerprint
+        entry = {'kind': kind, 'output': function(copy.deepcopy(pr))}
+        entry.update({'base': base} if base else {'pr': copy.deepcopy(pr)})
+        entries.append(entry)
+
+    files = [
+        unsorted,
+        [dict(unsorted[0], filename='b'), dict(unsorted[0], filename='B'), dict(unsorted[0], filename='\xe9'),
+         dict(unsorted[0], filename='a', previous_filename='z'), dict(unsorted[0], filename='a')],
+        [dict(unsorted[0], status=None), dict(unsorted[0], status='removed'), dict(unsorted[0], status='')],
+        [dict(unsorted[0], content='e' * 40), dict(unsorted[0], shape='0' * 64), unsorted[0]],
+    ]
+    for listing in files:
+        printed('diff_print', {'files': listing})
+    for base in sorted((ROOT / 'conformance' / 'evaluate').glob('*.json')):
+        printed('fingerprint', json.loads(base.read_text())['pr'], base=f'evaluate/{base.name}')
+    _, pr = fixture()
+    engine = [dict(user=user, body=body, created_at=NOW, updated_at=NOW, id=n)
+              for n, (user, body) in enumerate([
+                  ('github-actions[bot]', '<!-- platform-pr-review-state-v1 -->'),
+                  ('GitHub-Actions[bot]', '<!-- pr-hygiene-nudge v1 bot=x sha=y -->'),
+                  ('github-actions', '<!-- platform-pr-review-state-v1 -->'),
+                  ('github-actions[bot]', ' <!-- platform-pr-review-state-v1 -->'),
+                  ('github-actions[bot]', 'thanks, é\U0001f600')])]
+    printed('fingerprint', dict(pr, comments=engine + pr['comments']))
+    printed('fingerprint', dict(pr, comments=pr['comments'][::-1] + engine[::-1]))
+    printed('fingerprint', dict(pr, reviews=pr['reviews'][::-1], files=unsorted, threads=[{'id': 2}, {'id': 1}]))
+    printed('fingerprint', {k: v for k, v in pr.items() if k != 'comments'})
+    printed('fingerprint', dict(pr, comments=[dict(c, edited_by='x', edited_at=NOW) for c in pr['comments']]))
+    write_json('policy_variants.json', entries)
 
 
 def main():
@@ -474,6 +605,7 @@ def main():
     regex_goldens(rng)
     object_goldens(rng)
     malformed_goldens(rng)
+    variant_goldens()
 
 
 if __name__ == '__main__':

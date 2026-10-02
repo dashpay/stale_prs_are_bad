@@ -6,3 +6,4 @@ mod corpus;
 mod helpers;
 mod malformed;
 mod support;
+mod variants;

@@ -4,9 +4,10 @@
 //! `generate_policy.py`). Which exception escapes `evaluate`, and which it
 //! turns into a configuration error, is the line between a verdict and a
 //! failed run; each replay must fall on the same side of it as Python's,
-//! with the same verdict.
+//! with the same verdict. `fingerprint` of each changed snapshot is held to
+//! Python's too.
 
-use pr_hygiene_engine::policy::evaluate;
+use pr_hygiene_engine::policy::{evaluate, fingerprint};
 use pr_hygiene_engine::pycompat::object::py_float_repr;
 use pr_hygiene_engine::pycompat::{py_dumps, py_loads, PyErr, PyInt, PyValue};
 use serde_json::Value;
@@ -137,6 +138,17 @@ fn evaluate_raises_and_answers_where_pythons_did() {
             &entry["value"],
         );
         let label = format!("{base} {target}{} = {}", entry["path"], entry["value"]);
+        let is_float = entry["value"].get("float").is_some();
+        if let Some(python) = entry.get("fingerprint") {
+            match (fingerprint(field(&case, "pr")), python) {
+                (Ok(ours), Value::String(theirs)) if ours == *theirs => {}
+                (Err(error), Value::Object(raised)) if raised["raised"] == class(&error) => {}
+                (Err(PyErr::Unported(_)), Value::String(_)) if is_float => {}
+                (ours, theirs) => {
+                    failures.push(format!("{label}: fingerprint {ours:?}, python {theirs}"))
+                }
+            }
+        }
         let expected = &entry["outcome"];
         let answer = evaluate(
             field(&case, "policy"),
@@ -156,7 +168,7 @@ fn evaluate_raises_and_answers_where_pythons_did() {
             // print is hashed. Python's JSON writer would write it; the
             // engine's writes no float, and nothing GitHub answers puts one
             // there, so the run fails loudly instead.
-            (Err(PyErr::Unported(_)), None) if entry["value"].get("float").is_some() => {
+            (Err(PyErr::Unported(_)), None) if is_float => {
                 continue;
             }
             (Err(error), None) => {
