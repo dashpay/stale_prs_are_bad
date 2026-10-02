@@ -5,12 +5,13 @@ implementation of it can be held to the same answers, verdict for verdict and
 write for write. The code is `pr_review/conformance.py`; its tests are
 `pr_review/tests/test_conformance.py`.
 
-There are two artifacts.
+There are three artifacts.
 
 | Artifact | Where | Committed | What it pins |
 |---|---|---|---|
 | Boundary recordings | `conformance/live/` | **no** (`.gitignore`) | a whole run against real pull requests: every GitHub call and its answer, the verdicts, the ordered writes, the exact text written |
 | Evaluate cases | `conformance/evaluate/` | yes | every `policy.evaluate` call the engine's own test suite makes: inputs and result |
+| Function cases | `conformance/functions/<function>/` | yes | every call the test suite makes of the pure functions `main.py` relies on: inputs and output, byte for byte |
 
 Python 3.12 is what these were produced with, and what the engine and its
 tests run on in CI (`actions/setup-python`); any Python from 3.10 runs the
@@ -150,10 +151,11 @@ moment they are made.
 ### Replaying
 
 ```sh
-python -m pr_review.conformance replay conformance/live/redacted conformance/evaluate
+python -m pr_review.conformance replay conformance/live/redacted conformance/evaluate conformance/functions
 ```
 
-Takes recordings, evaluate cases, or directories of either. For a recording
+Takes recordings, evaluate cases, function cases, or directories of any of
+them. For a recording
 it runs the engine at the recorded clock, with the recorded policy and status
 page, every read answered from the recording — each answer once, in the order
 given for the same request — and every write answered as when recording.
@@ -183,7 +185,7 @@ what `fromisoformat` accepts changed between them.
 ## Evaluate cases
 
 ```sh
-python -m pr_review.conformance harvest      # rewrites conformance/evaluate
+python -m pr_review.conformance harvest      # rewrites conformance/evaluate and conformance/functions
 ```
 
 Runs the engine's test suite (all but `test_conformance`) with `policy.evaluate`
@@ -209,6 +211,46 @@ vary the hash seed, is not seen; other cases cover the renames it uses.
 `python_exception_text` is true for a `configuration-error` whose first reason
 is neither one `evaluate` stops with nor a message `policy.py` raises — read
 from its source, so a new message is known without being listed.
+
+## Function cases
+
+The same harvest observes the pure functions `main.py` relies on besides
+`evaluate`, and writes one file per distinct call into
+`conformance/functions/<function>/<first 12 hex of SHA-256 over the case>.json`:
+`{function, inputs, output, tests, python}`, `inputs` by parameter name.
+
+| Function | What it makes |
+|---|---|
+| `main.checklist_block` | the description's block |
+| `main.move_text` | the move comment's words |
+| `github.GitHub.state_comment_body` | the record comment, markers and words |
+| `main.state_record` | the record inside the state marker |
+| `main.diff_record` | the diff record beside it |
+| `policy.admit` | who holds a review slot, and since when |
+| `main.admission_conflicts` | authors holding more slots than the policy allows |
+| `policy.receipt_print` | what a bot's comment said, apart from how |
+| `policy.diff_print` | what a reviewer read |
+| `telemetry.head_state` | what the review system last said about a head |
+
+`diff_print` and `receipt_print` are also called from inside `evaluate`, and
+those calls are cases too. Nothing in the engine changes for this: each
+function is replaced, like `evaluate`, before anything binds it.
+
+`output` is compared as JSON text, so key order and every character count.
+Two answers have no JSON of their own: `admit` keys its map by pull request
+number, written as JSON writes any key, as a string (`{"12":"2026-…"}`, as
+`serde_json` writes an integer key too); `admission_conflicts` answers a set,
+written sorted. A case is kept only if it replays from its JSON exactly; one
+call is not (a `state_record` made while a test had replaced `fingerprint`
+with a stand-in, which the real one does not reproduce). None raised and none
+held anything JSON cannot, today; the harvest prints all of these counts per
+function. A `state_record` output carries the evidence and context prints of
+its inputs: here, unlike across runs, they are the same bytes from the same
+inputs, made by the JSON writer the port has to have anyway.
+
+```sh
+python -m pr_review.conformance replay conformance/functions
+```
 
 ## What another engine must match exactly
 

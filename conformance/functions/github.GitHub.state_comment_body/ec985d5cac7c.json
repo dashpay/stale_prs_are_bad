@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "ready_since": null,
+   "state": "waiting-bots",
+   "version": 1,
+   "evidence": "530eaba0cffa87c939ae979638f6d6b04ac027818a75ec91b5a3938259fbf679",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "PR Hygiene: the checklist is in the description.",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"530eaba0cffa87c939ae979638f6d6b04ac027818a75ec91b5a3938259fbf679\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n\nPR Hygiene: the checklist is in the description.",
+ "tests": [
+  "test_checklist.RecordTests.test_two_standing_comments_converge_to_one"
+ ],
+ "python": "3.12"
+}

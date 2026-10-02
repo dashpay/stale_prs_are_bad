@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "ready_since": null,
+   "state": "ready-for-human",
+   "version": 1,
+   "evidence": "247a83a88d9c8137bb3a6e55852af7072ae5d633d19918fb1b9661efdd0c0975",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "### PR Hygiene\nState: **ready-for-human**",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"247a83a88d9c8137bb3a6e55852af7072ae5d633d19918fb1b9661efdd0c0975\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"ready-for-human\",\"version\":1} -->\n\n### PR Hygiene\nState: **ready-for-human**",
+ "tests": [
+  "test_checklist.RecordTests.test_the_first_pass_converts_a_standing_record_of_this_move_rather_than_announcing_it"
+ ],
+ "python": "3.12"
+}

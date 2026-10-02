@@ -1,0 +1,19 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "files": [
+    {
+     "filename": "a.sh",
+     "status": "modified",
+     "shape": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+   ]
+  }
+ },
+ "output": null,
+ "tests": [
+  "test_policy.PolicyTests.test_a_change_with_no_content_is_not_carried"
+ ],
+ "python": "3.12"
+}

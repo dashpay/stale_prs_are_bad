@@ -1,0 +1,28 @@
+{
+ "function": "main.state_record",
+ "inputs": {
+  "pr": {},
+  "result": {
+   "number": 4660,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "state": "waiting-self-review",
+   "admitted_at": "2026-09-01T10:00:00Z",
+   "ready_since": "2026-09-02T10:00:00Z"
+  },
+  "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+ },
+ "output": {
+  "number": 4660,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "admitted_at": "2026-09-01T10:00:00Z",
+  "ready_since": "2026-09-02T10:00:00Z",
+  "state": "waiting-self-review",
+  "version": 1,
+  "evidence": "9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854",
+  "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+ },
+ "tests": [
+  "test_checklist.StaleMarkTests.test_only_the_current_record_is_rewritten"
+ ],
+ "python": "3.12"
+}

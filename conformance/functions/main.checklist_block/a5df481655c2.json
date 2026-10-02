@@ -1,0 +1,27 @@
+{
+ "function": "main.checklist_block",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "alice",
+   "state": "ready-to-merge",
+   "status": "success",
+   "blockers": [],
+   "reviewers": [],
+   "areas": [
+    "core"
+   ],
+   "admitted_at": "2026-09-11T00:00:00Z",
+   "ready_since": null
+  }
+ },
+ "output": null,
+ "tests": [
+  "test_main.PublicationTests.test_changed_other_pr_admission_blocks_success",
+  "test_main.PublicationTests.test_noop_success_rechecks_reviews_after_admission_history_reads",
+  "test_main.PublicationTests.test_own_new_admission_is_expected_during_success_revalidation",
+  "test_main.PublicationTests.test_review_change_during_publication_cannot_publish_success"
+ ],
+ "python": "3.12"
+}

@@ -1,0 +1,66 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "llbartekll",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "packages/swift-sdk/Sources/a.swift",
+     "status": "modified",
+     "content": "cccccccccccccccccccccccccccccccccccccccc",
+     "shape": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+   ],
+   "reviews": [
+    {
+     "id": 5,
+     "user": "romchornyi",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:30:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [
+    {
+     "id": 1,
+     "user": "llbartekll",
+     "body": "/skip-bots",
+     "created_at": "2026-09-11T10:00:00Z",
+     "updated_at": "2026-09-11T10:00:00Z"
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "llbartekll": "write",
+    "romchornyi": "write",
+    "QuantumExplorer": "admin",
+    "shumkov": "admin",
+    "ktechmidas": "admin"
+   },
+   "controller_state": null,
+   "labels": [],
+   "complete": true,
+   "build": "green",
+   "head_seen_at": "2026-09-11T09:00:00Z",
+   "body": ""
+  }
+ },
+ "output": "9c496e0f6522b2244d29994c20fd603cd4a3ec83f908af12cd9c0ed679fe1d37",
+ "tests": [
+  "test_checklist.PublishTests.test_a_comment_carrying_both_records_is_left_alone_when_it_agrees",
+  "test_checklist.PublishTests.test_the_diff_is_written_beside_the_record_not_inside_it",
+  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+ ],
+ "python": "3.12"
+}

@@ -1,0 +1,39 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "alice",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "state": "open",
+   "draft": false,
+   "labels": [],
+   "requested_reviewers": [],
+   "controller_comment_id": null,
+   "reviews": [],
+   "comments": [],
+   "created_at": "2026-09-11T12:00:00Z",
+   "lifecycle_at": null,
+   "build": "green",
+   "body": "",
+   "controller_state": {
+    "number": 1,
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "admitted_at": "2026-09-11T00:00:00Z",
+    "ready_since": null,
+    "state": "ready-to-merge",
+    "version": 1,
+    "evidence": "f1cbbfdaea5007661654a73a2e233c08e8dc30d46eb674ceb085ffe7d3936034",
+    "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+   }
+  }
+ },
+ "output": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+ "tests": [
+  "test_main.PublicationTests.test_noop_success_rechecks_reviews_after_admission_history_reads",
+  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+ ],
+ "python": "3.12"
+}

@@ -1,0 +1,31 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 7,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-01T10:00:00Z",
+   "ready_since": null,
+   "state": "waiting-bots",
+   "version": 1,
+   "evidence": "9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "x",
+  "diff": {
+   "number": 7,
+   "diff": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "diff_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "receipts": {}
+  }
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-01T10:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":7,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"diff_heads\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"],\"number\":7,\"receipts\":{}} -->\n\nx",
+ "tests": [
+  "test_github.EngineIdentityTests.test_a_listed_identity_continues_the_record",
+  "test_github.EngineIdentityTests.test_an_unlisted_identity_is_nobodys",
+  "test_github.EngineIdentityTests.test_only_the_bot_spelling_counts_in_any_case"
+ ],
+ "python": "3.12"
+}

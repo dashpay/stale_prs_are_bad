@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "ready_since": null,
+   "state": "waiting-self-review",
+   "version": 1,
+   "evidence": "f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nBots are done — your move: do something else.\nFull checklist in the description.",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-self-review\",\"version\":1} -->\n\n<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nBots are done — your move: do something else.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.PublishTests.test_the_same_move_on_the_same_head_is_kept_current_in_place"
+ ],
+ "python": "3.12"
+}

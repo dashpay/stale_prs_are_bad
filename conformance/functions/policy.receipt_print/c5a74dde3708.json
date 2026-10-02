@@ -1,0 +1,14 @@
+{
+ "function": "policy.receipt_print",
+ "inputs": {
+  "comment": {
+   "id": 1,
+   "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- recent_review_start -->\nNo actionable comments were generated.\n<details><summary>⚙️ Run configuration</summary>\nRun ID: d5a7d983\n</details>\n<!-- recent_review_end -->\n<!-- walkthrough_start -->\n<!-- tips_start -->\n| Layer / File(s) | Summary |\n| :--- | :--- |\n| `a.rs` | Adds a field and its tests. |\n<!-- walkthrough_end -->\n<!-- final_review_risk_start -->\n**Merge Risk:** Minimal\n<!-- final_review_risk_coverage:{\"sourceCommitId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"coveredCommitId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"reviewed\"} -->\n\n<!-- final_review_risk_end -->\n<!-- pre_merge_checks_walkthrough_start -->\n<summary>🚥 Pre-merge checks | ✅ Passed</summary>\n\n| Check name | Status | Explanation |\n| :---: | :--- | :--- |\n| Title check | ✅ Passed | It reads well. |\n<!-- pre_merge_checks_walkthrough_end -->\n<!-- tips_start -->\n<details><summary>🪧 Tips</summary>\nChat with CodeRabbit.\n</details>\n<!-- tips_end -->\n"
+  }
+ },
+ "output": "4c5ef28fd717e9683faf05684711dcb3303fd56030c32cb5bcd1c9c7946c609f",
+ "tests": [
+  "test_policy.PolicyTests.test_a_marker_in_text_it_echoes_cannot_delete_the_report"
+ ],
+ "python": "3.12"
+}

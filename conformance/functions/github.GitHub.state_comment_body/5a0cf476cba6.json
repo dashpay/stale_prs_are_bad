@@ -1,0 +1,26 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "admitted_at": null,
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "evidence": "9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "number": 4660,
+   "ready_since": null,
+   "state": "not-governed",
+   "version": 1
+  },
+  "body": "PR Hygiene is not checking this pull request: it targets `feature`, outside the policy. What was said about its diffs is kept for when it returns; it will queue for a review slot again.",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":null,\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":4660,\"ready_since\":null,\"state\":\"not-governed\",\"version\":1} -->\n\nPR Hygiene is not checking this pull request: it targets `feature`, outside the policy. What was said about its diffs is kept for when it returns; it will queue for a review slot again.",
+ "tests": [
+  "test_checklist.StaleMarkTests.test_a_record_already_set_aside_is_not_written_again",
+  "test_checklist.StaleMarkTests.test_a_retired_name_alone_is_swept_where_the_record_says_it_is_ours",
+  "test_checklist.StaleMarkTests.test_only_the_current_record_is_rewritten",
+  "test_checklist.StaleMarkTests.test_the_diff_history_is_kept_and_the_slot_given_up",
+  "test_checklist.StaleMarkTests.test_the_record_is_set_aside_before_the_marks_go"
+ ],
+ "python": "3.12"
+}

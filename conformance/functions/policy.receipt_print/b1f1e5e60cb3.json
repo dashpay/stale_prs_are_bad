@@ -1,0 +1,14 @@
+{
+ "function": "policy.receipt_print",
+ "inputs": {
+  "comment": {
+   "id": 1,
+   "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- recent_review_start -->\nNo actionable comments were generated.\n<details><summary>⚙️ Run configuration</summary>\nRun ID: d5a7d983\n</details>\n<!-- recent_review_end -->\n<!-- walkthrough_start -->\n| Layer / File(s) | Summary |\n| :--- | :--- |\n| `a.rs` | Adds a field and its tests. |\n<!-- walkthrough_end -->\n<!-- final_review_risk_start -->\n**Merge Risk:** Minimal\n<!-- final_review_risk_coverage:{\"sourceCommitId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"coveredCommitId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"reviewed\"} -->\n\n<!-- final_review_risk_end -->\n<!-- pre_merge_checks_walkthrough_start -->\n<summary>🚥 Pre-merge checks | ✅ Passed</summary>\n\n| Check name | Status | Explanation |\n| :---: | :--- | :--- |\n| Docstring Coverage | ✅ Passed | It identifies the change well. |\n| Title check | ✅ Passed | It identifies the change well. |\n<!-- pre_merge_checks_walkthrough_end -->\n<!-- tips_start -->\n<details><summary>🪧 Tips</summary>\nChat with CodeRabbit.\n</details>\n<!-- tips_end -->\n"
+  }
+ },
+ "output": "fa0617f9f9269a9d22dbe30be313c847af9cdd3c814ec39ba09027aca800e03b",
+ "tests": [
+  "test_policy.PolicyTests.test_the_checks_are_read_as_a_set_and_their_explanations_not_at_all"
+ ],
+ "python": "3.12"
+}

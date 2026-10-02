@@ -1,0 +1,17 @@
+{
+ "function": "policy.receipt_print",
+ "inputs": {
+  "comment": {
+   "id": 21,
+   "user": "coderabbitai[bot]",
+   "created_at": "2026-09-11T12:00:00Z",
+   "updated_at": "2026-09-11T12:00:00Z",
+   "body": "<!-- final_review_risk_start -->\n**Merge Risk:** Minimal\n<!-- final_review_risk_coverage:{\"sourceCommitId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"coveredCommitId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"reviewed\"} -->\n<!-- final_review_risk_end -->"
+  }
+ },
+ "output": "4e425cdf0d54898b906b495844d743654cbe2ac91ba51dc900bda32efb78c108",
+ "tests": [
+  "test_checklist.PublishTests.test_what_the_bot_said_is_written_down_so_an_edit_can_be_told_from_a_report"
+ ],
+ "python": "3.12"
+}

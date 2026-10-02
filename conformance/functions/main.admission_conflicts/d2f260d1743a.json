@@ -1,0 +1,168 @@
+{
+ "function": "main.admission_conflicts",
+ "inputs": {
+  "policy": {
+   "version": 1,
+   "repository": "dashpay/platform",
+   "max_active_prs": 5,
+   "target_branches": [
+    "v4.2-dev"
+   ],
+   "fallback": {
+    "owners": [
+     "fallback"
+    ],
+    "reviewers": []
+   },
+   "areas": [
+    {
+     "id": "drive",
+     "paths": [
+      "packages/drive/"
+     ],
+     "owners": [
+      "owner"
+     ],
+     "reviewers": [
+      "reviewer"
+     ]
+    }
+   ]
+  },
+  "candidates": [
+   {
+    "number": 1,
+    "author": "alice",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state": "open",
+    "draft": false,
+    "labels": [],
+    "requested_reviewers": [],
+    "controller_comment_id": null,
+    "reviews": [],
+    "comments": [],
+    "created_at": "2026-09-11T12:00:00Z",
+    "lifecycle_at": null,
+    "build": "green",
+    "body": "",
+    "controller_state": {
+     "admitted_at": "2026-09-11T12:00:00Z"
+    }
+   },
+   {
+    "number": 2,
+    "author": "alice",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state": "open",
+    "draft": false,
+    "labels": [],
+    "requested_reviewers": [],
+    "controller_comment_id": null,
+    "reviews": [],
+    "comments": [],
+    "created_at": "2026-09-11T12:00:00Z",
+    "lifecycle_at": null,
+    "build": "green",
+    "body": "",
+    "controller_state": {
+     "admitted_at": "2026-09-11T12:00:00Z"
+    }
+   },
+   {
+    "number": 3,
+    "author": "alice",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state": "open",
+    "draft": false,
+    "labels": [],
+    "requested_reviewers": [],
+    "controller_comment_id": null,
+    "reviews": [],
+    "comments": [],
+    "created_at": "2026-09-11T12:00:00Z",
+    "lifecycle_at": null,
+    "build": "green",
+    "body": "",
+    "controller_state": {
+     "admitted_at": "2026-09-11T12:00:00Z"
+    }
+   },
+   {
+    "number": 4,
+    "author": "alice",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state": "open",
+    "draft": false,
+    "labels": [],
+    "requested_reviewers": [],
+    "controller_comment_id": null,
+    "reviews": [],
+    "comments": [],
+    "created_at": "2026-09-11T12:00:00Z",
+    "lifecycle_at": null,
+    "build": "green",
+    "body": "",
+    "controller_state": {
+     "admitted_at": "2026-09-11T12:00:00Z"
+    }
+   },
+   {
+    "number": 5,
+    "author": "alice",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state": "open",
+    "draft": false,
+    "labels": [],
+    "requested_reviewers": [],
+    "controller_comment_id": null,
+    "reviews": [],
+    "comments": [],
+    "created_at": "2026-09-11T12:00:00Z",
+    "lifecycle_at": null,
+    "build": "green",
+    "body": "",
+    "controller_state": {
+     "admitted_at": "2026-09-11T12:00:00Z"
+    }
+   },
+   {
+    "number": 6,
+    "author": "alice",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state": "open",
+    "draft": false,
+    "labels": [],
+    "requested_reviewers": [],
+    "controller_comment_id": null,
+    "reviews": [],
+    "comments": [],
+    "created_at": "2026-09-11T12:00:00Z",
+    "lifecycle_at": null,
+    "build": "green",
+    "body": "",
+    "controller_state": {
+     "admitted_at": "2026-09-11T12:00:00Z"
+    }
+   }
+  ]
+ },
+ "output": [
+  "alice"
+ ],
+ "tests": [
+  "test_main.PublicationTests.test_a_surplus_of_admissions_is_detected"
+ ],
+ "python": "3.12"
+}

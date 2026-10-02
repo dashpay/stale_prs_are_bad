@@ -1,0 +1,60 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "ZocoLini",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "dash-spv/src/lib.rs"
+    }
+   ],
+   "reviews": [
+    {
+     "id": 1,
+     "user": "thepastaclaw",
+     "state": "COMMENTED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+    },
+    {
+     "id": 2,
+     "user": "coderabbitai[bot]",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "owner": "write",
+    "reviewer": "write",
+    "fallback": "write",
+    "QuantumExplorer": "admin",
+    "xdustinface": "admin",
+    "ZocoLini": "write"
+   },
+   "controller_state": null,
+   "labels": [],
+   "complete": true,
+   "build": "green"
+  }
+ },
+ "output": null,
+ "tests": [
+  "test_repositories.RepositoryConfigurationTests.test_rust_dashcore_crates_are_owned_by_the_repository_wildcard"
+ ],
+ "python": "3.12"
+}

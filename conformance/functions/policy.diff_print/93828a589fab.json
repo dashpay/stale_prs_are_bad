@@ -1,0 +1,90 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "llbartekll",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "packages/swift-sdk/Sources/a.swift"
+    },
+    {
+     "filename": ".editorconfig"
+    },
+    {
+     "filename": ".github/workflows/swift-sdk-build.yml"
+    },
+    {
+     "filename": ".github/workflows/tests.yml"
+    },
+    {
+     "filename": "AGENTS.md"
+    }
+   ],
+   "reviews": [
+    {
+     "id": 5,
+     "user": "romchornyi",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:30:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [
+    {
+     "id": 0,
+     "user": "github-actions[bot]",
+     "created_at": "2026-09-10T00:00:00Z",
+     "updated_at": "2026-09-10T00:00:00Z",
+     "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"530eaba0cffa87c939ae979638f6d6b04ac027818a75ec91b5a3938259fbf679\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n\nold text"
+    },
+    {
+     "id": 1,
+     "user": "github-actions[bot]",
+     "created_at": "2026-09-11T00:00:00Z",
+     "updated_at": "2026-09-11T00:00:00Z",
+     "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"530eaba0cffa87c939ae979638f6d6b04ac027818a75ec91b5a3938259fbf679\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n\nPR Hygiene: the checklist is in the description."
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "llbartekll": "write",
+    "romchornyi": "write",
+    "QuantumExplorer": "admin",
+    "shumkov": "admin",
+    "ktechmidas": "admin"
+   },
+   "controller_state": {
+    "number": 1,
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "admitted_at": "2026-09-11T12:00:00Z",
+    "ready_since": null,
+    "state": "waiting-bots",
+    "version": 1,
+    "evidence": "530eaba0cffa87c939ae979638f6d6b04ac027818a75ec91b5a3938259fbf679",
+    "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+   },
+   "labels": [],
+   "complete": true,
+   "build": "green",
+   "head_seen_at": "2026-09-11T09:00:00Z",
+   "body": ""
+  }
+ },
+ "output": null,
+ "tests": [
+  "test_checklist.RecordTests.test_two_standing_comments_converge_to_one",
+  "test_workflow.TargetCheckoutTests.test_the_scan_between_sweeps_does_not_pay_for_the_clone"
+ ],
+ "python": "3.12"
+}

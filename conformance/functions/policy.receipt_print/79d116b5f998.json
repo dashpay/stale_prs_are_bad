@@ -1,0 +1,14 @@
+{
+ "function": "policy.receipt_print",
+ "inputs": {
+  "comment": {
+   "id": 1,
+   "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- recent_review_start -->\nActionable comments posted: 2\n<details><summary>⚙️ Run configuration</summary>\nRun ID: d5a7d983\n</details>\n<!-- recent_review_end -->\n<!-- walkthrough_start -->\n| Layer / File(s) | Summary |\n| :--- | :--- |\n| `a.rs` | Adds a field and its tests. |\n<!-- walkthrough_end -->\n<!-- final_review_risk_start -->\n**Merge Risk:** Minimal\n<!-- final_review_risk_coverage:{\"sourceCommitId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"coveredCommitId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"reviewed\"} -->\n\n<!-- final_review_risk_end -->\n<!-- pre_merge_checks_walkthrough_start -->\n<summary>🚥 Pre-merge checks | ✅ Passed</summary>\n\n| Check name | Status | Explanation |\n| :---: | :--- | :--- |\n| Title check | ✅ Passed | It reads well. |\n<!-- pre_merge_checks_walkthrough_end -->\n<!-- tips_start -->\n<details><summary>🪧 Tips</summary>\nChat with CodeRabbit.\n</details>\n<!-- tips_end -->\n"
+  }
+ },
+ "output": "5dc9399f0a9fbbb0a5abf180e413fa0e6d9b8e3411887e151c9f18216859ea3f",
+ "tests": [
+  "test_policy.PolicyTests.test_what_it_found_is_read_and_which_run_found_it_is_not"
+ ],
+ "python": "3.12"
+}

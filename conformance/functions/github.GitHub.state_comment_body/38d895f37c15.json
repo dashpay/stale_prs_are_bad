@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "ready_since": null,
+   "state": "waiting-author",
+   "version": 1,
+   "evidence": "530c6fff435ae3278bc63cb591e026ea25b12b629afa3e9604d2b8d87b843922",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nYour move: coderabbitai left review threads unresolved; resolve them.\nFull checklist in the description.",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"530c6fff435ae3278bc63cb591e026ea25b12b629afa3e9604d2b8d87b843922\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-author\",\"version\":1} -->\n\n<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nYour move: coderabbitai left review threads unresolved; resolve them.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.PublishTests.test_only_a_bot_saying_something_new_tells_the_author_again"
+ ],
+ "python": "3.12"
+}

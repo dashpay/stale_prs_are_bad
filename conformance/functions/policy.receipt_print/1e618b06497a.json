@@ -1,0 +1,14 @@
+{
+ "function": "policy.receipt_print",
+ "inputs": {
+  "comment": {
+   "id": 1,
+   "body": "<!-- final_review_risk_start -->A<!-- final_review_risk_end -->\n|B|✅|\n"
+  }
+ },
+ "output": "8467459edc9a203175e031c04993001236573ec2c59eb19020da6cd1a7ad23b5",
+ "tests": [
+  "test_policy.PolicyTests.test_a_finding_shaped_like_a_table_row_is_not_a_table_row"
+ ],
+ "python": "3.12"
+}

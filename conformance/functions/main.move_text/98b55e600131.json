@@ -1,0 +1,96 @@
+{
+ "function": "main.move_text",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "stranger",
+   "title": "title",
+   "url": "url",
+   "state": "ready-for-human",
+   "status": "pending",
+   "blockers": [
+    "Human approval or objection resolution is required",
+    "Nobody may approve drive: everyone who could has attested to it instead"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "drive"
+   ],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": "2026-09-11T11:00:00Z",
+   "nudge": [],
+   "waived": [],
+   "approvals": [
+    {
+     "area": "drive",
+     "files": [
+      "packages/drive/a.rs"
+     ],
+     "approvers": [],
+     "approved_by": [],
+     "owned": false
+    }
+   ],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": true,
+     "lines": [
+      "coderabbitai ✓",
+      "thepastaclaw ✓"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": true,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": true,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "drive",
+       "files": [
+        "packages/drive/a.rs"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": null,
+   "receipts": {}
+  }
+ },
+ "output": "<!-- pr-hygiene:move state=ready-for-human sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nReady for review — `drive`: nobody may approve.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.ChecklistTests.test_an_area_nobody_may_approve_is_said_so"
+ ],
+ "python": "3.12"
+}

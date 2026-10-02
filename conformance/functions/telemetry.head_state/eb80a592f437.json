@@ -1,0 +1,18 @@
+{
+ "function": "telemetry.head_state",
+ "inputs": {
+  "payload": {
+   "schema_version": 2
+  },
+  "repository": "dashpay/x",
+  "number": 7,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "head_seen_at": null,
+  "now": "2026-09-11T12:00:00Z"
+ },
+ "output": null,
+ "tests": [
+  "test_bot_timeouts.TelemetryReaderTests.test_rubbish_is_simply_absent"
+ ],
+ "python": "3.12"
+}

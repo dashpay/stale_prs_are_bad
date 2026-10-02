@@ -1,0 +1,378 @@
+{
+ "function": "policy.admit",
+ "inputs": {
+  "policy": {
+   "version": 1,
+   "repository": "dashpay/platform",
+   "max_active_prs": 5,
+   "target_branches": [
+    "v4.2-dev"
+   ],
+   "fallback": {
+    "owners": [
+     "fallback"
+    ],
+    "reviewers": []
+   },
+   "areas": [
+    {
+     "id": "drive",
+     "paths": [
+      "packages/drive/"
+     ],
+     "owners": [
+      "owner"
+     ],
+     "reviewers": [
+      "reviewer"
+     ]
+    }
+   ]
+  },
+  "prs": [
+   {
+    "number": 1,
+    "author": "owner",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": true,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "owner",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": {
+     "admitted_at": "2026-09-11T12:00:00Z"
+    },
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   },
+   {
+    "number": 2,
+    "author": "owner",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "another-branch",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "owner",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": null,
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   },
+   {
+    "number": 3,
+    "author": "owner",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "owner",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": null,
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   },
+   {
+    "number": 4,
+    "author": "owner",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "owner",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": null,
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   },
+   {
+    "number": 5,
+    "author": "owner",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "owner",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": null,
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   },
+   {
+    "number": 6,
+    "author": "owner",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "owner",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": null,
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   }
+  ],
+  "nowISO": "2026-09-11T12:00:00Z"
+ },
+ "output": {
+  "3": "2026-09-11T12:00:00Z",
+  "4": "2026-09-11T12:00:00Z",
+  "5": "2026-09-11T12:00:00Z",
+  "6": "2026-09-11T12:00:00Z"
+ },
+ "tests": [
+  "test_policy.PolicyTests.test_draft_releases_sticky_slot_and_retargeted_pr_is_excluded"
+ ],
+ "python": "3.12"
+}

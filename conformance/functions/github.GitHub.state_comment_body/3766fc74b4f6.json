@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 999,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "ready_since": null,
+   "state": "waiting-self-review",
+   "version": 1,
+   "evidence": "f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "another workflow, another pull request",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":999,\"ready_since\":null,\"state\":\"waiting-self-review\",\"version\":1} -->\n\nanother workflow, another pull request",
+ "tests": [
+  "test_checklist.SecondReviewTests.test_a_foreign_bot_comment_quoting_the_marker_is_left_alone"
+ ],
+ "python": "3.12"
+}

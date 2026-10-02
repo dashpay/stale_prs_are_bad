@@ -1,0 +1,29 @@
+{
+ "function": "main.state_record",
+ "inputs": {
+  "pr": {},
+  "result": {
+   "number": 4660,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "state": "waiting-bots",
+   "admitted_at": null,
+   "ready_since": null
+  },
+  "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+ },
+ "output": {
+  "number": 4660,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "admitted_at": null,
+  "ready_since": null,
+  "state": "waiting-bots",
+  "version": 1,
+  "evidence": "9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854",
+  "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+ },
+ "tests": [
+  "test_checklist.StaleMarkTests.test_labels_and_block_are_cleared_when_the_base_leaves_the_policy",
+  "test_checklist.StaleMarkTests.test_the_record_comment_of_another_pull_request_is_not_touched"
+ ],
+ "python": "3.12"
+}

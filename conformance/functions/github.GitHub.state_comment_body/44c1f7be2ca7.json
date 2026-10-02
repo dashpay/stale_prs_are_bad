@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "admitted_at": null,
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "evidence": "9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "number": 4660,
+   "ready_since": null,
+   "state": "not-governed",
+   "version": 1
+  },
+  "body": "PR Hygiene is not checking this pull request: it targets `keep-history-lifecycle`, outside the policy. What was said about its diffs is kept for when it returns; it will queue for a review slot again.",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":null,\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":4660,\"ready_since\":null,\"state\":\"not-governed\",\"version\":1} -->\n\nPR Hygiene is not checking this pull request: it targets `keep-history-lifecycle`, outside the policy. What was said about its diffs is kept for when it returns; it will queue for a review slot again.",
+ "tests": [
+  "test_checklist.StaleMarkTests.test_labels_and_block_are_cleared_when_the_base_leaves_the_policy"
+ ],
+ "python": "3.12"
+}

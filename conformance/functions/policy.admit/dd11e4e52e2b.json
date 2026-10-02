@@ -1,0 +1,65 @@
+{
+ "function": "policy.admit",
+ "inputs": {
+  "policy": {
+   "version": 1,
+   "repository": "dashpay/platform",
+   "max_active_prs": 5,
+   "target_branches": [
+    "v4.2-dev"
+   ],
+   "fallback": {
+    "owners": [
+     "fallback"
+    ],
+    "reviewers": []
+   },
+   "areas": [
+    {
+     "id": "drive",
+     "paths": [
+      "packages/drive/"
+     ],
+     "owners": [
+      "owner"
+     ],
+     "reviewers": [
+      "reviewer"
+     ]
+    }
+   ]
+  },
+  "prs": [
+   {
+    "number": 1,
+    "author": "alice",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state": "open",
+    "draft": false,
+    "labels": [],
+    "requested_reviewers": [],
+    "controller_comment_id": null,
+    "reviews": [],
+    "comments": [],
+    "created_at": "2026-09-11T12:00:00Z",
+    "lifecycle_at": null,
+    "build": "green",
+    "body": "",
+    "controller_state": null,
+    "controller_diff": null
+   }
+  ],
+  "nowISO": "2026-09-11T00:00:00Z"
+ },
+ "output": {
+  "1": "2026-09-11T00:00:00Z"
+ },
+ "tests": [
+  "test_main.PublicationTests.test_a_refused_ready_label_does_not_abort_the_pull_request",
+  "test_main.PublicationTests.test_a_refused_reviewer_request_does_not_abort_the_pull_request",
+  "test_main.PublicationTests.test_review_change_during_publication_cannot_publish_success"
+ ],
+ "python": "3.12"
+}

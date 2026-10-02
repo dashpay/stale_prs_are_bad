@@ -1,0 +1,199 @@
+{
+ "function": "main.state_record",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "llbartekll",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "packages/swift-sdk/Sources/a.swift"
+    },
+    {
+     "filename": ".editorconfig"
+    },
+    {
+     "filename": ".github/workflows/swift-sdk-build.yml"
+    },
+    {
+     "filename": ".github/workflows/tests.yml"
+    },
+    {
+     "filename": "AGENTS.md"
+    }
+   ],
+   "reviews": [
+    {
+     "id": 5,
+     "user": "romchornyi",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:30:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [
+    {
+     "id": 1,
+     "user": "llbartekll",
+     "body": "/skip-bots",
+     "created_at": "2026-09-11T10:00:00Z",
+     "updated_at": "2026-09-11T10:00:00Z"
+    },
+    {
+     "id": 9,
+     "user": "github-actions[bot]",
+     "created_at": "2026-09-11T12:00:00Z",
+     "updated_at": "2026-09-11T12:00:00Z",
+     "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":999,\"ready_since\":null,\"state\":\"waiting-self-review\",\"version\":1} -->\n\nanother workflow, another pull request"
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "llbartekll": "write",
+    "romchornyi": "write",
+    "QuantumExplorer": "admin",
+    "shumkov": "admin",
+    "ktechmidas": "admin"
+   },
+   "controller_state": null,
+   "labels": [],
+   "complete": true,
+   "build": "green",
+   "head_seen_at": "2026-09-11T09:00:00Z",
+   "body": ""
+  },
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "waiting-self-review",
+   "status": "pending",
+   "blockers": [
+    "Author must post /self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "Proceeded without coderabbitai: skipped by @llbartekll",
+    "Proceeded without thepastaclaw: skipped by @llbartekll"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "fallback",
+    "github",
+    "swift-sdk"
+   ],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [
+    "coderabbitai",
+    "thepastaclaw"
+   ],
+   "approvals": [],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": true,
+     "lines": [
+      "coderabbitai skipped by llbartekll",
+      "thepastaclaw skipped by llbartekll"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": false,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": true,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "swift-sdk",
+       "files": [
+        "packages/swift-sdk/Sources/a.swift"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      },
+      {
+       "area": "fallback",
+       "files": [
+        ".editorconfig",
+        "AGENTS.md"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "github",
+       "files": [
+        ".github/workflows/swift-sdk-build.yml",
+        ".github/workflows/tests.yml"
+       ],
+       "approvers": [
+        "ktechmidas",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {},
+   "skipped_by": "llbartekll"
+  },
+  "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+ },
+ "output": {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "admitted_at": "2026-09-11T12:00:00Z",
+  "ready_since": null,
+  "state": "waiting-self-review",
+  "version": 1,
+  "evidence": "f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36",
+  "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+ },
+ "tests": [
+  "test_checklist.SecondReviewTests.test_a_foreign_bot_comment_quoting_the_marker_is_left_alone"
+ ],
+ "python": "3.12"
+}

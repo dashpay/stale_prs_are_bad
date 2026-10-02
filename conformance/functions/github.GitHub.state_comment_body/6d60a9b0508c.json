@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "ready_since": null,
+   "state": "waiting-bots",
+   "version": 1,
+   "evidence": "f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "### PR Hygiene\nState: **waiting-bots**",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n\n### PR Hygiene\nState: **waiting-bots**",
+ "tests": [
+  "test_checklist.PublishTests.test_the_old_standing_comment_points_at_the_description_then_goes"
+ ],
+ "python": "3.12"
+}

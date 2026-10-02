@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 4660,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": null,
+   "ready_since": null,
+   "state": "waiting-bots",
+   "version": 1,
+   "evidence": "9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "PR Hygiene: the checklist is in the description.",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":null,\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":4660,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n\nPR Hygiene: the checklist is in the description.",
+ "tests": [
+  "test_checklist.StaleMarkTests.test_labels_and_block_are_cleared_when_the_base_leaves_the_policy"
+ ],
+ "python": "3.12"
+}

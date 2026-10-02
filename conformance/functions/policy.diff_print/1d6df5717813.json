@@ -1,0 +1,52 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "author",
+   "author_is_bot": false,
+   "body": "",
+   "labels": [],
+   "assignees": [
+    "romchornyi"
+   ],
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-01T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "https://github.com/dashpay/platform/pull/1",
+   "title": "Example",
+   "files": [
+    {
+     "filename": "a.rs",
+     "status": "modified",
+     "content": "cccccccccccccccccccccccccccccccccccccccc",
+     "shape": "f66a89464b010b341f1aff020e1ce988a94fabf234c1cdf681f812918d8b132d"
+    }
+   ],
+   "reviews": [],
+   "comments": [],
+   "threads": [],
+   "lifecycle_at": null,
+   "head_seen_at": null,
+   "build": "green",
+   "ready_published": false,
+   "requested_reviewers": [],
+   "controller_state": null,
+   "controller_comment_id": null,
+   "controller_diff": null,
+   "permissions": {
+    "owner": "admin"
+   },
+   "repo": "dashpay/platform",
+   "complete": true
+  }
+ },
+ "output": "2de568bd83e856433922484ab429e5f4d952619702feb9a60dfc295c371319cb",
+ "tests": [
+  "test_github.GitHubTests.test_a_file_read_without_its_patch_says_nothing_about_being_the_same_work"
+ ],
+ "python": "3.12"
+}

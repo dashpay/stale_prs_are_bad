@@ -1,0 +1,119 @@
+{
+ "function": "main.checklist_block",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "waiting-bots",
+   "status": "pending",
+   "blockers": [
+    "coderabbitai has not reported for the current head",
+    "thepastaclaw has not reported for the current head"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "fallback",
+    "github",
+    "swift-sdk"
+   ],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": null,
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [],
+   "approvals": [],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": false,
+     "lines": [
+      "coderabbitai not yet",
+      "thepastaclaw not yet"
+     ],
+     "skippable": true
+    },
+    {
+     "item": "self_review",
+     "done": false,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": true,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "swift-sdk",
+       "files": [
+        "packages/swift-sdk/Sources/a.swift"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      },
+      {
+       "area": "fallback",
+       "files": [
+        ".editorconfig",
+        "AGENTS.md"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "github",
+       "files": [
+        ".github/workflows/swift-sdk-build.yml",
+        ".github/workflows/tests.yml"
+       ],
+       "approvers": [
+        "ktechmidas",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {}
+  }
+ },
+ "output": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [ ] Bots — coderabbitai not yet · thepastaclaw not yet — `/skip-bots` proceeds without the ones not yet reported\n- [ ] Self-review — post `/self-reviewed`\n- [x] Within your 5 open PRs\n- [x] Build green\n- Approvals\n  - [x] `swift-sdk` — you own it\n  - [ ] files with no dedicated owner (`.editorconfig`, `AGENTS.md`) — QuantumExplorer or shumkov\n  - [ ] `github` (`.github/workflows/swift-sdk-build.yml`, `.github/workflows/tests.yml`) — ktechmidas or shumkov\n\nWhen every box is checked the `PR Hygiene` check passes and this can merge.\n<!-- pr-hygiene:end -->",
+ "tests": [
+  "test_checklist.ChecklistTests.test_the_skip_is_offered_only_while_a_bot_is_still_owed",
+  "test_checklist.PublishTests.test_a_record_line_somebody_truncated_does_not_wedge_the_pull_request",
+  "test_checklist.PublishTests.test_the_old_standing_comment_points_at_the_description_then_goes",
+  "test_checklist.PublishTests.test_words_that_cannot_be_written_back_are_replaced_not_refused",
+  "test_checklist.RecordTests.test_two_standing_comments_converge_to_one",
+  "test_checklist.SecondReviewTests.test_the_holder_is_the_comment_the_record_was_read_from"
+ ],
+ "python": "3.12"
+}

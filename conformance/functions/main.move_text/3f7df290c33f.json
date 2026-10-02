@@ -1,0 +1,24 @@
+{
+ "function": "main.move_text",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "alice",
+   "state": "ready-for-human",
+   "status": "success",
+   "blockers": [],
+   "reviewers": [],
+   "areas": [
+    "core"
+   ],
+   "admitted_at": "2026-09-11T00:00:00Z",
+   "ready_since": null
+  }
+ },
+ "output": "<!-- pr-hygiene:move state=ready-for-human sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nReady for review — needs an owner.\nFull checklist in the description.",
+ "tests": [
+  "test_main.PublicationTests.test_a_refused_ready_label_does_not_abort_the_pull_request"
+ ],
+ "python": "3.12"
+}

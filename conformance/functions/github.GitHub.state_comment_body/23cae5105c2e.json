@@ -1,0 +1,31 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 4660,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-01T10:00:00Z",
+   "ready_since": "2026-09-02T10:00:00Z",
+   "state": "waiting-self-review",
+   "version": 1,
+   "evidence": "9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "Ready for review — `dpp`: shumkov.\nFull checklist in the description.",
+  "diff": {
+   "number": 4660,
+   "diff": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "diff_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "receipts": {
+    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee": "2026-09-02T09:00:00Z"
+   }
+  }
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-01T10:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":4660,\"ready_since\":\"2026-09-02T10:00:00Z\",\"state\":\"waiting-self-review\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"diff_heads\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"],\"number\":4660,\"receipts\":{\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\":\"2026-09-02T09:00:00Z\"}} -->\n\nReady for review — `dpp`: shumkov.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.StaleMarkTests.test_only_the_current_record_is_rewritten"
+ ],
+ "python": "3.12"
+}

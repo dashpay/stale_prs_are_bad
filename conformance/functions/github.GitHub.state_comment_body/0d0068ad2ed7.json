@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "ready_since": "2026-09-11T15:00:00Z",
+   "state": "ready-for-human",
+   "version": 1,
+   "evidence": "247a83a88d9c8137bb3a6e55852af7072ae5d633d19918fb1b9661efdd0c0975",
+   "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+  },
+  "body": "<!-- pr-hygiene:move state=ready-for-human sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nReady for review — files with no dedicated owner: QuantumExplorer or shumkov · `github`: ktechmidas or shumkov.\nFull checklist in the description.",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be\",\"evidence\":\"247a83a88d9c8137bb3a6e55852af7072ae5d633d19918fb1b9661efdd0c0975\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":\"2026-09-11T15:00:00Z\",\"state\":\"ready-for-human\",\"version\":1} -->\n\n<!-- pr-hygiene:move state=ready-for-human sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nReady for review — files with no dedicated owner: QuantumExplorer or shumkov · `github`: ktechmidas or shumkov.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.RecordTests.test_ready_since_does_not_drift_between_announcements"
+ ],
+ "python": "3.12"
+}

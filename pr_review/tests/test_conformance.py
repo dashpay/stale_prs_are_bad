@@ -496,11 +496,11 @@ class EvaluateCaseTests(unittest.TestCase):
         # A case pins what the Python that made it answered, and `fromisoformat`
         # answers differently from one minor version to the next: a corpus
         # harvested on the wrong one would hold another engine to that one.
-        with tempfile.TemporaryDirectory() as root, \
-                patch.object(conformance.sys, 'version_info', (3, 13, 0, 'final', 0)), \
-                self.assertRaisesRegex(conformance.RecordingError, r'Python 3\.12 only'):
-            conformance.harvest(Path(root, 'evaluate'))
-        self.assertFalse(Path(root, 'evaluate').exists())
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(conformance.sys, 'version_info', (3, 13, 0, 'final', 0)), \
+                    self.assertRaisesRegex(conformance.RecordingError, r'Python 3\.12 only'):
+                conformance.harvest(Path(root, 'evaluate'), Path(root, 'functions'))
+            self.assertEqual(list(Path(root).iterdir()), [], 'nothing is written')
 
     def test_only_text_python_wrote_is_marked_as_an_exception(self):
         policy, pr = fixture()
@@ -527,3 +527,64 @@ class EvaluateCaseTests(unittest.TestCase):
             case['result']['blockers'] = ['something else']
             path.write_text(json.dumps(case))
             self.assertEqual(conformance.replay_case(path), [f'{path.name}: blockers differ'])
+
+
+class FunctionCaseTests(unittest.TestCase):
+    CASES = Path(__file__).resolve().parents[2] / 'conformance' / 'functions'
+
+    def cases(self, function):
+        return sorted((self.CASES / function).glob('*.json'))
+
+    def replay(self, paths):
+        return [line for path in paths for line in conformance.replay_function_case(path)]
+
+    def test_every_function_has_committed_cases_and_every_one_replays(self):
+        for function in conformance.FUNCTIONS:
+            with self.subTest(function=function):
+                paths = self.cases(function)
+                self.assertTrue(paths, 'harvested and committed')
+                self.assertEqual(self.replay(paths), [])
+
+    def test_one_character_more_in_what_the_engine_writes_fails_its_cases(self):
+        # The checklist and the move comment are read back on the next run and
+        # compared as text: a port one character off rewrites them every run.
+        for function in ('main.checklist_block', 'main.move_text'):
+            name = function.split('.')[1]
+            real = getattr(main, name)
+            with self.subTest(function=function), \
+                    patch.object(main, name, side_effect=lambda *a, real=real, **k: (real(*a, **k) or '') + ' '):
+                failed = self.replay(self.cases(function))
+            self.assertTrue(failed and all(line.endswith('output differs') for line in failed), failed)
+
+    def test_an_edited_output_is_caught(self):
+        source = next(p for p in self.cases('policy.admit') if len(json.loads(p.read_text())['output']) > 1)
+        case = json.loads(source.read_text())
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root, 'policy.admit', source.name)
+            path.parent.mkdir()
+            path.write_text(json.dumps(case))
+            self.assertEqual(self.replay([path]), [])
+            # The same entries in another order are other bytes.
+            case['output'] = dict(reversed(list(case['output'].items())))
+            path.write_text(json.dumps(case))
+            self.assertEqual(self.replay([path]), [f'policy.admit/{source.name}: output differs'])
+
+    def test_a_set_is_written_in_order(self):
+        # A set iterates in an order that moves with the hash seed; a case
+        # written in that order would differ from one harvest to the next.
+        self.assertEqual(conformance._written({'b', 'a', 'c'}), ['a', 'b', 'c'])
+        written = [json.loads(p.read_text())['output'] for p in self.cases('main.admission_conflicts')]
+        self.assertTrue(any(written), 'a case where somebody holds too many admissions')
+        self.assertTrue(all(output == sorted(output) for output in written))
+
+    def test_a_case_can_only_name_a_function_the_corpus_holds(self):
+        # A case is data: it must not be able to name any callable it likes.
+        with self.assertRaises(conformance.RecordingError):
+            conformance.function_case_result({'function': 'main.os.system', 'inputs': {'command': 'true'}})
+
+    def test_replay_counts_function_cases_as_their_own_kind(self):
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            code = conformance.main(['replay', str(self.CASES / 'telemetry.head_state')])
+        self.assertEqual(code, 0)
+        count = len(self.cases('telemetry.head_state'))
+        self.assertIn(f'0 recording(s), 0 evaluate case(s), {count} function case(s), 0 failed', printed.getvalue())

@@ -39,8 +39,9 @@ jobs:
         # this one no longer gives.
         working-directory: proposed
         run: |
-          python3 -m pr_review.conformance harvest "$RUNNER_TEMP/evaluate"
+          python3 -m pr_review.conformance harvest "$RUNNER_TEMP/evaluate" --functions "$RUNNER_TEMP/functions"
           diff -r conformance/evaluate "$RUNNER_TEMP/evaluate"
+          diff -r conformance/functions "$RUNNER_TEMP/functions"
       - name: Clone the default branch of every governed repository
         # Policies are read live by callers. Catch missing paths before rollout,
         # instead of discovering them in a repository's reconciliation jobs.

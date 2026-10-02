@@ -1,0 +1,32 @@
+{
+ "function": "main.state_record",
+ "inputs": {
+  "pr": {},
+  "result": {
+   "number": 7,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "state": "waiting-bots",
+   "admitted_at": "2026-09-01T10:00:00Z",
+   "ready_since": null
+  },
+  "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+ },
+ "output": {
+  "number": 7,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "admitted_at": "2026-09-01T10:00:00Z",
+  "ready_since": null,
+  "state": "waiting-bots",
+  "version": 1,
+  "evidence": "9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854",
+  "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+ },
+ "tests": [
+  "test_github.EngineIdentityTests.test_a_listed_identity_continues_the_record",
+  "test_github.EngineIdentityTests.test_a_status_by_a_listed_identity_is_the_engines_own",
+  "test_github.EngineIdentityTests.test_an_unlisted_identity_is_nobodys",
+  "test_github.EngineIdentityTests.test_only_the_bot_spelling_counts_in_any_case",
+  "test_github.EngineIdentityTests.test_the_list_is_lowercase"
+ ],
+ "python": "3.12"
+}

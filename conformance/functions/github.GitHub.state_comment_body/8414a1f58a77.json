@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "ready_since": null,
+   "state": "waiting-author",
+   "version": 1,
+   "evidence": "ff0a7660fefffd9a22365450959b60becf4ecc8497732ee29dba77020e4dfd4d",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nBots are done — your move: address romchornyi requested changes, then post `/self-reviewed`.\nFull checklist in the description.",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"ff0a7660fefffd9a22365450959b60becf4ecc8497732ee29dba77020e4dfd4d\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-author\",\"version\":1} -->\n\n<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nBots are done — your move: address romchornyi requested changes, then post `/self-reviewed`.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.PublishTests.test_a_bot_reporting_while_an_objection_waits_tells_the_author_again"
+ ],
+ "python": "3.12"
+}
