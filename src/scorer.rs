@@ -444,7 +444,6 @@ pub fn build_snapshot(
 mod tests {
     use super::*;
     use crate::model::{AnalyzedThread, Mergeable, RawPr};
-    use crate::policy::{Area, Roster};
     use chrono::TimeZone;
 
     const REPO: &str = "dashpay/platform";
@@ -459,25 +458,23 @@ mod tests {
 
     /// One area (`packages/wasm-sdk/` → shumkov owns, QuantumExplorer reviews)
     /// and a fallback owned by fallback-owner.
+    fn wasm_policy_json() -> serde_json::Value {
+        serde_json::json!({
+            "version": 1, "repository": "dashpay/example", "max_active_prs": 5,
+            "target_branches": ["master"],
+            "fallback": {"owners": ["fallback-owner"], "reviewers": []},
+            "areas": [{"id": "wasm-sdk", "paths": ["packages/wasm-sdk/"],
+                       "owners": ["shumkov"], "reviewers": ["QuantumExplorer"]}]
+        })
+    }
+
+    fn policies_of(policy: serde_json::Value) -> HashMap<String, Policy> {
+        let policy = Policy::parse(&policy.to_string()).unwrap();
+        HashMap::from([(REPO.to_string(), policy)])
+    }
+
     fn wasm_policy() -> HashMap<String, Policy> {
-        HashMap::from([(
-            REPO.to_string(),
-            Policy {
-                repository: "dashpay/example".into(),
-                fallback: Roster {
-                    owners: vec!["fallback-owner".into()],
-                    reviewers: vec![],
-                },
-                areas: vec![Area {
-                    id: "wasm-sdk".into(),
-                    paths: vec!["packages/wasm-sdk/".into()],
-                    owners: vec!["shumkov".into()],
-                    reviewers: vec!["QuantumExplorer".into()],
-                    unresolved: vec![],
-                }],
-                ..Policy::default()
-            },
-        )])
+        policies_of(wasm_policy_json())
     }
 
     fn pr(author: &str, threads: Vec<AnalyzedThread>, needs_action: bool) -> AnalyzedPr {
@@ -729,9 +726,9 @@ mod tests {
     fn unresolved_area_is_surfaced() {
         let cfg = Config::default();
         let now = dt("2026-05-19T00:00:00Z");
-        let mut policies = wasm_policy();
-        policies.get_mut(REPO).unwrap().areas[0].unresolved =
-            vec!["Daniel: GitHub username required".into()];
+        let mut policy = wasm_policy_json();
+        policy["areas"][0]["unresolved"] = serde_json::json!(["Daniel: GitHub username required"]);
+        let policies = policies_of(policy);
         let mut pr = analyzed("alice", vec![], false);
         pr.raw.changed_files = vec!["packages/wasm-sdk/x.ts".into()];
         let scored = score_prs(vec![pr], &cfg, &policies, now);

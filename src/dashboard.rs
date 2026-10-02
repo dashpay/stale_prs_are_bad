@@ -19,10 +19,6 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// The engine's limit when a policy predates `max_active_prs` (it requires 5).
 const DEFAULT_SLOT_LIMIT: u32 = 5;
 
-/// The review engine's own review bots (`pr_review.policy.BOTS`). They
-/// review PRs and may open their own; a policy may not name them at all.
-const ENGINE_REVIEW_BOTS: &[&str] = &["thepastaclaw", "coderabbitai", "coderabbitai[bot]"];
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Dashboard {
     pub schema_version: u32,
@@ -403,7 +399,7 @@ pub fn build(inp: &Inputs<'_>) -> Dashboard {
                 slot_limit: inp
                     .policies
                     .get(&r.repo)
-                    .map_or(DEFAULT_SLOT_LIMIT, |p| p.max_active_prs),
+                    .map_or(DEFAULT_SLOT_LIMIT, |p| p.max_active_prs()),
                 closed_error: inp
                     .closed
                     .get(&r.repo)
@@ -708,7 +704,7 @@ pub fn part(state: &PolicyState, login: &str) -> Option<(Vec<AreaPart>, bool)> {
 pub fn kind(login: &str, policies: &HashMap<String, Policy>) -> Kind {
     let named = policies
         .values()
-        .flat_map(|p| &p.bot_authors)
+        .flat_map(|p| p.bot_authors())
         .any(|b| b.eq_ignore_ascii_case(login));
     if login.ends_with("[bot]") || named || is_review_bot(login) {
         Kind::Bot
@@ -717,8 +713,10 @@ pub fn kind(login: &str, policies: &HashMap<String, Policy>) -> Kind {
     }
 }
 
+/// One of the engine's review bots. They review PRs and may open their
+/// own; a policy may not name them at all.
 fn is_review_bot(login: &str) -> bool {
-    ENGINE_REVIEW_BOTS
+    pr_hygiene_engine::policy::BOTS
         .iter()
         .any(|b| b.eq_ignore_ascii_case(login))
 }
@@ -745,12 +743,12 @@ fn people(prs: &[PrOut], inp: &Inputs<'_>) -> Vec<PersonOut> {
     for (repo, policy) in inp.policies {
         let rosters = std::iter::once((
             "fallback",
-            &policy.fallback.owners,
-            &policy.fallback.reviewers,
+            &policy.fallback().owners,
+            &policy.fallback().reviewers,
         ))
         .chain(
             policy
-                .areas
+                .areas()
                 .iter()
                 .map(|a| (a.id.as_str(), &a.owners, &a.reviewers)),
         );
@@ -835,15 +833,23 @@ mod tests {
         Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap()
     }
 
+    /// A policy governing the `v*-dev` branches, with one bot account, the
+    /// fallback owned by `fallback_owner`, and `areas`.
+    fn policy(fallback_owner: &str, areas: serde_json::Value) -> Policy {
+        let policy = serde_json::json!({
+            "version": 1, "repository": REPO, "max_active_prs": 5,
+            "target_branches": ["v*-dev"],
+            "bot_authors": ["Claudius-Maginificent"],
+            "fallback": {"owners": [fallback_owner], "reviewers": []},
+            "areas": areas
+        });
+        Policy::parse(&policy.to_string()).unwrap()
+    }
+
     fn policies() -> HashMap<String, Policy> {
         HashMap::from([(
             REPO.to_string(),
-            Policy {
-                repository: REPO.into(),
-                target_branches: vec!["v*-dev".into()],
-                bot_authors: vec!["Claudius-Maginificent".into()],
-                ..Policy::default()
-            },
+            policy("fallback-owner", serde_json::json!([])),
         )])
     }
 
@@ -1243,8 +1249,9 @@ mod tests {
         assert_eq!(kind("claudius-maginificent", &policies()), Kind::Bot);
     }
 
-    /// Mirrors the engine's own list; a review bot added there and not here
-    /// would show as a person.
+    /// The board's review bots are the Rust engine's, which must be the
+    /// Python engine's; a review bot added there and not here would show as
+    /// a person.
     #[test]
     fn engine_review_bots_match_the_engine() {
         let engine =
@@ -1256,22 +1263,21 @@ mod tests {
             .expect("BOTS in pr_review/policy.py");
         let mut theirs: Vec<&str> = line.split('\'').skip(1).step_by(2).collect();
         theirs.sort();
-        let mut ours = ENGINE_REVIEW_BOTS.to_vec();
+        let mut ours = pr_hygiene_engine::policy::BOTS.to_vec();
         ours.sort();
         assert_eq!(theirs, ours);
     }
 
     #[test]
     fn everyone_a_policy_names_is_on_the_board_with_their_areas() {
-        let mut policies = policies();
-        let p = policies.get_mut(REPO).unwrap();
-        p.fallback.owners = vec!["QuantumExplorer".into()];
-        p.areas = vec![crate::policy::Area {
-            id: "dpp".into(),
-            owners: vec!["quantumexplorer".into()],
-            reviewers: vec!["shumkov".into()],
-            ..Default::default()
-        }];
+        let policies = HashMap::from([(
+            REPO.to_string(),
+            policy(
+                "QuantumExplorer",
+                serde_json::json!([{"id": "dpp", "paths": ["packages/rs-dpp/"],
+                                    "owners": ["quantumexplorer"], "reviewers": ["shumkov"]}]),
+            ),
+        )]);
         let cfg = Config::default();
         let d = build(&Inputs {
             scored: &[],
