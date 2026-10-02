@@ -3,6 +3,7 @@ use chrono::Utc;
 use clap::{Parser, Subcommand};
 use pr_hygiene_service::app::{self, AppState};
 use pr_hygiene_service::config::ServeConfig;
+use pr_hygiene_service::github::GithubSignIn;
 use pr_hygiene_service::oidc::{GithubKeys, KeyCache};
 use pr_hygiene_service::snapshot;
 use pr_hygiene_service::store::{Outcome, Reader, Store};
@@ -19,6 +20,8 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+// Parsed once at start-up: the size of the larger variant costs nothing.
+#[allow(clippy::large_enum_variant)]
 enum Command {
     /// Serve the public API and accept snapshots at /ingest.
     Serve(ServeConfig),
@@ -60,11 +63,22 @@ async fn serve(cfg: ServeConfig) -> anyhow::Result<()> {
         !cfg.ingest.audience.trim().is_empty(),
         "PR_HYGIENE_OIDC_AUDIENCE must name this service"
     );
+    let signin = cfg.signin.resolve()?;
     let store = Store::open(&cfg.db)?;
     let reader = Reader::open(&cfg.db)?;
     let keys = Arc::new(KeyCache::new(Box::new(GithubKeys::new()?)));
     tokio::spawn(keep_keys_fresh(keys.clone()));
-    let state = Arc::new(AppState::new(cfg.ingest, keys, store, reader));
+    let mut state = AppState::new(cfg.ingest, keys, store, reader);
+    match signin {
+        Some(signin) => {
+            tracing::info!(origin = %signin.origin, "sign-in with GitHub on");
+            let github = Arc::new(GithubSignIn::new(&signin)?);
+            state = state.with_signin(signin, github);
+        }
+        None => tracing::info!("sign-in with GitHub off: PR_HYGIENE_SIGNIN_* not set"),
+    }
+    let state = Arc::new(state);
+    tokio::spawn(purge_daily(state.clone()));
     let listener = tokio::net::TcpListener::bind(cfg.bind)
         .await
         .with_context(|| format!("binding {}", cfg.bind))?;
@@ -87,6 +101,23 @@ async fn keep_keys_fresh(keys: Arc<KeyCache>) {
         keys.refresh().await;
         let wait = if keys.state().keys == 0 { 60 } else { 3600 };
         tokio::time::sleep(Duration::from_secs(wait)).await;
+    }
+}
+
+/// Delete expired sessions and abandoned sign-ins at start-up and daily
+/// after: they let no one in once expired, but they are personal data.
+/// Runs with sign-in off too, so sessions from when it was on still go.
+async fn purge_daily(state: Arc<AppState>) {
+    loop {
+        // A failure is logged where it happens; the next day tries again.
+        if let Ok(purged) = state.write(|store| store.purge_expired(Utc::now())).await {
+            tracing::info!(
+                sessions = purged.sessions,
+                prelogins = purged.prelogins,
+                "expired sign-in data purged"
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(24 * 60 * 60)).await;
     }
 }
 

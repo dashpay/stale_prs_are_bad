@@ -1,7 +1,9 @@
-//! The HTTP service: ingest, the public read API, health.
+//! The HTTP service: ingest, the public read API, sign-in, health.
 
 use crate::api;
-use crate::config::IngestConfig;
+use crate::auth::{self, SignIn};
+use crate::config::{IngestConfig, SignInConfig};
+use crate::github::SignInApi;
 use crate::oidc::{AuthError, KeyCache, Verifier};
 use crate::snapshot;
 use crate::store::{Outcome, Reader, Store};
@@ -33,6 +35,8 @@ pub struct AppState {
     reader: Mutex<Reader>,
     /// The view last read, reused while the stored version is unchanged.
     cached: RwLock<Option<Arc<View>>>,
+    /// `None` while sign-in is not configured.
+    signin: Option<SignIn>,
 }
 
 impl AppState {
@@ -43,7 +47,36 @@ impl AppState {
             writer: Mutex::new(writer),
             reader: Mutex::new(reader),
             cached: RwLock::new(None),
+            signin: None,
         }
+    }
+
+    /// Turn on "Sign in with GitHub", against `github`.
+    pub fn with_signin(mut self, config: SignInConfig, github: Arc<dyn SignInApi>) -> Self {
+        self.signin = Some(SignIn { config, github });
+        self
+    }
+
+    /// Sign-in, or a 404 for every sign-in route while it is off.
+    pub fn signin(&self) -> Result<&SignIn, ApiError> {
+        self.signin
+            .as_ref()
+            .ok_or_else(|| ApiError::not_found("sign-in is not enabled on this service"))
+    }
+
+    /// Run `f` with the writing connection, off the async runtime.
+    pub async fn write<T: Send + 'static>(
+        self: &Arc<Self>,
+        f: impl FnOnce(&mut Store) -> anyhow::Result<T> + Send + 'static,
+    ) -> Result<T, ApiError> {
+        let state = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut store = state.writer.lock().unwrap_or_else(PoisonError::into_inner);
+            f(&mut store)
+        })
+        .await
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("writer task: {e}")))?
+        .map_err(ApiError::internal)
     }
 
     /// Run `f` with the read-only connection, off the async runtime.
@@ -110,8 +143,17 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(api::dashboard).options(api::preflight),
         )
         .layer(middleware::map_response(api::public_headers));
+    // Outside the public router, so none of its CORS or caching applies.
+    let private = Router::new()
+        .route("/auth/login", get(auth::login))
+        .route("/auth/callback", get(auth::callback))
+        .route("/auth/logout", post(auth::logout))
+        .route("/api/v1/me", get(auth::me).delete(auth::delete_me))
+        .route("/api/v1/me/opt-out", post(auth::opt_out))
+        .layer(middleware::map_response(auth::private_headers));
     Router::new()
         .merge(public)
+        .merge(private)
         .route("/ingest", post(ingest))
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
