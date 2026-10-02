@@ -243,7 +243,20 @@ fn a_record_line_somebody_truncated_does_not_spin() {
 fn the_second_verdict_sees_the_same_rate_limit_notice() {
     // The notice counts only as the bot's own word. When the second read
     // could not say who edited it, the verdict flipped between the reads.
+    //
+    // Python's test leaves thepastaclaw unreported, so its verdict waits on
+    // the bots and the second read it guards is never made. Here
+    // thepastaclaw has reported, so the waiver alone lets the pull request
+    // go out for review, and the second verdict has to see it too.
     let (policy, mut fake) = bartek();
+    fake.pr(1).reviews.push(review(
+        7,
+        "thepastaclaw",
+        "COMMENTED",
+        HEAD,
+        "2026-09-11T10:00:00Z",
+        &format!("<!-- thepastaclaw-review-phase v1 phase=final sha={HEAD} -->"),
+    ));
     fake.pr(1).comments = vec![
         Comment::new(
             11,
@@ -264,12 +277,18 @@ fn the_second_verdict_sees_the_same_rate_limit_notice() {
     let mut scene = Scene::new(fake);
     let run = scene.sync_pr(&policy, 1);
     assert!(dump(field(&run.verdicts[0], "waived")).contains("coderabbitai"));
+    assert_eq!(text(field(&run.verdicts[0], "state")), "ready-for-human");
     let held: Vec<_> = scene
         .statuses()
         .into_iter()
         .filter(|(_, d)| d.contains("reconciliation required"))
         .collect();
     assert!(held.is_empty(), "{held:?}");
+    assert_eq!(
+        scene.statuses().last().expect("a status"),
+        &("pending".to_owned(), "ready-for-human".to_owned()),
+        "the verdict, published after the second read"
+    );
 }
 
 #[test]

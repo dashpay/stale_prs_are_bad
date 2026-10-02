@@ -46,6 +46,9 @@ The rest walk write paths, and print the JSON report:
 - `failing-publish`: the pull request cannot be read again while its verdict
   is published, so it is marked as failed and the run fails after it.
 - `report-json`: the JSON report, filtered to one person.
+- `config-error`: a policy that does not validate, met by `sync --pr 2`: only
+  that pull request's head is marked, after its identity is read twice and
+  no other open pull request is found sharing it, and the run fails.
 
     uv run -q --python 3.12 --no-project --with pyyaml python conformance/synthetic/generate.py
 
@@ -423,10 +426,16 @@ def report_json():
     return Scenario(), ['report', '--user', 'reviewer', '--format', 'json']
 
 
+def config_error():
+    gh = Scenario()
+    gh.policy = dict(fixture()[0], future_unknown_field=True)
+    return gh, ['sync', '--pr', '2', '--format', 'json']
+
+
 SCENARIOS = {'report': report, 'sync-pr-2': sync_pr_2, 'rich-evidence': rich_evidence, 'long-history': long_history,
              'edited-record': edited_record, 'partial-answer': partial_answer, 'transient-retry': transient_retry,
              'sweep': sweep, 'batch': batch, 'nudge': nudge, 'failing-publish': failing_publish,
-             'report-json': report_json}
+             'report-json': report_json, 'config-error': config_error}
 
 
 def record(name, destination):

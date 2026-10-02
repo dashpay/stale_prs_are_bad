@@ -111,11 +111,100 @@ fn a_review_change_during_publication_cannot_publish_success() {
         }
     });
     let mut scene = Scene::new(fake);
-    scene.sync_pr(&policy, 1);
-    assert!(
-        !scene.statuses().iter().any(|(state, _)| state == "success"),
-        "{:?}",
-        scene.statuses()
+    let run = scene.sync_pr(&policy, 1);
+    assert!(run.failure().is_none());
+    assert_eq!(text(field(&run.verdicts[0], "status")), "success");
+    assert_eq!(
+        scene.statuses().last().expect("a status"),
+        &(
+            "pending".to_owned(),
+            "Review evidence changed; reconciliation required".to_owned()
+        )
+    );
+    assert!(!scene.statuses().iter().any(|(state, _)| state == "success"));
+}
+
+#[test]
+fn evidence_that_changes_before_the_writes_stops_them() {
+    // The pull request is read again before anything is written; evidence
+    // that moved since the verdict — here only who commented, which leaves
+    // the verdict as it was — stops the publication at its status.
+    let (policy, mut fake) = fixture();
+    fake.state
+        .engine_status(HEAD, "pending", "waiting-bots", "2026-09-11T09:00:00Z");
+    let mut read = 0;
+    fake.on_call(move |state, call| {
+        // The identity read that starts the publication, just before the
+        // evidence is read again.
+        if is_call(call, Method::Get, "/pulls/1") {
+            read += 1;
+            if read == 2 {
+                state
+                    .pr(1)
+                    .reviews
+                    .push(review(98, "owner", "COMMENTED", HEAD, LATER, "a remark"));
+            }
+        }
+    });
+    let mut scene = Scene::new(fake);
+    let run = scene.sync_pr(&policy, 1);
+    assert!(run.failure().is_none());
+    assert_eq!(text(field(&run.verdicts[0], "status")), "success");
+    assert_eq!(
+        scene.writes(),
+        [format!("POST statuses/{HEAD}")],
+        "no label, description or record"
+    );
+    assert_eq!(
+        scene.statuses(),
+        [(
+            "pending".to_owned(),
+            "Review evidence changed; reconciliation required".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn a_success_the_second_verdict_does_not_reach_is_not_published() {
+    // The evidence read again is the same, and the admission holds, but
+    // the verdict made from it before the status goes out is not a
+    // success: the status says the policy changed, not that it passed.
+    let (policy, mut fake) = fixture();
+    fake.pr(1).author = "reviewer".into();
+    fake.pr(1).comments[0].author = "reviewer".into();
+    fake.state
+        .engine_status(HEAD, "pending", "waiting-bots", "2026-09-11T09:00:00Z");
+    fake.pr(1)
+        .comments
+        .push(recorded(50, 1, HEAD, Some(NOW), "waiting-bots", NOW));
+    let mut scene = Scene::new(fake);
+    let pr = scene.snapshot(&policy, 1);
+    assert_eq!(
+        text(field(&scene.verdict(&policy, 1, &s(NOW)), "status")),
+        "pending"
+    );
+    let claimed = py(json!({"number": 1, "head": HEAD, "author": "reviewer",
+        "state": "ready-to-merge", "status": "success", "blockers": [], "reviewers": [],
+        "areas": ["drive"], "admitted_at": NOW, "ready_since": null, "waived": []}));
+    scene.fake.forget_calls();
+    scene
+        .with(|engine| {
+            engine.publish(
+                &policy,
+                &pr,
+                &claimed,
+                std::slice::from_ref(&pr),
+                true,
+                None,
+            )
+        })
+        .expect("published");
+    assert_eq!(
+        scene.statuses().last().expect("a status"),
+        &(
+            "pending".to_owned(),
+            "Policy changed; reconciliation required".to_owned()
+        )
     );
 }
 
@@ -262,12 +351,17 @@ fn another_pull_request_admitted_meanwhile_blocks_success() {
         }
     });
     let mut scene = Scene::new(fake);
-    scene.sync_pr(&policy, 1);
-    assert!(
-        !scene.statuses().iter().any(|(state, _)| state == "success"),
-        "{:?}",
-        scene.statuses()
+    let run = scene.sync_pr(&policy, 1);
+    assert!(run.failure().is_none());
+    assert_eq!(text(field(&run.verdicts[0], "status")), "success");
+    assert_eq!(
+        scene.statuses().last().expect("a status"),
+        &(
+            "pending".to_owned(),
+            "Review evidence changed; reconciliation required".to_owned()
+        )
     );
+    assert!(!scene.statuses().iter().any(|(state, _)| state == "success"));
 }
 
 #[test]
@@ -558,9 +652,10 @@ fn a_run_aimed_at_one_pull_request_does_not_sweep_the_repository() {
         fake.add(away);
         let mut scene = Scene::new(fake);
         let pick = if aimed { Pick::Pr(1) } else { Pick::All };
-        scene
+        let run = scene
             .run(&policy, Command::Sync, pick, None)
             .expect("the run completes");
+        assert!(run.failure().is_none());
         let cleared = !scene.wrote(Method::Delete, "issues/5/labels/").is_empty();
         assert_eq!(cleared, sweeps, "aimed at one: {aimed}");
     }

@@ -99,6 +99,17 @@ pub fn record_comment(state: &PyValue, words: &str, diff: Option<&PyValue>) -> S
     state_comment_body(state, words, diff).expect("a record the engine writes")
 }
 
+/// A run every pull request of which was reconciled, which a scenario
+/// may read or not.
+pub struct Ran(pub Run);
+
+impl std::ops::Deref for Ran {
+    type Target = Run;
+    fn deref(&self) -> &Run {
+        &self.0
+    }
+}
+
 /// Which pull requests a run reconciles.
 pub enum Pick {
     All,
@@ -138,7 +149,7 @@ impl Scene {
         out
     }
 
-    /// One run, as `main.run` makes it.
+    /// One run, as `main.run` makes it: a sync applies.
     pub fn run(
         &mut self,
         policy: &PyValue,
@@ -146,7 +157,27 @@ impl Scene {
         pick: Pick,
         user: Option<&str>,
     ) -> Result<Run, ReadError> {
-        let mut telemetry = || PyValue::None;
+        self.run_with(
+            policy,
+            command,
+            pick,
+            user,
+            command == Command::Sync,
+            PyValue::None,
+        )
+    }
+
+    /// One run, applying or not, over the status page `page`.
+    pub fn run_with(
+        &mut self,
+        policy: &PyValue,
+        command: Command,
+        pick: Pick,
+        user: Option<&str>,
+        apply: bool,
+        page: PyValue,
+    ) -> Result<Run, ReadError> {
+        let mut telemetry = move || page.clone();
         let mut choose = |prs: &[PyValue]| -> Vec<PyValue> {
             let Pick::Batch(numbers) = &pick else {
                 return Vec::new();
@@ -171,7 +202,7 @@ impl Scene {
                 RunOptions {
                     command,
                     selection,
-                    apply: command == Command::Sync,
+                    apply,
                     user: user.map(str::to_owned),
                     nudges: 1,
                     telemetry: &mut telemetry,
@@ -181,15 +212,24 @@ impl Scene {
     }
 
     /// `sync --pr n --apply`: the run an event on one pull request makes.
-    pub fn sync_pr(&mut self, policy: &PyValue, n: i64) -> Run {
-        self.run(policy, Command::Sync, Pick::Pr(n), None)
-            .expect("the run completes")
+    pub fn sync_pr(&mut self, policy: &PyValue, n: i64) -> Ran {
+        self.reconciled(Pick::Pr(n), policy)
     }
 
     /// `sync --apply`: a full pass.
-    pub fn sync_all(&mut self, policy: &PyValue) -> Run {
-        self.run(policy, Command::Sync, Pick::All, None)
-            .expect("the run completes")
+    pub fn sync_all(&mut self, policy: &PyValue) -> Ran {
+        self.reconciled(Pick::All, policy)
+    }
+
+    /// A sync every pull request of which was reconciled.
+    fn reconciled(&mut self, pick: Pick, policy: &PyValue) -> Ran {
+        let run = self
+            .run(policy, Command::Sync, pick, None)
+            .expect("the run completes");
+        if let Some(failure) = run.failure() {
+            panic!("{failure}: {:?}", self.log);
+        }
+        Ran(run)
     }
 
     /// The pull request as the engine reads it now.

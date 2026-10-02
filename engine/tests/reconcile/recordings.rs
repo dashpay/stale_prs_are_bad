@@ -523,7 +523,7 @@ fn synthetic() -> Vec<PathBuf> {
 fn every_synthetic_recording_replays_to_the_same_run() {
     let dirs = synthetic();
     assert!(
-        dirs.len() >= 7,
+        dirs.len() >= 13,
         "the committed synthetic recordings are found"
     );
     let mut failures = Vec::new();
@@ -685,4 +685,93 @@ fn the_synthetic_recordings_walk_the_write_paths_they_are_named_for() {
     assert!(rich
         .iter()
         .any(|w| w.contains(r#""DELETE","repos/dashpay/platform/issues/comments/200""#)));
+    let routed = |name: &str, route: &str| writes(name).iter().any(|w| w.contains(route));
+    // A full pass: the unreadable head marked alone, a draft's block taken
+    // out, two records set aside and their labels cleared.
+    for route in [
+        r#""POST","repos/dashpay/platform/statuses/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""#,
+        r#""PATCH","repos/dashpay/platform/pulls/5""#,
+        r#""PATCH","repos/dashpay/platform/issues/comments/300""#,
+        r#""DELETE","repos/dashpay/platform/issues/3/labels/waiting-bots""#,
+        r#""PATCH","repos/dashpay/platform/pulls/3""#,
+        r#""PATCH","repos/dashpay/platform/issues/comments/400""#,
+        r#""DELETE","repos/dashpay/platform/issues/4/labels/ready-to-merge""#,
+    ] {
+        assert!(routed("sweep", route), "sweep: {route}");
+    }
+    assert!(load(&conformance().join("synthetic/sweep"))
+        .calls
+        .contains("repos/dashpay/platform/issues/4/comments?per_page=100"));
+    // The hourly batch, chosen from the clock; an announcement edited in
+    // place; the success published.
+    let batch = load(&conformance().join("synthetic/batch"));
+    assert!(dump(field(&batch.meta, "clock_reads")).contains("periodic_batch"));
+    assert!(routed(
+        "batch",
+        r#""PATCH","repos/dashpay/platform/issues/comments/150""#
+    ));
+    assert!(writes("batch")
+        .last()
+        .is_some_and(|w| w.contains(r#"\"state\": \"success\""#)));
+    // A nudge, with the status page read once.
+    let nudge = load(&conformance().join("synthetic/nudge"));
+    assert_eq!(dump(field(&nudge.meta, "telemetry_reads")), "1");
+    assert!(writes("nudge")[0].contains("pr-hygiene-nudge v1 bot=coderabbitai"));
+    // A publication that fails, and a policy that does not validate.
+    for (name, raised, status) in [
+        (
+            "failing-publish",
+            "GitHubError",
+            "Policy reconciliation failed",
+        ),
+        ("config-error", "ValueError", "Invalid policy configuration"),
+    ] {
+        let recording = load(&conformance().join("synthetic").join(name));
+        assert_eq!(
+            text(field(field(&recording.meta, "outcome"), "raised")),
+            raised
+        );
+        assert!(
+            writes(name).last().is_some_and(|w| w.contains(status)),
+            "{name}"
+        );
+    }
+    // The report, filtered to one person's pull requests.
+    let report = py_loads(&load(&conformance().join("synthetic/report-json")).printed)
+        .expect("a JSON report");
+    assert_eq!(items(field(&report, "pull_requests")).len(), 1);
+}
+
+#[test]
+fn a_printed_report_python_did_not_print_fails_the_gate() {
+    let found = tampered("report-json", |r| {
+        assert!(r.printed.contains(r#""author": "reviewer""#));
+        r.printed = r
+            .printed
+            .replace(r#""author": "reviewer""#, r#""author": "someone""#);
+    });
+    assert!(
+        found
+            .iter()
+            .any(|d| d.starts_with("the JSON report differs")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn calls_made_in_another_order_fail_the_gate() {
+    // The first two calls of the report, recorded the other way round.
+    let found = tampered("report", |r| {
+        r.calls = r
+            .calls
+            .replacen(r#"{"ordinal":1,"#, r#"{"ordinal":0,"#, 1)
+            .replacen(r#"{"ordinal":2,"#, r#"{"ordinal":1,"#, 1)
+            .replacen(r#"{"ordinal":0,"#, r#"{"ordinal":2,"#, 1);
+    });
+    assert!(
+        found
+            .iter()
+            .any(|d| d.contains("the calls were made in another order")),
+        "{found:?}"
+    );
 }

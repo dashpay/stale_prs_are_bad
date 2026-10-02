@@ -49,10 +49,13 @@ fn replaying_the_state_after_the_writes_produces_no_writes() {
     let wrote = scene.writes();
     assert!(wrote.len() > 10, "the first run has work to do: {wrote:?}");
     // The run's own writes, read back by the next, leave one thing to do,
-    // and only for the pull request first asked for a review: its waiting
-    // time starts once a record shows the admission, and the first run is
-    // the one that writes that record. Python does the same; the record is
-    // refreshed in place, silently, and the status put back.
+    // and only for the pull request first asked for a review: `evaluate`
+    // starts its waiting time (`ready_since`) only from a previous record's
+    // admission, and the first run is the one that writes that record.
+    // Python's `evaluate` does the same — the verdict on that evidence,
+    // with no record and then with the first run's, is `ready_since: None`
+    // and then the run's instant — so the record is refreshed in place,
+    // silently, and the status put back.
     scene.fake.forget_calls();
     let second = scene.sync_all(&policy);
     let b = "b".repeat(40);
@@ -114,10 +117,11 @@ fn a_settled_pull_request_costs_reads_and_no_writes() {
 
 #[test]
 fn a_head_never_seen_settles_on_the_second_run() {
-    // The first status the engine posts is when it first saw the head, and
-    // that time is evidence: the re-check before a success reads it where
-    // the verdict did not, and holds the status back. The next run reads
-    // it both times, publishes, and the one after has nothing to do.
+    // The first status the engine posts is when it first saw the head
+    // (`head_seen_at`), and `fingerprint` holds that time in Python and in
+    // the port alike: the re-check before a success reads it where the
+    // verdict did not, and holds the status back. The next run reads it
+    // both times, publishes, and the one after has nothing to do.
     let (policy, fake) = fixture();
     let mut scene = Scene::new(fake);
     scene.sync_pr(&policy, 1);
@@ -234,6 +238,94 @@ fn a_reviewer_request_refused_with_422_does_not_stop_the_status() {
         scene.statuses().last().expect("a status"),
         &("pending".to_owned(), "ready-for-human".to_owned())
     );
+}
+
+/// The mixed repository, under a policy with bot timeouts, with a pull
+/// request whose bots are due a nudge and one whose files cannot be read.
+fn previewed() -> (PyValue, Fake) {
+    let (policy, mut fake) = mixed();
+    let mut policy = policy;
+    if let PyValue::Dict(fields) = &mut policy {
+        fields.insert(
+            "bot_timeouts".into(),
+            py(json!({"nudge_after_hours": 6, "waive_after_hours": 16})),
+        );
+    }
+    let quiet = "6".repeat(40);
+    let mut due = Pr::new(6, "fallback", &quiet);
+    due.reviews.clear();
+    fake.add(due);
+    fake.state
+        .engine_status(&quiet, "pending", "waiting-bots", "2026-09-11T06:00:00Z");
+    fake.add(Pr::new(7, "fallback", &"7".repeat(40)));
+    fake.refuse(
+        Method::Get,
+        "pulls/7/files",
+        Refusal::Http(403, "API rate limit exceeded".into()),
+    );
+    (policy, fake)
+}
+
+#[test]
+fn a_sync_that_does_not_apply_writes_nothing() {
+    // The same repository, applied, has every kind of write to make: a
+    // nudge, an evidence error, a publication, a cleared label.
+    let (policy, fake) = previewed();
+    let mut applied = Scene::new(fake);
+    let run = applied
+        .run_with(&policy, Command::Sync, Pick::All, None, true, PyValue::None)
+        .expect("the run ends");
+    assert!(run.failure().is_none());
+    let wrote = applied.writes();
+    for kind in [
+        "POST issues/6/comments",
+        "POST statuses/7777777777777777777777777777777777777777",
+        "PATCH pulls/1",
+        "DELETE issues/5/labels/waiting-bots",
+    ] {
+        assert!(wrote.iter().any(|w| w == kind), "{kind} in {wrote:?}");
+    }
+    // Not applied, it reads and decides, and writes none of it.
+    let (policy, fake) = previewed();
+    let mut preview = Scene::new(fake);
+    let run = preview
+        .run_with(
+            &policy,
+            Command::Sync,
+            Pick::All,
+            None,
+            false,
+            PyValue::None,
+        )
+        .expect("the run ends");
+    assert_eq!(preview.writes(), Vec::<String>::new());
+    assert!(run.failure().is_none());
+    assert_eq!(run.verdicts.len(), 5, "every readable pull request decided");
+    assert!(
+        preview.said("PR #5: no longer governed"),
+        "and says what it would clear"
+    );
+}
+
+#[test]
+fn a_history_that_cannot_be_read_marks_nothing_without_apply() {
+    let (policy, mut fake) = mixed();
+    fake.refuse(
+        Method::Post,
+        "graphql",
+        Refusal::Http(502, "missing history".into()),
+    );
+    let mut scene = Scene::new(fake);
+    let run = scene.run_with(
+        &policy,
+        Command::Sync,
+        Pick::All,
+        None,
+        false,
+        PyValue::None,
+    );
+    assert!(matches!(run, Err(ReadError::GitHub(_))));
+    assert_eq!(scene.writes(), Vec::<String>::new());
 }
 
 #[test]
