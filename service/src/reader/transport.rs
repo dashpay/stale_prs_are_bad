@@ -26,13 +26,21 @@
 //! same origin and the same listing.
 //!
 //! Failures are sorted by what happened, not by what an error's text
-//! contains: a gateway error (502, 503, 504), a timeout, a connection reset
-//! or closed early, or an answer cut short or unreadable is worth one more
-//! try; anything GitHub refused (every 4xx, and every other status) is not.
-//! A GraphQL answer that carries errors is a failure, as `gh` reports it,
-//! with the answer as its body: the client decides whether the data in it
-//! is an answer. Each failure reports `gh`'s exit status, 1, which the
-//! client quotes as Python did, and says what went wrong in its own words.
+//! contains: a gateway error (502, 503, 504), a request that timed out, a
+//! connection reset or closed early, or an answer cut short or unreadable
+//! is worth one more try; anything GitHub refused (every 4xx, and every
+//! other status) is not. A GraphQL answer that carries errors is a failure,
+//! as `gh` reports it, with the answer as its body: the client decides
+//! whether the data in it is an answer. Each failure reports `gh`'s exit
+//! status, 1, which the client quotes as Python did, and says what went
+//! wrong in its own words.
+//!
+//! Two differences from Python follow from that. A complete answer that is
+//! not JSON is asked again, and if it fails twice the error quotes this
+//! transport's words rather than "GitHub API returned invalid JSON": no
+//! handler reads the message. And a whole call, every page of it, has
+//! Python's sixty seconds, `gh`'s subprocess timeout: a call that runs out
+//! of them never completed, and, as in Python, is not asked again.
 //!
 //! No redirect is followed: a request and its token go to the URL asked for
 //! and nowhere else.
@@ -48,15 +56,20 @@ use reqwest::{StatusCode, Url};
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Handle;
+use tokio::runtime::{Handle, RuntimeFlavor};
 
 /// How long one request may take, its whole answer read. Each page of a
-/// paginated call has its own.
+/// paginated call has its own. One that runs out is worth one more try.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// The largest answer read. A page of a hundred changed files, patches
-/// included, is a few megabytes at most.
-pub const MAX_ANSWER_BYTES: usize = 32 * 1024 * 1024;
+/// How long one call may take, every page of it: Python's timeout for one
+/// `gh` command. A call that runs out never completed, and is not asked
+/// again.
+pub const CALL_DEADLINE: Duration = Duration::from_secs(60);
+
+/// The most one call reads, every page of it together. A page of a hundred
+/// changed files, patches included, is a few megabytes at most.
+pub const MAX_CALL_BYTES: usize = 128 * 1024 * 1024;
 
 /// The most pages one call reads: a hundred thousand items, where the
 /// largest listing the engine reads holds a few thousand. A listing that
@@ -73,6 +86,10 @@ const TIME_ZONE: &str = "UTC";
 
 /// The engine's [`Transport`] over HTTPS, on the service's runtime.
 ///
+/// It is made only behind [`ReadOnly`](super::ReadOnly), by
+/// [`read_only_transport`](super::read_only_transport): nothing outside
+/// this module can send a call that layer has not let through.
+///
 /// # The engine's thread and the service's runtime
 ///
 /// The engine is synchronous: a reconciliation runs on a blocking thread of
@@ -84,13 +101,20 @@ const TIME_ZONE: &str = "UTC";
 /// So `call` must only ever be made from such a thread. Made from a task on
 /// the runtime itself, `block_on` panics at once, as tokio refuses to block
 /// one of its workers: a mistake shows on its first call, never as a
-/// deadlock.
+/// deadlock. The runtime must be a multi-thread one, whose workers drive
+/// the connections while the engine's thread waits; it is checked when the
+/// transport is made. And it must outlive every engine thread: the service
+/// waits for its reconciliations to end before it stops.
 pub struct HttpTransport {
     client: reqwest::Client,
     runtime: Handle,
     tokens: Arc<dyn TokenSource>,
     /// The API's origin, with no path: every request goes to it.
     base: Url,
+    /// How long one call may take, every page of it.
+    deadline: Duration,
+    /// How much one call may read, every page of it.
+    budget: usize,
 }
 
 impl fmt::Debug for HttpTransport {
@@ -103,7 +127,7 @@ impl fmt::Debug for HttpTransport {
 
 impl HttpTransport {
     /// Calls to GitHub's API on `runtime`, each with a token from `tokens`.
-    pub fn new(runtime: Handle, tokens: Arc<dyn TokenSource>) -> anyhow::Result<Self> {
+    pub(super) fn new(runtime: Handle, tokens: Arc<dyn TokenSource>) -> anyhow::Result<Self> {
         Self::at(runtime, tokens, API_URL, REQUEST_TIMEOUT)
     }
 
@@ -119,12 +143,25 @@ impl HttpTransport {
         Self::at(runtime, tokens, origin, timeout)
     }
 
+    /// The same, with another deadline and budget per call.
+    #[cfg(test)]
+    pub(crate) fn limited(mut self, deadline: Duration, budget: usize) -> Self {
+        self.deadline = deadline;
+        self.budget = budget;
+        self
+    }
+
     fn at(
         runtime: Handle,
         tokens: Arc<dyn TokenSource>,
         origin: &str,
         timeout: Duration,
     ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            runtime.runtime_flavor() == RuntimeFlavor::MultiThread,
+            "the engine's transport needs a multi-thread runtime to drive its requests \
+             while the engine's thread waits"
+        );
         let base = Url::parse(origin)?;
         anyhow::ensure!(
             base.origin().ascii_serialization() == origin,
@@ -135,6 +172,8 @@ impl HttpTransport {
             runtime,
             tokens,
             base,
+            deadline: CALL_DEADLINE,
+            budget: MAX_CALL_BYTES,
         })
     }
 
@@ -173,7 +212,9 @@ impl HttpTransport {
             gh_arguments(call).map_err(|error| TransportError::Refused(error.to_string()))?;
         match call {
             Call::Graphql { .. } => {
-                let answer = self.send(Method::Post, self.url("graphql")?, body).await?;
+                let answer = self
+                    .send(Method::Post, self.url("graphql")?, body, self.budget)
+                    .await?;
                 graphql(answer)
             }
             Call::Rest {
@@ -182,7 +223,9 @@ impl HttpTransport {
                 paginate: false,
                 ..
             } => {
-                let answer = self.send(*method, self.url(path)?, body).await?;
+                let answer = self
+                    .send(*method, self.url(path)?, body, self.budget)
+                    .await?;
                 Ok(Reply::Text(completed(answer)?))
             }
             Call::Rest {
@@ -204,13 +247,21 @@ impl HttpTransport {
     /// Every page of a listing, from `path` on. Only the first request
     /// carries `body`, as with `gh`.
     async fn pages(&self, path: &str, mut body: Option<String>) -> Result<Reply, TransportError> {
-        let first = self.url(&with_per_page(path))?;
-        let mut url = first.clone();
+        let mut url = self.url(&with_per_page(path))?;
+        // The listing every later page must belong to: the first page's
+        // path, then the path of the first page linked, which is where
+        // GitHub names the repository by id. Every later page keeps it.
+        let mut listing = url.path().to_owned();
+        let mut budget = self.budget;
         let mut pages = Vec::new();
         loop {
-            let answer = self.send(Method::Get, url, body.take()).await?;
+            let answer = self
+                .send(Method::Get, url.clone(), body.take(), budget)
+                .await?;
             let next = answer.next.clone();
-            pages.push(completed(answer)?);
+            let page = completed(answer)?;
+            budget = budget.saturating_sub(page.len());
+            pages.push(page);
             let Some(next) = next else {
                 return Ok(Reply::Pages(pages));
             };
@@ -222,14 +273,16 @@ impl HttpTransport {
                 )
                 .into());
             }
-            url = self.next_page(&first, &next)?;
+            let next = self.next_page(&listing, &url, &next)?;
+            listing = next.path().to_owned();
+            url = next;
         }
     }
 
     /// The page a `Link: rel="next"` names, if it may be followed: on the
-    /// same origin, carrying no credentials, and the same listing as the
-    /// first page.
-    fn next_page(&self, first: &Url, link: &str) -> Result<Url, TransportError> {
+    /// same origin, carrying no credentials, a page of `listing`, and not
+    /// the page just read.
+    fn next_page(&self, listing: &str, current: &Url, link: &str) -> Result<Url, TransportError> {
         let refuse =
             |why: String| TransportError::Refused(format!("Next page not followed: {why}"));
         let next = Url::parse(link).map_err(|_| refuse("not an absolute URL".into()))?;
@@ -243,23 +296,27 @@ impl HttpTransport {
         if !next.username().is_empty() || next.password().is_some() || next.fragment().is_some() {
             return Err(refuse("a URL with credentials or a fragment".into()));
         }
-        if !same_listing(first.path(), next.path()) {
+        if !same_listing(listing, next.path()) {
             return Err(refuse(format!(
-                "{} is not the listing {} asked for",
-                next.path(),
-                first.path()
+                "{} is not the listing {listing} asked for",
+                next.path()
             )));
+        }
+        if next == *current {
+            return Err(refuse("it links back to the page it is on".into()));
         }
         Ok(next)
     }
 
     /// One request, and its whole answer, whatever its status; a failure
-    /// when there is no complete answer to read.
+    /// when there is no complete answer to read, or when the answer is
+    /// larger than `budget`.
     async fn send(
         &self,
         method: Method,
         url: Url,
         body: Option<String>,
+        budget: usize,
     ) -> Result<Answer, Failure> {
         let token = self.tokens.token().await.map_err(|error| {
             failure(
@@ -304,20 +361,17 @@ impl HttpTransport {
             failure(
                 false,
                 String::new(),
-                format!("an answer larger than {MAX_ANSWER_BYTES} bytes"),
+                format!("a call answered with more than {} bytes", self.budget),
             )
         };
-        if response
-            .content_length()
-            .is_some_and(|n| n > MAX_ANSWER_BYTES as u64)
-        {
+        if response.content_length().is_some_and(|n| n > budget as u64) {
             return Err(too_large());
         }
         let mut bytes = Vec::new();
         loop {
             match response.chunk().await {
                 Ok(Some(chunk)) => {
-                    if bytes.len() + chunk.len() > MAX_ANSWER_BYTES {
+                    if bytes.len() + chunk.len() > budget {
                         return Err(too_large());
                     }
                     bytes.extend_from_slice(&chunk);
@@ -334,10 +388,22 @@ impl HttpTransport {
 }
 
 impl Transport for HttpTransport {
-    /// Blocks the calling thread until the call is answered. Only ever
-    /// called from a blocking thread: see [`HttpTransport`].
+    /// Blocks the calling thread until the call is answered or its deadline
+    /// passes. Only ever called from a blocking thread: see
+    /// [`HttpTransport`].
     fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
-        self.runtime.block_on(self.answer(call))
+        self.runtime.block_on(async {
+            match tokio::time::timeout(self.deadline, self.answer(call)).await {
+                Ok(reply) => reply,
+                // Python's `subprocess.TimeoutExpired`: the call never
+                // completed.
+                Err(_) => Err(Failure {
+                    detail: format!("no answer within {} s", self.deadline.as_secs_f32()),
+                    ..Failure::unavailable()
+                }
+                .into()),
+            }
+        })
     }
 }
 
@@ -418,53 +484,70 @@ fn graphql(answer: Answer) -> Result<Reply, TransportError> {
     if !answer.status.is_success() {
         return Err(refused(answer).into());
     }
-    let errors = readable(&answer.text)?.as_ref().and_then(graphql_errors);
+    let code = answer.status.as_u16();
+    let errors = readable(&answer.text)?
+        .as_ref()
+        .and_then(|value| graphql_errors(value, code));
     match errors {
         Some(messages) => Err(failure(false, answer.text, messages).into()),
         None => Ok(Reply::Text(answer.text)),
     }
 }
 
-/// The messages of a GraphQL answer's errors, one per line, when it
-/// carries any.
-fn graphql_errors(answer: &PyValue) -> Option<String> {
+/// What `gh` says of a GraphQL answer it reports as failed, when it reports
+/// it so: its `errors` when they are a string, its `message`, or the
+/// messages of its errors, one per line, when they say anything.
+fn graphql_errors(answer: &PyValue, code: u16) -> Option<String> {
     let PyValue::Dict(fields) = answer else {
         return None;
     };
-    match fields.get("errors") {
-        Some(PyValue::List(errors)) if !errors.is_empty() => Some(
-            errors
-                .iter()
-                .filter_map(|error| match error {
-                    PyValue::Dict(error) => match error.get("message") {
-                        Some(PyValue::Str(message)) => Some(message.as_str()),
-                        _ => None,
-                    },
-                    PyValue::Str(message) => Some(message.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
-        ),
-        Some(PyValue::Str(error)) if !error.is_empty() => Some(error.clone()),
-        _ => None,
+    if let Some(PyValue::Str(error)) = fields.get("errors") {
+        if !error.is_empty() {
+            return Some(error.clone());
+        }
     }
+    if let Some(PyValue::Str(message)) = fields.get("message") {
+        if !message.is_empty() {
+            return Some(format!("{message} (HTTP {code})"));
+        }
+    }
+    let Some(PyValue::List(errors)) = fields.get("errors") else {
+        return None;
+    };
+    let messages: Vec<&str> = errors
+        .iter()
+        .filter_map(|error| match error {
+            PyValue::Dict(error) => match error.get("message") {
+                Some(PyValue::Str(message)) => Some(message.as_str()),
+                _ => Some(""),
+            },
+            PyValue::Str(message) => Some(message.as_str()),
+            _ => None,
+        })
+        .collect();
+    let joined = messages.join("\n");
+    (!joined.is_empty()).then_some(joined)
 }
 
 /// `path` with `per_page=100`, as `gh api --paginate` asks for a listing
-/// whose route names no page size.
+/// whose query sets no page size (`addPerPage`).
 fn with_per_page(path: &str) -> String {
     match path.split_once('?') {
-        Some((_, query)) if query.split('&').any(|pair| pair.starts_with("per_page=")) => {
+        Some((_, query))
+            if query.split('&').any(|pair| {
+                pair.strip_prefix("per_page=")
+                    .is_some_and(|v| !v.is_empty())
+            }) =>
+        {
             path.to_owned()
         }
-        Some((_, "")) => format!("{path}per_page=100"),
         Some(_) => format!("{path}&per_page=100"),
         None => format!("{path}?per_page=100"),
     }
 }
 
-/// The first `rel="next"` URL of a `Link` header: `<url>; rel="next", …`.
+/// The first `rel="next"` URL of a `Link` header, as `gh` finds it with
+/// `<([^>]+)>;\s*rel="([^"]+)"`.
 fn next_link(header: &str) -> Option<&str> {
     let mut rest = header;
     while let Some(start) = rest.find('<') {
@@ -473,10 +556,11 @@ fn next_link(header: &str) -> Option<&str> {
         let (url, tail) = (&after[..end], &after[end + 1..]);
         let rel = tail
             .strip_prefix(';')
-            .map(str::trim_start)
+            .map(|params| params.trim_start_matches([' ', '\t', '\n', '\r', '\x0c']))
             .and_then(|params| params.strip_prefix("rel=\""))
-            .and_then(|rel| rel.split('"').next());
-        if rel == Some("next") {
+            .and_then(|rel| rel.split_once('"'))
+            .map(|(rel, _)| rel);
+        if !url.is_empty() && rel == Some("next") {
             return Some(url);
         }
         rest = tail;
@@ -527,9 +611,10 @@ fn reqwest_method(method: Method) -> reqwest::Method {
 }
 
 /// Whether a request that got no complete answer is worth one more try: it
-/// timed out, its answer was cut short, or its connection broke after it
-/// was made. A connection that could not be made at all — refused, a name
-/// that does not resolve, a TLS handshake that failed — is not.
+/// timed out (connecting included), its answer was cut short, or its
+/// connection was reset or closed early, at any stage. A connection refused,
+/// a name that does not resolve or a certificate that is not trusted is
+/// not: asking again two seconds later would meet the same answer.
 pub(super) fn is_transient(error: &reqwest::Error) -> bool {
     use std::io::ErrorKind;
     if error.is_timeout() || error.is_body() || error.is_decode() {
@@ -701,17 +786,20 @@ mod tests {
         })
         .await
         .unwrap();
-        let numbers: Vec<String> = match items {
+        let numbers: Vec<Option<i64>> = match items {
             PyValue::List(items) => items
                 .iter()
                 .map(|item| match item {
-                    PyValue::Dict(fields) => format!("{:?}", fields.get("number")),
-                    other => format!("{other:?}"),
+                    PyValue::Dict(fields) => match fields.get("number") {
+                        Some(PyValue::Int(n)) => n.as_i64(),
+                        _ => None,
+                    },
+                    _ => None,
                 })
                 .collect(),
             other => panic!("{other:?}"),
         };
-        assert_eq!(numbers.len(), 3, "{numbers:?}");
+        assert_eq!(numbers, [Some(1), Some(2), Some(3)], "every item, in order");
         assert_eq!(github.seen().len(), 3);
 
         // The transport's own answer: the pages, each its own body. Asked
@@ -750,9 +838,15 @@ mod tests {
             with_per_page("repos/a/b/pulls?per_page=5"),
             "repos/a/b/pulls?per_page=5"
         );
+        // `addPerPage` joins with `&` whenever there is a query mark, and
+        // takes an empty page size for none.
         assert_eq!(
             with_per_page("repos/a/b/pulls?"),
-            "repos/a/b/pulls?per_page=100"
+            "repos/a/b/pulls?&per_page=100"
+        );
+        assert_eq!(
+            with_per_page("repos/a/b/pulls?per_page="),
+            "repos/a/b/pulls?per_page=&per_page=100"
         );
     }
 
@@ -765,6 +859,16 @@ mod tests {
             None
         );
         assert_eq!(next_link("garbage"), None);
+        // `gh`'s pattern needs the closing quote, and a URL.
+        assert_eq!(
+            next_link(r#"<https://api.github.com/x?page=2>; rel="next"#),
+            None
+        );
+        assert_eq!(next_link(r#"<>; rel="next""#), None);
+        assert_eq!(
+            next_link("<https://api.github.com/x?page=2>;\t rel=\"next\""),
+            Some("https://api.github.com/x?page=2")
+        );
     }
 
     #[test]
@@ -842,6 +946,121 @@ mod tests {
             "{error:?}"
         );
         assert_eq!(github.seen().len(), 1);
+    }
+
+    /// Once a page names the repository by id, every later page keeps it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn later_pages_stay_in_one_repository() {
+        let github = mock::serve(|seen: &Seen| {
+            let next = match seen.path() {
+                "/repos/dashpay/platform/pulls" => "/repositories/9/pulls?page=2",
+                _ => "/repositories/10/pulls?page=3",
+            };
+            let mut response = json_answer("[1]");
+            let link = format!("<{}{next}>; rel=\"next\"", seen.origin());
+            response
+                .headers_mut()
+                .insert(header::LINK, link.parse().unwrap());
+            response
+        })
+        .await;
+        let error = run(transport(&github.url), |client| {
+            client
+                .pages("repos/dashpay/platform/pulls")
+                .map(|_| PyValue::None)
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&error, ReadError::Refused(why)
+                if why.contains("/repositories/10/pulls is not the listing /repositories/9/pulls")),
+            "{error:?}"
+        );
+        assert_eq!(github.seen().len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_page_linking_to_itself_is_not_read_again() {
+        let github = mock::serve(|seen: &Seen| {
+            let mut response = json_answer("[1]");
+            let link = format!("<{}{}>; rel=\"next\"", seen.origin(), seen.path_and_query);
+            response
+                .headers_mut()
+                .insert(header::LINK, link.parse().unwrap());
+            response
+        })
+        .await;
+        let error = run(transport(&github.url), |client| {
+            client
+                .pages("repos/dashpay/platform/pulls")
+                .map(|_| PyValue::None)
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&error, ReadError::Refused(why) if why.contains("links back")),
+            "{error:?}"
+        );
+        assert_eq!(github.seen().len(), 1);
+    }
+
+    /// Every page of one call reads from one budget.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_call_reads_at_most_its_budget_over_all_its_pages() {
+        let github = mock::serve(|seen: &Seen| {
+            let mut response = json_answer(&format!("[\"{}\"]", "x".repeat(60)));
+            let link = format!(
+                "<{}/repositories/9/pulls?page=2>; rel=\"next\"",
+                seen.origin()
+            );
+            if seen.path() == "/repos/dashpay/platform/pulls" {
+                response
+                    .headers_mut()
+                    .insert(header::LINK, link.parse().unwrap());
+            }
+            response
+        })
+        .await;
+        let paginated = Call::Rest {
+            method: Method::Get,
+            path: "repos/dashpay/platform/pulls".into(),
+            body: None,
+            paginate: true,
+        };
+        let roomy = transport(&github.url).limited(CALL_DEADLINE, 200);
+        assert!(
+            matches!(call(roomy, paginated.clone()).await, Ok(Reply::Pages(p)) if p.len() == 2)
+        );
+        let tight = transport(&github.url).limited(CALL_DEADLINE, 100);
+        let reply = call(tight, paginated).await;
+        assert!(
+            matches!(&reply, Err(TransportError::Failed(f))
+                if !f.transient && f.detail == "a call answered with more than 100 bytes"),
+            "{reply:?}"
+        );
+    }
+
+    /// A call that runs out of its deadline is Python's command that ran out
+    /// of its sixty seconds: it never completed, and is not asked again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_call_past_its_deadline_is_not_asked_again() {
+        let silent = mock::raw_silent().await;
+        let slow = || transport(&silent.url).limited(Duration::from_millis(300), MAX_CALL_BYTES);
+        let reply = call(slow(), get("repos/a/b/pulls/1")).await;
+        let Err(TransportError::Failed(failure)) = reply else {
+            panic!("{reply:?}")
+        };
+        assert_eq!((failure.status, failure.transient), (None, false));
+        let error = run(slow(), |client| {
+            client.request(Method::Get, "repos/a/b/pulls/1", None)
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error,
+            ReadError::GitHub("GitHub API command unavailable or timed out".into())
+        );
+        assert_eq!(silent.connections(), 2, "one per call, none asked again");
     }
 
     /// A gateway error is asked again once, and the second answer stands.
@@ -965,6 +1184,61 @@ mod tests {
         })
         .await;
         assert!(matches!(answer, Ok(PyValue::None)), "{answer:?}");
+        // Through the client: asked once more, then an error in this
+        // transport's words where Python's said "returned invalid JSON".
+        let error = run(transport(&github.url), |client| {
+            client.request(Method::Get, "repos/a/b/pulls/1", None)
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error,
+            ReadError::GitHub(
+                "GitHub API command failed (exit 1): an answer that is not JSON, cut short or garbled"
+                    .into()
+            )
+        );
+        let asked = github
+            .seen()
+            .iter()
+            .filter(|seen| seen.path() == "/repos/a/b/pulls/1")
+            .count();
+        assert_eq!(asked, 3, "once by the transport alone, twice by the client");
+    }
+
+    /// A GraphQL query is a `POST`: never asked twice, even after a
+    /// gateway error.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_graphql_gateway_error_is_not_asked_again() {
+        let github = mock::serve(|_: &Seen| (Code::BAD_GATEWAY, "").into_response()).await;
+        let error = run(transport(&github.url), |client| {
+            client.graphql(queries::BUILD, PyValue::Dict(PyDict::new()))
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error,
+            ReadError::GitHub("GitHub API command failed (exit 1): HTTP 502".into())
+        );
+        assert_eq!(github.seen().len(), 1);
+    }
+
+    /// The engine's thread waits while the runtime's workers drive the
+    /// request: a runtime with no workers to spare is refused up front.
+    #[test]
+    fn a_runtime_without_workers_is_refused() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let made = HttpTransport::with_origin(
+            runtime.handle().clone(),
+            fixed_token("t"),
+            "http://127.0.0.1:9",
+            REQUEST_TIMEOUT,
+        );
+        assert!(made.is_err());
+        assert!(HttpTransport::new(runtime.handle().clone(), fixed_token("t")).is_err());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -985,7 +1259,11 @@ mod tests {
     /// A connection that cannot be made is not a flaky answer.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_refused_connection_is_not_transient() {
-        let reply = call(transport("http://127.0.0.1:9"), get("repos/a/b/pulls/1")).await;
+        // A port that was just free and is closed again.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", closed.local_addr().unwrap());
+        drop(closed);
+        let reply = call(transport(&origin), get("repos/a/b/pulls/1")).await;
         let Err(TransportError::Failed(failure)) = reply else {
             panic!("{reply:?}")
         };

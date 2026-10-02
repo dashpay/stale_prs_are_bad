@@ -49,6 +49,10 @@ const READ: &str = "read";
 /// a long listing included.
 pub const REFRESH_MARGIN: TimeDelta = TimeDelta::minutes(5);
 
+/// While renewing fails, the token held is still handed out as long as it
+/// has this long left: more than one request's timeout.
+const LAST_USE: TimeDelta = TimeDelta::minutes(1);
+
 /// How far into the past the App's JWT is dated, against the clocks of
 /// GitHub and this service disagreeing, as GitHub advises.
 const JWT_BACKDATE: TimeDelta = TimeDelta::seconds(60);
@@ -209,17 +213,26 @@ impl InstallationTokens {
 
     async fn current(&self) -> Result<Secret, AppAuthError> {
         let mut held = self.held.lock().await;
-        if let Some(held) = held
-            .as_ref()
-            .filter(|held| held.expires_at - Utc::now() > REFRESH_MARGIN)
-        {
+        let left = |held: &Held| held.expires_at - Utc::now();
+        if let Some(held) = held.as_ref().filter(|held| left(held) > REFRESH_MARGIN) {
             return Ok(held.token.clone());
         }
-        let fresh = self.exchange().await?;
-        let token = fresh.token.clone();
-        tracing::info!(expires_at = %fresh.expires_at, "reader App installation token renewed");
-        *held = Some(fresh);
-        Ok(token)
+        match self.exchange().await {
+            Ok(fresh) => {
+                let token = fresh.token.clone();
+                tracing::info!(expires_at = %fresh.expires_at, "reader App installation token renewed");
+                *held = Some(fresh);
+                Ok(token)
+            }
+            Err(error) => match held.as_ref().filter(|held| left(held) > LAST_USE) {
+                // Renewal failed; the token held still outlasts a request.
+                Some(held) => {
+                    tracing::warn!(%error, "reader App token not renewed; using the one held");
+                    Ok(held.token.clone())
+                }
+                None => Err(error),
+            },
+        }
     }
 
     /// `POST /app/installations/{id}/access_tokens`, asking for
@@ -270,11 +283,14 @@ impl InstallationTokens {
         }
         let answer: Answer = serde_json::from_slice(&body)
             .map_err(|_| AppAuthError::Malformed("no token, expiry and permissions"))?;
-        if let Some((name, level)) = answer
-            .permissions
-            .iter()
-            .find(|(_, level)| level.as_str() != Some(READ))
-        {
+        // Only what was asked for, and only to read. Fewer permissions than
+        // asked could only make reads fail; any other is refused.
+        if answer.permissions.is_empty() {
+            return Err(AppAuthError::Malformed("a token with no permissions"));
+        }
+        if let Some((name, level)) = answer.permissions.iter().find(|(name, level)| {
+            level.as_str() != Some(READ) || !PERMISSIONS.contains(&name.as_str())
+        }) {
             return Err(AppAuthError::NotReadOnly(format!(
                 "{}: {}",
                 plain(name),
@@ -464,6 +480,78 @@ mod tests {
         // Not held: the next request asks again.
         let _ = tokens.token().await;
         assert_eq!(github.seen().len(), 2);
+    }
+
+    /// Read access to something the engine never reads is still more than
+    /// was asked for.
+    #[tokio::test]
+    async fn a_permission_not_asked_for_is_refused() {
+        let github = mock::serve(|_seen: &Seen| {
+            let mut permissions = read_only();
+            permissions["secrets"] = Value::from("read");
+            token_answer("ghs_wide", TimeDelta::hours(1), permissions)
+        })
+        .await;
+        let tokens = InstallationTokens::with_origin(&config(), &github.url).unwrap();
+        assert_eq!(
+            tokens.token().await.unwrap_err(),
+            AppAuthError::NotReadOnly("secrets: read".into())
+        );
+        let github =
+            mock::serve(|_seen: &Seen| token_answer("ghs_none", TimeDelta::hours(1), json!({})))
+                .await;
+        let tokens = InstallationTokens::with_origin(&config(), &github.url).unwrap();
+        assert!(matches!(
+            tokens.token().await,
+            Err(AppAuthError::Malformed(_))
+        ));
+    }
+
+    /// Callers waiting while a token is asked for share it: one exchange.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn callers_waiting_on_a_renewal_share_its_token() {
+        let github = mock::serve(|_seen: &Seen| {
+            // Slow enough that every caller arrives during the exchange.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            token_answer("ghs_shared", TimeDelta::hours(1), read_only())
+        })
+        .await;
+        let tokens = Arc::new(InstallationTokens::with_origin(&config(), &github.url).unwrap());
+        let callers: Vec<_> = (0..6)
+            .map(|_| {
+                let tokens = tokens.clone();
+                tokio::spawn(async move { tokens.token().await })
+            })
+            .collect();
+        for caller in callers {
+            assert_eq!(caller.await.unwrap().unwrap().expose(), "ghs_shared");
+        }
+        assert_eq!(github.seen().len(), 1);
+    }
+
+    /// A renewal that fails leaves the token held in use while it still
+    /// outlasts a request, and not after.
+    #[tokio::test]
+    async fn a_failed_renewal_keeps_the_held_token_while_it_lasts() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let counter = count.clone();
+        let github =
+            mock::serve(
+                move |_seen: &Seen| match counter.fetch_add(1, Ordering::SeqCst) {
+                    0 => token_answer("ghs_held", TimeDelta::minutes(4), read_only()),
+                    2 => token_answer("ghs_brief", TimeDelta::seconds(30), read_only()),
+                    _ => StatusCode::BAD_GATEWAY.into_response(),
+                },
+            )
+            .await;
+        let tokens = InstallationTokens::with_origin(&config(), &github.url).unwrap();
+        assert_eq!(tokens.token().await.unwrap().expose(), "ghs_held");
+        assert_eq!(tokens.token().await.unwrap().expose(), "ghs_held");
+        assert_eq!(count.load(Ordering::SeqCst), 2, "renewal was tried");
+        // Held with thirty seconds left: too little to hand out.
+        let tokens = InstallationTokens::with_origin(&config(), &github.url).unwrap();
+        assert_eq!(tokens.token().await.unwrap().expose(), "ghs_brief");
+        assert_eq!(tokens.token().await.unwrap_err(), AppAuthError::Status(502));
     }
 
     #[tokio::test]

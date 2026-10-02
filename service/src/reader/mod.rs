@@ -31,6 +31,24 @@ pub use read_only::{ReadOnly, NOT_A_READ};
 pub use status_page::StatusPage;
 pub use transport::HttpTransport;
 
+use std::sync::Arc;
+use tokio::runtime::Handle;
+
+/// The engine's transport: GitHub over HTTPS on `runtime`, each request
+/// with a token from `tokens`, behind [`ReadOnly`] for `repositories`
+/// (`owner/name`). The only way to make an [`HttpTransport`] outside this
+/// module, so that every call the engine makes passes the read-only layer.
+pub fn read_only_transport(
+    runtime: Handle,
+    tokens: Arc<dyn TokenSource>,
+    repositories: impl IntoIterator<Item = impl AsRef<str>>,
+) -> anyhow::Result<ReadOnly<HttpTransport>> {
+    Ok(ReadOnly::new(
+        HttpTransport::new(runtime, tokens)?,
+        repositories,
+    )?)
+}
+
 /// GitHub's API: the only origin the reader sends its token to.
 pub const API_URL: &str = "https://api.github.com";
 

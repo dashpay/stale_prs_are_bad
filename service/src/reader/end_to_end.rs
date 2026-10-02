@@ -1,15 +1,17 @@
 //! The engine end to end over HTTP: a report on a small repository, read
-//! through `ReadOnly<HttpTransport>` on a blocking thread, as the service
-//! runs it.
+//! through `ReadOnly<HttpTransport>` on a blocking thread with the reader
+//! App's own installation token, as the service runs it.
 
-use super::mock::{self, fixed_token, json_answer, Seen};
-use super::{HttpTransport, ReadOnly};
+use super::mock::{self, json_answer, test_key, Seen};
+use super::{AppKey, HttpTransport, InstallationTokens, ReadOnly};
+use crate::config::ReaderConfig;
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use pr_hygiene_engine::evidence::{queries, Client, GitHub};
 use pr_hygiene_engine::pycompat::{py_loads, PyDateTime, PyValue};
 use pr_hygiene_engine::reconcile::{Clock, ClockSite, Command, Reconciler, RunOptions, Selection};
 use serde_json::{json, Value};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Handle;
 
@@ -83,6 +85,20 @@ fn github(seen: &Seen) -> Response {
     if (seen.method.as_str(), seen.path()) == ("POST", "/graphql") {
         return graphql(&seen.body);
     }
+    if (seen.method.as_str(), seen.path()) == ("POST", "/app/installations/777/access_tokens") {
+        let expires_at = (chrono::Utc::now() + chrono::TimeDelta::hours(1))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let permissions: serde_json::Map<String, Value> = super::app::PERMISSIONS
+            .iter()
+            .map(|name| ((*name).to_owned(), Value::from("read")))
+            .collect();
+        return (
+            StatusCode::CREATED,
+            answer(json!({"token": "ghs_reader", "expires_at": expires_at,
+                          "permissions": permissions})),
+        )
+            .into_response();
+    }
     if seen.method.as_str() != "GET" {
         return StatusCode::METHOD_NOT_ALLOWED.into_response();
     }
@@ -134,9 +150,15 @@ fn github(seen: &Seen) -> Response {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_report_reaches_a_verdict_through_the_read_only_transport_and_writes_nothing() {
     let server = mock::serve(github).await;
+    let config = ReaderConfig {
+        app_id: 4242,
+        installation_id: 777,
+        key: AppKey::from_pem(&test_key().pem).unwrap(),
+    };
+    let tokens = Arc::new(InstallationTokens::with_origin(&config, &server.url).unwrap());
     let transport = HttpTransport::with_origin(
         Handle::current(),
-        fixed_token("ghs_reader"),
+        tokens,
         &server.url,
         Duration::from_secs(5),
     )
@@ -177,7 +199,11 @@ async fn a_report_reaches_a_verdict_through_the_read_only_transport_and_writes_n
     );
     assert!(run.report.is_some());
 
-    let seen = server.seen();
+    let (exchanges, seen): (Vec<Seen>, Vec<Seen>) = server
+        .seen()
+        .into_iter()
+        .partition(|request| request.path().starts_with("/app/"));
+    assert_eq!(exchanges.len(), 1, "one token, used for every request");
     assert!(
         seen.iter().all(|request| request.method == "GET"
             || (request.method == "POST" && request.path() == "/graphql")),

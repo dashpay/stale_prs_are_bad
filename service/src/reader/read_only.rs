@@ -6,14 +6,16 @@
 //! write. It sits between the engine's client and the HTTP transport, so
 //! every call the client makes passes it — each call of a GraphQL
 //! listing's pages, and the first page of a REST listing, whose later pages
-//! the transport follows only on the same origin and the same listing.
+//! the transport follows only on the same origin and the same listing, one
+//! repository's, and only by `GET`. The transport is made only behind this
+//! layer ([`read_only_transport`](super::read_only_transport)).
 //!
 //! A read is:
 //!
 //! - a `GET`, with no body, of a route under `repos/{owner}/{repo}/` for
 //!   a repository it was given, every segment of that route plain — letters,
 //!   digits, `-._~` and percent escapes, none of which decodes to `.`, `..`,
-//!   `/` or `\` — and its query likewise;
+//!   `/`, `\` or `%` — and its query likewise;
 //! - a GraphQL document that is exactly one of the engine's own queries
 //!   ([`queries`]), every character as the engine writes it, asking about a
 //!   repository it was given.
@@ -180,6 +182,7 @@ fn plain_segment(segment: &str) -> bool {
         && decoded != b".."
         && !decoded.contains(&b'/')
         && !decoded.contains(&b'\\')
+        && !decoded.contains(&b'%')
 }
 
 /// A query of plain `name=value` pairs.
@@ -403,6 +406,8 @@ mod tests {
             "repos/dashpay/platform/%2E/pulls",
             "repos/dashpay/platform/pulls%2f7",
             "repos/dashpay/platform/pulls%5c7",
+            // Encoded twice: `..` to whatever decodes it a second time.
+            "repos/dashpay/platform/%252e%252e/dash/pulls",
             "repos/dashpay/platform//pulls",
             "repos/dashpay/platform/pulls/7#frag",
             "repos/dashpay/platform/pulls/7?state=open#frag",

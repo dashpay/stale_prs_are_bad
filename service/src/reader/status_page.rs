@@ -12,7 +12,7 @@ use pr_hygiene_engine::pycompat::{py_loads, PyInt, PyValue};
 use reqwest::StatusCode;
 use std::fmt;
 use std::time::Duration;
-use tokio::runtime::Handle;
+use tokio::runtime::{Handle, RuntimeFlavor};
 
 /// `telemetry.SOURCE`.
 pub const SOURCE: &str = "https://thepastaclaw.github.io/review-system/data/status.json";
@@ -52,6 +52,10 @@ impl StatusPage {
     }
 
     fn at(runtime: Handle, url: &str) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            runtime.runtime_flavor() == RuntimeFlavor::MultiThread,
+            "the status page is read on a multi-thread runtime, from the engine's thread"
+        );
         let client = reqwest::Client::builder()
             .timeout(TIMEOUT)
             // `telemetry.py` refuses redirects.
