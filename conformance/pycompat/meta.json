@@ -1,0 +1,23 @@
+{
+  "python": "3.12.14",
+  "unicode": "15.0.0",
+  "implementation": "cpython",
+  "generator": "conformance/pycompat/generate.py",
+  "regenerate": "uv run -q --python 3.12 --no-project python conformance/pycompat/generate.py",
+  "json": {
+    "max_depth": 9997,
+    "recursion_messages": {
+      "array": "maximum recursion depth exceeded while decoding a JSON array from a unicode string",
+      "object": "maximum recursion depth exceeded while decoding a JSON object from a unicode string",
+      "calling": "maximum recursion depth exceeded while calling a Python object"
+    },
+    "depth_before_recursion_error": {
+      "expecting_value": 9996,
+      "decode_error": 9993,
+      "decode_error_in_object": 9992,
+      "named_float": 9996,
+      "int_too_long": 9996
+    },
+    "int_max_str_digits": 4300
+  }
+}

@@ -17,9 +17,26 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # The workspace: the analyzer and the service.
+      # The workspace: the analyzer, the service and the engine.
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # preserve_order would reorder the service's json! answers and change
+      # their ETags; arbitrary_precision breaks numbers under
+      # #[serde(flatten)] in src/policy.rs. Either can arrive through any
+      # crate's dependency, so the whole workspace's feature set is read.
+      - name: serde_json features stay frozen
+        run: |
+          features=$(cargo tree --workspace --locked -e features -i serde_json)
+          # The default feature is always on; not finding it means the
+          # listing could not be read, which must not pass as "no match".
+          if ! grep -q 'serde_json feature "default"' <<<"$features"; then
+            echo "::error::could not read serde_json's features from cargo tree"
+            exit 1
+          fi
+          if grep -E 'serde_json feature "(preserve_order|arbitrary_precision)"' <<<"$features"; then
+            echo "::error::serde_json gained preserve_order or arbitrary_precision"
+            exit 1
+          fi
       - name: Dashboard page renders data as text only
         run: bash site/check.sh
