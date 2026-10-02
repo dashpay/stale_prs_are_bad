@@ -477,6 +477,25 @@ fn reads_value(reads: &[(String, usize)]) -> PyValue {
     )
 }
 
+/// The pull request a recorded `sync --pr N` named; `None` for any other
+/// command.
+pub(super) fn synced_pr(meta: &PyValue) -> Option<PyInt> {
+    let args = argv(meta).ok()?;
+    if args.command == Command::Sync {
+        args.pr
+    } else {
+        None
+    }
+}
+
+/// The recorded run replayed through the port over its own reads: what
+/// Python's run collected and decided, as the replay reaches it. `None`
+/// where the replay cannot run or did not decide.
+pub(super) fn replayed(recording: &Recording) -> Option<Run> {
+    let args = argv(&recording.meta).ok()?;
+    replay(recording, &args).ok()?.outcome.ok()
+}
+
 /// Replay `recording` as a whole run through the port and compare it with
 /// what Python's run did: its outcome, its verdict rows, its writes, the
 /// outputs of each verdict, its JSON report, its clock reads and the order

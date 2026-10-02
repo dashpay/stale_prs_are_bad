@@ -2,20 +2,34 @@
 //! recordings, judged by its exit status and by what it prints — counts,
 //! field paths and case indices, and never anything a recording holds.
 
+#[path = "../support/no_content.rs"]
+mod no_content;
+
+use no_content::FILES;
 use pr_hygiene_engine::pycompat::{py_dumps, py_loads, PyValue};
 use serde_json::Value;
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const FILES: [&str; 6] = [
-    "recording.json",
-    "calls.jsonl",
-    "evaluations.jsonl",
-    "verdicts.json",
-    "outputs.json",
-    "printed.txt",
-];
+/// The sources whose string literals are the report's own words: the tool
+/// and the conformance module that compares and prints for it.
+fn sources() -> Vec<PathBuf> {
+    [
+        "src/bin/differential.rs",
+        "src/conformance/compare.rs",
+        "src/conformance/diff.rs",
+        "src/conformance/report.rs",
+    ]
+    .iter()
+    .map(|file| Path::new(env!("CARGO_MANIFEST_DIR")).join(file))
+    .collect()
+}
+
+/// Nothing a recording holds appears in what the tool said.
+#[track_caller]
+fn assert_no_contents(said: &str, recording: &Path) {
+    no_content::assert_no_contents(said, recording, &sources());
+}
 
 fn synthetic() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance/synthetic")
@@ -58,134 +72,6 @@ fn run(args: &[&Path]) -> (Output, String) {
         String::from_utf8_lossy(&output.stderr)
     );
     (output, said)
-}
-
-/// Every string a recording holds as a value — titles, bodies, logins,
-/// permission levels, commits, instants — in every file it has.
-fn strings_of(recording: &Path) -> Vec<String> {
-    fn strings(value: &Value, out: &mut Vec<String>) {
-        match value {
-            Value::String(s) => {
-                out.push(s.clone());
-                // A recorded answer is JSON inside a string: its strings too.
-                if let Ok(inner) = serde_json::from_str::<Value>(s) {
-                    if inner.is_object() || inner.is_array() {
-                        strings(&inner, out);
-                    }
-                }
-            }
-            Value::Array(items) => items.iter().for_each(|v| strings(v, out)),
-            Value::Object(entries) => entries.values().for_each(|v| strings(v, out)),
-            _ => {}
-        }
-    }
-    let mut out = Vec::new();
-    for file in ["calls.jsonl", "evaluations.jsonl"] {
-        let text = std::fs::read_to_string(recording.join(file)).expect("a recording file");
-        for line in text.lines() {
-            strings(&serde_json::from_str(line).expect("a JSON line"), &mut out);
-        }
-    }
-    for file in [
-        "verdicts.json",
-        "outputs.json",
-        "printed.txt",
-        "recording.json",
-    ] {
-        let text = std::fs::read_to_string(recording.join(file)).expect("a recording file");
-        // The printed report is JSON where the run printed JSON, and is
-        // looked through line by line where it printed Markdown.
-        match serde_json::from_str::<Value>(&text) {
-            Ok(value) => strings(&value, &mut out),
-            Err(_) => out.extend(text.lines().map(str::to_owned)),
-        }
-    }
-    out
-}
-
-/// What the report may say whatever a recording holds: the words of the
-/// tool's own text — its headings, the names of its layers, kinds and
-/// failures, the engine's field names a path may spell out — read from the
-/// string literals of its source outside its tests; and the recording's
-/// repository, command and directory, which name its row. A recording may
-/// hold any of these as values too: `write` is a permission level, `draft`
-/// a state, `the` a word of a title.
-fn own_words(recording: &Path) -> BTreeSet<String> {
-    // A literal may run over lines, continued with a backslash.
-    let literal = regex::Regex::new(r#"(?s)"((?:[^"\\]|\\.)*)""#).expect("a pattern");
-    let mut own = BTreeSet::new();
-    for file in [
-        "src/bin/differential.rs",
-        "src/conformance/compare.rs",
-        "src/conformance/diff.rs",
-    ] {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
-        let source = std::fs::read_to_string(&path).expect("the tool's source");
-        let code = source.split("#[cfg(test)]").next().unwrap_or_default();
-        for found in literal.captures_iter(code) {
-            own.extend(words(&found[1]));
-        }
-    }
-    let meta: Value = serde_json::from_str(
-        &std::fs::read_to_string(recording.join("recording.json")).expect("recording.json"),
-    )
-    .expect("JSON");
-    own.extend(words(meta["repository"].as_str().unwrap_or_default()));
-    for word in meta["argv"].as_array().into_iter().flatten() {
-        own.extend(words(word.as_str().unwrap_or_default()));
-    }
-    own.extend(words(
-        &recording.file_name().unwrap_or_default().to_string_lossy(),
-    ));
-    own
-}
-
-/// Every word of `text`: its runs of letters and digits, lowercased, of
-/// three characters or more, which are not a number.
-fn words(text: &str) -> BTreeSet<String> {
-    text.split(|c: char| !c.is_alphanumeric())
-        .filter(|w| w.chars().count() >= 3 && !w.chars().all(|c| c.is_ascii_digit()))
-        .map(str::to_lowercase)
-        .collect()
-}
-
-/// The strings of a recording long enough to be told apart from the words
-/// of the report itself.
-fn contents(recording: &Path) -> Vec<String> {
-    let own = own_words(recording);
-    let mut out = strings_of(recording);
-    out.retain(|s| {
-        s.chars().count() >= 5 && !own.contains(&s.to_lowercase()) && s != "dashpay/platform"
-    });
-    out.sort();
-    out.dedup();
-    out
-}
-
-/// Nothing a recording holds appears in what the tool said: no whole value,
-/// and no word of one that is not also one of the report's own.
-#[track_caller]
-fn assert_no_contents(said: &str, recording: &Path) {
-    let seen = contents(recording);
-    assert!(seen.len() > 20, "the recording holds text to look for");
-    let leaked: Vec<&String> = seen.iter().filter(|s| said.contains(s.as_str())).collect();
-    assert!(
-        leaked.is_empty(),
-        "printed what the recording holds: {leaked:?}\n{said}"
-    );
-    let held: BTreeSet<String> = strings_of(recording)
-        .iter()
-        .flat_map(|s| words(s))
-        .collect();
-    let own = own_words(recording);
-    let shared: Vec<String> = words(said)
-        .into_iter()
-        .filter(|w| held.contains(w) && !own.contains(w))
-        .collect();
-    assert!(
-        shared.is_empty(),
-        "printed a word the recording holds: {shared:?}\n{said}"
-    );
 }
 
 #[test]
@@ -656,6 +542,23 @@ fn the_check_catches_one_word_of_a_value_not_only_the_whole_of_it() {
         caught.is_err(),
         "one word of a recorded body went unnoticed"
     );
+}
+
+#[test]
+fn the_check_catches_a_whole_value_made_of_the_reports_own_words() {
+    // A route and a body built only of words the report also uses are
+    // still what the recording holds, printed whole: the check refuses
+    // them. A recorded login that is only a part of a field's name — the
+    // login `reviewer` inside `verdict.reviewers` — is the report's own.
+    let recording = synthetic().join("sync-pr-2");
+    let (_, clean) = run(&[&recording]);
+    let field = format!("{clean}\n| verdict | `verdict.reviewers` | length | 1 | x |\n");
+    assert_no_contents(&field, &recording);
+    for leak in ["`repos/dashpay/platform/pulls/2`", "Some text."] {
+        let leaked = format!("{clean}\n| write | {leak} | value | 1 | x |\n");
+        let caught = std::panic::catch_unwind(|| assert_no_contents(&leaked, &recording));
+        assert!(caught.is_err(), "{leak} went unnoticed");
+    }
 }
 
 #[test]

@@ -25,7 +25,9 @@
 //! permission level, and no error message, which can quote them. A panic
 //! prints only where it happened, and a recording whose comparison panics
 //! is one unreadable row. A recording is named by its repository and the
-//! command recorded.
+//! command recorded. The report is the conformance module's
+//! ([`report`](pr_hygiene_engine::conformance::report)), which the live
+//! tool prints too.
 //!
 //! `--requests` prints one number: how many requests to GitHub the
 //! recordings' reads made, counting each page of a paginated read.
@@ -35,19 +37,42 @@
 //! Exit status: 0 when every recording matched, 1 when any differed or
 //! could not be read, 2 when the command itself could not run.
 
-use pr_hygiene_engine::conformance::{
-    compare, replay_run, Check, Comparison, Failure, Layer, Outcome, OwnWords, Recording, RunFiles,
+use pr_hygiene_engine::conformance::report::{
+    categories, counts_table, guarded, label_rows, panic_line, plain, Found, Row, Table,
 };
-use std::collections::BTreeMap;
-use std::fmt::Write as _;
+use pr_hygiene_engine::conformance::{
+    compare, replay_run, Check, Failure, Layer, OwnWords, Recording, RunFiles,
+};
 use std::io::Write as _;
-use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-/// How many case indices a category lists per recording before it counts
-/// the rest.
-const INDICES_SHOWN: usize = 12;
+/// The counts table: the layers in the order a recording is compared.
+const TABLE: Table = Table {
+    intro: "Each layer is cases matched of cases compared. The first three hold \
+            `evaluate` to Python's; the rest replay the whole run.",
+    layers: &[
+        (Layer::Snapshot, "Snapshots"),
+        (Layer::Evaluation, "Evaluations"),
+        (Layer::Verdict, "Verdicts"),
+        (Layer::Run, "Outcome"),
+        (Layer::RunVerdict, "Run verdicts"),
+        (Layer::Write, "Writes"),
+        (Layer::Output, "Outputs"),
+        (Layer::Report, "Report"),
+        (Layer::Clock, "Clock"),
+        (Layer::Call, "Calls"),
+    ],
+    counts: &["Missing reads", "Requests"],
+};
+
+/// What a case index in the categories points at.
+const CASES: &str = "Cases are indices: into `evaluations.jsonl` for \
+    snapshots and evaluations; into `verdicts.json` for verdicts, run verdicts and \
+    outputs; into the recorded writes, in order from 0, for writes (a write the recording \
+    does not hold is numbered on past its last); and 0 for the run as \
+    a whole (outcome, report, clock, calls), with 1 for how often the outcome read the \
+    review system's status page.";
 
 const USAGE: &str = "usage: differential [--summary FILE] [--python-source DIR] DIR...\n       differential --requests DIR...\n       differential --request-kinds DIR...";
 
@@ -125,283 +150,6 @@ fn load_run(dir: &Path) -> Result<RunFiles, String> {
     RunFiles::load_with(|name| std::fs::read_to_string(dir.join(name))).map_err(|e| e.to_string())
 }
 
-/// A name that can only hold what a repository and a command are spelled
-/// with, so that it can carry nothing else into the report.
-fn plain(text: &str) -> String {
-    text.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || " ./_-".contains(c) {
-                c
-            } else {
-                '?'
-            }
-        })
-        .collect()
-}
-
-/// One recording's line in the report.
-struct Row {
-    repository: String,
-    label: String,
-    /// The recording's directory name, which tells apart two recordings of
-    /// the same command.
-    directory: String,
-    found: Result<(Comparison, usize), String>,
-}
-
-/// The counts of one row, or of a total.
-#[derive(Default, Clone, Copy)]
-struct Counts {
-    recordings: usize,
-    unreadable: usize,
-    snapshots: (usize, usize),
-    evaluations: (usize, usize),
-    verdicts: (usize, usize),
-    run_verdicts: (usize, usize),
-    writes: (usize, usize),
-    outputs: (usize, usize),
-    report: (usize, usize),
-    clock: (usize, usize),
-    calls: (usize, usize),
-    outcome: (usize, usize),
-    missing_reads: usize,
-    requests: usize,
-    differences: usize,
-}
-
-impl Counts {
-    fn of(row: &Row) -> Counts {
-        let mut counts = Counts {
-            recordings: 1,
-            ..Counts::default()
-        };
-        match &row.found {
-            Ok((comparison, requests)) => {
-                counts.snapshots = comparison.matched(Layer::Snapshot);
-                counts.evaluations = comparison.matched(Layer::Evaluation);
-                counts.verdicts = comparison.matched(Layer::Verdict);
-                counts.run_verdicts = comparison.matched(Layer::RunVerdict);
-                counts.writes = comparison.matched(Layer::Write);
-                counts.outputs = comparison.matched(Layer::Output);
-                counts.report = comparison.matched(Layer::Report);
-                counts.clock = comparison.matched(Layer::Clock);
-                counts.calls = comparison.matched(Layer::Call);
-                counts.outcome = comparison.matched(Layer::Run);
-                counts.missing_reads = comparison.missing_reads;
-                counts.requests = *requests;
-                counts.differences = comparison.differences();
-            }
-            Err(_) => {
-                counts.unreadable = 1;
-                counts.differences = 1;
-            }
-        }
-        counts
-    }
-
-    fn add(&mut self, other: Counts) {
-        let pair = |a: &mut (usize, usize), b: (usize, usize)| {
-            a.0 += b.0;
-            a.1 += b.1;
-        };
-        self.recordings += other.recordings;
-        self.unreadable += other.unreadable;
-        pair(&mut self.snapshots, other.snapshots);
-        pair(&mut self.evaluations, other.evaluations);
-        pair(&mut self.verdicts, other.verdicts);
-        pair(&mut self.run_verdicts, other.run_verdicts);
-        pair(&mut self.writes, other.writes);
-        pair(&mut self.outputs, other.outputs);
-        pair(&mut self.report, other.report);
-        pair(&mut self.clock, other.clock);
-        pair(&mut self.calls, other.calls);
-        pair(&mut self.outcome, other.outcome);
-        self.missing_reads += other.missing_reads;
-        self.requests += other.requests;
-        self.differences += other.differences;
-    }
-
-    fn cells(&self, name: &str) -> String {
-        let ratio = |(matched, total): (usize, usize)| format!("{matched}/{total}");
-        let differences = if self.unreadable > 0 {
-            format!("{} ({} unreadable)", self.differences, self.unreadable)
-        } else {
-            self.differences.to_string()
-        };
-        format!(
-            "| {name} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {differences} |\n",
-            ratio(self.snapshots),
-            ratio(self.evaluations),
-            ratio(self.verdicts),
-            ratio(self.outcome),
-            ratio(self.run_verdicts),
-            ratio(self.writes),
-            ratio(self.outputs),
-            ratio(self.report),
-            ratio(self.clock),
-            ratio(self.calls),
-            self.missing_reads,
-            self.requests,
-        )
-    }
-}
-
-fn counts_table(rows: &[Row]) -> String {
-    let mut out = String::from(
-        "Each layer is cases matched of cases compared. The first three hold \
-         `evaluate` to Python's; the rest replay the whole run.\n\n\
-         | Recording | Snapshots | Evaluations | Verdicts | Outcome | Run verdicts | Writes | Outputs | Report | Clock | Calls | Missing reads | Requests | Differences |\n\
-         |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n",
-    );
-    let mut repositories: Vec<(&str, Counts)> = Vec::new();
-    let mut all = Counts::default();
-    for row in rows {
-        let counts = Counts::of(row);
-        out.push_str(&counts.cells(&row.label));
-        all.add(counts);
-        match repositories.iter_mut().find(|(r, _)| *r == row.repository) {
-            Some((_, total)) => total.add(counts),
-            None => repositories.push((&row.repository, counts)),
-        }
-    }
-    if rows.len() > 1 {
-        for (repository, counts) in &repositories {
-            let name = format!("**{repository}** ({} recordings)", counts.recordings);
-            out.push_str(&counts.cells(&name));
-        }
-        let name = format!("**all** ({} recordings)", all.recordings);
-        out.push_str(&all.cells(&name));
-    }
-    out
-}
-
-/// The differences grouped by what differs: layer, field path and kind,
-/// with how many there are and which cases of which recording show them.
-fn categories(rows: &[Row]) -> String {
-    type Where = BTreeMap<String, Vec<usize>>;
-    let mut found: BTreeMap<(Layer, String, String), (usize, Where)> = BTreeMap::new();
-    let mut note = |layer: Layer, field: String, kind: String, label: &str, index: usize| {
-        let (count, at) = found.entry((layer, field, kind)).or_default();
-        *count += 1;
-        let indices = at.entry(label.to_owned()).or_default();
-        if indices.last() != Some(&index) {
-            indices.push(index);
-        }
-    };
-    let mut unreadable = Vec::new();
-    for row in rows {
-        let comparison = match &row.found {
-            Ok((comparison, _)) => comparison,
-            Err(problem) => {
-                unreadable.push(format!("- {}: {problem}\n", row.label));
-                continue;
-            }
-        };
-        for check in &comparison.checks {
-            match &check.outcome {
-                Outcome::Matched => {}
-                Outcome::Differs(differences) => {
-                    for difference in differences {
-                        let field = format!("`{}`", difference.field());
-                        note(
-                            check.layer,
-                            field,
-                            difference.kind.to_string(),
-                            &row.label,
-                            check.index,
-                        );
-                    }
-                }
-                Outcome::Failed { failure, .. } => {
-                    note(
-                        check.layer,
-                        "—".into(),
-                        failure.to_string(),
-                        &row.label,
-                        check.index,
-                    );
-                }
-            }
-        }
-    }
-    let mut out = String::new();
-    if !unreadable.is_empty() {
-        out.push_str("Recordings that could not be read:\n\n");
-        unreadable.iter().for_each(|line| out.push_str(line));
-        out.push('\n');
-    }
-    if found.is_empty() {
-        out.push_str("No differences.\n");
-        return out;
-    }
-    out.push_str(
-        "Field paths only: `[]` is any list item, `*` a key that is data (a login, a digest), \
-         `?` a key this tool does not know. Cases are indices: into `evaluations.jsonl` for \
-         snapshots and evaluations; into `verdicts.json` for verdicts, run verdicts and \
-         outputs; into the recorded writes, in order from 0, for writes (a write the recording \
-         does not hold is numbered on past its last); and 0 for the run as \
-         a whole (outcome, report, clock, calls), with 1 for how often the outcome read the \
-         review system's status page.\n\n\
-         | Layer | Field | Kind | Count | Cases |\n|---|---|---|---:|---|\n",
-    );
-    for ((layer, field, kind), (count, at)) in &found {
-        let cases: Vec<String> = at
-            .iter()
-            .map(|(label, indices)| {
-                let shown: Vec<String> = indices
-                    .iter()
-                    .take(INDICES_SHOWN)
-                    .map(usize::to_string)
-                    .collect();
-                let more = indices.len().saturating_sub(INDICES_SHOWN);
-                let more = if more > 0 {
-                    format!(" and {more} more")
-                } else {
-                    String::new()
-                };
-                format!("{label}: {}{more}", shown.join(", "))
-            })
-            .collect();
-        let _ = writeln!(
-            out,
-            "| {} | {field} | {kind} | {count} | {} |",
-            layer.as_str(),
-            cases.join("; ")
-        );
-    }
-    out
-}
-
-/// Where two rows have the same repository and command, add each one's
-/// directory name.
-fn label_rows(rows: &mut [Row]) {
-    let mut times: BTreeMap<String, usize> = BTreeMap::new();
-    for row in rows.iter() {
-        *times.entry(row.label.clone()).or_default() += 1;
-    }
-    for row in rows.iter_mut() {
-        if times.get(&row.label).is_some_and(|&n| n > 1) {
-            row.label = format!("{} ({})", row.label, row.directory);
-        }
-    }
-}
-
-/// The line a panic leaves on stderr: where it happened, and nothing it was
-/// handed. A panic's own message can quote what it was looking at — a slice
-/// of a body, an error naming a login — and stderr is the job's public log.
-fn panic_line(location: Option<&std::panic::Location<'_>>) -> String {
-    match location {
-        Some(at) => format!("differential: panicked at {}:{}", at.file(), at.line()),
-        None => "differential: panicked".to_owned(),
-    }
-}
-
-/// `f`, with a panic inside it caught and kept to its kind.
-fn guarded<T>(f: impl FnOnce() -> T) -> Result<T, String> {
-    std::panic::catch_unwind(AssertUnwindSafe(f))
-        .map_err(|_| "the tool panicked here; its message is not printed".to_owned())
-}
-
 /// One recording's row: loaded, counted and compared, a panic included.
 fn row(dir: &Path, own: &OwnWords) -> Row {
     let directory = plain(&dir.file_name().unwrap_or_default().to_string_lossy());
@@ -429,7 +177,11 @@ fn row(dir: &Path, own: &OwnWords) -> Row {
                         problem,
                     )),
                 }
-                (comparison, requests)
+                let missing_reads = comparison.missing_reads;
+                Found {
+                    comparison,
+                    counts: vec![missing_reads, requests],
+                }
             });
         Ok::<_, String>((repository, label, found))
     })
@@ -485,15 +237,13 @@ fn run(options: Options) -> Result<bool, String> {
         .map_err(|e| format!("the engine's own words: {e}"))?;
     let mut rows: Vec<Row> = dirs.iter().map(|dir| row(dir, &own)).collect();
     label_rows(&mut rows);
-    let clean = rows
-        .iter()
-        .all(|row| matches!(&row.found, Ok((comparison, _)) if comparison.is_clean()));
-    let table = counts_table(&rows);
+    let clean = rows.iter().all(Row::clean);
+    let table = counts_table(&rows, &TABLE);
     print!(
         "## Engine differential\n\n{} recording(s): {}.\n\n{table}\n### Differences by category\n\n{}",
         rows.len(),
         if clean { "the Rust engine matched every one" } else { "the Rust engine differed" },
-        categories(&rows)
+        categories(&rows, CASES)
     );
     if let Some(summary) = &options.summary {
         let mut file = std::fs::OpenOptions::new()
@@ -509,7 +259,7 @@ fn run(options: Options) -> Result<bool, String> {
 
 fn main() -> ExitCode {
     std::panic::set_hook(Box::new(|info| {
-        eprintln!("{}", panic_line(info.location()))
+        eprintln!("{}", panic_line("differential", info.location()))
     }));
     let options = match options() {
         Ok(Some(options)) => options,
@@ -529,37 +279,5 @@ fn main() -> ExitCode {
             eprintln!("differential: {problem}");
             ExitCode::from(2)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_panic_is_reported_by_where_it_happened_and_never_by_what_it_said() {
-        let caught = guarded(|| -> usize { panic!("mallory has admin on dashpay/secret") });
-        let problem = caught.unwrap_err();
-        assert!(!problem.contains("mallory"), "{problem}");
-        let line = panic_line(Some(std::panic::Location::caller()));
-        assert!(line.starts_with("differential: panicked at "), "{line}");
-        assert!(line.contains("differential.rs:"), "{line}");
-        assert_eq!(panic_line(None), "differential: panicked");
-    }
-
-    #[test]
-    fn a_recording_whose_comparison_panics_is_one_unreadable_row() {
-        let caught: Result<usize, String> = guarded(|| panic!("a title"));
-        let row = Row {
-            repository: "?".into(),
-            label: "unreadable (x)".into(),
-            directory: "x".into(),
-            found: caught.map(|_| (Comparison::default(), 0)),
-        };
-        let table = counts_table(std::slice::from_ref(&row));
-        assert!(table.contains(
-            "| unreadable (x) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0 | 0 | 1 (1 unreadable) |"
-        ));
-        assert!(!categories(&[row]).contains("a title"));
     }
 }

@@ -8,13 +8,24 @@ name: Engine differential
 # whole run, make the same writes in the same order with the same bodies,
 # the same outputs and report, and read the clock at the same points.
 #
+# Right after each repository is recorded, the Rust engine reads the same
+# pull requests live through the service's read-only HTTP transport, with
+# the same token: a few of the report's, held to Python's snapshots, and
+# each one-author sync run whole, held to Python's snapshots and verdicts,
+# and to writing nothing where nothing changed since the engine last wrote.
+# It never writes: every write it would make is answered as refused before
+# it reaches the transport, and the transport's read-only layer lets
+# through only the engine's own reads.
+#
 # A recording holds what only a collaborator may see (permission levels, the
 # collaborator listing), so recordings never leave this job. They are written
 # to a mode-700 directory under the runner's temporary directory, read by the
-# two replays and deleted at the end, pass or fail. Nothing is uploaded or
-# cached. Only counts, field paths and case indices are printed, and the job
-# summary holds the counts table. conformance/README.md says how to read a
-# red run.
+# two replays and deleted at the end, pass or fail. The live reads are held
+# in memory only; what the live tool writes (its counts table and what it
+# spent) goes to a second mode-700 directory, deleted with the first.
+# Nothing is uploaded or cached. Only counts, field paths and case indices
+# are printed, and the job summary holds the counts tables.
+# conformance/README.md says how to read a red run.
 
 on:
   schedule:
@@ -69,6 +80,21 @@ jobs:
       # Authors sampled per repository per run, one pull request each,
       # rotating with the run so that every author comes round.
       AUTHORS_PER_REPOSITORY: "3"
+      # Requests the Rust engine's live reads may make, beside the
+      # recordings' budget. A one-author sync read live costs what Python's
+      # recording of it cost minutes before, which the tool weighs it at; a
+      # report's pull request about eight. The run of 2026-10-02 had its
+      # one-author syncs cost 15 to 39 requests: fifteen of them and two
+      # pull requests of each of five reports come to about 400. That run
+      # found the App with 5 386 REST and 5 210 GraphQL requests left
+      # before it and 4 657 and 4 970 after it, so a run that spends up to
+      # 1 400 in all leaves pr-hygiene.yml, which shares the limit, over
+      # 3 000 of the hour; the reserve below, which now counts the live
+      # reads too, stops the job before it could take more.
+      LIVE_BUDGET: "400"
+      # A report's pull requests read live, per repository, rotating with
+      # the run.
+      LIVE_REPORT_PRS: "2"
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -81,8 +107,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 2026-09
 
-      - name: Build the replay tool
-        run: cargo build --release --locked -p pr-hygiene-engine --bin differential
+      - name: Build the replay and live tools
+        run: cargo build --release --locked -p pr-hygiene-engine --bin differential -p pr-hygiene-service --bin differential-live
 
       # The Python the engine runs on in every governed repository, and the
       # one its conformance corpus is made with.
@@ -115,8 +141,10 @@ jobs:
       # gets its report, its sweep and a few one-author syncs while the budget
       # lasts; a repository that does not fit is first in a later run. What the
       # engine prints, and anything it says on stderr, goes to /dev/null: it
-      # names pull requests and people.
-      - name: Record dry runs of the Python engine
+      # names pull requests and people. Right after a repository is recorded,
+      # the Rust engine reads it live, with the same token, while its own
+      # budget lasts; what the live tool prints is counts and field paths.
+      - name: Record dry runs of the Python engine, and read them live with the Rust engine
         id: record
         timeout-minutes: 30
         env:
@@ -126,10 +154,16 @@ jobs:
           umask 077
           root="$RUNNER_TEMP/differential"
           mkdir -m 700 "$root"
+          live="$RUNNER_TEMP/differential-live"
+          mkdir -m 700 "$live"
           tool="$GITHUB_WORKSPACE/target/release/differential"
+          live_tool="$GITHUB_WORKSPACE/target/release/differential-live"
           spent=0
           recorded=0
           unwritten=0
+          live_spent=0
+          live_read=0
+          live_failed=0
 
           # What the App has left in one limit, read from the headers of a
           # real request against it, which must say it counted against
@@ -159,8 +193,13 @@ jobs:
           }
           probe=""
           finish() {
-            echo "recorded=$recorded" >> "$GITHUB_OUTPUT"
+            {
+              echo "recorded=$recorded"
+              echo "live_read=$live_read"
+              echo "live_failed=$live_failed"
+            } >> "$GITHUB_OUTPUT"
             echo "Requests the recordings made: $spent of a budget of $REQUEST_BUDGET"
+            echo "Requests the live reads made: $live_spent of a budget of $LIVE_BUDGET"
             if [ -n "$probe" ]; then
               echo "App rate limit remaining after (core graphql): $(remaining "$probe" || echo unknown)"
             fi
@@ -188,6 +227,38 @@ jobs:
             spent=$(( spent + requests ))
             recorded=$(( recorded + 1 ))
             echo "$*: $requests requests ($rest REST, $queries GraphQL), engine exit $status; $spent spent"
+          }
+
+          # The Rust engine reads live what Python just recorded under $1: a
+          # few of the report's pull requests, and each one-author sync run
+          # whole. The tool weighs each recording against what is left of
+          # the live budget, skips what would not fit, and says what it
+          # spent; one that cannot say is charged everything that was left.
+          read_live() {
+            local left=$(( LIVE_BUDGET - live_spent )) status=0 made
+            if (( left <= 0 )); then
+              echo "$repo: live budget reached; not read live"
+              return 0
+            fi
+            if ! compgen -G "$1/*/recording.json" > /dev/null; then
+              return 0
+            fi
+            rm -f "$live/spent"
+            # Its stderr is its own one-line errors and panic locations; only
+            # lines in that form are shown, whatever else might be said there.
+            "$live_tool" --budget "$left" --report-prs "$LIVE_REPORT_PRS" --slot "$slot" \
+              --spent "$live/spent" --summary "$live/summary.md" "$1" 2> "$live/stderr" || status=$?
+            grep -E '^differential-live: ' "$live/stderr" >&2 || true
+            rm -f "$live/stderr"
+            made=$(cat "$live/spent" 2>/dev/null) || made=$left
+            [[ "$made" =~ ^[0-9]+$ ]] || made=$left
+            live_spent=$(( live_spent + made ))
+            live_read=$(( live_read + 1 ))
+            if (( status != 0 )); then
+              live_failed=$(( live_failed + 1 ))
+              echo "::warning::$repo: the Rust engine's live reads differed or could not run (exit $status)"
+            fi
+            echo "$repo: live reads made $made requests; $live_spent of $LIVE_BUDGET spent"
           }
 
           listed=$(env -u GH_TOKEN python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))")
@@ -227,6 +298,17 @@ jobs:
             fi
             spent=$(( spent + 2 ))
             read -r core graphql <<<"$limits"
+            # The live reads of this repository, at most: its report's pull
+            # requests and every sample, within what is left of their budget,
+            # which the last of them may have overrun.
+            live_planned=$(( LIVE_REPORT_PRS * PER_OPEN_PR + 2 + AUTHORS_PER_REPOSITORY * PER_SAMPLE ))
+            if (( live_planned > LIVE_BUDGET - live_spent )); then
+              live_planned=$(( LIVE_BUDGET - live_spent ))
+            fi
+            if (( live_planned < 0 )); then
+              live_planned=0
+            fi
+            planned=$(( planned + live_planned ))
             if (( core < RATE_RESERVE + planned || graphql < RATE_RESERVE + planned )); then
               echo "::warning::The App has $core REST and $graphql GraphQL requests left; recording stops here"
               echo "Recording stopped early: the App had $core REST and $graphql GraphQL requests left." >> "$GITHUB_STEP_SUMMARY"
@@ -237,6 +319,7 @@ jobs:
             # read well past its estimate leaves less room than was planned.
             if (( spent + PER_SWEEP > REQUEST_BUDGET )); then
               echo "$repo: budget reached after its report; no sweep or one-author syncs this run"
+              read_live "$dir"
               continue
             fi
             record "$PER_SWEEP" "$dir/sync-batch" sync --repo "$repo" --batch-size 6
@@ -267,6 +350,7 @@ jobs:
               fi
               record "$PER_SAMPLE" "$dir/sync-pr-$number" sync --repo "$repo" --pr "$number"
             done
+            read_live "$dir"
           done
 
           if (( unwritten > 0 )); then
@@ -299,6 +383,28 @@ jobs:
           fi
           (( python_status == 0 && rust_status == 0 ))
 
-      - name: Delete the recordings
+      # No token here either. The live reads' report is in the record step's
+      # log; their counts tables join the summary, and a repository whose
+      # live reads differed, or could not run, fails the run.
+      - name: Report the Rust engine's live reads
+        if: ${{ !cancelled() && steps.record.outputs.live_read != '' && steps.record.outputs.live_read != '0' }}
+        env:
+          LIVE_FAILED: ${{ steps.record.outputs.live_failed }}
+        run: |
+          set -euo pipefail
+          live="$RUNNER_TEMP/differential-live"
+          if [ -s "$live/summary.md" ]; then
+            {
+              echo "## Engine differential, live reads"
+              echo
+              cat "$live/summary.md"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if (( LIVE_FAILED != 0 )); then
+            echo "::error::The Rust engine's live reads differed from Python's, or could not run, in $LIVE_FAILED repository(ies); the record step's log has the categories"
+            exit 1
+          fi
+
+      - name: Delete the recordings and what the live reads wrote
         if: always()
-        run: rm -rf "$RUNNER_TEMP/differential"
+        run: rm -rf "$RUNNER_TEMP/differential" "$RUNNER_TEMP/differential-live"

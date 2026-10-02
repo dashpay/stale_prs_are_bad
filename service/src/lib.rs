@@ -7,11 +7,15 @@
 //!
 //! `reader` is how the review engine will read GitHub, through a read-only
 //! App, from a process of its own: the server never holds that App's key.
+//! `differential` holds the engine to the Python engine's recorded runs by
+//! reading the same pull requests live, through `reader`, for the
+//! scheduled differential job (`src/bin/differential-live.rs`).
 
 pub mod api;
 pub mod app;
 pub mod auth;
 pub mod config;
+pub mod differential;
 pub mod digest;
 pub mod github;
 pub mod oidc;

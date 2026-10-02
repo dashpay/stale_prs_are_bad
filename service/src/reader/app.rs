@@ -319,6 +319,29 @@ impl TokenSource for InstallationTokens {
     }
 }
 
+/// One token, given, for every request: a token another holder minted and
+/// renews, such as the installation token a workflow passes a step. It is
+/// never printed; its `Debug` is redacted.
+pub struct GivenToken(Secret);
+
+impl GivenToken {
+    pub fn new(token: Secret) -> Self {
+        GivenToken(token)
+    }
+}
+
+impl fmt::Debug for GivenToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("GivenToken(..)")
+    }
+}
+
+impl TokenSource for GivenToken {
+    fn token(&self) -> BoxFuture<'_, Result<Secret, AppAuthError>> {
+        Box::pin(async move { Ok(self.0.clone()) })
+    }
+}
+
 /// The error without its URL or anything else a request carried.
 fn transport(error: reqwest::Error) -> AppAuthError {
     AppAuthError::Transport {

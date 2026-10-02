@@ -6,6 +6,7 @@
 mod checklist;
 mod fake;
 mod functions;
+mod live;
 mod properties;
 mod publication;
 mod recordings;
