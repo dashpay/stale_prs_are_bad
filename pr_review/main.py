@@ -360,8 +360,6 @@ def checklist_block(result):
         lines.append(f"- {box(attest['done'])} Self-review — address {'; '.join(attest['address'])}, then post `/self-reviewed`")
     elif attest['done']:
         lines.append('- [x] Self-review — posted; again after any push')
-    elif not bots['done']:
-        lines.append(f"- {box(attest['done'])} Self-review — post `/self-reviewed` once the bots are done")
     else:
         lines.append('- [ ] Self-review — post `/self-reviewed`')
     # Somebody posted it who is not the author. It cannot count, and saying so
@@ -649,16 +647,20 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     # An announcement is made when the move passes to somebody and is kept
     # current in place while it stays with them. Two things take it out of
     # their hands: the move going to someone else and coming back, and a bot
-    # reporting after they were told — the finding that voids an attestation.
+    # reporting after they were told while the pull request waits on them to
+    # answer something — a bot's finding or a reviewer's objection.
     # Editing through either leaves the person with nothing in their inbox,
     # which is how three of four pull requests on one repository went quiet in
     # a day. A state nobody is asked to act on — a build re-run, a permission
-    # read that failed — is not a change of hands and must not repost.
+    # read that failed — is not a change of hands and must not repost, and
+    # neither is a bot reporting again with nothing to answer: that takes no
+    # attestation back, and on a ready pull request a repost would notify
+    # every reviewer it asks.
     was = MOVE_STATES.get(recorded.get('state'))
     announced = [c for c in bot_comments(pr, MOVE_MARKER)
                  if f'{MOVE_MARKER} state={move} sha={pr["head"]} -->' in c['body']]
     same_hand = was == move or was is None
-    fresh = not announced or not result.get('bot_completed_at') or \
+    fresh = not announced or result['state'] != 'waiting-author' or not result.get('bot_completed_at') or \
         announced[-1]['created_at'] >= result['bot_completed_at']
     target = announced[-1] if announced and same_hand and fresh else None
     # A standing comment of the earlier engine that already recorded this move

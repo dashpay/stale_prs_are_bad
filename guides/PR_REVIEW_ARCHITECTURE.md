@@ -30,7 +30,7 @@ A configuration failure is not a repository-wide write scope. Single-PR error ha
 
 An author has five active, non-draft admission slots per repository. Admission persists across ordinary updates; lifecycle events invalidate obsolete admission records. More PRs may exist, but excess PRs wait before human review. The controller reconciles affected PRs on events and rotates through small batches on the scheduled sweep.
 
-Before human review, both configured bots must finish on the current head, bot objections must be addressed, and the author must post an unedited `/self-reviewed FULL_HEAD_SHA` comment after those bot outcomes. This is an explicit author attestation, not an automated substitute for inspecting the diff. New commits invalidate the attestation and head-bound approvals.
+Before human review, both configured bots must finish on the current head, their blockers must be addressed — a finding a bot labels a suggestion does not hold the pull request — and the author must post an unedited `/self-reviewed FULL_HEAD_SHA` comment. This is an explicit author attestation, not an automated substitute for inspecting the diff. New commits invalidate the attestation and head-bound approvals; a bot reporting afterwards on the same code does not.
 
 The evaluator determines actionable reviewers, blockers and readiness from fresh GitHub evidence. The publisher revalidates evidence before writing its status, the checklist in the description, the label, the move comment and review requests. Errors block readiness. Existing checks and native protection requirements still apply; owner exemption in this policy does not override an independent GitHub approval requirement. Repository administrators and trusted writers retain their existing authority.
 
