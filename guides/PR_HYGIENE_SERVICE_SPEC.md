@@ -286,10 +286,15 @@ repository (every 15 minutes: one full engine export measured on
 repositories and 136 PRs — ≈2 400 calls an hour against the read-only App's
 5 000; the governed repositories' own engine runs use their own tokens)
 keeps its analyze job as it is — engine export, Rust
-analyzer, `dashboard.json` handed on as an artifact. A **separate post job**
-holds `id-token: write` and nothing else: no checkout, no build, no
-third-party code; it downloads the artifact, mints the OIDC token
-(audience = the service URL), masks it and POSTs. Skipped on dry runs.
+analyzer, `dashboard.json` handed on as an artifact. The **post step is its
+own reusable workflow** (`.github/workflows/pr-hygiene-post.yml`): no
+checkout, no build, no third-party code beyond download-artifact; it checks
+the downloaded file against the SHA-256 the analyze job recorded (any later
+step could replace the artifact), mints the OIDC token (audience = the
+service URL), masks it and POSTs once. Skipped on dry runs; on
+quarter-hourly runs a failed post is a warning and a partial run stays
+green (the service marks the failed repository stale), while full runs
+still fail.
 
 **Ingest checks, before the body is read:**
 - JWT: RS256 only; exact `iss` and `aud`; `nbf`/`exp` enforced with ≤60 s
@@ -298,8 +303,10 @@ third-party code; it downloads the artifact, mints the OIDC token
   failing closed.
 - Claims: `repository_id` and `repository_owner_id` (numeric — names can be
   re-registered), `ref` = `refs/heads/master` with `ref_type` = `branch`,
-  `workflow_ref` and `job_workflow_ref` = this repository's
-  `pr-hygiene.yml@refs/heads/master`, `event_name` ∈ {`schedule`,
+  `workflow_ref` = this repository's `pr-hygiene.yml@refs/heads/master`
+  and `job_workflow_ref` = `pr-hygiene-post.yml@refs/heads/master` — the
+  second separates the post job from the caller's other jobs (the Pages
+  deploy among them) that also hold `id-token: write`, `event_name` ∈ {`schedule`,
   `workflow_dispatch`}, `runner_environment` = `github-hosted`,
   `run_attempt` = 1 (a re-run executes an old commit).
 - Body: an explicit size limit (set from a measured snapshot); the
@@ -324,7 +331,7 @@ the same retention.
 `/api/v1/prs/{owner}/{repo}/{n}`, `/api/v1/people`,
 `/api/v1/people/{login}` (`?format=text`), `/api/v1/repos` (freshness,
 `shadow` in step 1a, stale repositories), `/api/v1/stages`. Public,
-cacheable, ETag per snapshot; nothing reaches GitHub. Text outputs escape
+cacheable, strong ETag (SHA-256 of the body); nothing reaches GitHub. Text outputs escape
 Slack mrkdwn (`<!channel>`, `<url|…>`) and strip control characters.
 
 **Operations.** `/healthz`; `/readyz` (DB and JWKS); operational metrics
