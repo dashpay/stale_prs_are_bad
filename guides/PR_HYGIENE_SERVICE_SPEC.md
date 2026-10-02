@@ -759,6 +759,111 @@ after cut-over, made once, in Rust.
 - The scheduled differential job runs on live repositories.
 - 1b-6 is judged on its comparison with GitHub's state.
 
+## 6d. Step 1b-6 in detail — the service's read-only loop
+
+Goal: the Rust engine running inside the service as it will at step 2, but
+unable to write. What this proves:
+- the HTTP transport, the reader App's tokens and the store;
+- the per-(repo, author) loop;
+- that the service's verdicts agree with what the Python engine posts.
+
+Already built: the engine (#86, #88, #90), `ReadOnly<HttpTransport>` and the
+reader App's token flow (#92), and the live differential job (#89, #91).
+
+**Process.**
+- A second process, `pr-hygiene-service worker`, from the same binary.
+- No inbound port, and its own uid.
+- It is the only process that is given `PR_HYGIENE_READER_*`, and the only
+  one with the key file mounted.
+- The internet-facing `serve` holds no GitHub credential, as today.
+- The two share the SQLite file. The worker writes only its own tables, and
+  `serve` never reads them.
+
+**What drives it, in two stages.**
+- **1b-6a, sweeps only.** The reader App has no webhook. The worker walks each
+  governed repository's authors in turn and reconciles each author through
+  `engine::reconcile` in dry mode.
+  - The pace is set by a request budget per hour, at about a third of the
+    App's limit. A full pass over the five repositories costs about 600
+    requests, measured from the differential job, so a pass fits in under 20
+    minutes.
+  - This runs before any public webhook endpoint exists.
+- **1b-6b, events.** Once the service is hosted, the reader App gets a webhook
+  to the front. The receiver is the one in §2: HMAC-SHA256 checked in constant
+  time, repeated delivery ids dropped, an answer within 10 s.
+  - It subscribes to `pull_request`, `pull_request_review`, `issue_comment`,
+    `check_suite`, `check_run` and `status`.
+  - The receiver enqueues `(repo, pr)` in a SQLite queue. The worker coalesces
+    entries per (repo, author) and reconciles that author.
+  - Sweeps keep running, as the safety net for lost deliveries.
+
+  This exercises the event path in shadow, before step 2 depends on it.
+
+**What it stores** (private tables, never routed):
+- `shadow_results`. One row per (repo, pr, head, evidence print) the worker
+  evaluated. Each row holds:
+  - the verdict state;
+  - the would-be writes, as (method, route template, body SHA-256);
+  - the checklist block's hash;
+  - the engine commit and the time.
+
+  Never stored: bodies, descriptions, permission levels or the collaborator
+  listing.
+- `shadow_compare`. Filled once a PR has been quiet for 30 minutes and
+  Python's posted record exists for the same head and evidence print. It holds
+  the outcome:
+  - agree;
+  - categorised (clock, telemetry, admission, or a listed divergence);
+  - uncategorised.
+- Rows older than 30 days are deleted. A repository's rows, and their backups,
+  are deleted when it cuts over.
+
+**What it compares.**
+- Rust's verdict against the state in Python's posted record and its `PR
+  Hygiene` status for that head. The status counts only when its creator is
+  the engine identity and the matching Actions check run exists, so a forged
+  status adds no noise.
+- Rust's would-be writes against GitHub's actual state for that PR. Once
+  Python has reconciled the same evidence, there must be none.
+- Categorisation is mechanical, as in 1b-5: re-run with the posted record's
+  `admitted_at`, and with the time Python's status was posted. A difference
+  that then vanishes is categorised; any other is a bug.
+
+**What it says.**
+- Every 15 minutes the worker logs a summary line: counts per repository and
+  per category, plus requests spent and remaining from the `x-ratelimit`
+  headers. Never content.
+- Step 2's entry criterion reads this log and `shadow_compare`. Nothing
+  public changes.
+
+**Failure modes.**
+- **Reader App not configured:** the worker exits with a clear message and
+  `serve` is unaffected.
+- **Rate limit near the reserve:** the sweep pauses until the reset time in
+  the headers.
+- **A repository's reads fail:** that repository is marked stale in the
+  summary, and the others go on.
+- **A panic in one reconcile:** that author is logged, by repo and PR
+  numbers, never content, and the loop goes on.
+- **A write is attempted:** `ReadOnly` refuses it before it is sent. It is
+  counted as a would-be write; that is the design.
+
+**Owner actions.**
+- 1b-6a needs the reader App (permissions in #92), its installation and its
+  key, plus a host.
+- 1b-6b also needs the service's public URL and a webhook secret.
+
+**Verification.**
+- Mock-GitHub tests for the worker loop:
+  - a sweep across two repositories;
+  - author coalescing;
+  - the budget pause;
+  - a panic contained to one author;
+  - would-be writes stored as hashes only.
+- A router test that no public route reads the shadow tables.
+- A test that `serve` refuses to start if the reader key is set in its own
+  environment.
+
 ## 7. Open PRs
 
 - #65: merge (step 0).
