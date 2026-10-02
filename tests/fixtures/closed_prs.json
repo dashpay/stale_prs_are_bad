@@ -1,0 +1,75 @@
+{
+  "data": {
+    "repository": {
+      "pullRequests": {
+        "pageInfo": { "endCursor": "c50", "hasNextPage": true },
+        "nodes": [
+          {
+            "number": 2900, "isDraft": false,
+            "createdAt": "2026-05-01T00:00:00Z", "updatedAt": "2026-05-18T00:00:00Z",
+            "mergedAt": "2026-05-10T00:00:00Z", "closedAt": "2026-05-10T00:00:00Z",
+            "author": { "login": "carol", "__typename": "User", "databaseId": 3003 },
+            "timelineItems": { "nodes": [
+              { "__typename": "ReadyForReviewEvent", "createdAt": "2026-05-03T00:00:00Z" }
+            ] },
+            "decisiveReviews": {
+              "pageInfo": { "hasPreviousPage": false },
+              "nodes": [
+                { "state": "CHANGES_REQUESTED", "submittedAt": "2026-05-04T00:00:00Z",
+                  "author": { "login": "alice", "__typename": "User", "databaseId": 1001 } },
+                { "state": "DISMISSED", "submittedAt": "2026-05-06T00:00:00Z",
+                  "author": { "login": "QuantumExplorer", "__typename": "User", "databaseId": 5005 } },
+                { "state": "APPROVED", "submittedAt": "2026-05-08T00:00:00Z",
+                  "author": { "login": "coderabbitai", "__typename": "Bot", "databaseId": 136622811 } },
+                { "state": "APPROVED", "submittedAt": "2026-05-09T23:55:00Z",
+                  "author": { "login": "QuantumExplorer", "__typename": "User", "databaseId": 5005 } }
+              ]
+            }
+          },
+          {
+            "number": 100, "isDraft": false,
+            "createdAt": "2021-11-03T14:38:11Z", "updatedAt": "2026-05-15T00:00:00Z",
+            "mergedAt": "2021-11-03T14:40:01Z", "closedAt": "2021-11-03T14:40:02Z",
+            "author": { "login": "shumkov", "__typename": "User", "databaseId": 6006 },
+            "timelineItems": { "nodes": [] },
+            "decisiveReviews": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] }
+          },
+          {
+            "number": 2950, "isDraft": true,
+            "createdAt": "2026-05-05T00:00:00Z", "updatedAt": "2026-05-14T00:00:00Z",
+            "mergedAt": null, "closedAt": "2026-05-14T00:00:00Z",
+            "author": { "login": "alice", "__typename": "User", "databaseId": 1001 },
+            "timelineItems": { "nodes": [
+              { "__typename": "ConvertToDraftEvent" }
+            ] },
+            "decisiveReviews": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] }
+          },
+          {
+            "number": 2960, "isDraft": false,
+            "createdAt": "2026-05-11T00:00:00Z", "updatedAt": "2026-05-12T00:00:00Z",
+            "mergedAt": "2026-05-12T00:00:00Z", "closedAt": "2026-05-12T00:00:00Z",
+            "author": { "login": "dependabot", "__typename": "Bot", "databaseId": 49699333 },
+            "timelineItems": { "nodes": [] },
+            "decisiveReviews": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] }
+          },
+          {
+            "number": 2800, "isDraft": true,
+            "createdAt": "2026-04-20T00:00:00Z", "updatedAt": "2026-05-01T00:00:00Z",
+            "mergedAt": null, "closedAt": "2026-05-01T00:00:00Z",
+            "author": null,
+            "timelineItems": { "nodes": [] },
+            "decisiveReviews": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] }
+          },
+          {
+            "number": 2700, "isDraft": false,
+            "createdAt": "2026-04-01T00:00:00Z", "updatedAt": "2026-04-10T00:00:00Z",
+            "mergedAt": "2026-04-10T00:00:00Z", "closedAt": "2026-04-10T00:00:00Z",
+            "author": { "login": "carol", "__typename": "User", "databaseId": 3003 },
+            "timelineItems": { "nodes": [] },
+            "decisiveReviews": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] }
+          }
+        ]
+      }
+    }
+  }
+}

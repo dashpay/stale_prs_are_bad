@@ -4,8 +4,10 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT}
 use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use crate::dashboard::{ClosedPr, ClosedRead, DecisiveReview, PrFacts, Verdict};
 use crate::model::{
     LastCommit, Mergeable, RawComment, RawPr, RawThread, Review, ReviewState, StatusState,
 };
@@ -25,7 +27,8 @@ const FILES_PER_PAGE: u32 = 100;
 const MAX_CHANGED_FILES: usize = 3000;
 
 const PR_LIST_QUERY: &str = r#"
-query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: Int!, $comments: Int!) {
+query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: Int!, $comments: Int!,
+                    $decisive: Int!) {
   rateLimit { remaining resetAt cost }
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
@@ -36,7 +39,7 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
         id number title url isDraft mergeable createdAt updatedAt
         baseRefName
         files(first: 50) { totalCount pageInfo { endCursor hasNextPage } nodes { path } }
-        author { login __typename }
+        author { login __typename ... on User { databaseId } ... on Bot { databaseId } }
         labels(first: 20) { nodes { name } }
         commits(last: 1) {
           nodes { commit {
@@ -46,6 +49,11 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
         }
         reviews(first: 50) {
           nodes { state author { login __typename } submittedAt }
+        }
+        decisiveReviews: reviews(states: [APPROVED, CHANGES_REQUESTED, DISMISSED], last: $decisive) {
+          pageInfo { hasPreviousPage }
+          nodes { state submittedAt
+                  author { login __typename ... on User { databaseId } ... on Bot { databaseId } } }
         }
         reviewRequests(first: 20) {
           nodes {
@@ -173,9 +181,48 @@ query PrHygieneCommentHistory($ids: [ID!]!) {
 /// halves before its nodes are given up.
 const EVIDENCE_NODES_PER_REQUEST: usize = 50;
 
+/// Decisive reviews read per PR: the newest this many. Each run reads them
+/// afresh, so the newest are the ones not yet seen. A PR with more is logged
+/// rather than paged: the most any PR of the five repositories had in a year
+/// was 70.
+pub const DECISIVE_REVIEWS: u32 = 100;
+
+/// Merged and closed PRs, most recently updated first. Closing a PR updates
+/// it, so once a page reaches PRs last updated before the window, no later
+/// page holds one closed within it. Not a search: a search stops at 1 000
+/// results, which a year of a busy repository can pass. The cursor holds the
+/// last update read, so a PR updated while the list is being read moves
+/// ahead of it and is missed by that read; a later run, whose window still
+/// holds it, reads it.
+const CLOSED_LIST_QUERY: &str = r#"
+query PrHygieneClosed($owner: String!, $name: String!, $cursor: String, $decisive: Int!) {
+  rateLimit { remaining resetAt cost }
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: [MERGED, CLOSED], first: 50, after: $cursor,
+                 orderBy: {field: UPDATED_AT, direction: DESC}) {
+      pageInfo { endCursor hasNextPage }
+      nodes {
+        number isDraft createdAt updatedAt mergedAt closedAt
+        author { login __typename ... on User { databaseId } ... on Bot { databaseId } }
+        timelineItems(first: 1, itemTypes: [READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT]) {
+          nodes { __typename ... on ReadyForReviewEvent { createdAt } }
+        }
+        decisiveReviews: reviews(states: [APPROVED, CHANGES_REQUESTED, DISMISSED], last: $decisive) {
+          pageInfo { hasPreviousPage }
+          nodes { state submittedAt
+                  author { login __typename ... on User { databaseId } ... on Bot { databaseId } } }
+        }
+      }
+    }
+  }
+}
+"#;
+
 pub struct Fetcher {
     client: Client,
     endpoint: String,
+    /// Rate-limit points GitHub charged for the queries answered so far.
+    points: AtomicU64,
 }
 
 impl Fetcher {
@@ -196,7 +243,13 @@ impl Fetcher {
         Ok(Self {
             client,
             endpoint: GITHUB_API.to_string(),
+            points: AtomicU64::new(0),
         })
+    }
+
+    /// Rate-limit points GitHub charged for the queries answered so far.
+    pub fn points(&self) -> u64 {
+        self.points.load(Ordering::Relaxed)
     }
 
     #[cfg(test)]
@@ -207,15 +260,22 @@ impl Fetcher {
     }
 
     /// Fetch every open PR in `owner/name`, fully populated.
-    /// Returns the PRs, (node_id, number) pairs for follow-up queries, and the
-    /// repository's default branch name (used to drive stale-branch detection).
+    /// Returns the PRs, (node_id, number) pairs for follow-up queries, the
+    /// repository's default branch name (used to drive stale-branch detection)
+    /// and what GitHub attaches to each PR, by number.
     pub async fn fetch_all_open_prs(
         &self,
         owner: &str,
         name: &str,
-    ) -> Result<(Vec<RawPr>, Vec<(String, u64)>, Option<String>)> {
+    ) -> Result<(
+        Vec<RawPr>,
+        Vec<(String, u64)>,
+        Option<String>,
+        HashMap<u64, PrFacts>,
+    )> {
         let mut out: Vec<RawPr> = Vec::new();
         let mut node_ids: Vec<(String, u64)> = Vec::new();
+        let mut facts: HashMap<u64, PrFacts> = HashMap::new();
         let mut paginated_threads: Vec<(String, u64)> = Vec::new();
         let mut paginated_files: Vec<(String, u64, Option<String>)> = Vec::new();
         let mut cursor: Option<String> = None;
@@ -228,6 +288,7 @@ impl Fetcher {
                 "cursor": cursor,
                 "threads": THREADS_PER_PAGE,
                 "comments": COMMENTS_PER_THREAD,
+                "decisive": DECISIVE_REVIEWS,
             });
             let resp = self.execute(PR_LIST_QUERY, vars).await?;
             if default_branch.is_none() {
@@ -246,6 +307,7 @@ impl Fetcher {
             for node in nodes {
                 let parsed = parse_pr_node(node, &repo).context("parsing PR node")?;
                 node_ids.push((parsed.node_id.clone(), parsed.pr.number));
+                facts.insert(parsed.pr.number, parsed.facts);
                 if parsed.threads_have_more {
                     paginated_threads.push((parsed.node_id.clone(), parsed.pr.number));
                 }
@@ -304,7 +366,62 @@ impl Fetcher {
             pr.changed_files_truncated = truncated;
         }
 
-        Ok((out, node_ids, default_branch))
+        Ok((out, node_ids, default_branch, facts))
+    }
+
+    /// The PRs of `owner/name` merged or closed since `since`, or why they
+    /// could not be read. Never a failed run: the open PRs stand without them.
+    pub async fn fetch_closed_prs(
+        &self,
+        owner: &str,
+        name: &str,
+        since: DateTime<Utc>,
+    ) -> ClosedRead {
+        self.closed_prs(owner, name, since)
+            .await
+            .map_err(|e| shorten(format!("{e:#}")))
+    }
+
+    async fn closed_prs(
+        &self,
+        owner: &str,
+        name: &str,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<ClosedPr>> {
+        let repo = format!("{owner}/{name}");
+        let mut out = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let vars = json!({
+                "owner": owner,
+                "name": name,
+                "cursor": cursor,
+                "decisive": DECISIVE_REVIEWS,
+            });
+            let resp = self.execute(CLOSED_LIST_QUERY, vars).await?;
+            let conn = resp
+                .pointer("/data/repository/pullRequests")
+                .ok_or_else(|| anyhow!("response missing data.repository.pullRequests"))?;
+            let nodes = conn
+                .get("nodes")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| anyhow!("pullRequests.nodes missing"))?;
+            let (closed, past_window) = closed_since(nodes, &repo, since)?;
+            out.extend(closed);
+            let has_next = conn
+                .pointer("/pageInfo/hasNextPage")
+                .and_then(|v| v.as_bool())
+                .ok_or_else(|| anyhow!("pullRequests.pageInfo missing"))?;
+            if past_window || !has_next {
+                return Ok(out);
+            }
+            cursor = Some(
+                conn.pointer("/pageInfo/endCursor")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow!("a next page with no cursor"))?
+                    .to_string(),
+            );
+        }
     }
 
     /// One page of a PR's changed files: the `files` connection JSON.
@@ -590,13 +707,25 @@ impl Fetcher {
                         continue;
                     }
                     if missing_ok && only_missing_nodes(errors) {
+                        self.charge(&value);
                         return Ok(value);
                     }
                     bail!("graphql errors: {errors:?}");
                 }
             }
+            self.charge(&value);
             return Ok(value);
         }
+    }
+
+    /// Count what an answered query cost. One that does not ask its cost is
+    /// a single-node read, which GitHub charges its minimum, one point.
+    fn charge(&self, value: &Value) {
+        let cost = value
+            .pointer("/data/rateLimit/cost")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1);
+        self.points.fetch_add(cost, Ordering::Relaxed);
     }
 }
 
@@ -679,6 +808,7 @@ pub struct ParsedPr {
     pub files_have_more: bool,
     /// Cursor to continue the changed-file list from, when `files_have_more`.
     pub files_cursor: Option<String>,
+    pub facts: PrFacts,
 }
 
 /// Parse a PR node from GraphQL JSON.
@@ -803,6 +933,10 @@ pub fn parse_pr_node(node: &Value, repo: &str) -> Result<ParsedPr> {
         .and_then(|p| p.get("hasNextPage"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let facts = PrFacts {
+        author_id: node.get("author").and_then(actor_id),
+        reviews: decisive_reviews(node, repo, number),
+    };
 
     Ok(ParsedPr {
         pr: RawPr {
@@ -828,7 +962,144 @@ pub fn parse_pr_node(node: &Value, repo: &str) -> Result<ParsedPr> {
         threads_have_more,
         files_have_more,
         files_cursor,
+        facts,
     })
+}
+
+/// The PRs on one page of the closed list that were closed since `since`,
+/// and whether the page reaches PRs last updated before it. The list runs
+/// from the most recently updated, and closing a PR updates it: past such a
+/// PR no page holds one closed since. A PR closed long ago and touched
+/// since — a comment, a label — is on the page and left out.
+pub fn closed_since(
+    nodes: &[Value],
+    repo: &str,
+    since: DateTime<Utc>,
+) -> Result<(Vec<ClosedPr>, bool)> {
+    let mut closed = Vec::new();
+    let mut past_window = false;
+    for node in nodes {
+        if parse_datetime(node, "updatedAt")? < since {
+            past_window = true;
+            continue;
+        }
+        let pr = parse_closed_node(node, repo)?;
+        if pr.closed_at >= since {
+            closed.push(pr);
+        }
+    }
+    Ok((closed, past_window))
+}
+
+/// A merged or closed PR from the closed list.
+pub fn parse_closed_node(node: &Value, repo: &str) -> Result<ClosedPr> {
+    let number = node
+        .get("number")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| anyhow!("missing number"))?;
+    let parse = || -> Result<ClosedPr> {
+        let merged_at = match node.get("mergedAt") {
+            Some(Value::Null) => None,
+            Some(_) => Some(parse_datetime(node, "mergedAt")?),
+            None => bail!("missing mergedAt"),
+        };
+        Ok(ClosedPr {
+            key: format!("{repo}#{number}"),
+            repo: repo.to_string(),
+            number,
+            author: author_login(node),
+            author_id: node.get("author").and_then(actor_id),
+            created_at: parse_datetime(node, "createdAt")?,
+            ready_at: ready_at(node)?,
+            merged_at,
+            closed_at: parse_datetime(node, "closedAt")?,
+            reviews: decisive_reviews(node, repo, number),
+        })
+    };
+    parse().with_context(|| format!("{repo}#{number}"))
+}
+
+/// When a closed PR was first ready for review. Its first draft toggle says
+/// how it was opened: marked ready means it was opened as a draft, and was
+/// first ready then; made a draft means it was opened ready. With no toggle
+/// it was opened as it is now: ready, or a draft it never left.
+fn ready_at(node: &Value) -> Result<Option<DateTime<Utc>>> {
+    let first = node
+        .pointer("/timelineItems/nodes")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("timelineItems.nodes missing"))?
+        .first();
+    let opened_as_draft = match first {
+        Some(event) => {
+            event.get("__typename").and_then(|v| v.as_str()) == Some("ReadyForReviewEvent")
+        }
+        None => node
+            .get("isDraft")
+            .and_then(|v| v.as_bool())
+            .ok_or_else(|| anyhow!("missing isDraft"))?,
+    };
+    match (opened_as_draft, first) {
+        (false, _) => parse_datetime(node, "createdAt").map(Some),
+        (true, Some(ready)) => parse_datetime(ready, "createdAt").map(Some),
+        (true, None) => Ok(None),
+    }
+}
+
+/// A PR's decisive reviews, oldest first, each by an account GitHub gives an
+/// id: a deleted account's review has no one to join it to. One that cannot
+/// be read is left out with a warning rather than costing the PR, or the
+/// repository, the rest of what was read. Absent from the node (a fixture
+/// older than the field), there are none.
+fn decisive_reviews(node: &Value, repo: &str, number: u64) -> Vec<DecisiveReview> {
+    let Some(conn) = node.get("decisiveReviews") else {
+        return vec![];
+    };
+    if conn
+        .pointer("/pageInfo/hasPreviousPage")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        tracing::warn!(
+            "{repo}#{number}: more than {DECISIVE_REVIEWS} decisive reviews; only the newest read"
+        );
+    }
+    let nodes = conn.get("nodes").and_then(|v| v.as_array());
+    if nodes.is_none() {
+        tracing::warn!("{repo}#{number}: decisive reviews unreadable: no nodes");
+    }
+    nodes
+        .into_iter()
+        .flatten()
+        .filter_map(|review| {
+            let author = review.get("author").unwrap_or(&Value::Null);
+            let (Some(reviewer), Some(reviewer_id)) = (actor_login(author), actor_id(author))
+            else {
+                tracing::debug!("{repo}#{number}: a decisive review by no identified account");
+                return None;
+            };
+            let state = match review.get("state").and_then(|v| v.as_str()) {
+                Some("APPROVED") => Verdict::Approved,
+                Some("CHANGES_REQUESTED") => Verdict::ChangesRequested,
+                Some("DISMISSED") => Verdict::Dismissed,
+                other => {
+                    tracing::warn!("{repo}#{number}: not a decisive review state: {other:?}");
+                    return None;
+                }
+            };
+            match parse_datetime(review, "submittedAt") {
+                Ok(at) => Some(DecisiveReview {
+                    reviewer,
+                    reviewer_id,
+                    state,
+                    at,
+                }),
+                Err(e) => {
+                    tracing::warn!("{repo}#{number}: decisive review unreadable: {e:#}");
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
 fn parse_thread(node: &Value) -> Result<RawThread> {
@@ -977,15 +1248,11 @@ impl StageReads {
 
     pub fn finish(self) -> RepoEvidence {
         let error = self.reason.map(|reason| {
-            let reason: String = if reason.chars().count() > MAX_REASON_CHARS {
-                reason.chars().take(MAX_REASON_CHARS).chain(['…']).collect()
-            } else {
-                reason
-            };
             format!(
-                "{} of {} PRs could not be read: {reason}",
+                "{} of {} PRs could not be read: {}",
                 self.failed.len(),
-                self.asked
+                self.asked,
+                shorten(reason)
             )
         });
         RepoEvidence {
@@ -1009,6 +1276,16 @@ impl StageReads {
 
 /// How much of a failed read's reason is kept for the page.
 const MAX_REASON_CHARS: usize = 300;
+
+/// A failed read's reason, cut to what the page keeps: an HTTP error can
+/// carry a whole error page.
+fn shorten(reason: String) -> String {
+    if reason.chars().count() > MAX_REASON_CHARS {
+        reason.chars().take(MAX_REASON_CHARS).chain(['…']).collect()
+    } else {
+        reason
+    }
+}
 
 /// Pair each id asked for with its node; a response that does not answer
 /// every id answers none.
@@ -1194,6 +1471,12 @@ fn actor_login(actor: &Value) -> Option<String> {
     } else {
         login.to_string()
     })
+}
+
+/// An actor's numeric account id, which GraphQL gives a User and a Bot (the
+/// same id REST gives `name[bot]`); `None` for an actor of another kind.
+fn actor_id(actor: &Value) -> Option<u64> {
+    actor.get("databaseId")?.as_u64()
 }
 
 fn parse_comment(node: &Value) -> Result<RawComment> {
@@ -1842,5 +2125,339 @@ mod tests {
         assert_eq!(nodes_of(&resp, 2).unwrap().len(), 2);
         assert!(nodes_of(&resp, 3).is_err());
         assert!(nodes_of(&json!({ "data": null }), 1).is_err());
+    }
+
+    fn user(login: &str, id: u64) -> Value {
+        json!({ "login": login, "__typename": "User", "databaseId": id })
+    }
+
+    fn bot(login: &str, id: u64) -> Value {
+        json!({ "login": login, "__typename": "Bot", "databaseId": id })
+    }
+
+    fn review(state: &str, at: &str, author: Value) -> Value {
+        json!({ "state": state, "submittedAt": at, "author": author })
+    }
+
+    fn open_node(author: Value, reviews: Vec<Value>) -> Value {
+        json!({
+            "id": "PR_9", "number": 9, "title": "t", "url": "u", "isDraft": false,
+            "createdAt": "2026-09-01T00:00:00Z", "updatedAt": "2026-09-02T00:00:00Z",
+            "author": author,
+            "reviewThreads": { "pageInfo": { "hasNextPage": false }, "nodes": [] },
+            "decisiveReviews": { "pageInfo": { "hasPreviousPage": false }, "nodes": reviews }
+        })
+    }
+
+    /// A closed PR, opened at `created` and closed at `closed`, last
+    /// updated at `updated`, with no draft toggle.
+    fn closed_node(number: u64, created: &str, closed: &str, updated: &str) -> Value {
+        json!({
+            "number": number, "isDraft": false,
+            "createdAt": created, "updatedAt": updated,
+            "mergedAt": closed, "closedAt": closed,
+            "author": user("alice", 1001),
+            "timelineItems": { "nodes": [] },
+            "decisiveReviews": { "pageInfo": { "hasPreviousPage": false }, "nodes": [] }
+        })
+    }
+
+    /// Speed joins people on GitHub's account ids, which a login cannot
+    /// inherit. A GitHub App account's id is the one REST gives `name[bot]`,
+    /// and it comes with the name REST gives it.
+    #[test]
+    fn a_users_and_a_bots_ids_are_read_from_the_pr_and_its_reviews() {
+        let node = open_node(
+            bot("dependabot", 49699333),
+            vec![
+                review("APPROVED", "2026-09-03T00:00:00Z", user("alice", 1001)),
+                review(
+                    "CHANGES_REQUESTED",
+                    "2026-09-04T00:00:00Z",
+                    bot("coderabbitai", 136622811),
+                ),
+            ],
+        );
+        let parsed = parse_pr_node(&node, "dashpay/platform").unwrap();
+        assert_eq!(parsed.pr.author.as_deref(), Some("dependabot[bot]"));
+        assert_eq!(parsed.facts.author_id, Some(49699333));
+        assert_eq!(
+            parsed.facts.reviews,
+            vec![
+                DecisiveReview {
+                    reviewer: "alice".into(),
+                    reviewer_id: 1001,
+                    state: Verdict::Approved,
+                    at: at("2026-09-03T00:00:00Z"),
+                },
+                DecisiveReview {
+                    reviewer: "coderabbitai[bot]".into(),
+                    reviewer_id: 136622811,
+                    state: Verdict::ChangesRequested,
+                    at: at("2026-09-04T00:00:00Z"),
+                },
+            ]
+        );
+        let user_pr = parse_pr_node(&open_node(user("alice", 1001), vec![]), "dashpay/platform");
+        assert_eq!(user_pr.unwrap().facts.author_id, Some(1001));
+        // A deleted account's PR names no one, and no id is made up for it.
+        let ghost = parse_pr_node(&open_node(Value::Null, vec![]), "dashpay/platform").unwrap();
+        assert_eq!(ghost.facts, PrFacts::default());
+
+        let mut closed = closed_node(
+            7,
+            "2026-09-01T00:00:00Z",
+            "2026-09-02T00:00:00Z",
+            "2026-09-02T00:00:00Z",
+        );
+        closed["author"] = bot("dependabot", 49699333);
+        let closed = parse_closed_node(&closed, "dashpay/platform").unwrap();
+        assert_eq!(closed.author.as_deref(), Some("dependabot[bot]"));
+        assert_eq!(closed.author_id, Some(49699333));
+        for query in [PR_LIST_QUERY, CLOSED_LIST_QUERY] {
+            assert!(
+                asks(
+                    query,
+                    "... on User { databaseId } ... on Bot { databaseId }"
+                ),
+                "both account kinds give their id"
+            );
+        }
+    }
+
+    /// Whether a query holds `selection`, however either is laid out.
+    fn asks(query: &str, selection: &str) -> bool {
+        let squash = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+        squash(query).contains(&squash(selection))
+    }
+
+    /// Only decisions are kept, each joined to an account. The analyzer's own
+    /// review read, which counts comments as reviewer activity, is a separate
+    /// read and stays as it was.
+    #[test]
+    fn only_decisive_reviews_by_identified_accounts_are_kept() {
+        let mannequin = json!({ "login": "imported", "__typename": "Mannequin" });
+        let node = open_node(
+            user("carol", 3003),
+            vec![
+                review("DISMISSED", "2026-09-03T00:00:00Z", user("bob", 4004)),
+                review("APPROVED", "2026-09-04T00:00:00Z", Value::Null),
+                review("APPROVED", "2026-09-05T00:00:00Z", mannequin),
+                review("COMMENTED", "2026-09-06T00:00:00Z", user("bob", 4004)),
+                json!({ "state": "APPROVED", "submittedAt": null, "author": user("bob", 4004) }),
+                review("APPROVED", "2026-09-07T00:00:00Z", user("bob", 4004)),
+            ],
+        );
+        let reviews = parse_pr_node(&node, "dashpay/platform")
+            .unwrap()
+            .facts
+            .reviews;
+        let kept: Vec<(Verdict, DateTime<Utc>)> = reviews.iter().map(|r| (r.state, r.at)).collect();
+        assert_eq!(
+            kept,
+            vec![
+                (Verdict::Dismissed, at("2026-09-03T00:00:00Z")),
+                (Verdict::Approved, at("2026-09-07T00:00:00Z")),
+            ],
+            "a deleted or id-less reviewer, a comment and an unreadable review are left out"
+        );
+        // Asked for by state, so bots' comments cannot push decisions off the
+        // page; the newest are read, being the ones not yet seen.
+        let decisive =
+            "decisiveReviews: reviews(states: [APPROVED, CHANGES_REQUESTED, DISMISSED], \
+                        last: $decisive)";
+        assert!(asks(PR_LIST_QUERY, decisive));
+        assert!(asks(CLOSED_LIST_QUERY, decisive));
+        assert!(asks(
+            PR_LIST_QUERY,
+            "reviews(first: 50) { nodes { state author { login __typename } submittedAt } }"
+        ));
+    }
+
+    /// A PR's cycle runs from when it was first ready for review: a draft is
+    /// not yet asking anyone for anything.
+    #[test]
+    fn a_closed_pr_is_first_ready_when_opened_unless_opened_as_a_draft() {
+        let mut node = closed_node(
+            7,
+            "2026-09-01T00:00:00Z",
+            "2026-09-10T00:00:00Z",
+            "2026-09-10T00:00:00Z",
+        );
+        let ready = |node: &Value| {
+            parse_closed_node(node, "dashpay/platform")
+                .unwrap()
+                .ready_at
+        };
+        assert_eq!(
+            ready(&node),
+            Some(at("2026-09-01T00:00:00Z")),
+            "opened ready"
+        );
+
+        // Opened as a draft: its first toggle marks it ready, and later
+        // toggles do not move that.
+        node["timelineItems"]["nodes"] = json!([
+            { "__typename": "ReadyForReviewEvent", "createdAt": "2026-09-04T00:00:00Z" },
+            { "__typename": "ConvertToDraftEvent" },
+            { "__typename": "ReadyForReviewEvent", "createdAt": "2026-09-06T00:00:00Z" }
+        ]);
+        assert_eq!(ready(&node), Some(at("2026-09-04T00:00:00Z")));
+
+        // Opened ready, made a draft later and closed as one: ready when opened.
+        node["isDraft"] = json!(true);
+        node["timelineItems"]["nodes"] = json!([{ "__typename": "ConvertToDraftEvent" }]);
+        assert_eq!(ready(&node), Some(at("2026-09-01T00:00:00Z")));
+
+        // Opened as a draft and closed as one, never ready.
+        node["timelineItems"]["nodes"] = json!([]);
+        assert_eq!(ready(&node), None);
+
+        // Not knowing the timeline is not knowing when it was ready.
+        node.as_object_mut().unwrap().remove("timelineItems");
+        assert!(parse_closed_node(&node, "dashpay/platform").is_err());
+        assert!(asks(
+            CLOSED_LIST_QUERY,
+            "timelineItems(first: 1, itemTypes: [READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT])"
+        ));
+    }
+
+    /// The list runs from the most recently updated. A PR closed long ago
+    /// and commented on since is on it but not in the window; past the first
+    /// PR updated before the window there is nothing more to read.
+    #[test]
+    fn the_window_cuts_by_update_to_stop_and_by_close_to_keep() {
+        let since = at("2026-09-01T00:00:00Z");
+        let nodes = vec![
+            closed_node(
+                3,
+                "2026-08-20T00:00:00Z",
+                "2026-09-05T00:00:00Z",
+                "2026-09-06T00:00:00Z",
+            ),
+            closed_node(
+                2,
+                "2021-01-01T00:00:00Z",
+                "2021-01-02T00:00:00Z",
+                "2026-09-04T00:00:00Z",
+            ),
+            closed_node(
+                1,
+                "2026-08-01T00:00:00Z",
+                "2026-09-01T00:00:00Z",
+                "2026-09-01T00:00:00Z",
+            ),
+        ];
+        let (closed, past) = closed_since(&nodes, "dashpay/platform", since).unwrap();
+        let numbers: Vec<u64> = closed.iter().map(|c| c.number).collect();
+        assert_eq!(numbers, vec![3, 1], "closed at the window's start is in it");
+        assert!(!past, "every PR on the page was updated within the window");
+
+        let mut older = nodes.clone();
+        older.push(closed_node(
+            0,
+            "2026-08-01T00:00:00Z",
+            "2026-08-31T23:59:59Z",
+            "2026-08-31T23:59:59Z",
+        ));
+        let (closed, past) = closed_since(&older, "dashpay/platform", since).unwrap();
+        assert_eq!(closed.len(), 2);
+        assert!(past);
+    }
+
+    fn closed_page(nodes: Vec<Value>, next: Option<&str>) -> Value {
+        json!({ "data": {
+            "rateLimit": { "remaining": 4999, "resetAt": "2026-09-10T00:00:00Z", "cost": 3 },
+            "repository": { "pullRequests": {
+                "pageInfo": { "hasNextPage": next.is_some(), "endCursor": next },
+                "nodes": nodes
+            } }
+        } })
+    }
+
+    /// Paging stops at the first page that reaches before the window, though
+    /// GitHub has more: a year's backfill reads a year, not the repository's
+    /// whole history. What it costs is counted.
+    #[tokio::test]
+    async fn the_closed_list_is_paged_until_it_reaches_before_the_window() {
+        let (url, seen) = serve(|request| {
+            let node = |n, updated| closed_node(n, "2026-08-01T00:00:00Z", updated, updated);
+            match request["variables"]["cursor"].as_str() {
+                None => closed_page(vec![node(3, "2026-09-05T00:00:00Z")], Some("c1")),
+                Some("c1") => closed_page(
+                    vec![
+                        node(2, "2026-09-02T00:00:00Z"),
+                        node(1, "2026-08-02T00:00:00Z"),
+                    ],
+                    Some("c2"),
+                ),
+                other => {
+                    json!({ "errors": [{ "message": format!("read past the window: {other:?}") }] })
+                }
+            }
+        });
+        let fetcher = Fetcher::new("t").unwrap().with_endpoint(url);
+        let closed = fetcher
+            .fetch_closed_prs("dashpay", "platform", at("2026-09-01T00:00:00Z"))
+            .await
+            .unwrap();
+        let numbers: Vec<u64> = closed.iter().map(|c| c.number).collect();
+        assert_eq!(numbers, vec![3, 2]);
+        assert_eq!(closed[0].key, "dashpay/platform#3");
+        let requests = seen.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0]["variables"]["decisive"], DECISIVE_REVIEWS);
+        assert_eq!(fetcher.points(), 6, "what GitHub reported each page cost");
+    }
+
+    /// A repository whose whole closed history fits in the window ends where
+    /// GitHub's list ends, as a full answer.
+    #[tokio::test]
+    async fn a_closed_list_shorter_than_the_window_is_read_to_its_end() {
+        let (url, seen) = serve(|_| {
+            let updated = "2026-09-05T00:00:00Z";
+            closed_page(
+                vec![closed_node(1, "2026-09-04T00:00:00Z", updated, updated)],
+                None,
+            )
+        });
+        let fetcher = Fetcher::new("t").unwrap().with_endpoint(url);
+        let closed = fetcher
+            .fetch_closed_prs("dashpay", "platform", at("2026-09-01T00:00:00Z"))
+            .await
+            .unwrap();
+        assert_eq!(closed.len(), 1);
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    /// A list cut short would read as fewer PRs closed: a page that fails
+    /// costs the repository its whole closed list, and says why, rather than
+    /// failing the run or passing on part of the list.
+    #[tokio::test]
+    async fn a_closed_list_that_fails_part_way_is_an_error_not_a_shorter_list() {
+        let (url, _) = serve(|request| match request["variables"]["cursor"].as_str() {
+            None => closed_page(
+                vec![closed_node(
+                    3,
+                    "2026-08-01T00:00:00Z",
+                    "2026-09-05T00:00:00Z",
+                    "2026-09-05T00:00:00Z",
+                )],
+                Some("c1"),
+            ),
+            _ => json!({ "data": null, "errors": [{ "message": format!(
+                "Something went wrong while executing your query. {}", "x".repeat(1000)) }] }),
+        });
+        let fetcher = Fetcher::new("t").unwrap().with_endpoint(url);
+        let error = fetcher
+            .fetch_closed_prs("dashpay", "platform", at("2026-09-01T00:00:00Z"))
+            .await
+            .unwrap_err();
+        assert!(error.contains("Something went wrong"), "{error}");
+        assert_eq!(
+            error.chars().count(),
+            MAX_REASON_CHARS + 1,
+            "an error page is cut"
+        );
     }
 }
