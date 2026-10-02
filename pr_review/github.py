@@ -226,12 +226,29 @@ def _validate_diff(diff):
         raise GitHubError("Invalid controller diff timestamp")
 
 
+def _engine_words(comment):
+    """Whether a comment this controller posted still says only what it wrote.
+
+    An edit is what GitHub records as one — a time it was edited, and the
+    editor when GitHub can name them — not a moved update time, which GitHub
+    also moves when a comment is hidden. An edited comment is this
+    controller's own only if GitHub names it as the editor, by the `[bot]`
+    login a person cannot register; an edit by an account GitHub can no
+    longer name, deleted or suspended, is nobody's it trusts. A comment read
+    from a route that names no editor is never its own.
+    """
+    editor = comment.get("edited_by")
+    if comment.get("edited_at") is None and editor is None:
+        return True
+    return is_engine(editor)
+
+
 def parse_controller_diff(comments, number):
     """The newest recorded diff for this pull request, or None.
 
     Read beside the record, and never fatal: without it a push is read as new
     work, which is what happened before this was written down at all. Only
-    this controller's own unedited words are read.
+    this controller's own words are read: unedited, or edited by it alone.
     """
     found = []
     for comment in comments:
@@ -240,14 +257,9 @@ def parse_controller_diff(comments, number):
         # Anyone with write access can edit anyone's comment, and this one
         # says which commits a review still covers — forge it and a stale
         # approval, the only human gate left, counts for code nobody read.
-        # Unedited it is this controller's own words; edited, only if this
-        # controller is who edited it. Where that cannot be known the pull
-        # request starts over, which is what it did before this existed.
-        edited = comment.get("updated_at") or comment["created_at"]
-        # The editor is read with its type, so this controller's own hand
-        # comes back as `name[bot]` like its author; the bare name is one a
-        # person can register, and counts for nothing.
-        if edited != comment["created_at"] and not is_engine(comment.get("edited_by")):
+        # Where it is not this controller's own words the pull request starts
+        # over, which is what it did before this existed.
+        if not _engine_words(comment):
             continue
         # In a comment of this controller's own, beside its record for this
         # same pull request. Any workflow can post as the Actions app, and one
@@ -296,11 +308,8 @@ def parse_controller_state(comments):
         # queue, or skips the green build asked for before a human is. Edited
         # by anyone but this controller, it is read as if it were not there.
         # Not refused: that would put any pull request into a configuration
-        # error, one edit away. Who edited it decides, not when it was last
-        # touched: GitHub moves the update time for changes that are not
-        # edits and names no editor for them.
-        editor = comment.get("edited_by")
-        if editor and not is_engine(editor):
+        # error, one edit away.
+        if not _engine_words(comment):
             continue
         matches = list(STATE_PATTERN.finditer(body))
         if len(matches) != 1 or body.count(STATE_MARKER) != 1:
@@ -347,12 +356,17 @@ def _graphql_comment(comment):
     """A comment as GraphQL answers it, in the shape every comment reader shares.
 
     Who last wrote it, not only when: a comment edited by somebody other than
-    its author is that person speaking.
+    its author is that person speaking. Whether it was edited at all is the
+    edit time GitHub records, not the update time, which also moves when a
+    comment is hidden; the field is required, so a query that stopped asking
+    for it fails rather than reading every comment as unedited.
     """
+    edited_at = comment["lastEditedAt"]
     return {"id": comment["databaseId"], "user": _graphql_login(comment["author"]),
             "body": comment["body"],
             "created_at": _text(comment["createdAt"], "comment creation time"),
             "updated_at": _text(comment["updatedAt"], "comment update time"),
+            "edited_at": _text(edited_at, "comment edit time") if edited_at is not None else None,
             "edited_by": _graphql_login(comment["editor"]) if comment.get("editor") else None}
 
 
@@ -527,7 +541,7 @@ class GitHub:
           number
           comments(last:100) {
             totalCount
-            nodes { databaseId body createdAt updatedAt author { login __typename }
+            nodes { databaseId body createdAt updatedAt lastEditedAt author { login __typename }
                     editor { login __typename } }
           }
           timelineItems(last:1, itemTypes:[CLOSED_EVENT, CONVERT_TO_DRAFT_EVENT]) {
@@ -599,7 +613,7 @@ class GitHub:
               comments(first:100, after:$after) {
                 totalCount
                 pageInfo { hasNextPage endCursor }
-                nodes { databaseId body createdAt updatedAt author { login __typename }
+                nodes { databaseId body createdAt updatedAt lastEditedAt author { login __typename }
                         editor { login __typename } }
               }
             }

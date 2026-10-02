@@ -88,7 +88,7 @@ class FakeGh:
             if 'fragment history' in query:
                 return _graph(**{f'pr{n}': {'number': n, 'comments': {'totalCount': 1, 'nodes': [{
                     'databaseId': 100 + n, 'body': f"/self-reviewed {pr['head']['sha']}",
-                    'createdAt': '2026-09-11T11:00:00Z', 'updatedAt': '2026-09-11T11:00:00Z',
+                    'createdAt': '2026-09-11T11:00:00Z', 'updatedAt': '2026-09-11T11:00:00Z', 'lastEditedAt': None,
                     'author': {'login': pr['user']['login'], '__typename': 'User'}, 'editor': None}]},
                     'timelineItems': {'nodes': []}} for n, pr in self.prs.items() if f'pr{n}:' in query})
             if 'reviewThreads' in query:

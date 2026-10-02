@@ -1160,7 +1160,7 @@ class StaleMarkTests(unittest.TestCase):
         held = self.held(updated='2026-09-11T13:00:00Z')
         bot = {'login': 'github-actions', '__typename': 'Bot'}
         node = {'databaseId': 7, 'body': held['body'], 'createdAt': held['created_at'],
-                'updatedAt': held['updated_at'], 'author': bot, 'editor': bot}
+                'updatedAt': held['updated_at'], 'lastEditedAt': held['updated_at'], 'author': bot, 'editor': bot}
         history = {'data': {'repository': {'pr4660': {
             'number': 4660, 'comments': {'totalCount': 1, 'nodes': [node]}, 'timelineItems': {'nodes': []}}}}}
         listed = [{'id': 7, 'user': {'login': 'github-actions[bot]'}, 'body': held['body'],
