@@ -5,6 +5,7 @@
 //! ```text
 //! differential [--summary FILE] [--python-source DIR] DIR...
 //! differential --requests DIR...
+//! differential --request-kinds DIR...
 //! ```
 //!
 //! Each `DIR` is a recording, or a directory searched for recordings. For
@@ -28,6 +29,8 @@
 //!
 //! `--requests` prints one number: how many requests to GitHub the
 //! recordings' reads made, counting each page of a paginated read.
+//! `--request-kinds` prints the same as two: the REST requests, then the
+//! GraphQL queries, the two limits GitHub counts them against.
 //!
 //! Exit status: 0 when every recording matched, 1 when any differed or
 //! could not be read, 2 when the command itself could not run.
@@ -46,12 +49,13 @@ use std::process::ExitCode;
 /// the rest.
 const INDICES_SHOWN: usize = 12;
 
-const USAGE: &str = "usage: differential [--summary FILE] [--python-source DIR] DIR...\n       differential --requests DIR...";
+const USAGE: &str = "usage: differential [--summary FILE] [--python-source DIR] DIR...\n       differential --requests DIR...\n       differential --request-kinds DIR...";
 
 struct Options {
     summary: Option<PathBuf>,
     python_source: PathBuf,
     requests: bool,
+    request_kinds: bool,
     paths: Vec<PathBuf>,
 }
 
@@ -61,6 +65,7 @@ fn options() -> Result<Option<Options>, String> {
         summary: None,
         python_source: Path::new(env!("CARGO_MANIFEST_DIR")).join("../pr_review"),
         requests: false,
+        request_kinds: false,
         paths: Vec::new(),
     };
     let mut args = std::env::args_os().skip(1);
@@ -76,6 +81,7 @@ fn options() -> Result<Option<Options>, String> {
                     .into()
             }
             Some("--requests") => options.requests = true,
+            Some("--request-kinds") => options.request_kinds = true,
             Some("-h" | "--help") => return Ok(None),
             Some(flag) if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => options.paths.push(arg.into()),
@@ -439,6 +445,18 @@ fn run(options: Options) -> Result<bool, String> {
     if dirs.is_empty() {
         return Err("no recording found under the paths given".into());
     }
+    if options.request_kinds {
+        let (mut rest, mut graphql) = (0, 0);
+        for dir in &dirs {
+            let counted = guarded(|| load(dir)?.requests_by_kind().map_err(|e| e.to_string()))
+                .and_then(|counted| counted);
+            let (r, g) = counted.map_err(|e| format!("{}: {e}", dir.display()))?;
+            rest += r;
+            graphql += g;
+        }
+        println!("{rest} {graphql}");
+        return Ok(true);
+    }
     if options.requests {
         let mut total = 0;
         for dir in &dirs {
@@ -529,7 +547,9 @@ mod tests {
             found: caught.map(|_| (Comparison::default(), 0)),
         };
         let table = counts_table(std::slice::from_ref(&row));
-        assert!(table.contains("| unreadable (x) | 0/0 | 0/0 | 0/0 | 0 | 0 | 1 (1 unreadable) |"));
+        assert!(table.contains(
+            "| unreadable (x) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0 | 0 | 1 (1 unreadable) |"
+        ));
         assert!(!categories(&[row]).contains("a title"));
     }
 }

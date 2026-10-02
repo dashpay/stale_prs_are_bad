@@ -4,7 +4,9 @@ name: Engine differential
 # engine records dry runs against the governed repositories: the report the
 # dashboard exports, the hourly sweep, and the one-author path the service
 # will run. The Rust port replays each recording and must rebuild the same
-# snapshots and reach the same evaluations and verdicts.
+# snapshots, reach the same evaluations and verdicts, and, replaying the
+# whole run, make the same writes in the same order with the same bodies,
+# the same outputs and report, and read the clock at the same points.
 #
 # A recording holds what only a collaborator may see (permission levels, the
 # collaborator listing), so recordings never leave this job. They are written
@@ -129,19 +131,40 @@ jobs:
           recorded=0
           unwritten=0
 
-          remaining() {
-            gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.graphql.remaining)"'
+          # What the App has left in one limit, read from the headers of a
+          # real request against it, which must say it counted against
+          # $1: GitHub's documentation calls the x-ratelimit-* headers the
+          # authoritative count, and GET /rate_limit an overview that can
+          # disagree with them. On this App it did, showing the same REST
+          # count before and after a run of several hundred REST requests.
+          left() {
+            local resource=$1 headers
+            shift
+            headers=$(gh api --include --silent "$@") || return 1
+            awk -v want="$resource" '
+              { sub(/\r$/, "") }
+              tolower($1) == "x-ratelimit-resource:" { resource = $2 }
+              tolower($1) == "x-ratelimit-remaining:" { remaining = $2 }
+              END { if (resource != want || remaining !~ /^[0-9]+$/) exit 1; print remaining }
+            ' <<<"$headers"
           }
+          # REST and GraphQL left, through repository $1, which the token
+          # can read. Each reading costs one request of its kind.
+          remaining() {
+            local core graphql
+            core=$(left core "repos/$1") || return 1
+            graphql=$(left graphql graphql -f query='query { rateLimit { remaining } }') || return 1
+            echo "$core $graphql"
+          }
+          probe=""
           finish() {
             echo "recorded=$recorded" >> "$GITHUB_OUTPUT"
             echo "Requests the recordings made: $spent of a budget of $REQUEST_BUDGET"
-            echo "App rate limit remaining after (core graphql): $(remaining || echo unknown)"
+            if [ -n "$probe" ]; then
+              echo "App rate limit remaining after (core graphql): $(remaining "$probe" || echo unknown)"
+            fi
           }
           trap finish EXIT
-
-          limits=$(remaining)
-          read -r core graphql <<<"$limits"
-          echo "App rate limit remaining before: core $core, graphql $graphql"
 
           # One dry run of the engine, expected to cost $1 and recorded into
           # $2; the rest of the arguments are its command line. A dry run that
@@ -159,14 +182,23 @@ jobs:
               return 0
             fi
             requests=$(env -u GH_TOKEN "$tool" --requests "$into") || requests=$REQUEST_BUDGET
+            kinds=$(env -u GH_TOKEN "$tool" --request-kinds "$into") || kinds="? ?"
+            read -r rest queries <<<"$kinds"
             spent=$(( spent + requests ))
             recorded=$(( recorded + 1 ))
-            echo "$*: $requests requests, engine exit $status; $spent spent"
+            echo "$*: $requests requests ($rest REST, $queries GraphQL), engine exit $status; $spent spent"
           }
 
           listed=$(env -u GH_TOKEN python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))")
           read -r -a repos <<<"$listed"
           count=${#repos[@]}
+          probe=${repos[0]}
+          if ! limits=$(remaining "$probe"); then
+            echo "::error::The App's rate limits could not be read from a response's headers; nothing recorded"
+            exit 1
+          fi
+          read -r core graphql <<<"$limits"
+          echo "App rate limit remaining before: core $core, graphql $graphql"
           slot=$(( $(date -u +%s) / 21600 ))
           for (( i = 0; i < count; i++ )); do
             repo=${repos[$(( (slot + i) % count ))]}
@@ -184,8 +216,14 @@ jobs:
               echo "$repo: not recorded this run; its report and sweep would pass the budget ($open open, $spent spent)"
               continue
             fi
-            # pr-hygiene.yml may be spending the same limit right now.
-            limits=$(remaining)
+            # pr-hygiene.yml may be spending the same limit right now. A
+            # limit that cannot be read is not known to have room.
+            if ! limits=$(remaining "$repo"); then
+              echo "::warning::The App's rate limits could not be read; recording stops here"
+              echo "Recording stopped early: the App's rate limits could not be read." >> "$GITHUB_STEP_SUMMARY"
+              break
+            fi
+            spent=$(( spent + 2 ))
             read -r core graphql <<<"$limits"
             if (( core < RATE_RESERVE + planned || graphql < RATE_RESERVE + planned )); then
               echo "::warning::The App has $core REST and $graphql GraphQL requests left; recording stops here"

@@ -423,6 +423,23 @@ fn requests_count_every_page_a_read_fetched() {
     let (output, said) = run(&[Path::new("--requests"), &synthetic()]);
     assert!(output.status.success(), "{said}");
     assert_eq!(said.trim(), wanted.to_string());
+    // The same requests, as REST requests and GraphQL queries: every
+    // GraphQL query is one request, never paginated.
+    let mut queries = 0;
+    for entry in std::fs::read_dir(synthetic()).expect("the synthetic recordings") {
+        let Ok(text) = std::fs::read_to_string(entry.expect("an entry").path().join("calls.jsonl"))
+        else {
+            continue;
+        };
+        queries += text
+            .lines()
+            .filter(|line| line.contains(r#""kind":"read""#) && line.contains(r#""graphql""#))
+            .count();
+    }
+    let (output, said) = run(&[Path::new("--request-kinds"), &synthetic()]);
+    assert!(output.status.success(), "{said}");
+    assert_eq!(said.trim(), format!("{} {queries}", wanted - queries));
+    assert!(queries > 0 && wanted > queries, "both kinds are counted");
     // More than one call per page somewhere, or this proves nothing.
     assert!(wanted > 0);
 }
