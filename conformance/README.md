@@ -489,14 +489,13 @@ tool's):
   Python's `evaluate` was given;
 - **each one-author sync**: the same `sync --pr N` run whole, live, walking
   the write path. Its snapshots and verdict rows are compared with
-  Python's. Where every pull request it decided carries the engine's
-  record and that record's evidence print is the print of what was just
-  read, and Python's own run of it ran to its end, decided the same pull
-  requests and wrote nothing, it is held to wanting to write nothing at all
-  (*no write*); otherwise it is counted *unsettled*. The engine rewrites a
-  record only when what it decides changes, so a record can carry an older
-  print and leave a settled pull request unsettled here: the rule errs
-  towards not judging.
+  Python's. Where Python's own run of it ran to its end, decided the same
+  pull requests and wrote nothing, it is held to wanting to write nothing at
+  all (*no write*); otherwise it is counted *unsettled*. The evidence print
+  in the engine's record is not asked to be current: the engine rewrites a
+  record only when its state, head, admission or ready time would change,
+  so a conversation that goes on without changing the verdict leaves the
+  print behind.
 - the sweep is not read live.
 
 Nothing is written. The engine's observing layer answers every call that is

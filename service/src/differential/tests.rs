@@ -455,8 +455,7 @@ async fn a_verdict_that_differs_by_the_status_page_alone_is_explained() {
 }
 
 /// A copy of long-history in which nothing has changed since the engine
-/// last wrote: its record's evidence print is the print of what is read,
-/// and Python's own run wrote nothing. What GitHub serves is the copy's
+/// last wrote: Python's own run wrote nothing. What GitHub serves is the copy's
 /// calls.
 fn settled(into: &Path) -> PathBuf {
     let recording = copy("long-history", into);

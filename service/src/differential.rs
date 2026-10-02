@@ -53,8 +53,8 @@ pub const TABLE: Table = Table {
             writing nothing where nothing changed since the engine last wrote. Moved: pull \
             requests that changed between the two reads. Explained: differences gone once \
             given Python's clock, status page or admission instant. Unsettled: one-author \
-            runs not held to writing nothing, as a record was not current or Python's own \
-            run wrote. Skipped: recordings over the budget, not read live.",
+            runs not held to writing nothing, as Python's own run wrote or did not run \
+            to its end. Skipped: recordings over the budget, not read live.",
     layers: &[
         (Layer::LiveSnapshot, "Snapshots"),
         (Layer::LiveVerdict, "Verdicts"),
