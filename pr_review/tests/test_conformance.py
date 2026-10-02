@@ -220,6 +220,21 @@ class RecordAndReplayTests(RecordingCase):
         self.assertGreaterEqual(status['id'], conformance.CANNED_ID_BASE)
         self.assertEqual(self.replay(directory), [])
 
+    def test_a_dry_sync_of_one_pull_request_round_trips(self):
+        # `sync --pr N` is what an event on one pull request runs, and the
+        # one-author path the service will run: it has to replay as a sweep
+        # does, and what it would write touches that pull request alone.
+        directory = self.record('sync', '--pr', '2')
+        recording = conformance.load_recording(directory)
+        self.assertEqual(recording['meta']['argv'], ['sync', '--repo', REPO, '--pr', '2', '--format', 'markdown'])
+        self.assertEqual([(v['number'], v['state']) for v in recording['verdicts']], [(2, 'ready-for-human')])
+        routes = [(c['args'][1], c['args'][2].split(REPO + '/')[1]) for c in recording['calls'] if c['kind'] == 'write']
+        self.assertEqual(routes, [('POST', f'statuses/{OTHER_HEAD}'), ('PATCH', 'pulls/2'),
+                                  ('POST', 'issues/2/comments'), ('POST', 'issues/2/labels'),
+                                  ('POST', 'pulls/2/requested_reviewers'), ('POST', f'statuses/{OTHER_HEAD}')])
+        self.assertEqual(self.gh.writes(), [], 'nothing but reads reached gh')
+        self.assertEqual(self.replay(directory), [])
+
     def test_the_outputs_are_the_bytes_the_write_path_sends(self):
         directory = self.record('sync')
         recording = conformance.load_recording(directory)

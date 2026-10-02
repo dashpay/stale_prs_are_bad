@@ -30,17 +30,25 @@ unchanged and is part of what is recorded.
 ### Recording
 
 ```sh
-export GH_TOKEN=$(gh auth token)
+export GH_TOKEN=...      # read-only: see "Handling live recordings"
+RAW=$(mktemp -d)         # mode 700, outside every repository and worktree
 python -m pr_review.main report --repo dashpay/platform --format json \
-    --record conformance/live/raw/platform-report
+    --record "$RAW/platform-report"
 python -m pr_review.main sync --repo dashpay/platform \
-    --record conformance/live/raw/platform-sync          # dry: nothing is sent
+    --record "$RAW/platform-sync"            # dry: nothing is sent
+python -m pr_review.main sync --repo dashpay/platform --pr 1234 \
+    --record "$RAW/platform-sync-pr-1234"    # one pull request's author
 ```
 
 `--record DIR` is accepted on `report` and on `sync` without `--apply`, and
 nowhere else; it refuses `--apply`, and refuses a `DIR` that already holds
 anything. Every governed repository: `platform`, `rust-dashcore`,
 `tenderdash`, `grovedb`, `dash-evo-tool`.
+
+`sync --pr N` is the path an event on one pull request runs, and the one the
+service runs per author: it reads that author's pull requests, decides their
+admission, takes a snapshot of the one named (and of any of theirs whose slot
+it moves), and sweeps nothing else. Record it beside the batch syncs.
 
 What a recording run does differently, and only while recording:
 
@@ -118,8 +126,8 @@ wrote, so their bytes are the engine's own JSON writer's.
 ### Redacting
 
 ```sh
-python -m pr_review.conformance redact conformance/live/raw/platform-report \
-    conformance/live/redacted/platform-report
+python -m pr_review.conformance redact "$RAW/platform-report" conformance/live/redacted/platform-report \
+    && rm -rf "$RAW/platform-report"
 ```
 
 A live recording is read with your token, so it holds what only you may see:
@@ -148,10 +156,24 @@ original's, the evidence differs in nothing but permission levels, and the
 writes differ in nothing but the evidence print. The copy stores what the
 engine decides on the redacted answers (its evidence prints change, since they
 hash the evidence), and is replayed once more after it is written. The raw
-recording is left in place; delete it once the redacted copy is made.
+recording is left in place; the command above deletes it once the redacted
+copy is written.
 
 Redacted recordings are still not committed: they are large, and dated the
 moment they are made.
+
+### Handling live recordings
+
+- **Record with a read-only token**: in a job, its installation token;
+  locally, a fine-grained token with read access only. The recorder sends no
+  write; the token makes sure none could be sent.
+- **A raw recording lives outside every repository and worktree**, in a
+  directory only you can open (mode 700, as `mktemp -d` makes one), and is
+  deleted as soon as its redacted copy is written.
+- **`conformance/live/` holds redacted copies only.**
+- **No recording, raw or redacted, goes into a CI artifact, an issue, a pull
+  request's text or an agent's prompt.** Report counts only: calls, writes,
+  verdicts, differences.
 
 ### Replaying
 
