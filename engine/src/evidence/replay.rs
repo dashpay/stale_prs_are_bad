@@ -16,8 +16,8 @@
 //! answer anywhere in what `gh` said.
 
 use super::error::ReadError;
+use super::py::compiled;
 use super::transport::{Call, Failure, Method, Reply, Transport, TransportError};
-use crate::pycompat::re::translate;
 use crate::pycompat::text::py_lstrip;
 use crate::pycompat::{py_dumps, py_loads, PyDict, PyValue};
 use indexmap::IndexMap;
@@ -83,10 +83,7 @@ pub fn gh_arguments(call: &Call) -> Result<(Vec<String>, Option<String>), ReadEr
 }
 
 /// Python's `\w`, one character at a time.
-static WORD: LazyLock<Regex> = LazyLock::new(|| {
-    let class = translate(r"\w").expect("a constant pattern translates");
-    Regex::new(&format!(r"\A{class}\z")).expect("a constant pattern compiles")
-});
+static WORD: LazyLock<Regex> = LazyLock::new(|| compiled(r"\A\w\z"));
 
 fn is_word(c: Option<char>) -> bool {
     c.is_some_and(|c| WORD.is_match(c.encode_utf8(&mut [0; 4])))
@@ -106,10 +103,8 @@ fn names_a_write(query: &str) -> bool {
 /// body, or a GraphQL document that is a query and nothing else. Anything
 /// not proven a read is a write.
 pub fn is_read(call: &Call) -> bool {
-    static REPOSITORY_ROUTE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\Arepos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/")
-            .expect("a constant pattern compiles")
-    });
+    static REPOSITORY_ROUTE: LazyLock<Regex> =
+        LazyLock::new(|| compiled(r"\Arepos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/"));
     match call {
         Call::Rest {
             method: Method::Get,
@@ -259,47 +254,54 @@ impl ReplayTransport {
     }
 }
 
+/// How a refusal names a call: the `gh api` command, and for GraphQL,
+/// whose arguments are all alike, which document it carried.
+fn named(call: &Call, arguments: &[String]) -> String {
+    match call {
+        Call::Graphql { .. } => format!("gh api {} ({call})", arguments.join(" ")),
+        Call::Rest { .. } => format!("gh api {}", arguments.join(" ")),
+    }
+}
+
 impl Transport for ReplayTransport {
     fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
-        let (arguments, stdin) =
-            gh_arguments(call).map_err(|error| TransportError::Refused(error.to_string()))?;
-        // A GraphQL call's arguments are all alike; its document says which
-        // read it is.
-        let command = match call {
-            Call::Graphql { .. } => format!("gh api {} ({call})", arguments.join(" ")),
-            Call::Rest { .. } => format!("gh api {}", arguments.join(" ")),
-        };
         if !is_read(call) {
             return Err(TransportError::Refused(format!(
-                "A write is not replayed: {command}"
+                "A write is not replayed: {call}"
             )));
         }
-        let Some(answers) = self.answers.get_mut(&(arguments, stdin)) else {
+        let (arguments, stdin) =
+            gh_arguments(call).map_err(|error| TransportError::Refused(error.to_string()))?;
+        let key = (arguments, stdin);
+        let Some(answers) = self.answers.get_mut(&key) else {
             return Err(TransportError::Refused(format!(
-                "A read the recording does not hold: {command}"
+                "A read the recording does not hold: {}",
+                named(call, &key.0)
             )));
         };
-        let Some(answer) = answers.recorded.get(answers.served) else {
+        let Some(answer) = answers.recorded.get_mut(answers.served) else {
             return Err(TransportError::Refused(format!(
-                "A read asked more often than the recording holds it ({} times): {command}",
-                answers.recorded.len()
+                "A read asked more often than the recording holds it ({} times): {}",
+                answers.recorded.len(),
+                named(call, &key.0)
             )));
         };
         answers.served += 1;
-        match answer {
+        // Each answer is served once, so it is moved out rather than copied.
+        match std::mem::replace(answer, Recorded::Raised) {
             Recorded::Raised => Err(Failure::unavailable().into()),
             Recorded::Exited {
                 exit: 0, stdout, ..
-            } => Ok(Reply::Text(stdout.clone())),
+            } => Ok(Reply::Text(stdout)),
             Recorded::Exited {
                 exit,
                 stdout,
                 stderr,
             } => Err(Failure {
-                transient: transient(stderr, stdout),
-                status: Some(*exit),
-                body: stdout.clone(),
-                detail: stderr.clone(),
+                transient: transient(&stderr, &stdout),
+                status: Some(exit),
+                body: stdout,
+                detail: stderr,
             }
             .into()),
         }

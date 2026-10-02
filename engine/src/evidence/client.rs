@@ -34,10 +34,11 @@ impl Sleep for NoSleep {
     fn sleep(&mut self, _duration: Duration) {}
 }
 
-/// A transport, read by Python's rules.
+/// A transport, read by Python's rules. It can move to another thread
+/// whenever its transport can.
 pub struct Client<T> {
     transport: T,
-    sleep: Box<dyn Sleep>,
+    sleep: Box<dyn Sleep + Send>,
 }
 
 impl<T: Transport> Client<T> {
@@ -46,7 +47,7 @@ impl<T: Transport> Client<T> {
         Self::with_sleep(transport, ThreadSleep)
     }
 
-    pub fn with_sleep(transport: T, sleep: impl Sleep + 'static) -> Self {
+    pub fn with_sleep(transport: T, sleep: impl Sleep + Send + 'static) -> Self {
         Client {
             transport,
             sleep: Box::new(sleep),
@@ -64,9 +65,9 @@ impl<T: Transport> Client<T> {
     /// `GitHub._run`: the answer to `call`, read as JSON.
     ///
     /// - A failure worth one more try — transient, of an idempotent call —
-    ///   is asked once more, [`RETRY_DELAY`] later. One flaky answer marked
-    ///   a pull request an error under a required check until its next
-    ///   event; a `POST` asked twice could write twice.
+    ///   is asked once more, [`RETRY_DELAY`] later: one flaky answer would
+    ///   otherwise mark a pull request an error under a required check until
+    ///   its next event. A `POST` is never asked twice: it could write twice.
     /// - A failed GraphQL query whose answer still holds a `data` object is
     ///   an answer: GraphQL answers with a usable payload and an errors
     ///   array when only part of a query resolved, and the caller decides

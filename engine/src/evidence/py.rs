@@ -5,10 +5,38 @@
 use super::error::{PyClass, ReadError};
 use super::rules;
 use crate::pycompat::ops::py_type_name;
-use crate::pycompat::PyValue;
+use crate::pycompat::re::translate;
+use crate::pycompat::{PyDict, PyList, PyValue};
+use regex::Regex;
 use std::borrow::Cow;
 
 pub(crate) type Read<T> = Result<T, ReadError>;
+
+/// A pattern written in Python's syntax, compiled with the classes Python
+/// gives `\s`, `\w` and `\d`. Only constant patterns are passed here, and
+/// each module's tests force every one of them, so a pattern that does not
+/// translate or compile fails the suite and never reaches a run.
+pub(crate) fn compiled(pattern: &str) -> Regex {
+    let translated = translate(pattern).expect("a constant pattern translates");
+    Regex::new(&translated).expect("a constant pattern compiles")
+}
+
+pub(crate) fn str_value(text: impl Into<String>) -> PyValue {
+    PyValue::Str(text.into())
+}
+
+/// `None` or the text.
+pub(crate) fn optional(text: Option<String>) -> PyValue {
+    text.map_or(PyValue::None, PyValue::Str)
+}
+
+pub(crate) fn dict(entries: PyDict) -> PyValue {
+    PyValue::Dict(entries)
+}
+
+pub(crate) fn list(items: Vec<PyValue>) -> PyValue {
+    PyValue::List(PyList::from(items))
+}
 
 fn type_error(detail: impl Into<String>) -> ReadError {
     ReadError::exception(PyClass::TypeError, detail)
@@ -131,7 +159,7 @@ pub(crate) fn login(user: &PyValue) -> Read<String> {
 /// `is_engine(login)`, for a login read from an answer: `(login or '')
 /// .lower() in ENGINE_LOGINS`, where anything true that is not a string has
 /// no `lower`.
-pub(crate) fn is_engine(login: Option<&PyValue>) -> Read<bool> {
+pub(crate) fn is_engine_value(login: Option<&PyValue>) -> Read<bool> {
     match or_default(login) {
         None => Ok(false),
         Some(value) => Ok(rules::is_engine(str_method(value, "lower")?)),

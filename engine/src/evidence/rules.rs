@@ -2,7 +2,7 @@
 //! accounts are the engine's own, which are review bots, the delimiters of
 //! the checklist block, and how each review bot labels a finding.
 
-use crate::pycompat::re::translate;
+use super::py::compiled;
 use crate::pycompat::text::{py_lower, py_strip};
 use regex::Regex;
 use std::sync::LazyLock;
@@ -52,14 +52,6 @@ pub const FINDING_BLOCKS: &[(&str, &[(&str, bool)])] = &[
         ],
     ),
 ];
-
-/// A pattern written in Python's syntax, compiled with Python's classes.
-/// Every pattern here is a constant the tests compile, so neither step can
-/// fail at run time.
-fn compiled(pattern: &str) -> Regex {
-    let translated = translate(pattern).expect("a constant pattern translates");
-    Regex::new(&translated).expect("a constant pattern compiles")
-}
 
 static HIDDEN_MARKUP: LazyLock<Regex> = LazyLock::new(|| compiled(r"(?s)<!--.*?-->"));
 // thepastaclaw: `**🟡 Suggestion: title**`. The label leads with an emoji,

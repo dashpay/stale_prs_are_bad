@@ -8,17 +8,17 @@
 use crate::support::*;
 use pr_hygiene_engine::evidence::replay::{gh_arguments, is_read};
 use pr_hygiene_engine::evidence::{ReplayTransport, Scripted, Sleep};
-use std::cell::RefCell;
-use std::rc::Rc;
+
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// A sleeper that only remembers how long it was asked to wait.
 #[derive(Clone, Default)]
-struct Waits(Rc<RefCell<Vec<Duration>>>);
+struct Waits(Arc<Mutex<Vec<Duration>>>);
 
 impl Sleep for Waits {
     fn sleep(&mut self, duration: Duration) {
-        self.0.borrow_mut().push(duration);
+        self.0.lock().expect("one test thread").push(duration);
     }
 }
 
@@ -45,7 +45,10 @@ fn a_flaky_read_is_asked_once_more_and_a_post_never_is() {
         json!({"ok": true}),
     );
     assert_eq!(flaky.transport().calls().len(), 2);
-    assert_eq!(*waits.0.borrow(), [Duration::from_secs(2)]);
+    assert_eq!(
+        *waits.0.lock().expect("one test thread"),
+        [Duration::from_secs(2)]
+    );
     let (mut refused, _) = client(vec![failed(1, "", "HTTP 422: Validation Failed")]);
     assert!(refused.request(Method::Get, PULL, None).is_err());
     assert_eq!(
@@ -101,7 +104,7 @@ fn pythons_own_timeout_is_not_asked_again() {
         "GitHub API command unavailable or timed out"
     );
     assert_eq!(api.transport().calls().len(), 1);
-    assert!(waits.0.borrow().is_empty());
+    assert!(waits.0.lock().expect("one test thread").is_empty());
 }
 
 #[test]
@@ -538,6 +541,21 @@ fn a_replay_matches_the_request_byte_for_byte() {
         replay.call(&other),
         Err(TransportError::Refused(_))
     ));
+}
+
+#[test]
+fn a_reader_moves_to_another_thread_with_its_transport() {
+    // The service runs the engine on a blocking thread: the reader, its
+    // client and its sleeper have to be able to go there.
+    fn sendable<T: Send>(_: &T) {}
+    let reader = GitHub::new("dashpay/platform", Client::new(ReplayTransport::default())).unwrap();
+    sendable(&reader);
+    let boxed: Box<dyn Transport + Send> = Box::new(Scripted::new([ok(json!({}))]));
+    let mut through_a_box = Client::with_sleep(boxed, NoSleep);
+    assert_py(
+        &through_a_box.request(Method::Get, PULL, None).unwrap(),
+        json!({}),
+    );
 }
 
 #[test]

@@ -11,8 +11,8 @@ use super::builds::{build_verdict, Build};
 use super::client::Client;
 use super::error::{KeyOrTypeAs, PyClass, ReadError};
 use super::py::{
-    get, get_or_empty, is_engine, item, iterate, iterate_or_empty, login, or_default, str_method,
-    text, Read,
+    dict, get, get_or_empty, is_engine_value, item, iterate, iterate_or_empty, list, login,
+    optional, or_default, str_method, str_value, text, Read,
 };
 use super::queries;
 use super::records::{
@@ -63,22 +63,6 @@ pub struct GitHub<T> {
     builds: IndexMap<String, Build>,
     listed: bool,
     diagnostics: Vec<String>,
-}
-
-fn str_value(text: impl Into<String>) -> PyValue {
-    PyValue::Str(text.into())
-}
-
-fn optional(text: Option<String>) -> PyValue {
-    text.map_or(PyValue::None, PyValue::Str)
-}
-
-fn dict(entries: PyDict) -> PyValue {
-    PyValue::Dict(entries)
-}
-
-fn list(items: Vec<PyValue>) -> PyValue {
-    PyValue::List(PyList::from(items))
 }
 
 /// `_unique(items, key, label)`: the same key twice is the listing
@@ -240,8 +224,8 @@ fn clean(response: &PyValue) -> Read<bool> {
 
 /// `GitHub._pr(raw)`: a pull request's identity, from any route that reads
 /// one. Every read carries the same fields, assignees beside labels: a
-/// field one read can supply and another cannot is how three defects in a
-/// day began.
+/// field one read can supply and another cannot would give one pull request
+/// two different answers in one run.
 pub fn pr_identity(raw: &PyValue) -> Result<PyValue, ReadError> {
     identity(raw)
         .key_or_type_as("Incomplete PR identity")
@@ -250,7 +234,8 @@ pub fn pr_identity(raw: &PyValue) -> Result<PyValue, ReadError> {
 
 fn identity(raw: &PyValue) -> Read<PyDict> {
     let mut result = PyDict::new();
-    result.insert("number".into(), item(raw, "number")?.clone());
+    let number = item(raw, "number")?;
+    result.insert("number".into(), number.clone());
     result.insert("author".into(), str_value(login(item(raw, "user")?)?));
     let bot = get_or_empty(get(raw, "user")?, "type")?.is_some_and(|t| py_eq_str(t, "Bot"));
     result.insert("author_is_bot".into(), PyValue::Bool(bot));
@@ -284,20 +269,21 @@ fn identity(raw: &PyValue) -> Read<PyDict> {
         "created_at".into(),
         str_value(text(Some(item(raw, "created_at")?), "PR creation time")?),
     );
-    result.insert("draft".into(), item(raw, "draft")?.clone());
-    result.insert("state".into(), item(raw, "state")?.clone());
+    let draft = item(raw, "draft")?;
+    result.insert("draft".into(), draft.clone());
+    let state = item(raw, "state")?;
+    result.insert("state".into(), state.clone());
     result.insert(
         "url".into(),
         str_value(text(Some(item(raw, "html_url")?), "PR URL")?),
     );
-    result.insert("title".into(), item(raw, "title")?.clone());
-    let numbered = matches!(&result["number"], PyValue::Int(n) if *n >= PyInt::from(1));
-    if !numbered || !matches!(result["draft"], PyValue::Bool(_)) {
+    let title = item(raw, "title")?;
+    result.insert("title".into(), title.clone());
+    let numbered = matches!(number, PyValue::Int(n) if *n >= PyInt::from(1));
+    if !numbered || !matches!(draft, PyValue::Bool(_)) {
         return Err(ReadError::github("Invalid PR number or draft state"));
     }
-    if !py_in_str_set(&result["state"], &["open", "closed"])?
-        || !matches!(result["title"], PyValue::Str(_))
-    {
+    if !py_in_str_set(state, &["open", "closed"])? || !matches!(title, PyValue::Str(_)) {
         return Err(ReadError::github("Invalid PR state or title"));
     }
     Ok(result)
@@ -350,16 +336,19 @@ impl<T: Transport> GitHub<T> {
                     .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
         };
         let parts: Vec<&str> = repo.split('/').collect();
-        if parts.len() != 2 || !parts.iter().all(|p| part(p)) {
+        let [owner, name] = parts[..] else {
+            return Err(ReadError::github("Expected repository identity owner/name"));
+        };
+        if !part(owner) || !part(name) {
             return Err(ReadError::github("Expected repository identity owner/name"));
         }
-        if parts.iter().any(|p| *p == "." || *p == "..") {
+        if [owner, name].iter().any(|p| *p == "." || *p == "..") {
             return Err(ReadError::github("Invalid repository identity"));
         }
         Ok(GitHub {
             repo: repo.to_owned(),
-            owner: parts[0].to_owned(),
-            name: parts[1].to_owned(),
+            owner: owner.to_owned(),
+            name: name.to_owned(),
             root: format!("repos/{repo}"),
             client,
             permissions: IndexMap::new(),
@@ -823,7 +812,6 @@ impl<T: Transport> GitHub<T> {
             }),
             "changed file",
         )?;
-        result.insert("files".into(), list(changed.clone()));
 
         let mut reviews = Vec::new();
         for review in self
@@ -868,11 +856,11 @@ impl<T: Transport> GitHub<T> {
             return Err(ReadError::github("Invalid review identity or body"));
         }
         unique(reviews.iter().filter_map(int_id), "review")?;
-        result.insert("reviews".into(), list(reviews.clone()));
 
         // One route for comments, always: the batched one, which names who
-        // last edited each. Two routes, one able to supply a field the other
-        // cannot, gave one pull request two different answers in one run.
+        // last edited each. A second route that cannot supply a field the
+        // first can would give one pull request two different answers in
+        // one run.
         let comments = match history {
             Some(history) => history.comments.clone(),
             None => self
@@ -881,34 +869,26 @@ impl<T: Transport> GitHub<T> {
                 .map(|history| history.comments)
                 .unwrap_or_default(),
         };
-        result.insert("comments".into(), list(comments.clone()));
         let threads = self.threads(number)?;
-        result.insert("threads".into(), list(threads.clone()));
         let lifecycle_at = match history {
             Some(history) => history.lifecycle_at.clone(),
             None => self.activity(number)?,
         };
-        result.insert("lifecycle_at".into(), optional(lifecycle_at));
         let head = match result.get("head") {
             Some(PyValue::Str(head)) => head.clone(),
             _ => return Err(ReadError::github("Missing or invalid head SHA")),
         };
         let seen = self.head_seen_at(&head)?;
-        result.insert("head_seen_at".into(), optional(seen));
         let build = self.build_state(number, &head)?;
-        result.insert("build".into(), str_value(build.as_str()));
         let ready = self.ready_published(&head)?;
-        result.insert("ready_published".into(), PyValue::Bool(ready));
         let mut requested = Vec::new();
         for user in iterate(item(&raw, "requested_reviewers")?)? {
             requested.push(str_value(login(&user)?));
         }
-        result.insert("requested_reviewers".into(), list(requested));
         let mut labels = Vec::new();
         for label in iterate(item(&raw, "labels")?)? {
             labels.push(str_value(text(Some(item(&label, "name")?), "label name")?));
         }
-        result.insert("labels".into(), list(labels));
 
         let record = parse_controller_state(&comments)?;
         if let Some(record) = &record {
@@ -923,10 +903,7 @@ impl<T: Transport> GitHub<T> {
             Some(record) => (record.state, record.comment_id),
             None => (PyValue::None, PyValue::None),
         };
-        result.insert("controller_state".into(), state);
-        result.insert("controller_comment_id".into(), comment_id);
         let diff = parse_controller_diff(&comments, number)?;
-        result.insert("controller_diff".into(), diff.unwrap_or(PyValue::None));
 
         let users = users_to_vouch_for(policy, &changed, &reviews, &threads, &comments)?;
         let mut permissions = PyDict::new();
@@ -942,15 +919,39 @@ impl<T: Transport> GitHub<T> {
             let level = self.permission(&user)?;
             permissions.insert(user, optional(level));
         }
-        result.insert("permissions".into(), dict(permissions));
-        result.insert("repo".into(), str_value(self.repo.as_str()));
-        result.insert("complete".into(), PyValue::Bool(true));
+
+        // Read in Python's order above; written in its key order here, the
+        // labels keeping the place the identity gave them.
+        let fields = [
+            ("files", list(changed)),
+            ("reviews", list(reviews)),
+            ("comments", list(comments)),
+            ("threads", list(threads)),
+            ("lifecycle_at", optional(lifecycle_at)),
+            ("head_seen_at", optional(seen)),
+            ("build", str_value(build.as_str())),
+            ("ready_published", PyValue::Bool(ready)),
+            ("requested_reviewers", list(requested)),
+            ("labels", list(labels)),
+            ("controller_state", state),
+            ("controller_comment_id", comment_id),
+            ("controller_diff", diff.unwrap_or(PyValue::None)),
+            ("permissions", dict(permissions)),
+            ("repo", str_value(self.repo.as_str())),
+            ("complete", PyValue::Bool(true)),
+        ];
+        for (key, value) in fields {
+            result.insert(key.into(), value);
+        }
         Ok(result)
     }
 
-    /// `GitHub.access()`: every collaborator's level, read once per
-    /// reconciliation. The listing is marked read before it is read, so a
-    /// listing that failed is not asked again in the same run.
+    /// `GitHub.access()`: the collaborator listing, read once per
+    /// reconciliation, and every level known so far by lowercased login —
+    /// the listing's, and any [`GitHub::permission`] asked for one by one,
+    /// `None` where the answer could not be read. The listing is marked read
+    /// before it is read, so a listing that failed is not asked again in the
+    /// same run.
     pub fn access(&mut self) -> Result<&IndexMap<String, Option<String>>, ReadError> {
         if !self.listed {
             self.listed = true;
@@ -1151,7 +1152,7 @@ fn engine_status(status: &PyValue) -> Read<bool> {
     if !get(status, "context")?.is_some_and(|c| py_eq_str(c, "PR Hygiene")) {
         return Ok(false);
     }
-    is_engine(get_or_empty(get(status, "creator")?, "login")?)
+    is_engine_value(get_or_empty(get(status, "creator")?, "login")?)
 }
 
 /// A changed file as the snapshot keeps it: what it is, what happened to
@@ -1244,11 +1245,11 @@ fn thread_page(
         if !matches!(item(node, "isResolved")?, PyValue::Bool(_)) {
             return Err(ReadError::github("Incomplete review thread"));
         }
-        if comments.is_empty() {
+        let Some(first_voice) = comments.first() else {
             // Every comment in the thread was deleted; nothing remains to resolve.
             *emptied += 1;
             continue;
-        }
+        };
         let opening_body = match opening.first() {
             Some(first) => match item(first, "body")? {
                 PyValue::Str(body) => body.clone(),
@@ -1258,7 +1259,7 @@ fn thread_page(
         };
         // Whoever opened the thread names it; whoever spoke in it can be
         // objecting.
-        let author = login(item(&comments[0], "author")?)?;
+        let author = login(item(first_voice, "author")?)?;
         let mut thread = PyDict::new();
         thread.insert(
             "id".into(),
@@ -1269,7 +1270,7 @@ fn thread_page(
         thread.insert(
             "created_at".into(),
             str_value(text(
-                Some(item(&comments[0], "createdAt")?),
+                Some(item(first_voice, "createdAt")?),
                 "thread creation time",
             )?),
         );

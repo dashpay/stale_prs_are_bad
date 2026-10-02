@@ -257,9 +257,8 @@ fn a_diff_timestamp_that_is_not_one_is_refused() {
             "{bad}"
         );
     }
-    // A key that is there is checked. An empty head list was accepted once,
-    // and it handed whoever wrote it the instant an attestation is measured
-    // against.
+    // A key that is there is checked. An empty head list would hand whoever
+    // wrote it the instant an attestation is measured against.
     let empty = json!({"number": 1, "diff": "a".repeat(64), "diff_heads": [], "diff_seen": null});
     assert_eq!(
         github_error(validate_diff(&py(empty))),

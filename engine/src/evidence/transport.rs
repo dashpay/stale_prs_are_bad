@@ -111,9 +111,10 @@ pub struct Failure {
     /// timeout reported by the far side, a truncated answer. The client
     /// asks again only for an idempotent call.
     pub transient: bool,
-    /// The exit status `gh` reported, or the HTTP status. `None` when the
-    /// call never completed: the command could not run, or ran out of its
-    /// own time. That is never asked again.
+    /// The status the failure ended with, which the client's error quotes
+    /// as `GitHub API command failed (exit N)`, Python's words for `gh`'s
+    /// exit status. `None` when the call never completed: the command could
+    /// not run, or ran out of its own time. That is never asked again.
     pub status: Option<i32>,
     /// What came back as the answer, if anything: a failed GraphQL query
     /// can still carry data in it.
@@ -155,14 +156,28 @@ pub trait Transport {
     fn call(&mut self, call: &Call) -> Result<Reply, TransportError>;
 }
 
-/// A function answers calls, which is how a test routes each call to the
-/// answer it means.
-impl<F> Transport for F
+impl<T: Transport + ?Sized> Transport for &mut T {
+    fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
+        (**self).call(call)
+    }
+}
+
+impl<T: Transport + ?Sized> Transport for Box<T> {
+    fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
+        (**self).call(call)
+    }
+}
+
+/// A function that answers calls, which is how a test routes each call to
+/// the answer it means.
+pub struct FromFn<F>(pub F);
+
+impl<F> Transport for FromFn<F>
 where
     F: FnMut(&Call) -> Result<Reply, TransportError>,
 {
     fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
-        self(call)
+        (self.0)(call)
     }
 }
 

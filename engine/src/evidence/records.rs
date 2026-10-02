@@ -10,13 +10,14 @@
 //! count: an older one is never brought back in its place.
 
 use super::error::{PyClass, ReadError};
-use super::py::{self, get, is_engine, item, or_default, text, Read};
+use super::py::{self, compiled, get, is_engine_value, item, or_default, text, Read};
 use super::rules::{CHECKLIST_END, CHECKLIST_START};
 use crate::pycompat::ops::{py_compare, py_contains, py_eq, Compare};
-use crate::pycompat::re::{fullmatch_pattern, translate};
+use crate::pycompat::re::fullmatch_pattern;
 use crate::pycompat::text::{py_lstrip, py_splitlines};
 use crate::pycompat::{py_dumps, py_loads, PyDateTime, PyErr, PyInt, PyValue};
 use regex::Regex;
+use std::fmt::Write as _;
 use std::sync::LazyLock;
 
 /// The record's marker, which opens the record comment.
@@ -33,13 +34,6 @@ pub const DIFF_MARKER: &str = "<!-- pr-hygiene-diff-v1";
 /// Not `None`, which says nobody edited it, and nothing a login can spell,
 /// so no account is ever taken for it.
 pub const EDITOR_UNKNOWN: &str = "(editor unknown)";
-
-/// A constant pattern in Python's syntax, compiled with Python's classes.
-/// The tests compile every one, so neither step can fail at run time.
-fn compiled(pattern: &str) -> Regex {
-    let translated = translate(pattern).expect("a constant pattern translates");
-    Regex::new(&translated).expect("a constant pattern compiles")
-}
 
 static STATE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| compiled(r"<!-- platform-pr-review-state-v1 (\{[^\r\n]*\}) -->"));
@@ -131,7 +125,7 @@ pub fn validate_diff(diff: &PyValue) -> Result<(), ReadError> {
             "Unknown or incomplete controller diff schema",
         ));
     }
-    if !matches!(&entries["number"], PyValue::Int(n) if *n >= PyInt::from(1)) {
+    if !matches!(entries.get("number"), Some(PyValue::Int(n)) if *n >= PyInt::from(1)) {
         return Err(ReadError::github("Invalid controller diff PR number"));
     }
     if let Some(print) = entries.get("diff") {
@@ -139,8 +133,8 @@ pub fn validate_diff(diff: &PyValue) -> Result<(), ReadError> {
             return Err(ReadError::github("Invalid controller diff print"));
         }
     }
-    // Present means at least one: an empty list was accepted once, and it
-    // handed whoever wrote it the instant an attestation is measured against.
+    // Present means at least one: an empty list would hand whoever wrote it
+    // the instant an attestation is measured against.
     if let Some(heads) = entries.get("diff_heads") {
         let valid = matches!(heads, PyValue::List(heads)
             if (1..=20).contains(&heads.len())
@@ -160,8 +154,8 @@ pub fn validate_diff(diff: &PyValue) -> Result<(), ReadError> {
         }
     }
     // A timestamp, checked as one: it is read back as a time, and a string
-    // that is not one raised out of the verdict and took the whole
-    // repository's run down with it.
+    // that is not one would raise out of the verdict, which catches no such
+    // error, and end the whole repository's run.
     match entries.get("diff_seen") {
         None | Some(PyValue::None) => {}
         Some(PyValue::Str(seen)) if utc_timestamp(seen) => {}
@@ -186,7 +180,7 @@ fn engine_words(comment: &PyValue) -> Read<bool> {
     if none(edited_at) && none(editor) {
         return Ok(true);
     }
-    is_engine(editor)
+    is_engine_value(editor)
 }
 
 /// `_text(_written_at(comment), "comment write time")`: when a comment was
@@ -246,12 +240,13 @@ fn marker_json<'a>(pattern: &Regex, body: &'a str) -> Vec<&'a str> {
         .collect()
 }
 
-/// `json.loads(text)` where `except (ValueError, ...)` follows: a
-/// `ValueError` is the caller's to catch, a `RecursionError` is not.
-fn loads(text: &str) -> Read<Result<PyValue, ()>> {
+/// `json.loads(text)` where `except (ValueError, ...)` follows: nothing for
+/// what a `ValueError` stops, which the caller catches; a `RecursionError`
+/// is not caught.
+fn loads(text: &str) -> Read<Option<PyValue>> {
     match py_loads(text) {
-        Ok(value) => Ok(Ok(value)),
-        Err(PyErr::Value(_)) => Ok(Err(())),
+        Ok(value) => Ok(Some(value)),
+        Err(PyErr::Value(_)) => Ok(None),
         Err(other) => Err(other.into()),
     }
 }
@@ -278,7 +273,7 @@ pub fn parse_controller_state(comments: &[PyValue]) -> Result<Option<Record>, Re
                 "Controller state read without who last edited it",
             ));
         }
-        if !is_engine(Some(item(comment, "user")?))? {
+        if !is_engine_value(Some(item(comment, "user")?))? {
             continue;
         }
         let body = item(comment, "body")?;
@@ -291,10 +286,10 @@ pub fn parse_controller_state(comments: &[PyValue]) -> Result<Option<Record>, Re
         }
         let body = body_text(body)?;
         let matches = marker_json(&STATE_PATTERN, body);
-        if matches.len() != 1 || body.matches(STATE_MARKER).count() != 1 {
+        let ([json], 1) = (matches.as_slice(), body.matches(STATE_MARKER).count()) else {
             return Err(ReadError::github("Malformed controller state marker"));
-        }
-        let Ok(state) = loads(matches[0])? else {
+        };
+        let Some(state) = loads(json)? else {
             return Err(ReadError::github("Malformed controller state JSON"));
         };
         validate_state(&state)?;
@@ -325,7 +320,8 @@ pub fn parse_controller_diff(
     let wanted = PyValue::Int(number.clone());
     let mut found: Vec<(String, PyValue, PyValue)> = Vec::new();
     for comment in comments {
-        if !is_engine(Some(item(comment, "user")?))? || !holds(item(comment, "body")?, DIFF_MARKER)?
+        if !is_engine_value(Some(item(comment, "user")?))?
+            || !holds(item(comment, "body")?, DIFF_MARKER)?
         {
             continue;
         }
@@ -333,12 +329,11 @@ pub fn parse_controller_diff(
             continue;
         }
         let body = body_text(item(comment, "body")?)?;
-        let state = marker_json(&STATE_PATTERN, body);
-        if state.len() != 1 {
+        let [state] = marker_json(&STATE_PATTERN, body)[..] else {
             continue;
-        }
+        };
         // `except (ValueError, TypeError, AttributeError): continue`.
-        let Ok(recorded) = loads(state[0])? else {
+        let Some(recorded) = loads(state)? else {
             continue;
         };
         let PyValue::Dict(recorded) = recorded else {
@@ -347,12 +342,11 @@ pub fn parse_controller_diff(
         if !recorded.get("number").is_some_and(|n| py_eq(n, &wanted)) {
             continue;
         }
-        let matches = marker_json(&DIFF_PATTERN, body);
-        if matches.len() != 1 {
+        let [json] = marker_json(&DIFF_PATTERN, body)[..] else {
             continue;
-        }
+        };
         // `except (ValueError, TypeError, GitHubError): continue`.
-        let Ok(diff) = loads(matches[0])? else {
+        let Some(diff) = loads(json)? else {
             continue;
         };
         match validate_diff(&diff) {
@@ -389,7 +383,8 @@ pub fn state_comment_body(
     }
     if let Some(diff) = diff {
         validate_diff(diff)?;
-        marker.push_str(&format!("\n{DIFF_MARKER} {} -->", compact(diff)?));
+        // Writing to a String cannot fail.
+        let _ = write!(marker, "\n{DIFF_MARKER} {} -->", compact(diff)?);
     }
     Ok(format!("{marker}\n\n{body}"))
 }

@@ -168,7 +168,7 @@ fn should_reject_repository_path_injection() {
 
 /// A transport no call should reach.
 fn nothing_asked() -> impl Transport {
-    |call: &Call| -> Answer { panic!("nothing should be asked, but {call} was") }
+    FromFn(|call: &Call| -> Answer { panic!("nothing should be asked, but {call} was") })
 }
 
 #[test]
@@ -1592,7 +1592,7 @@ fn a_file_that_changed_type_is_listed_twice_and_is_not_drift() {
 fn who_the_pull_request_was_handed_to_is_read() {
     // A hand-over is written down as an assignment, and every route that
     // reads a pull request carries it: a field one read supplies and another
-    // does not is how three defects in a day began.
+    // does not would give one pull request two answers in one run.
     let read = snapshot(Fixture::default()).unwrap();
     assert_py(field(&read, "assignees"), json!(["romchornyi"]));
     let mut one = api(|_| ok(pr()));

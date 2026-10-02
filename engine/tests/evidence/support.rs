@@ -4,7 +4,7 @@
 
 pub use pr_hygiene_engine::evidence::replay::transient;
 pub use pr_hygiene_engine::evidence::{
-    Call, Client, Failure, GitHub, History, Method, NoSleep, ReadError, Reply, Transport,
+    Call, Client, Failure, FromFn, GitHub, History, Method, NoSleep, ReadError, Reply, Transport,
     TransportError,
 };
 pub use pr_hygiene_engine::pycompat::ops::py_eq;
