@@ -320,7 +320,11 @@ fn a_pull_request_of_a_settled_repository_that_wants_a_write_is_named_alone() {
         writes,
         [
             (0, "matched".to_owned()),
-            (1, "POST repos/*/*/statuses/*".to_owned()),
+            (
+                1,
+                r#"POST repos/*/*/statuses/* pending "Evaluating current review policy""#
+                    .to_owned(),
+            ),
             (2, "matched".to_owned()),
             (3, "matched".to_owned()),
         ],
@@ -413,24 +417,39 @@ fn a_review_landing_between_a_live_runs_read_and_its_recheck_is_a_move() {
     assert!(live.comparison.is_clean(), "{:?}", live.comparison);
 }
 
+/// The fake, with one route answered otherwise than its state says: two of
+/// GitHub's routes to the same thing disagreeing, with nothing having moved.
+struct Disagreeing<'a> {
+    fake: &'a mut Fake,
+    route: &'static str,
+    page: &'static str,
+}
+
+impl Transport for Disagreeing<'_> {
+    fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
+        if reads(call, self.route) {
+            return Ok(Reply::Pages(vec![self.page.to_owned()]));
+        }
+        self.fake.call(call)
+    }
+}
+
 #[test]
 fn the_same_status_where_no_read_answered_otherwise_on_asking_again_still_fails() {
     // The run's re-check reads pull request 2 by another route than its
-    // first read did (its timeline, where the first read had the batched
-    // history), and that route says otherwise: the re-check posts the same
-    // status, but no read of it answered otherwise when asked again. That
-    // is not GitHub moving under the run, and it is held to Python's.
-    let (mut scene, recording, _) = settled_then(move |state, call| {
-        if reads(call, "issues/2/timeline") && state.pr(2).timeline.is_empty() {
-            state
-                .pr(2)
-                .timeline
-                .push(("convert_to_draft".into(), "2026-09-11T08:00:00Z".into()));
-        }
-    });
+    // first read did: its timeline, where the first read took the batched
+    // history. That route says it went to draft once; the history says
+    // not. The re-check posts the same status, but nothing it read was
+    // answered otherwise when asked again: not GitHub moving under the run,
+    // and held to Python's.
+    let (mut scene, recording, _) = settled_then(|_, _| {});
     let live = live_run(
         &recording,
-        &mut scene.fake,
+        Disagreeing {
+            fake: &mut scene.fake,
+            route: "issues/2/timeline",
+            page: r#"[{"event": "convert_to_draft", "created_at": "2026-09-11T08:00:00Z"}]"#,
+        },
         &mut at(LATER),
         &mut || PyValue::None,
         &own(),

@@ -132,11 +132,79 @@ fn target_of(route: &str) -> Target {
 /// One write a live run would have made.
 #[derive(Debug, Clone)]
 struct WouldBe {
-    /// How it is named: [`write_kind`].
+    /// How it is named: [`write_kind`], and [`own_words`] where it holds
+    /// nothing else.
     kind: String,
     target: Target,
     /// Whether it asks a review bot to look at a head.
     nudge: bool,
+}
+
+/// The descriptions the engine posts on a status other than a verdict's
+/// state: its own fixed words, never anybody else's.
+const OWN_DESCRIPTIONS: [&str; 7] = [
+    EVIDENCE_CHANGED,
+    "PR admission context changed; reconciliation required",
+    "Policy changed; reconciliation required",
+    "Evaluating current review policy",
+    "Policy reconciliation failed; inspect workflow log",
+    "Incomplete policy evidence; reconciliation required",
+    "Invalid policy configuration; inspect workflow log",
+];
+
+/// The states a verdict can reach, which its status carries as its
+/// description.
+const OWN_STATES: [&str; 10] = [
+    "draft",
+    "configuration-error",
+    "waiting-bots",
+    "waiting-self-review",
+    "waiting-author",
+    "waiting-build",
+    "too-many-open-prs",
+    "ready-for-human",
+    "ready-to-merge",
+    "waiting-slot",
+];
+
+/// The states of a commit status.
+const STATUS_STATES: [&str; 4] = ["pending", "success", "failure", "error"];
+
+/// What the re-check before a ready pull request's status posts when its
+/// evidence read again is not what the run first read.
+const EVIDENCE_CHANGED: &str = "Review evidence changed; reconciliation required";
+
+/// The engine's own words a write carries, where they are all it carries:
+/// a status whose description is one of the engine's fixed phrases or a
+/// verdict's state, with its state; a comment that is nothing but one.
+/// `None` for anything else, which may hold what people wrote.
+fn own_words(call: &Call) -> Option<String> {
+    let Call::Rest {
+        path,
+        body: Some(body),
+        ..
+    } = call
+    else {
+        return None;
+    };
+    let text = |key: &str| match field(body, key) {
+        Some(PyValue::Str(text)) => Some(text.as_str()),
+        _ => None,
+    };
+    let own = |text: &str| OWN_DESCRIPTIONS.contains(&text) || OWN_STATES.contains(&text);
+    if path.split('?').next()?.contains("/statuses/") {
+        let (state, description) = (text("state")?, text("description")?);
+        (STATUS_STATES.contains(&state) && own(description))
+            .then(|| format!("{state} \"{description}\""))
+    } else {
+        let said = text("body")?;
+        own(said).then(|| format!("\"{said}\""))
+    }
+}
+
+/// How the re-check's status is named, by [`write_kind`] and [`own_words`].
+fn evidence_changed_kind() -> String {
+    format!("POST repos/*/*/statuses/* pending \"{EVIDENCE_CHANGED}\"")
 }
 
 impl WouldBe {
@@ -150,8 +218,12 @@ impl WouldBe {
                 *method == Method::Post && is_nudge(body.as_ref()),
             ),
         };
+        let kind = match own_words(call) {
+            Some(words) => format!("{} {words}", write_kind(call)),
+            None => write_kind(call),
+        };
         WouldBe {
-            kind: write_kind(call),
+            kind,
             target,
             nudge,
         }
@@ -1027,6 +1099,91 @@ fn comment_owners(log: &[Logged]) -> HashMap<PyInt, PyInt> {
     owners
 }
 
+/// Whether GitHub moved under the live run itself, as far as pull request
+/// `number` goes: a read of it the run asked again, before a write, and was
+/// answered otherwise. That is the pull request's own routes, its `heads`'
+/// statuses, a query naming it by number, its node in each history query,
+/// its `author`'s open pull requests in each open listing, and anyone's
+/// access. The re-check of a ready pull request reads it again after its
+/// first read, and an answer that changed in between is why it would post
+/// that the evidence changed.
+fn moved_within_run(
+    repository: &str,
+    number: &PyInt,
+    heads: &[&str],
+    author: Option<&str>,
+    log: &[Logged],
+) -> bool {
+    let root = format!("repos/{repository}/");
+    let own = [format!("pulls/{number}"), format!("issues/{number}")];
+    let statuses: Vec<String> = heads
+        .iter()
+        .map(|head| format!("commits/{head}/statuses"))
+        .collect();
+    let of_it = |key: &CallKey| -> bool {
+        if let Some(stdin) = &key.1 {
+            let named = py_loads(stdin).ok().is_some_and(|document| {
+                matches!(
+                    field(&document, "variables").and_then(|v| field(v, "number")),
+                    Some(PyValue::Int(n)) if n == number
+                )
+            });
+            return named;
+        }
+        let Some(route) = key
+            .0
+            .get(2)
+            .and_then(|route| route.split('?').next())
+            .and_then(|route| route.strip_prefix(&root))
+        else {
+            return false;
+        };
+        let under = |prefix: &str| {
+            route == prefix
+                || route
+                    .strip_prefix(prefix)
+                    .is_some_and(|r| r.starts_with('/'))
+        };
+        own.iter().any(|prefix| under(prefix))
+            || statuses.iter().any(|prefix| route == prefix)
+            || under("collaborators")
+    };
+    let mut answers: HashMap<&CallKey, Vec<PyValue>> = HashMap::new();
+    let mut histories: Vec<PyValue> = Vec::new();
+    for logged in log {
+        let history = logged
+            .key
+            .1
+            .as_deref()
+            .is_some_and(|stdin| stdin.contains("fragment history"));
+        if !history && !of_it(&logged.key) {
+            continue;
+        }
+        let Some(answer) = answer_value(&logged.answer) else {
+            continue;
+        };
+        if history {
+            let nodes = field(&answer, "data").and_then(|data| field(data, "repository"));
+            if let Some(PyValue::Dict(nodes)) = nodes {
+                histories.extend(
+                    nodes
+                        .values()
+                        .filter(|node| number_of(node).as_ref() == Some(number))
+                        .cloned(),
+                );
+            }
+        } else {
+            answers.entry(&logged.key).or_default().push(answer);
+        }
+    }
+    let otherwise = |values: &[PyValue]| values.windows(2).any(|pair| !same(&pair[0], &pair[1]));
+    answers.values().any(|values| otherwise(values))
+        || otherwise(&histories)
+        || author.is_some_and(|author| {
+            Listings::of(repository, &HashMap::new(), log).author_moved(author)
+        })
+}
+
 /// Whether a read failed on Python's side, every time Python asked it,
 /// where the live run's same read was answered: GitHub failing Python's
 /// read. Python's run passes over a pull request whose evidence it could
@@ -1733,9 +1890,34 @@ pub fn live_run<T: Transport>(
             .find(|pr| number_of(pr).as_ref() == Some(number))
             .copied()
             .unwrap_or(&PyValue::None);
+        // The re-check's status, where the run's own second read of the
+        // pull request was answered otherwise than its first: GitHub moved
+        // under the live run, after the read Python's was held to.
+        let moved_under_the_run = |kind: &str| {
+            if kind != evidence_changed_kind() {
+                return false;
+            }
+            let heads: Vec<&str> = [
+                Some(wanted),
+                live_at.get(number).map(|&at| &run.snapshots[at]),
+            ]
+            .into_iter()
+            .flatten()
+            .filter_map(head_of)
+            .collect();
+            let author = match field(wanted, "author") {
+                Some(PyValue::Str(author)) => Some(author.as_str()),
+                _ => None,
+            };
+            moved_within_run(repository, number, &heads, author, &observed.log)
+        };
         let outcome = match live_aimed.to(number).first() {
             None => Outcome::Matched,
             Some(_) if pr_moved(number, wanted) => Outcome::Moved,
+            Some(kind) if moved_under_the_run(kind) => {
+                live.moved += 1;
+                Outcome::Moved
+            }
             Some(kind) => {
                 let found = vec![Difference {
                     path: kind.clone(),
@@ -2012,6 +2194,127 @@ mod tests {
             None,
         );
         assert_eq!(write_kind(&call), "DELETE repos/*/*/issues/*/labels/*");
+    }
+
+    #[test]
+    fn a_write_holding_only_the_engines_own_words_is_named_with_them_and_no_other() {
+        let named = |path: &str, body: &str| {
+            WouldBe::of(&rest(Method::Post, path, Some(py_loads(body).unwrap()))).kind
+        };
+        assert_eq!(
+            named(
+                "repos/a/b/statuses/c0ffee",
+                r#"{"state": "pending", "context": "PR Hygiene", "description": "Review evidence changed; reconciliation required"}"#
+            ),
+            evidence_changed_kind()
+        );
+        assert_eq!(
+            named(
+                "repos/a/b/statuses/c0ffee",
+                r#"{"state": "success", "context": "PR Hygiene", "description": "ready-for-human"}"#
+            ),
+            r#"POST repos/*/*/statuses/* success "ready-for-human""#
+        );
+        // Anything else is named by its route alone: a description that is
+        // not the engine's, a state no status has, a comment's own text.
+        for (path, body) in [
+            (
+                "repos/a/b/statuses/c0ffee",
+                r#"{"state": "pending", "description": "Quokka-Zanzibar left a note"}"#,
+            ),
+            (
+                "repos/a/b/statuses/c0ffee",
+                r#"{"state": "Quokka", "description": "ready-for-human"}"#,
+            ),
+            (
+                "repos/a/b/issues/7/comments",
+                r#"{"body": "@alice, Review evidence changed; reconciliation required"}"#,
+            ),
+            (
+                "repos/a/b/issues/7/comments",
+                r#"{"body": "<!-- record -->"}"#,
+            ),
+        ] {
+            let kind = named(path, body);
+            assert!(!kind.contains('"') && !kind.contains("Quokka"), "{kind}");
+        }
+        // A comment that is nothing but one of the engine's phrases.
+        assert_eq!(
+            named("repos/a/b/issues/7/comments", r#"{"body": "draft"}"#),
+            r#"POST repos/*/*/issues/*/comments "draft""#
+        );
+    }
+
+    #[test]
+    fn the_engines_own_words_are_the_python_engines_literals() {
+        // Every phrase named is one the Python engine writes as a literal,
+        // so a phrase can only be named while it is the engine's own.
+        let source = |name: &str| {
+            std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../pr_review")
+                    .join(name),
+            )
+            .unwrap()
+        };
+        let engine = ["main.py", "policy.py", "github.py"].map(source).concat();
+        for phrase in OWN_DESCRIPTIONS
+            .iter()
+            .chain(&OWN_STATES)
+            .chain(&STATUS_STATES)
+        {
+            let quoted = |q: char| engine.contains(&format!("{q}{phrase}{q}"));
+            assert!(quoted('\'') || quoted('"'), "{phrase}");
+        }
+    }
+
+    #[test]
+    fn a_pull_request_moved_under_the_run_when_a_read_of_it_was_answered_otherwise_again() {
+        let reviews = |page: &str| Logged {
+            key: gh_arguments(&Call::Rest {
+                method: Method::Get,
+                path: "repos/a/b/pulls/2/reviews?per_page=100".into(),
+                body: None,
+                paginate: true,
+            })
+            .unwrap(),
+            answer: Ok(Reply::Pages(vec![page.into()])),
+        };
+        let n = PyInt::from(2);
+        let moved = |log: &[Logged]| moved_within_run("a/b", &n, &["h2"], Some("alice"), log);
+        assert!(
+            !moved(&[reviews("[]"), reviews("[]")]),
+            "asked twice, answered alike"
+        );
+        assert!(moved(&[reviews("[]"), reviews(r#"[{"id": 9}]"#)]));
+        assert!(!moved(&[reviews("[]")]), "asked once");
+        // Another pull request's read moving is not this one's.
+        let other = Logged {
+            key: gh_arguments(&rest(Method::Get, "repos/a/b/pulls/3", None)).unwrap(),
+            answer: Ok(Reply::Text("{}".into())),
+        };
+        let other_again = Logged {
+            answer: Ok(Reply::Text(r#"{"x": 1}"#.into())),
+            ..other.clone()
+        };
+        assert!(!moved(&[other, other_again]));
+        // Its node in two history queries, the batched and its own.
+        let history = |pulls: &str, answer: &str| Logged {
+            key: (
+                Vec::new(),
+                Some(format!(
+                    r#"{{"query": "query {{ {pulls} }} fragment history on PullRequest {{ number }}"}}"#
+                )),
+            ),
+            answer: Ok(Reply::Text(answer.into())),
+        };
+        let batched = r#"{"data": {"repository": {"pr2": {"number": 2, "comments": {"nodes": []}}, "pr3": {"number": 3}}}}"#;
+        let alone = r#"{"data": {"repository": {"pr2": {"number": 2, "comments": {"nodes": [{"databaseId": 1}]}}}}}"#;
+        assert!(moved(&[history("pr2 pr3", batched), history("pr2", alone)]));
+        assert!(!moved(&[
+            history("pr2 pr3", batched),
+            history("pr2 pr3", batched)
+        ]));
     }
 
     #[test]
@@ -2586,7 +2889,7 @@ mod tests {
                 "live verdict 0: matched",
                 "live snapshot 1: matched",
                 "live verdict 1: matched",
-                "live writes 1: differs: POST repos/*/*/statuses/* would-be write, not sent",
+                r#"live writes 1: differs: POST repos/*/*/statuses/* pending "Evaluating current review policy" would-be write, not sent"#,
             ]
         );
         assert_eq!(live.unsettled, 1);
@@ -2604,7 +2907,7 @@ mod tests {
         // marks it so; Python's, here, did not.
         assert!(
             outcomes(&live).contains(
-                &"live writes 0: differs: POST repos/*/*/statuses/*, to a pull request neither run decided would-be write, not sent".to_owned()
+                &r#"live writes 0: differs: POST repos/*/*/statuses/* error "Incomplete policy evidence; reconciliation required", to a pull request neither run decided would-be write, not sent"#.to_owned()
             ),
             "{:?}",
             outcomes(&live)

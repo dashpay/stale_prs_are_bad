@@ -75,8 +75,9 @@ pub const CASES: &str = "Cases are indices into the `evaluations.jsonl` of the \
     recording read live, a would-be write by the pull request it was for; for a run that \
     evaluated other pull requests than Python's, and for a write to a pull request \
     neither run decided, 0. A would-be write is named by its method and route, every \
-    part of the route that is data written `*`, and only the first to each pull request \
-    is named; none was sent.";
+    part of the route that is data written `*`, and with its state and description where \
+    a status carries only the engine's own words (a comment, where it is one); only the \
+    first to each pull request is named; none was sent.";
 
 /// How many live reads a run may make, and which.
 #[derive(Debug, Clone, Copy)]

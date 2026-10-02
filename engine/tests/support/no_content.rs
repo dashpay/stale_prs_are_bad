@@ -95,8 +95,9 @@ fn literals(code: &str) -> Vec<String> {
 }
 
 /// What the report may say whatever a recording holds: the words of the
-/// tool's own text, read from the string literals of `sources` outside
-/// their tests; and the recording's repository, command and directory,
+/// tool's own text, and each of its phrases whole, read from the string
+/// literals of `sources` outside their tests; and the recording's
+/// repository, command and directory,
 /// which name its row. A recording may hold any of these as values too:
 /// `write` is a permission level, `draft` a state, `the` a word of a title.
 pub fn own_words(sources: &[PathBuf], recording: &Path) -> BTreeSet<String> {
@@ -106,6 +107,9 @@ pub fn own_words(sources: &[PathBuf], recording: &Path) -> BTreeSet<String> {
         let code = source.split("#[cfg(test)]").next().unwrap_or_default();
         for literal in literals(code) {
             own.extend(words(&literal));
+            // A recorded value that is one of the tool's own phrases whole —
+            // a status the engine posts — is the tool's text too.
+            own.insert(literal.to_lowercase());
         }
     }
     let meta: Value = serde_json::from_str(
