@@ -14,6 +14,23 @@ BOTS = {'thepastaclaw', 'coderabbitai', 'coderabbitai[bot]'}
 # Which bots a repository actually runs is a property of that repository, not of
 # the review rules: requiring a producer that never reports would never resolve.
 REVIEW_BOTS = ('thepastaclaw', 'coderabbitai')
+# The accounts this engine writes as. Its records, statuses, nudges and diff
+# prints are its memory, recognised only by who wrote them. Another engine
+# continuing the same pull requests under its own identity — the PR Hygiene
+# App, while repositories move to it — is listed here before it writes, so
+# either can carry on the other's records and a rollback starts nothing over.
+ENGINE_LOGINS = frozenset({'github-actions[bot]'})
+
+
+def is_engine(login, bare=False):
+    """Whether `login` is one of this engine's identities.
+
+    `bare` also accepts the name without its `[bot]` suffix, the spelling
+    GitHub returns for an editor; a comment's author always carries it, and
+    a person may register the bare name.
+    """
+    login = (login or '').lower()
+    return login in ENGINE_LOGINS or (bare and f'{login}[bot]' in ENGINE_LOGINS)
 WRITE = {'write', 'maintain', 'admin'}
 
 # A label says whose move it is, in a listing. A red build is visible there
@@ -236,7 +253,7 @@ def fingerprint(pr):
     for comment in relevant.get('comments', []):
         comment.pop('edited_by', None)
     relevant['comments'] = [x for x in relevant.get('comments', []) if not (
-        x.get('user', '').lower() == 'github-actions[bot]' and
+        is_engine(x.get('user')) and
         (x.get('body', '').startswith(f'<!-- {STATE_MARKER}')
          or x.get('body', '').startswith(NUDGE_MARKER)))]
     for name in ('comments', 'reviews', 'threads', 'files'):
@@ -567,7 +584,7 @@ def nudged_at(comments, bot, heads):
     """
     markers = [f'{NUDGE_MARKER} bot={bot} sha={h} -->' for h in ([heads] if isinstance(heads, str) else heads)]
     stamps = [c['created_at'] for c in comments
-              if c['user'].lower() == 'github-actions[bot]' and any(m in c['body'] for m in markers)]
+              if is_engine(c['user']) and any(m in c['body'] for m in markers)]
     return max(stamps, key=_time) if stamps else None
 
 

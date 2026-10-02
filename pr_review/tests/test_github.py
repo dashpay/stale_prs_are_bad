@@ -914,3 +914,65 @@ class GitHubTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EngineIdentityTests(unittest.TestCase):
+    """The engine's memory is recognised by who wrote it, from one list.
+
+    Repositories move to the PR Hygiene App one at a time, and either writer
+    must be able to continue the other's records — or a rollback starts
+    every pull request over. Listing an identity is the one change needed;
+    an unlisted one is still nobody's.
+    """
+
+    APP = 'pr-hygiene[bot]'
+    NOW = '2026-09-11T10:00:00Z'
+
+    def setUp(self):
+        from pr_review import main
+        self.main = main
+        self.record = main.state_record({}, {'number': 7, 'head': 'a' * 40, 'state': 'waiting-bots',
+                                             'admitted_at': '2026-09-01T10:00:00Z', 'ready_since': None},
+                                        'c' * 64)
+        self.diff = {'number': 7, 'diff': 'd' * 64, 'diff_heads': ['a' * 40], 'receipts': {}}
+
+    def comments(self, user):
+        body = GitHub.state_comment_body(self.record, 'x', self.diff)
+        return [dict(id=1, user=user, created_at=self.NOW, updated_at=self.NOW, body=body)]
+
+    def listed(self):
+        from pr_review import policy
+        return patch.object(policy, 'ENGINE_LOGINS', frozenset({'github-actions[bot]', self.APP}))
+
+    def test_a_listed_identity_continues_the_record(self):
+        from pr_review.github import parse_controller_diff
+        from pr_review.policy import nudged_at
+        with self.listed():
+            state, comment_id = parse_controller_state(self.comments(self.APP))
+            self.assertEqual((state['admitted_at'], comment_id), ('2026-09-01T10:00:00Z', 1))
+            self.assertIsNotNone(parse_controller_diff(self.comments(self.APP), 7))
+            self.assertEqual(len(self.main.bot_comments({'number': 7, 'comments': self.comments(self.APP)},
+                                                        self.main.STATE_MARKER)), 1)
+            nudge = [dict(id=2, user=self.APP, created_at=self.NOW, updated_at=self.NOW,
+                          body=f"{self.main.NUDGE_MARKER} bot=coderabbitai sha={'a' * 40} -->")]
+            self.assertEqual(nudged_at(nudge, 'coderabbitai', 'a' * 40), self.NOW)
+
+    def test_an_unlisted_identity_is_nobodys(self):
+        from pr_review.github import parse_controller_diff
+        state, comment_id = parse_controller_state(self.comments(self.APP))
+        self.assertIsNone(comment_id)
+        self.assertIsNone(parse_controller_diff(self.comments(self.APP), 7))
+        self.assertEqual(self.main.bot_comments({'number': 7, 'comments': self.comments(self.APP)},
+                                                self.main.STATE_MARKER), [])
+        # The same spelling a person could choose is not the bot.
+        self.assertIsNone(parse_controller_state(self.comments('pr-hygiene'))[1])
+
+    def test_a_status_by_a_listed_identity_is_the_engines_own(self):
+        api = GitHub('dashpay/platform')
+        status = {'state': 'pending', 'context': 'PR Hygiene', 'description': 'ready-for-human',
+                  'created_at': self.NOW, 'creator': {'login': self.APP}}
+        with self.listed(), patch.object(api, '_head_statuses', return_value=[status]):
+            self.assertTrue(api.ready_published('a' * 40))
+            self.assertEqual(api.head_seen_at('a' * 40), self.NOW)
+        with patch.object(api, '_head_statuses', return_value=[status]):
+            self.assertFalse(api.ready_published('a' * 40))

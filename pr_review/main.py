@@ -16,7 +16,7 @@ from .github import (DIFF_MARKER, STATE_MARKER, STATE_PATTERN, GitHub, GitHubErr
                      parse_controller_diff, parse_controller_state)
 from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
                      STATE_LABELS, admit, codeowners, diff_print, effective_admission, evaluate,
-                     fingerprint, governs, machine_author, missing_paths, validate_policy)
+                     fingerprint, governs, is_engine, machine_author, missing_paths, validate_policy)
 from .registry import POLICIES, entry_for, load_registry, policy_path
 
 WAIVED_LABEL = 'bot-review-skipped'
@@ -504,12 +504,12 @@ def _same(a, b):
 def bot_comments(pr, marker):
     """This controller's own comments carrying `marker`, oldest first by last write.
 
-    Its own: written by github-actions[bot] AND carrying a record that parses
+    Its own: written under one of its identities AND carrying a record that parses
     and names this pull request. Another workflow's bot comment that quotes
     a marker is nobody's business here, least of all to edit or delete.
     """
     def own(c):
-        if c.get('user', '').lower() != 'github-actions[bot]' or marker not in c.get('body', ''):
+        if not is_engine(c.get('user')) or marker not in c.get('body', ''):
             return False
         found = STATE_PATTERN.findall(c.get('body', ''))
         if len(found) != 1:
