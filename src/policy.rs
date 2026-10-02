@@ -51,7 +51,7 @@ impl Policy {
     /// Read a policy file's text with the engine's JSON reader and accept it
     /// only when the engine's `validate_policy` does.
     pub fn parse(text: &str) -> Result<Policy> {
-        let value = py_loads(text).context("not JSON")?;
+        let value = py_loads(text).context("not JSON the engine reads")?;
         engine::validate_policy(&value)?;
         targets_compile(&value)?;
         let repository = string(getitem(&value, "repository")?)?;
@@ -528,6 +528,14 @@ mod tests {
         let r = route(&p, &files(&["README.md", "packages/rs-sdk/x.rs"]));
         assert_eq!(ids(&r), vec!["everything"]);
         assert!(!r.fallback_used);
+
+        // `""` is a prefix of every path, so beside another area it nests:
+        // no area can be carved out of a catch-all.
+        let err = refusal(with_areas(json!([
+            {"id": "sdk", "paths": ["packages/rs-sdk/"], "owners": ["a"], "reviewers": []},
+            {"id": "everything", "paths": [""], "owners": ["root"], "reviewers": []}
+        ])));
+        assert!(err.contains("Overlapping directory prefixes"), "{err}");
     }
 
     #[test]
@@ -985,8 +993,11 @@ mod tests {
     }
 
     /// The board accepts a registered policy, or any variation of one,
-    /// exactly when the engine does: reading the fields it needs never
-    /// refuses what the engine accepts.
+    /// exactly when the engine does. Most variations break a rule the
+    /// engine checks, and the board refuses them with the engine's reason;
+    /// for the ones the engine accepts, this holds what the board adds on
+    /// top — compiling the targets and reading the typed fields — to never
+    /// refuse what the engine accepts.
     #[test]
     fn every_registered_policy_is_accepted_or_refused_as_the_engine_does() {
         type Vary = fn(&mut serde_json::Value);
@@ -1072,6 +1083,10 @@ mod tests {
         " dev",
     ];
 
+    /// The board asks the engine which branches a policy governs, on the
+    /// value the engine read from the policy's file. This holds it there:
+    /// a matcher of the board's own, or a policy value the board reshaped,
+    /// would answer differently on some of these branches.
     #[test]
     fn every_registered_policy_governs_the_branches_the_engine_does() {
         for Registered {
