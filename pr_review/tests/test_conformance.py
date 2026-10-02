@@ -356,8 +356,7 @@ class ClockTests(RecordingCase):
         directory = self.record('sync', '--pr', '1')
         meta = json.loads(Path(directory, 'recording.json').read_text())
         self.assertEqual(meta['format'], conformance.FORMAT)
-        self.assertEqual(meta['clock_reads'], [{'site': 'collect', 'after': 2}, {'site': 'run', 'after': 10},
-                                               {'site': 'publish', 'after': 24}])
+        self.assertEqual(meta['clock_reads'], [{'site': 'collect', 'after': 2}, {'site': 'run', 'after': 10}])
         history = conformance.load_recording(directory)['calls'][1]
         self.assertIn('fragment history', history['stdin'], 'admission is dated right after the histories are read')
         self.assertEqual(self.replay(directory), [])
@@ -365,7 +364,7 @@ class ClockTests(RecordingCase):
     def test_a_clock_read_somewhere_else_is_caught(self):
         directory = self.record('sync', '--pr', '1')
         self.edit(directory, 'recording.json', lambda meta: meta['clock_reads'][1].update(site='collect'))
-        self.assertIn('clock reads: recorded 3, replayed 3; read #2 recorded collect after call 10, '
+        self.assertIn('clock reads: recorded 2, replayed 2; read #2 recorded collect after call 10, '
                       'replayed run after call 10', self.replay(directory))
 
     def test_an_extra_clock_read_is_caught(self):
@@ -375,7 +374,7 @@ class ClockTests(RecordingCase):
         real = main.admission_conflicts
         with patch.object(main, 'admission_conflicts', side_effect=lambda *a: (main.utc_now(), real(*a))[1]):
             differences = self.replay(directory)
-        self.assertEqual(differences, ['clock reads: recorded 3, replayed 5; read #2 recorded run after call 10, '
+        self.assertEqual(differences, ['clock reads: recorded 2, replayed 4; read #2 recorded run after call 10, '
                                        'replayed collect after call 2'])
 
     def test_a_recording_made_before_clock_reads_were_logged_still_replays(self):
