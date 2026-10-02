@@ -19,7 +19,8 @@ expression: board
       "engine_state_available": false,
       "fetch_error": null,
       "stage_times_error": "2 of 2 PRs could not be read: #101: HTTP 502",
-      "slot_limit": 5
+      "slot_limit": 5,
+      "closed_error": "HTTP 502 Bad Gateway"
     }
   ],
   "idle_days": 14,
@@ -145,7 +146,16 @@ expression: board
       "ci_failing": true,
       "merge_conflict": false,
       "changes_requested": true,
-      "tracked": true
+      "tracked": true,
+      "author_id": 1001,
+      "reviews": [
+        {
+          "reviewer": "bob-reviewer",
+          "reviewer_id": 2002,
+          "state": "changes-requested",
+          "at": "2026-04-25T15:00:00Z"
+        }
+      ]
     },
     {
       "key": "dashpay/platform#1240",
@@ -421,7 +431,16 @@ expression: board
       "ci_failing": false,
       "merge_conflict": false,
       "changes_requested": true,
-      "tracked": true
+      "tracked": true,
+      "author_id": 3003,
+      "reviews": [
+        {
+          "reviewer": "bob",
+          "reviewer_id": 4004,
+          "state": "changes-requested",
+          "at": "2026-05-05T00:00:00Z"
+        }
+      ]
     },
     {
       "key": "dashpay/platform#9100",
@@ -715,6 +734,81 @@ expression: board
           "dash-spv"
         ]
       }
+    }
+  ],
+  "closed": [
+    {
+      "key": "dashpay/platform#2800",
+      "repo": "dashpay/platform",
+      "number": 2800,
+      "author": null,
+      "author_id": null,
+      "created_at": "2026-04-20T00:00:00Z",
+      "ready_at": null,
+      "merged_at": null,
+      "closed_at": "2026-05-01T00:00:00Z",
+      "reviews": []
+    },
+    {
+      "key": "dashpay/platform#2900",
+      "repo": "dashpay/platform",
+      "number": 2900,
+      "author": "carol",
+      "author_id": 3003,
+      "created_at": "2026-05-01T00:00:00Z",
+      "ready_at": "2026-05-03T00:00:00Z",
+      "merged_at": "2026-05-10T00:00:00Z",
+      "closed_at": "2026-05-10T00:00:00Z",
+      "reviews": [
+        {
+          "reviewer": "alice",
+          "reviewer_id": 1001,
+          "state": "changes-requested",
+          "at": "2026-05-04T00:00:00Z"
+        },
+        {
+          "reviewer": "QuantumExplorer",
+          "reviewer_id": 5005,
+          "state": "dismissed",
+          "at": "2026-05-06T00:00:00Z"
+        },
+        {
+          "reviewer": "coderabbitai[bot]",
+          "reviewer_id": 136622811,
+          "state": "approved",
+          "at": "2026-05-08T00:00:00Z"
+        },
+        {
+          "reviewer": "QuantumExplorer",
+          "reviewer_id": 5005,
+          "state": "approved",
+          "at": "2026-05-09T23:55:00Z"
+        }
+      ]
+    },
+    {
+      "key": "dashpay/platform#2950",
+      "repo": "dashpay/platform",
+      "number": 2950,
+      "author": "alice",
+      "author_id": 1001,
+      "created_at": "2026-05-05T00:00:00Z",
+      "ready_at": "2026-05-05T00:00:00Z",
+      "merged_at": null,
+      "closed_at": "2026-05-14T00:00:00Z",
+      "reviews": []
+    },
+    {
+      "key": "dashpay/platform#2960",
+      "repo": "dashpay/platform",
+      "number": 2960,
+      "author": "dependabot[bot]",
+      "author_id": 49699333,
+      "created_at": "2026-05-11T00:00:00Z",
+      "ready_at": "2026-05-11T00:00:00Z",
+      "merged_at": "2026-05-12T00:00:00Z",
+      "closed_at": "2026-05-12T00:00:00Z",
+      "reviews": []
     }
   ]
 }

@@ -1,7 +1,7 @@
 use pr_hygiene::{analyzer, config, dashboard, fetcher, history, policy, renderer, scorer, stages};
 
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use clap::Parser;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -48,6 +48,13 @@ struct Args {
     /// with --dry-run: it is an output asked for by name, not history.
     #[arg(long)]
     json_out: Option<PathBuf>,
+
+    /// With --json-out, also list the PRs merged or closed in this many
+    /// days before the run (365 for a one-time year's backfill). A year's
+    /// list is larger than the service accepts in a post (1.7 MB measured
+    /// for five repositories); import that file into the service instead.
+    #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u32).range(1..=3650))]
+    closed_days: u32,
 }
 
 #[tokio::main]
@@ -92,16 +99,25 @@ async fn main() -> Result<()> {
     // One repository failing to fetch must not blank the whole board: it is
     // rendered as unavailable and the run still exits non-zero at the end.
     let mut fetch_errors: HashMap<String, String> = HashMap::new();
-    // Only the dashboard data times stages; the report has no use for it.
+    // Only the dashboard data times stages and lists closed PRs; the report
+    // has no use for either.
     let mut evidence: HashMap<String, stages::RepoEvidence> = HashMap::new();
+    let mut facts: HashMap<String, HashMap<u64, dashboard::PrFacts>> = HashMap::new();
+    let mut closed: HashMap<String, dashboard::ClosedRead> = HashMap::new();
+    let closed_since = args
+        .json_out
+        .is_some()
+        .then(|| now - chrono::Duration::days(args.closed_days.into()));
     for repo in &repo_names {
-        match fetch_repo(&fetcher, repo, args.json_out.is_some()).await {
-            Ok((raw_prs, default_branch, repo_evidence)) => {
-                evidence.extend(repo_evidence.map(|e| (repo.clone(), e)));
+        match fetch_repo(&fetcher, repo, args.json_out.is_some(), closed_since).await {
+            Ok(fetched) => {
+                evidence.extend(fetched.evidence.map(|e| (repo.clone(), e)));
+                closed.extend(fetched.closed.map(|c| (repo.clone(), c)));
+                facts.insert(repo.clone(), fetched.facts);
                 analyzed.extend(analyzer::analyze(
-                    raw_prs,
+                    fetched.raw_prs,
                     &cfg,
-                    default_branch.as_deref(),
+                    fetched.default_branch.as_deref(),
                     now,
                 ));
             }
@@ -111,6 +127,7 @@ async fn main() -> Result<()> {
             }
         }
     }
+    tracing::info!("GitHub GraphQL: {} points", fetcher.points());
 
     let author_cache_path = PathBuf::from(history::AUTHOR_CACHE);
     let mut author_cache = history::load_author_cache(&author_cache_path)?;
@@ -161,6 +178,8 @@ async fn main() -> Result<()> {
             scored: &scored,
             engine: &engine_states,
             evidence: &evidence,
+            facts: &facts,
+            closed: &closed,
             policies: &policies,
             repos: &repos,
             cfg: &cfg,
@@ -170,9 +189,10 @@ async fn main() -> Result<()> {
         let json = serde_json::to_string(&board).context("serializing dashboard data")?;
         write_if_changed(path, &json)?;
         tracing::info!(
-            "dashboard data: {} PRs, {} people → {}",
+            "dashboard data: {} PRs, {} people, {} closed PRs → {}",
             board.prs.len(),
             board.people.len(),
+            board.closed.len(),
             path.display()
         );
     }
@@ -217,21 +237,26 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// One repository's open PRs, its default branch and, when asked for, what
-/// GitHub and the engine record about each PR's stage changes.
-type Fetched = (
-    Vec<pr_hygiene::model::RawPr>,
-    Option<String>,
-    Option<stages::RepoEvidence>,
-);
+/// One repository's open PRs, its default branch, what GitHub attaches to
+/// each open PR and, when asked for, what GitHub and the engine record about
+/// each PR's stage changes and the PRs closed since a time.
+struct Fetched {
+    raw_prs: Vec<pr_hygiene::model::RawPr>,
+    default_branch: Option<String>,
+    evidence: Option<stages::RepoEvidence>,
+    facts: HashMap<u64, dashboard::PrFacts>,
+    closed: Option<dashboard::ClosedRead>,
+}
 
 async fn fetch_repo(
     fetcher: &fetcher::Fetcher,
     repo: &str,
     with_evidence: bool,
+    closed_since: Option<DateTime<Utc>>,
 ) -> Result<Fetched> {
     let (owner, name) = config::repo_parts(repo)?;
-    let (mut raw_prs, node_ids, default_branch) = fetcher.fetch_all_open_prs(owner, name).await?;
+    let (mut raw_prs, node_ids, default_branch, facts) =
+        fetcher.fetch_all_open_prs(owner, name).await?;
     fetcher
         .recheck_mergeable(&mut raw_prs, &node_ids, Duration::from_secs(3))
         .await?;
@@ -257,7 +282,32 @@ async fn fetch_repo(
     } else {
         None
     };
-    Ok((raw_prs, default_branch, evidence))
+    // Read after the open PRs and only when they were: a repository that
+    // could not be read contributes nothing. Failing here costs the closed
+    // list alone, which the page is told.
+    let mut closed = None;
+    if let Some(since) = closed_since {
+        let points = fetcher.points();
+        let read = fetcher.fetch_closed_prs(owner, name, since).await;
+        let points = fetcher.points() - points;
+        match &read {
+            Ok(prs) => tracing::info!(
+                %repo,
+                points,
+                "{} PRs closed since {since}",
+                prs.len()
+            ),
+            Err(error) => tracing::warn!(%repo, points, "closed PRs unread: {error}"),
+        }
+        closed = Some(read);
+    }
+    Ok(Fetched {
+        raw_prs,
+        default_branch,
+        evidence,
+        facts,
+        closed,
+    })
 }
 
 fn write_if_changed(path: &std::path::Path, contents: &str) -> Result<bool> {

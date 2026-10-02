@@ -4,7 +4,9 @@
 
 use crate::oidc::{Verified, CLOCK_SKEW};
 use chrono::{DateTime, TimeDelta, Utc};
-use pr_hygiene::dashboard::{Dashboard, PersonOut, PrOut, SCHEMA_VERSION};
+use pr_hygiene::dashboard::{
+    ClosedPr, Dashboard, DecisiveReview, PersonOut, PrOut, SCHEMA_VERSION,
+};
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -18,6 +20,8 @@ const EARLIEST: DateTime<Utc> = DateTime::from_timestamp(946_684_800, 0).expect(
 const RUN_ALLOWANCE: TimeDelta = TimeDelta::hours(1);
 
 const MAX_REPOS: usize = 64;
+/// Open PRs, and PRs closed within the analyzer's window: a year of closed
+/// PRs across five repositories measured 4 152.
 const MAX_PRS: usize = 10_000;
 const MAX_PEOPLE: usize = 10_000;
 /// Per-PR and per-person lists: approvers, blockers, areas, owed reviews.
@@ -26,7 +30,7 @@ const MAX_LIST: usize = 1_000;
 const MAX_TITLE: usize = 1_024;
 /// The engine's blockers and next actions.
 const MAX_TEXT: usize = 4_096;
-/// Diagnostics (`fetch_error`, `stage_times_error`) carry whatever an HTTP
+/// Diagnostics (`fetch_error`, `stage_times_error`, `closed_error`) carry whatever an HTTP
 /// error body said; they are cut to this rather than refused, so a long
 /// error page cannot cost the whole snapshot.
 const MAX_DIAGNOSTIC: usize = 500;
@@ -72,15 +76,40 @@ fn times(d: &Dashboard, now: DateTime<Utc>) -> Result<(), Invalid> {
                 return invalid(format!("prs[{}]: {field} is out of range", p.key));
             }
         }
+        if p.reviews.iter().any(|r| r.at < EARLIEST || r.at > latest) {
+            return invalid(format!("prs[{}]: a review's time is out of range", p.key));
+        }
+    }
+    for c in &d.closed {
+        for (field, at) in [
+            ("created_at", Some(c.created_at)),
+            ("ready_at", c.ready_at),
+            ("merged_at", c.merged_at),
+            ("closed_at", Some(c.closed_at)),
+        ] {
+            if at.is_some_and(|at| at < EARLIEST || at > latest) {
+                return invalid(format!("closed[{}]: {field} is out of range", c.key));
+            }
+        }
+        if c.reviews.iter().any(|r| r.at < EARLIEST || r.at > latest) {
+            return invalid(format!(
+                "closed[{}]: a review's time is out of range",
+                c.key
+            ));
+        }
     }
     Ok(())
 }
 
 fn shorten_diagnostics(d: &mut Dashboard) {
     for r in &mut d.repos {
-        for text in [&mut r.fetch_error, &mut r.stage_times_error]
-            .into_iter()
-            .flatten()
+        for text in [
+            &mut r.fetch_error,
+            &mut r.stage_times_error,
+            &mut r.closed_error,
+        ]
+        .into_iter()
+        .flatten()
         {
             if text.chars().count() > MAX_DIAGNOSTIC {
                 *text = text.chars().take(MAX_DIAGNOSTIC).collect::<String>() + "…";
@@ -165,6 +194,14 @@ pub fn validate(d: &Dashboard, now: DateTime<Utc>) -> Result<(), Invalid> {
             return invalid(format!("people: {} listed twice", p.login));
         }
     }
+    bounded("closed", d.closed.len(), MAX_PRS)?;
+    let mut keys = HashSet::new();
+    for c in &d.closed {
+        closed_pr(c, &known)?;
+        if !keys.insert(c.key.clone()) {
+            return invalid(format!("closed: {} listed twice", c.key));
+        }
+    }
     Ok(())
 }
 
@@ -213,6 +250,28 @@ fn pr(p: &PrOut, known: &impl Fn(&str) -> bool) -> Result<(), Invalid> {
     bounded(&at(), p.areas.len(), MAX_LIST)?;
     for a in &p.areas {
         area(&at(), a)?;
+    }
+    reviews(&at(), &p.reviews)
+}
+
+fn closed_pr(c: &ClosedPr, known: &impl Fn(&str) -> bool) -> Result<(), Invalid> {
+    let at = || format!("closed[{}]", c.key);
+    if !known(&c.repo) || c.key != format!("{}#{}", c.repo, c.number) {
+        return invalid(format!("{}: key or repository not in repos", at()));
+    }
+    if c.number == 0 || i64::try_from(c.number).is_err() {
+        return invalid(format!("{}: number out of range", at()));
+    }
+    if let Some(author) = &c.author {
+        login(&at(), author)?;
+    }
+    reviews(&at(), &c.reviews)
+}
+
+fn reviews(at: &str, reviews: &[DecisiveReview]) -> Result<(), Invalid> {
+    bounded(at, reviews.len(), MAX_LIST)?;
+    for r in reviews {
+        login(at, &r.reviewer)?;
     }
     Ok(())
 }
@@ -346,13 +405,18 @@ mod tests {
         let mut d: Dashboard = serde_json::from_value(serde_json::json!({
             "schema_version": 1, "generated_at": "2026-10-01T12:00:00Z", "commit": null,
             "repos": [{"repo": "dashpay/platform", "engine_state_available": true,
-                       "fetch_error": "x".repeat(10_000), "stage_times_error": null, "slot_limit": 5}],
+                       "fetch_error": "x".repeat(10_000), "stage_times_error": null, "slot_limit": 5,
+                       "closed_error": "y".repeat(10_000)}],
             "idle_days": 14, "stages": [], "prs": [], "people": []
         }))
         .unwrap();
         shorten_diagnostics(&mut d);
-        let error = d.repos[0].fetch_error.as_deref().unwrap();
-        assert_eq!(error.chars().count(), MAX_DIAGNOSTIC + 1);
+        for error in [&d.repos[0].fetch_error, &d.repos[0].closed_error] {
+            assert_eq!(
+                error.as_deref().unwrap().chars().count(),
+                MAX_DIAGNOSTIC + 1
+            );
+        }
         assert!(validate(&d, d.generated_at).is_ok());
     }
 

@@ -23,14 +23,25 @@ fn load_fixture(name: &str) -> serde_json::Value {
     serde_json::from_str(&text).expect("fixture not valid JSON")
 }
 
-fn parse_all(fixture: &serde_json::Value, repo: &str) -> Vec<pr_hygiene::model::RawPr> {
+/// The PRs of a list page and what GitHub attaches to each, by number.
+fn parse_all(
+    fixture: &serde_json::Value,
+    repo: &str,
+) -> (
+    Vec<pr_hygiene::model::RawPr>,
+    HashMap<u64, dashboard::PrFacts>,
+) {
     fixture
         .pointer("/data/repository/pullRequests/nodes")
         .and_then(|v| v.as_array())
         .expect("nodes")
         .iter()
-        .map(|node| fetcher::parse_pr_node(node, repo).expect("parse").pr)
-        .collect()
+        .map(|node| {
+            let parsed = fetcher::parse_pr_node(node, repo).expect("parse");
+            let number = parsed.pr.number;
+            (parsed.pr, (number, parsed.facts))
+        })
+        .unzip()
 }
 
 /// A scratch directory holding a policy registry for both fixture repositories
@@ -141,10 +152,15 @@ fn end_to_end_pipeline_matches_snapshot() {
     let now = Utc.with_ymd_and_hms(2026, 5, 19, 6, 0, 0).unwrap();
     let today = now.date_naive();
 
-    let platform_raw = parse_all(&load_fixture("sample_prs.json"), PLATFORM);
+    let (platform_raw, platform_facts) = parse_all(&load_fixture("sample_prs.json"), PLATFORM);
     assert_eq!(platform_raw.len(), 12);
-    let dashcore_raw = parse_all(&load_fixture("sample_prs_rust_dashcore.json"), DASHCORE);
+    let (dashcore_raw, dashcore_facts) =
+        parse_all(&load_fixture("sample_prs_rust_dashcore.json"), DASHCORE);
     assert_eq!(dashcore_raw.len(), 2);
+    let facts = HashMap::from([
+        (PLATFORM.to_string(), platform_facts),
+        (DASHCORE.to_string(), dashcore_facts),
+    ]);
     assert!(dashcore_raw.iter().all(|p| p.repo == DASHCORE));
 
     // Each repository is analyzed against its own default branch, as main.rs
@@ -380,10 +396,32 @@ fn end_to_end_pipeline_matches_snapshot() {
         (PLATFORM.to_string(), stage_evidence()),
         (DASHCORE.to_string(), unread),
     ]);
+    // Platform's PRs closed in the last thirty days, from one page of the
+    // closed list; reading rust-dashcore's failed, which costs it only those.
+    let since = now - chrono::Duration::days(30);
+    let page = load_fixture("closed_prs.json");
+    let (platform_closed, past_window) = fetcher::closed_since(
+        page.pointer("/data/repository/pullRequests/nodes")
+            .and_then(|v| v.as_array())
+            .expect("nodes"),
+        PLATFORM,
+        since,
+    )
+    .expect("closed page parses");
+    assert!(past_window, "#2700 was last updated before the window");
+    let closed = HashMap::from([
+        (PLATFORM.to_string(), Ok(platform_closed)),
+        (
+            DASHCORE.to_string(),
+            Err("HTTP 502 Bad Gateway".to_string()),
+        ),
+    ]);
     let board = dashboard::build(&dashboard::Inputs {
         scored: &scored,
         engine: &engine_states,
         evidence: &evidence,
+        facts: &facts,
+        closed: &closed,
         policies: &policies,
         repos: &repos,
         cfg: &cfg,
@@ -432,6 +470,39 @@ fn end_to_end_pipeline_matches_snapshot() {
     );
     // No evidence read for it: the review cycle's own start, as before.
     assert_eq!(pr(3000).since, at("2026-05-17T06:00:00Z"));
+    // Speed joins on the ids GitHub attaches to the PR and to each review.
+    assert_eq!(pr(1234).author_id, Some(1001));
+    assert_eq!(
+        pr(1234)
+            .reviews
+            .iter()
+            .map(|r| (r.reviewer.as_str(), r.reviewer_id, r.state))
+            .collect::<Vec<_>>(),
+        vec![("bob-reviewer", 2002, dashboard::Verdict::ChangesRequested)]
+    );
+    assert_eq!(
+        pr(3000).author_id,
+        None,
+        "no id in the fixture: none made up"
+    );
+    // Closed within the window and read: #100, merged in 2021 and commented
+    // on since, is not; neither is #2700, last touched before the window.
+    let closed: Vec<&str> = board.closed.iter().map(|c| c.key.as_str()).collect();
+    assert_eq!(
+        closed,
+        vec![
+            "dashpay/platform#2800",
+            "dashpay/platform#2900",
+            "dashpay/platform#2950",
+            "dashpay/platform#2960",
+        ]
+    );
+    let repo = |name: &str| board.repos.iter().find(|r| r.repo == name).unwrap();
+    assert_eq!(repo(PLATFORM).closed_error, None);
+    assert_eq!(
+        repo(DASHCORE).closed_error.as_deref(),
+        Some("HTTP 502 Bad Gateway")
+    );
     // The service reads this JSON back into the same types: nothing may be
     // lost or reshaped on the way, or it would serve something else.
     let json = serde_json::to_string(&board).unwrap();

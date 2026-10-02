@@ -458,6 +458,22 @@ async fn a_snapshot_with_a_time_out_of_range_is_refused_and_reads_stay_healthy()
             pr_mut(&mut d, 3000).created_at = Some(far_future);
             d
         }),
+        ("a review past year 9999", {
+            let mut d = snapshot(5);
+            pr_mut(&mut d, 1234).reviews[0].at = far_future;
+            d
+        }),
+        ("a PR closed past year 9999", {
+            let mut d = snapshot(5);
+            d.closed[0].closed_at = far_future;
+            d
+        }),
+        ("a closed PR's review before 2000", {
+            let mut d = snapshot(5);
+            let closed = d.closed.iter_mut().find(|c| !c.reviews.is_empty()).unwrap();
+            closed.reviews[0].at = long_ago;
+            d
+        }),
     ];
     for (what, d) in cases {
         let (status, body) = post(&app, Some(&token()), common::body(&d)).await;
@@ -509,6 +525,22 @@ async fn a_snapshot_outside_the_schema_or_bounds_is_refused() {
     let mut d = snapshot(5);
     d.people[0].login = "<!channel>".into();
     cases.push(("a login that is not one", common::body(&d)));
+    let mut d = snapshot(5);
+    pr_mut(&mut d, 1234).reviews[0].reviewer = "<!channel>".into();
+    cases.push(("a reviewer that is not a login", common::body(&d)));
+    let mut d = snapshot(5);
+    d.closed[0].author = Some("<!channel>".into());
+    cases.push(("a closed PR's author that is not a login", common::body(&d)));
+    let mut d = snapshot(5);
+    d.closed[0].repo = "dashpay/unlisted".into();
+    d.closed[0].key = format!("dashpay/unlisted#{}", d.closed[0].number);
+    cases.push((
+        "a closed PR of a repository it does not list",
+        common::body(&d),
+    ));
+    let mut d = snapshot(5);
+    d.closed.push(d.closed[0].clone());
+    cases.push(("a closed PR listed twice", common::body(&d)));
     let mut d = snapshot(5);
     d.prs[0].title = "x".repeat(2000);
     cases.push(("a title longer than any GitHub allows", common::body(&d)));

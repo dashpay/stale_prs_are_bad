@@ -36,7 +36,76 @@ pub struct Dashboard {
     pub stages: Vec<StageOut>,
     pub prs: Vec<PrOut>,
     pub people: Vec<PersonOut>,
+    /// PRs merged or closed within the run's window (`--closed-days`), by
+    /// repository and number. Only repositories whose open PRs and closed
+    /// PRs were both read contribute; one whose closed PRs could not be read
+    /// says why in its `closed_error`. An approval followed by a merge
+    /// between two runs shows in no open snapshot, only here. Read after the
+    /// open PRs, so a PR merged while the run reads can be in both lists;
+    /// this one is the later read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closed: Vec<ClosedPr>,
 }
+
+/// A review that decides something — an approval, a request for changes, or
+/// either of those dismissed — as GitHub attaches it to the PR. Comments are
+/// not decisions, and bots post many of them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisiveReview {
+    pub reviewer: String,
+    /// GitHub's numeric id of the reviewer's account, from the review itself.
+    /// A login can be renamed and then registered by someone else; the id
+    /// stays with the account.
+    pub reviewer_id: u64,
+    pub state: Verdict,
+    /// When the review was submitted; a dismissed review keeps that time.
+    pub at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Verdict {
+    Approved,
+    ChangesRequested,
+    /// An approval or a request for changes, dismissed since — by hand, or
+    /// by a push where stale approvals are dismissed. Which of the two it
+    /// was is on the PR's timeline (the dismissal event), not read here; the
+    /// reviewer answered at `at` either way.
+    Dismissed,
+}
+
+/// What GitHub attaches to an open PR itself that the board's own analysis
+/// does not use: the author's account id and the decisive reviews.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrFacts {
+    pub author_id: Option<u64>,
+    pub reviews: Vec<DecisiveReview>,
+}
+
+/// A PR merged or closed within the run's window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClosedPr {
+    /// `owner/name#number`.
+    pub key: String,
+    pub repo: String,
+    pub number: u64,
+    pub author: Option<String>,
+    /// GitHub's numeric id of the author's account, from the PR itself;
+    /// `null` when GitHub names no author (a deleted account).
+    pub author_id: Option<u64>,
+    pub created_at: DateTime<Utc>,
+    /// When it was first ready for review: when it was opened, unless it was
+    /// opened as a draft; `null` for a PR closed as a draft it never left.
+    pub ready_at: Option<DateTime<Utc>>,
+    /// `null` when it was closed without being merged.
+    pub merged_at: Option<DateTime<Utc>>,
+    pub closed_at: DateTime<Utc>,
+    pub reviews: Vec<DecisiveReview>,
+}
+
+/// One repository's PRs closed within the window, or why they could not be
+/// read. A list cut short is never passed on as the whole list.
+pub type ClosedRead = Result<Vec<ClosedPr>, String>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StageOut {
@@ -79,6 +148,11 @@ pub struct RepoOut {
     /// Open review slots per author in this repository (the policy's
     /// `max_active_prs`); `wip` above it is over the limit.
     pub slot_limit: u32,
+    /// Why the PRs closed within the window could not be read; `closed` then
+    /// holds none of this repository's. Absent when they were read, or when
+    /// the repository's open PRs could not be read either (`fetch_error`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_error: Option<String>,
 }
 
 /// Whose move a PR is waiting on.
@@ -231,6 +305,15 @@ pub struct PrOut {
     /// dashboard's own filters (skip labels, excluded authors, the grace
     /// period for new contributors) left it out, but its reviewers still owe it.
     pub tracked: bool,
+    /// GitHub's numeric id of the author's account, from the PR itself.
+    /// Absent when GitHub names no author (a deleted account) or the PR was
+    /// not in GitHub's list of open PRs when it was read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_id: Option<u64>,
+    /// Its decisive reviews, oldest first: the newest
+    /// `fetcher::DECISIVE_REVIEWS` of them when it has more.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviews: Vec<DecisiveReview>,
 }
 
 /// One area of one PR that a person may approve, and who else may instead.
@@ -270,6 +353,12 @@ pub struct Inputs<'a> {
     /// What GitHub and the engine record about each PR's stage changes, per
     /// repository and number; a PR missing here shows its age.
     pub evidence: &'a HashMap<String, RepoEvidence>,
+    /// What GitHub attaches to each open PR, per repository and number: every
+    /// PR fetched, those the board's own filters leave out included.
+    pub facts: &'a HashMap<String, HashMap<u64, PrFacts>>,
+    /// Each repository's PRs closed within the window, for the repositories
+    /// whose open PRs were read.
+    pub closed: &'a HashMap<String, ClosedRead>,
     pub policies: &'a HashMap<String, Policy>,
     pub repos: &'a [RepoStatus],
     pub cfg: &'a Config,
@@ -291,6 +380,14 @@ pub fn build(inp: &Inputs<'_>) -> Dashboard {
     prs.sort_by(|a, b| a.repo.cmp(&b.repo).then(a.number.cmp(&b.number)));
 
     let people = people(&prs, inp);
+    let mut closed: Vec<ClosedPr> = inp
+        .closed
+        .values()
+        .filter_map(|read| read.as_ref().ok())
+        .flatten()
+        .cloned()
+        .collect();
+    closed.sort_by(|a, b| a.repo.cmp(&b.repo).then(a.number.cmp(&b.number)));
     Dashboard {
         schema_version: SCHEMA_VERSION,
         generated_at: inp.now,
@@ -307,6 +404,10 @@ pub fn build(inp: &Inputs<'_>) -> Dashboard {
                     .policies
                     .get(&r.repo)
                     .map_or(DEFAULT_SLOT_LIMIT, |p| p.max_active_prs),
+                closed_error: inp
+                    .closed
+                    .get(&r.repo)
+                    .and_then(|read| read.as_ref().err().cloned()),
             })
             .collect(),
         idle_days: inp.cfg.idle_days,
@@ -322,6 +423,7 @@ pub fn build(inp: &Inputs<'_>) -> Dashboard {
             .collect(),
         prs,
         people,
+        closed,
     }
 }
 
@@ -360,6 +462,7 @@ fn tracked_pr(s: &ScoredPr, inp: &Inputs<'_>) -> PrOut {
         Some(t) => (Some(t), Some(SinceBasis::Engine)),
         None => (Some(raw.created_at), Some(SinceBasis::Opened)),
     };
+    let facts = facts(&raw.repo, raw.number, inp);
     PrOut {
         key: format!("{}#{}", raw.repo, raw.number),
         repo: raw.repo.clone(),
@@ -393,7 +496,19 @@ fn tracked_pr(s: &ScoredPr, inp: &Inputs<'_>) -> PrOut {
         merge_conflict: s.pr.has_merge_conflict,
         changes_requested: s.pr.changes_requested,
         tracked: true,
+        author_id: facts.author_id,
+        reviews: facts.reviews,
     }
+}
+
+/// What GitHub attached to the PR when it was fetched; nothing for a PR that
+/// was not in the list of open PRs read.
+fn facts(repo: &str, number: u64, inp: &Inputs<'_>) -> PrFacts {
+    inp.facts
+        .get(repo)
+        .and_then(|f| f.get(&number))
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// A PR the engine governs but the dashboard's own filters left out. The
@@ -404,6 +519,7 @@ fn engine_only_pr(repo: &str, number: u64, state: &PolicyState, inp: &Inputs<'_>
     let since = entered(stage, Some(state), repo, number, inp);
     let since_basis = since.map(|_| SinceBasis::Engine);
     let author = (!state.author.is_empty()).then(|| state.author.clone());
+    let facts = facts(repo, number, inp);
     PrOut {
         key: format!("{repo}#{number}"),
         repo: repo.to_string(),
@@ -437,6 +553,8 @@ fn engine_only_pr(repo: &str, number: u64, state: &PolicyState, inp: &Inputs<'_>
         merge_conflict: false,
         changes_requested: false,
         tracked: false,
+        author_id: facts.author_id,
+        reviews: facts.reviews,
     }
 }
 
@@ -828,6 +946,8 @@ mod tests {
             scored,
             engine,
             evidence: &evidence,
+            facts: &HashMap::new(),
+            closed: &HashMap::new(),
             policies: &policies,
             repos: &[],
             cfg: &cfg,
@@ -1157,6 +1277,8 @@ mod tests {
             scored: &[],
             engine: &HashMap::new(),
             evidence: &HashMap::new(),
+            facts: &HashMap::new(),
+            closed: &HashMap::new(),
             policies: &policies,
             repos: &[],
             cfg: &cfg,
@@ -1446,6 +1568,119 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A new contributor's PR is left off the board's own analysis, yet its
+    /// reviewers are asked for it; their answers must count all the same.
+    #[test]
+    fn a_pr_the_board_filtered_out_keeps_its_ids_and_reviews() {
+        let approval = DecisiveReview {
+            reviewer: "bob".into(),
+            reviewer_id: 4004,
+            state: Verdict::Approved,
+            at: now(),
+        };
+        let facts = HashMap::from([(
+            REPO.to_string(),
+            HashMap::from([
+                (
+                    1,
+                    PrFacts {
+                        author_id: Some(1001),
+                        reviews: vec![],
+                    },
+                ),
+                (
+                    77,
+                    PrFacts {
+                        author_id: Some(7007),
+                        reviews: vec![approval.clone()],
+                    },
+                ),
+            ]),
+        )]);
+        let state = ready(&["bob"], vec![], "2026-09-30T12:00:00Z");
+        let engine = HashMap::from([(REPO.to_string(), HashMap::from([(77, state)]))]);
+        let cfg = Config::default();
+        let d = build(&Inputs {
+            scored: &[scored(1, "alice", "v5.0-dev", None)],
+            engine: &engine,
+            evidence: &HashMap::new(),
+            facts: &facts,
+            closed: &HashMap::new(),
+            policies: &policies(),
+            repos: &[],
+            cfg: &cfg,
+            now: now(),
+            commit: None,
+        });
+        assert_eq!(d.prs[0].author_id, Some(1001));
+        assert!(!d.prs[1].tracked);
+        assert_eq!(d.prs[1].author_id, Some(7007));
+        assert_eq!(d.prs[1].reviews, vec![approval]);
+    }
+
+    /// The closed PRs of a repository that could not be read are said to be
+    /// missing, not shown as none; the other repositories' still count.
+    #[test]
+    fn a_closed_list_that_could_not_be_read_is_named_and_costs_only_its_repository() {
+        const OTHER: &str = "dashpay/tenderdash";
+        let merged = |repo: &str, number: u64| ClosedPr {
+            key: format!("{repo}#{number}"),
+            repo: repo.into(),
+            number,
+            author: Some("alice".into()),
+            author_id: Some(1001),
+            created_at: now() - chrono::Duration::days(3),
+            ready_at: Some(now() - chrono::Duration::days(2)),
+            merged_at: Some(now()),
+            closed_at: now(),
+            reviews: vec![],
+        };
+        let closed = HashMap::from([
+            (
+                OTHER.to_string(),
+                Ok(vec![merged(OTHER, 9), merged(OTHER, 4)]),
+            ),
+            (REPO.to_string(), Err("HTTP 502".to_string())),
+        ]);
+        let status = |repo: &str| RepoStatus {
+            repo: repo.into(),
+            engine_state_available: true,
+            fetch_error: None,
+        };
+        let cfg = Config::default();
+        let d = build(&Inputs {
+            scored: &[],
+            engine: &HashMap::new(),
+            evidence: &HashMap::new(),
+            facts: &HashMap::new(),
+            closed: &closed,
+            policies: &policies(),
+            repos: &[status(REPO), status(OTHER)],
+            cfg: &cfg,
+            now: now(),
+            commit: None,
+        });
+        assert_eq!(d.repos[0].closed_error.as_deref(), Some("HTTP 502"));
+        assert_eq!(d.repos[1].closed_error, None);
+        let keys: Vec<&str> = d.closed.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(keys, vec!["dashpay/tenderdash#4", "dashpay/tenderdash#9"]);
+    }
+
+    /// The new fields are additive to schema 1: a snapshot without them —
+    /// one an earlier analyzer wrote — still reads, and nothing new is
+    /// written when there is nothing to say.
+    #[test]
+    fn a_snapshot_without_the_speed_fields_still_reads() {
+        let scored = vec![scored(1, "alice", "v5.0-dev", None)];
+        let json = serde_json::to_value(board(&scored, &HashMap::new())).unwrap();
+        assert!(json.get("closed").is_none());
+        assert!(json["prs"][0].get("author_id").is_none());
+        assert!(json["prs"][0].get("reviews").is_none());
+        let read: Dashboard = serde_json::from_value(json).unwrap();
+        assert!(read.closed.is_empty());
+        assert_eq!(read.prs[0].author_id, None);
     }
 
     #[test]

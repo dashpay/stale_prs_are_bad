@@ -13,7 +13,7 @@
             "mergeable": "MERGEABLE",
             "createdAt": "2026-04-01T10:00:00Z",
             "updatedAt": "2026-05-18T20:00:00Z",
-            "author": { "login": "alice" },
+            "author": { "login": "alice", "__typename": "User", "databaseId": 1001 },
             "labels": { "nodes": [{ "name": "feature" }] },
             "commits": {
               "nodes": [
@@ -31,6 +31,16 @@
                   "state": "CHANGES_REQUESTED",
                   "author": { "login": "bob-reviewer" },
                   "submittedAt": "2026-04-25T15:00:00Z"
+                }
+              ]
+            },
+            "decisiveReviews": {
+              "pageInfo": { "hasPreviousPage": false },
+              "nodes": [
+                {
+                  "state": "CHANGES_REQUESTED",
+                  "submittedAt": "2026-04-25T15:00:00Z",
+                  "author": { "login": "bob-reviewer", "__typename": "User", "databaseId": 2002 }
                 }
               ]
             },
@@ -173,7 +183,7 @@
             "baseRefName": "master",
             "createdAt": "2026-04-25T00:00:00Z",
             "updatedAt": "2026-05-12T00:00:00Z",
-            "author": { "login": "carol" },
+            "author": { "login": "carol", "__typename": "User", "databaseId": 3003 },
             "labels": { "nodes": [] },
             "files": { "totalCount": 60, "nodes": [{ "path": "src/validators.rs" }] },
             "commits": {
@@ -192,6 +202,16 @@
                   "state": "CHANGES_REQUESTED",
                   "author": { "login": "bob" },
                   "submittedAt": "2026-05-05T00:00:00Z"
+                }
+              ]
+            },
+            "decisiveReviews": {
+              "pageInfo": { "hasPreviousPage": false },
+              "nodes": [
+                {
+                  "state": "CHANGES_REQUESTED",
+                  "submittedAt": "2026-05-05T00:00:00Z",
+                  "author": { "login": "bob", "__typename": "User", "databaseId": 4004 }
                 }
               ]
             },
