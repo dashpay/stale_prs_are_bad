@@ -5,12 +5,19 @@ Run from the workflow with `proposed/` (this repository) and `trees/<name>/`
 """
 
 import argparse
+import base64
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 import yaml
+
+# The engine beside this script decides which branches a policy governs, so
+# the gate reads "governed" exactly as the engine will.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pr_review.policy import governs  # noqa: E402
 
 CENTRAL = 'dashpay/stale_prs_are_bad'
 REUSABLE = f'{CENTRAL}/.github/workflows/pr-review-reusable.yml'.casefold()
@@ -67,6 +74,41 @@ def caller_pin(workflow_text):
     return pins[0]
 
 
+class NotFound(Exception):
+    """A GitHub path that does not exist."""
+
+
+def gh_api(path):
+    """GET a GitHub API path with the gh CLI; a missing path is NotFound, anything else fails loud."""
+    result = subprocess.run(['gh', 'api', '--paginate', '--slurp', path], capture_output=True, text=True)
+    if result.returncode:
+        if 'HTTP 404' in result.stderr:
+            raise NotFound(path)
+        raise RuntimeError(f'gh api {path} failed: {result.stderr.strip()[:300]}')
+    pages = json.loads(result.stdout)
+    # --slurp wraps every page in a list; a list endpoint's pages are joined.
+    return [item for page in pages for item in page] if pages and isinstance(pages[0], list) else pages[0]
+
+
+def branch_pins(policies_root, api=gh_api):
+    """(repository@branch, pin) for every governed branch whose caller workflow exists.
+
+    A pull request runs the caller of the branch it targets, so every governed
+    branch's pin is an engine that reads the live policy — not only the
+    default branch's.
+    """
+    for repository, policy in governed(policies_root):
+        for branch in sorted(b['name'] for b in api(f'repos/{repository}/branches')):
+            if not governs(policy, branch):
+                continue
+            try:
+                found = api(f'repos/{repository}/contents/{CALLER}?ref={branch}')
+            except NotFound:
+                continue
+            text = base64.b64decode(found['content']).decode()
+            yield f'{repository}@{branch}', caller_pin(text)
+
+
 def caller_pins(policies_root, trees_root):
     """(repository, pin) for every governed repository whose caller workflow exists."""
     for repository, _ in governed(policies_root):
@@ -90,7 +132,7 @@ def main():
         for error in errors:
             print(f'::error::{error}')
         return 1 if errors else 0
-    for repository, pin in caller_pins(args.policies_root, args.trees_root):
+    for repository, pin in branch_pins(args.policies_root):
         print(f'{repository} {pin}')
     return 0
 
