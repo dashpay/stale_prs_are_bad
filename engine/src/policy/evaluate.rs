@@ -22,6 +22,7 @@ use super::values::{
 use super::{holders, machine_author, may_object, BOTS, WRITE};
 use crate::pycompat::object::{
     get, get_or, getitem, iterate, no_attribute, or, py_str, str_method, EMPTY_DICT, EMPTY_STR,
+    NONE,
 };
 use crate::pycompat::ops::{
     py_compare, py_eq, py_eq_str, py_hashable, py_in_str_set, py_same_element, py_sort_by, Compare,
@@ -76,7 +77,7 @@ impl<'p> Area<'p> {
             paths: strings(getitem(area, "paths")?)?,
             owners: strings(getitem(area, "owners")?)?,
             reviewers: strings(getitem(area, "reviewers")?)?,
-            unresolved: get(area, "unresolved")?.truthy(),
+            unresolved: get_or(area, "unresolved", &NONE)?.truthy(),
         })
     }
 
@@ -88,7 +89,7 @@ impl<'p> Area<'p> {
             paths: Vec::new(),
             owners: strings(getitem(fallback, "owners")?)?,
             reviewers: strings(getitem(fallback, "reviewers")?)?,
-            unresolved: get(fallback, "unresolved")?.truthy(),
+            unresolved: get_or(fallback, "unresolved", &NONE)?.truthy(),
         })
     }
 
@@ -123,15 +124,15 @@ pub fn evaluate(
 ) -> Result<PyDict, PyErr> {
     let mut result = PyDict::new();
     for key in ["number", "head", "author", "title", "url"] {
-        result.insert(key.into(), get(pr, key)?.clone());
+        result.insert(key.into(), get_or(pr, key, &NONE)?.clone());
     }
-    let head = get(pr, "head")?;
+    let head = get_or(pr, "head", &NONE)?;
     let reviewed_heads = if head.truthy() {
         PyValue::List(PyList::from(vec![head.clone()]))
     } else {
         PyValue::List(PyList::new())
     };
-    let reviewed_since = get(pr, "head_seen_at")?.clone();
+    let reviewed_since = get_or(pr, "head_seen_at", &NONE)?.clone();
     let receipts = or(
         get(or(get(pr, "controller_diff")?, &EMPTY_DICT), "receipts")?,
         &EMPTY_DICT,
@@ -370,11 +371,11 @@ fn decide(
     result.insert("reviewed_since".into(), seen_first.clone());
     let commit_in_heads = |review: &PyValue, via_get: bool| -> Result<bool, PyErr> {
         let commit = if via_get {
-            get(review, "commit_id")?
+            get_or(review, "commit_id", &NONE)?
         } else {
             getitem(review, "commit_id")?
         };
-        Ok(heads.contains(&lower(or(commit, &EMPTY_STR))?))
+        Ok(heads.contains(&lower(or(Some(commit), &EMPTY_STR))?))
     };
 
     let reviews = iterate(getitem(pr, "reviews")?)?;
@@ -499,7 +500,7 @@ fn decide(
     let outstanding = !bot_blocks.is_empty() || !bot_threads.is_empty();
     let skip = skipped_by(getitem(pr, "comments")?, &permissions, &seen_first)?;
     for bot in &missing {
-        let telemetry = get(or(telemetry_states, &EMPTY_DICT), bot)?;
+        let telemetry = get_or(or(Some(telemetry_states), &EMPTY_DICT), bot, &NONE)?;
         let facts = Facts {
             pr,
             overrides: &[
@@ -655,7 +656,7 @@ fn decide(
         if commit_in_heads(r, true)? {
             written.push(Written {
                 user: getitem(r, "user")?,
-                body: or(getitem(r, "body")?, &EMPTY_STR),
+                body: or(Some(getitem(r, "body")?), &EMPTY_STR),
                 at: getitem(r, "submitted_at")?,
             });
         }
@@ -699,7 +700,7 @@ fn decide(
         // An account with nobody behind it cannot attest; the eligible
         // approval it needs anyway stands in, dated when this diff was
         // first seen, else when the bots last spoke.
-        attestations = vec![or(seen, &completed).clone()];
+        attestations = vec![or(Some(seen), &completed).clone()];
     }
     if attestations.is_empty() {
         gate(
@@ -739,7 +740,7 @@ fn decide(
             continue;
         }
         // Everyone who spoke in the thread, not only whoever opened it.
-        let voices_value = get(thread, "voices")?;
+        let voices_value = get_or(thread, "voices", &NONE)?;
         let voices: Vec<Cow<'_, PyValue>> = if voices_value.truthy() {
             iterate(voices_value)?
         } else {
@@ -878,9 +879,9 @@ fn decide(
     // Latched on the recorded state, and on ever having been ready for this
     // head, not on still being ready: a pull request that passed through
     // another state would otherwise need a green build again.
-    let was_ready = get(pr, "ready_published")?.truthy()
-        || (py_eq_str(get(previous, "state")?, "ready-for-human")
-            && py_eq(get(previous, "head")?, head));
+    let was_ready = get_or(pr, "ready_published", &NONE)?.truthy()
+        || (py_eq_str(get_or(previous, "state", &NONE)?, "ready-for-human")
+            && py_eq(get_or(previous, "head", &NONE)?, head));
     let build = getitem(pr, "build")?;
     let green = py_eq_str(build, "green");
     let failed = py_eq_str(build, "failed");
@@ -923,11 +924,13 @@ fn decide(
                 .collect();
             re_review.sort();
             result.insert("objectors".into(), strs(re_review));
-            if was_ready && get(previous, "ready_since")?.truthy() {
+            if was_ready && get_or(previous, "ready_since", &NONE)?.truthy() {
                 let since = getitem(previous, "ready_since")?;
                 time(since)?;
                 result.insert("ready_since".into(), since.clone());
-            } else if get(previous, "admitted_at")?.truthy() || machine_author(policy, pr)? {
+            } else if get_or(previous, "admitted_at", &NONE)?.truthy()
+                || machine_author(policy, pr)?
+            {
                 // A machine author holds no slot, so admission is never
                 // recorded for it; its waiting time starts now.
                 result.insert("ready_since".into(), now.clone());

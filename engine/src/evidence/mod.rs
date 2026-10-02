@@ -15,9 +15,10 @@
 //!   request that `evaluate` decides from, and the caches a run keeps.
 //!
 //! Beside them, the pure functions those reads use: [`records`] (the
-//! controller's own record and diff markers, and the checklist block),
-//! [`builds`] (a head's build verdict) and [`rules`] (whose comments are the
-//! engine's own, and how a review bot labels a finding).
+//! controller's own record and diff markers, and the checklist block) and
+//! [`builds`] (a head's build verdict). Whose comments are the engine's own,
+//! and how a review bot labels a finding, are the policy's
+//! ([`crate::policy::is_engine`], [`crate::policy::finding_severities`]).
 //!
 //! Every answer arrives as a [`PyValue`](crate::pycompat::PyValue) and is
 //! read as Python reads it, with Python's evaluation order: where an answer
@@ -33,7 +34,6 @@ pub mod queries;
 pub mod reader;
 pub mod records;
 pub mod replay;
-pub mod rules;
 pub mod transport;
 
 pub use builds::Build;

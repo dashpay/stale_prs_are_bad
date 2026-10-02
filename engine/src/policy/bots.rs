@@ -8,7 +8,9 @@
 
 use super::values::{earliest, latest, lower, s, time, time_text};
 use super::{is_engine, NUDGE_MARKER, RATE_LIMITED, RATE_LIMITED_END, WRITE};
-use crate::pycompat::object::{get, getitem, iterate, or, py_str, str_method, EMPTY_STR};
+use crate::pycompat::object::{
+    get, get_or, getitem, iterate, or, py_str, str_method, EMPTY_STR, NONE,
+};
 use crate::pycompat::ops::{
     py_compare, py_contains, py_eq, py_eq_str, py_in_str_set, py_type_name, Compare,
 };
@@ -57,7 +59,8 @@ impl<'a> Facts<'a> {
 
     /// `pr.get(key)`.
     fn get(&self, key: &str) -> Result<&'a PyValue, PyErr> {
-        self.replaced(key).map_or_else(|| get(self.pr, key), Ok)
+        self.replaced(key)
+            .map_or_else(|| get_or(self.pr, key, &NONE), Ok)
     }
 
     /// `pr[key]`.
@@ -165,7 +168,7 @@ pub fn nudged_at(comments: &PyValue, bot: &str, heads: &PyValue) -> Result<Optio
     let comments = iterate(comments)?;
     let mut stamps = Vec::new();
     for c in &comments {
-        if !is_engine(getitem(c, "user")?)? {
+        if !is_engine(Some(getitem(c, "user")?))? {
             continue;
         }
         let mut asked = false;
@@ -218,7 +221,7 @@ pub fn rate_limited_at(
         {
             continue;
         }
-        let updated = get(&c, "updated_at")?;
+        let updated = get_or(&c, "updated_at", &NONE)?;
         let edited = if updated.truthy() {
             updated
         } else {
@@ -295,7 +298,7 @@ pub(crate) fn schedule(
     now: &PyValue,
     telemetry_state: &PyValue,
 ) -> Result<Schedule, PyErr> {
-    let timeouts = get(policy, "bot_timeouts")?;
+    let timeouts = get_or(policy, "bot_timeouts", &NONE)?;
     let seen = pr.get("head_seen_at")?;
     if !timeouts.truthy() || !seen.truthy() {
         return Ok(Schedule::NOTHING);

@@ -24,7 +24,7 @@ use std::borrow::Cow;
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
-/// What `.get` answers for a missing key.
+/// `None`, where a value is wanted for one that is absent.
 pub static NONE: PyValue = PyValue::None;
 
 /// `{}`, for `x or {}` and `.get(key, {})`.
@@ -61,9 +61,14 @@ pub fn getitem<'a>(value: &'a PyValue, key: &str) -> Result<&'a PyValue, PyErr> 
     }
 }
 
-/// `value.get(key)`: [`NONE`] for a missing key. Only a dict has `get`.
-pub fn get<'a>(value: &'a PyValue, key: &str) -> Result<&'a PyValue, PyErr> {
-    get_or(value, key, &NONE)
+/// `value.get(key)`: nothing for a missing key. Python's `.get` answers a
+/// missing key and a `null` one alike, as `None`, so a caller reads `None`
+/// and `Some(PyValue::None)` alike too. Only a dict has `get`.
+pub fn get<'a>(value: &'a PyValue, key: &str) -> Result<Option<&'a PyValue>, PyErr> {
+    match value {
+        PyValue::Dict(entries) => Ok(entries.get(key)),
+        other => Err(no_attribute(other, "get")),
+    }
 }
 
 /// `value.get(key, default)`.
@@ -72,19 +77,18 @@ pub fn get_or<'a>(
     key: &str,
     default: &'a PyValue,
 ) -> Result<&'a PyValue, PyErr> {
-    match value {
-        PyValue::Dict(entries) => Ok(entries.get(key).unwrap_or(default)),
-        other => Err(no_attribute(other, "get")),
-    }
+    Ok(get(value, key)?.unwrap_or(default))
 }
 
-/// `a or b`: `a` when it is true, else `b`.
-pub fn or<'a>(a: &'a PyValue, b: &'a PyValue) -> &'a PyValue {
-    if a.truthy() {
-        a
-    } else {
-        b
-    }
+/// `value or ...`, for a value that may be absent: the value where it is
+/// true, nothing where it is absent or false.
+pub fn or_default(value: Option<&PyValue>) -> Option<&PyValue> {
+    value.filter(|v| v.truthy())
+}
+
+/// `a or b`, `a` possibly absent.
+pub fn or<'a>(a: Option<&'a PyValue>, b: &'a PyValue) -> &'a PyValue {
+    or_default(a).unwrap_or(b)
 }
 
 /// The text of `value`, to call the `str` method `method` on it. Python

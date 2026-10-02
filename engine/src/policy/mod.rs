@@ -40,7 +40,7 @@ pub use prints::{carried_heads, diff_print, fingerprint};
 pub use receipts::{finding_blocks, finding_severities, receipt_instant, receipt_print};
 pub use validate::{governs, validate_policy};
 
-use crate::pycompat::object::{get, get_or, getitem, iterate, or, EMPTY_LIST, EMPTY_STR};
+use crate::pycompat::object::{get, get_or, getitem, iterate, or, EMPTY_LIST, EMPTY_STR, NONE};
 use crate::pycompat::ops::py_in_str_set;
 use crate::pycompat::{PyDict, PyErr, PyValue};
 use std::collections::BTreeSet;
@@ -165,7 +165,7 @@ const FINDING_BLOCKS: [(&str, &[(&str, bool)]); 2] = [
 /// `is_engine(login)`: whether `login` is one of this engine's identities,
 /// in any case. Only the `name[bot]` spelling counts: the bare name is one
 /// a person can register.
-pub fn is_engine(login: &PyValue) -> Result<bool, PyErr> {
+pub fn is_engine(login: Option<&PyValue>) -> Result<bool, PyErr> {
     let login = lower(or(login, &EMPTY_STR))?;
     Ok(ENGINE_LOGINS.contains(&login.as_str()))
 }
@@ -200,7 +200,7 @@ pub fn holders(policy: &PyValue, pr: &PyValue) -> Result<BTreeSet<String>, PyErr
 /// something that cannot attest for itself — an account GitHub marks a
 /// bot, a review bot, or one the policy names under `bot_authors`.
 pub fn machine_author(policy: &PyValue, pr: &PyValue) -> Result<bool, PyErr> {
-    if get(pr, "author_is_bot")?.truthy() {
+    if get_or(pr, "author_is_bot", &NONE)?.truthy() {
         return Ok(true);
     }
     let author = lower(or(get(pr, "author")?, &EMPTY_STR))?;
@@ -214,4 +214,26 @@ pub fn machine_author(policy: &PyValue, pr: &PyValue) -> Result<bool, PyErr> {
 fn may_object(permissions: &PyDict, user: &str) -> Result<bool, PyErr> {
     let level = permissions.get(user).unwrap_or(&PyValue::None);
     Ok(py_in_str_set(level, &WRITE)? || matches!(level, PyValue::None))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_bot_spelling_is_the_engine_in_any_case() {
+        let login = |text: &str| PyValue::Str(text.to_owned());
+        assert!(is_engine(Some(&login("github-actions[bot]"))).unwrap());
+        assert!(is_engine(Some(&login("GitHub-Actions[BOT]"))).unwrap());
+        // The bare name is one a person can register.
+        assert!(!is_engine(Some(&login("github-actions"))).unwrap());
+        assert!(!is_engine(Some(&login(""))).unwrap());
+        assert!(!is_engine(None).unwrap());
+        assert!(!is_engine(Some(&PyValue::None)).unwrap());
+        // Something true that is not a string has no `lower`.
+        assert!(matches!(
+            is_engine(Some(&PyValue::Bool(true))),
+            Err(PyErr::Attribute(_))
+        ));
+    }
 }

@@ -3,7 +3,7 @@
 
 use super::validate::{governs, validate_policy};
 use super::values::{lower, time, Instant};
-use crate::pycompat::object::{get, getitem, iterate, or, EMPTY_DICT};
+use crate::pycompat::object::{get, get_or, getitem, iterate, or, EMPTY_DICT, NONE};
 use crate::pycompat::ops::{py_compare, py_eq_str, py_same_element, py_sort_by, Compare};
 use crate::pycompat::{PyErr, PyInt, PyValue};
 use indexmap::IndexMap;
@@ -13,8 +13,12 @@ use std::cmp::Ordering;
 /// request took its slot, unless it went inactive (closed, drafted,
 /// retargeted) at or after that, which gave the slot up.
 pub fn effective_admission(pr: &PyValue) -> Result<&PyValue, PyErr> {
-    let recorded = get(or(get(pr, "controller_state")?, &EMPTY_DICT), "admitted_at")?;
-    let inactive = get(pr, "lifecycle_at")?;
+    let recorded = get_or(
+        or(get(pr, "controller_state")?, &EMPTY_DICT),
+        "admitted_at",
+        &NONE,
+    )?;
+    let inactive = get_or(pr, "lifecycle_at", &NONE)?;
     if recorded.truthy() && inactive.truthy() && time(recorded)? <= time(inactive)? {
         return Ok(&PyValue::None);
     }

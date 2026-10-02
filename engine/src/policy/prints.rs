@@ -8,6 +8,7 @@ use super::{is_engine, NUDGE_MARKER, STATE_MARKER};
 use crate::pycompat::hashlib::sha256_hexdigest;
 use crate::pycompat::object::{
     get, get_or, getitem, iterate, no_attribute, or, str_method, EMPTY_DICT, EMPTY_LIST, EMPTY_STR,
+    NONE,
 };
 use crate::pycompat::ops::{py_compare_sequences, py_eq, py_sort_by, Compare};
 use crate::pycompat::{py_dumps, PyErr, PyList, PyValue};
@@ -20,7 +21,7 @@ use crate::pycompat::{py_dumps, PyErr, PyList, PyValue};
 pub fn diff_print(pr: &PyValue) -> Result<Option<String>, PyErr> {
     let files = iterate(or(get(pr, "files")?, &EMPTY_LIST))?;
     for file in &files {
-        if !get(file, "content")?.truthy() || !get(file, "shape")?.truthy() {
+        if !get_or(file, "content", &NONE)?.truthy() || !get_or(file, "shape", &NONE)?.truthy() {
             return Ok(None);
         }
     }
@@ -54,13 +55,15 @@ pub fn carried_heads(pr: &PyValue) -> Result<(Vec<PyValue>, PyValue), PyErr> {
     let record = or(get(pr, "controller_diff")?, &EMPTY_DICT);
     let print_now = diff_print(pr)?;
     let unchanged = match &print_now {
-        Some(print_now) => matches!(get(record, "diff")?, PyValue::Str(d) if d == print_now),
+        Some(print_now) => {
+            matches!(get_or(record, "diff", &NONE)?, PyValue::Str(d) if d == print_now)
+        }
         None => false,
     };
     if !unchanged {
         return Ok((
             vec![getitem(pr, "head")?.clone()],
-            get(pr, "head_seen_at")?.clone(),
+            get_or(pr, "head_seen_at", &NONE)?.clone(),
         ));
     }
     let recorded = iterate(or(get(record, "diff_heads")?, &EMPTY_LIST))?;
@@ -77,7 +80,11 @@ pub fn carried_heads(pr: &PyValue) -> Result<(Vec<PyValue>, PyValue), PyErr> {
     }
     // The moment the first of them was seen: an attestation written then
     // was written about this same diff.
-    let since = or(get(record, "diff_seen")?, get(pr, "head_seen_at")?).clone();
+    let since = or(
+        get(record, "diff_seen")?,
+        get_or(pr, "head_seen_at", &NONE)?,
+    )
+    .clone();
     Ok((kept, since))
 }
 

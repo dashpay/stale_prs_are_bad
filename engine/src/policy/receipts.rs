@@ -9,7 +9,9 @@ use super::patterns::{
 use super::values::{lower, re_text};
 use super::{FINDING_BLOCKS, NOTICES, VOLATILE};
 use crate::pycompat::hashlib::sha256_hexdigest;
-use crate::pycompat::object::{get, getitem, iterate, or, py_str, EMPTY_DICT, EMPTY_STR};
+use crate::pycompat::object::{
+    get, get_or, getitem, iterate, or, py_str, EMPTY_DICT, EMPTY_STR, NONE,
+};
 use crate::pycompat::ops::{py_eq, py_eq_str, py_hashable};
 use crate::pycompat::text::{py_splitlines, py_strip};
 use crate::pycompat::{py_raw_decode, PyErr, PyValue};
@@ -79,7 +81,7 @@ pub fn receipt_print(comment: &PyValue) -> Result<Option<String>, PyErr> {
         })
         .into_owned();
     let said = SPACES.replace_all(&said, " ");
-    let id = py_str(get(comment, "id")?);
+    let id = py_str(get_or(comment, "id", &NONE)?);
     let printed = format!("{id}\n{}", py_strip(&said));
     Ok(Some(sha256_hexdigest(printed.as_bytes())))
 }
@@ -94,7 +96,7 @@ pub fn receipt_instant(pr: &PyValue, comment: &PyValue) -> Result<PyValue, PyErr
         &EMPTY_DICT,
     );
     if let Some(said) = said {
-        let recorded = get(known, &said)?;
+        let recorded = get_or(known, &said, &NONE)?;
         if matches!(recorded, PyValue::Str(_)) {
             return Ok(recorded.clone());
         }
@@ -132,7 +134,7 @@ pub(crate) fn rabbit_receipt(body: &PyValue, head: &PyValue) -> Result<bool, PyE
 
 /// `_producer(author)`: the login a bot reviews under, without `[bot]`.
 pub(crate) fn producer(author: &PyValue) -> Result<String, PyErr> {
-    let login = lower(or(author, &EMPTY_STR))?;
+    let login = lower(or(Some(author), &EMPTY_STR))?;
     Ok(login
         .strip_suffix("[bot]")
         .map_or_else(|| login.clone(), str::to_owned))
@@ -155,7 +157,7 @@ pub fn finding_severities(author: &PyValue, body: &PyValue) -> Result<Vec<String
     let Some(table) = finding_table(&producer) else {
         return Ok(Vec::new());
     };
-    let body = or(body, &EMPTY_STR);
+    let body = or(Some(body), &EMPTY_STR);
     let text = HIDDEN_MARKUP.replace_all(re_text(body)?, "");
     let mut labels: Vec<String> = Vec::new();
     if producer == "thepastaclaw" {
@@ -194,8 +196,8 @@ pub fn finding_severities(author: &PyValue, body: &PyValue) -> Result<Vec<String
 /// until it is resolved. No severity, or any label that is not one of that
 /// bot's suggestions, holds it.
 pub fn finding_blocks(thread: &PyValue) -> Result<bool, PyErr> {
-    let table = finding_table(&producer(get(thread, "author")?)?).unwrap_or(&[]);
-    let labels = get(thread, "severities")?;
+    let table = finding_table(&producer(get_or(thread, "author", &NONE)?)?).unwrap_or(&[]);
+    let labels = get_or(thread, "severities", &NONE)?;
     if !labels.truthy() {
         return Ok(true);
     }
