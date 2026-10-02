@@ -6,7 +6,8 @@ import re
 import subprocess
 import time
 
-from .policy import CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, RETIRED_LABELS, STATE_LABELS, finding_severities
+from .policy import (CHECKLIST_END, CHECKLIST_START, ENGINE_LOGINS, LABEL_FOR_STATE, RETIRED_LABELS, STATE_LABELS,
+                     finding_severities, is_engine)
 import sys
 from datetime import datetime
 from urllib.parse import quote
@@ -25,7 +26,7 @@ STATE_PATTERN = re.compile(r"<!-- platform-pr-review-state-v1 (\{[^\r\n]*\}) -->
 # own is simply not read by an engine that does not know it.
 DIFF_MARKER = "<!-- pr-hygiene-diff-v1"
 DIFF_PATTERN = re.compile(r"<!-- pr-hygiene-diff-v1 (\{[^\r\n]*\}) -->")
-BOT_LOGINS = {"github-actions[bot]", "coderabbitai[bot]", "coderabbitai", "thepastaclaw"}
+BOT_LOGINS = {"coderabbitai[bot]", "coderabbitai", "thepastaclaw"} | ENGINE_LOGINS
 
 
 def _validate_state(state):
@@ -230,7 +231,7 @@ def parse_controller_diff(comments, number):
     """
     found = []
     for comment in comments:
-        if comment["user"].lower() != "github-actions[bot]" or DIFF_MARKER not in comment["body"]:
+        if not is_engine(comment["user"]) or DIFF_MARKER not in comment["body"]:
             continue
         # Anyone with write access can edit anyone's comment, and this one
         # says which commits a review still covers — forge it and a stale
@@ -239,13 +240,10 @@ def parse_controller_diff(comments, number):
         # controller is who edited it. Where that cannot be known the pull
         # request starts over, which is what it did before this existed.
         edited = comment.get("updated_at") or comment["created_at"]
-        # Both spellings: what comes back is the login, and the "[bot]" suffix
-        # is only appended where the reader asked for the type. Refusing the
-        # bare one refused this controller's own hand, which rewrites the
-        # record on every refresh — so the marker became unreadable the second
-        # time it was written, and stayed that way.
-        if edited != comment["created_at"] and (comment.get("edited_by") or "").lower() not in {
-                "github-actions", "github-actions[bot]"}:
+        # The editor is read with its type, so this controller's own hand
+        # comes back as `name[bot]` like its author; the bare name is one a
+        # person can register, and counts for nothing.
+        if edited != comment["created_at"] and not is_engine(comment.get("edited_by")):
             continue
         # In a comment of this controller's own, beside its record for this
         # same pull request. Any workflow can post as the Actions app, and one
@@ -278,7 +276,7 @@ def parse_controller_state(comments):
     """Ignore copied receipts; the newest record wins; refuse corrupt history."""
     found = []
     for comment in comments:
-        if comment["user"].lower() != "github-actions[bot]":
+        if not is_engine(comment["user"]):
             continue
         body = comment["body"]
         if STATE_MARKER not in body:
@@ -493,7 +491,7 @@ class GitHub:
           comments(last:100) {
             totalCount
             nodes { databaseId body createdAt updatedAt author { login __typename }
-                    editor { login } }
+                    editor { login __typename } }
           }
           timelineItems(last:1, itemTypes:[CLOSED_EVENT, CONVERT_TO_DRAFT_EVENT]) {
             nodes {
@@ -918,7 +916,7 @@ class GitHub:
         can move, unlike a commit date or the body of a comment.
         """
         ours = [item for item in self._head_statuses(head) if item.get("context") == "PR Hygiene"
-                and (item.get("creator") or {}).get("login", "").lower() == "github-actions[bot]"]
+                and is_engine((item.get("creator") or {}).get("login"))]
         if not ours:
             return None
         stamps = [_text(item["created_at"], "status creation time") for item in ours]
@@ -936,7 +934,7 @@ class GitHub:
         transient configuration error — would lose the fact that it was ready.
         """
         return any(item.get("context") == "PR Hygiene"
-                   and (item.get("creator") or {}).get("login", "").lower() == "github-actions[bot]"
+                   and is_engine((item.get("creator") or {}).get("login"))
                    and item.get("description") == "ready-for-human"
                    for item in self._head_statuses(head))
 
@@ -948,13 +946,15 @@ class GitHub:
             payload["target_url"] = target_url
         statuses = self._head_statuses(head)
         latest = next((item for item in statuses if item.get("context") == payload["context"]), None)
-        if latest and (latest.get("creator") or {}).get("login", "").lower() == "github-actions[bot]":
+        if latest and is_engine((latest.get("creator") or {}).get("login")):
             if all(latest.get(key) == payload.get(key) for key in ("state", "description", "target_url")):
                 return latest
         written = self.request("POST", f"{self.root}/statuses/{quote(head, safe='')}", payload)
         if not isinstance(written, dict):
             raise GitHubError("Commit status was not acknowledged")
-        self._statuses[head] = [dict(payload, creator={"login": "github-actions[bot]"},
+        # Whoever GitHub says wrote it, so the cache never claims an identity
+        # this engine did not post under.
+        self._statuses[head] = [dict(payload, creator=written.get("creator") or {},
                                      created_at=written.get("created_at"))] + statuses
         return written
 
@@ -1004,11 +1004,11 @@ class GitHub:
 
         For a pull request that has no record comment yet — a state reached
         before any move was announced — the status is the only trace, and it
-        is this controller's own, posted by github-actions[bot].
+        is this controller's own, posted under one of its identities.
         """
         mine = [item for item in self._head_statuses(head)
                 if item.get("context") == "PR Hygiene"
-                and (item.get("creator") or {}).get("login", "").lower() == "github-actions[bot]"]
+                and is_engine((item.get("creator") or {}).get("login"))]
         if not mine:
             return None
         return max(mine, key=lambda item: (item.get("created_at") or "", item.get("id") or 0)).get("description")

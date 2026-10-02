@@ -45,13 +45,14 @@ class BuildVerdictTests(unittest.TestCase):
         for editor in ('llbartekll', None):
             touched = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by=editor)
             self.assertIsNone(parse_controller_diff([touched], 7), repr(editor))
-        # Both spellings of this controller's own hand: the login comes back
-        # bare from the route that evaluates pull requests, and refusing it
-        # refused every record the controller had refreshed — which is every
-        # record after its first write.
-        for editor in ('github-actions', 'github-actions[bot]'):
-            kept = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by=editor)
-            self.assertEqual(parse_controller_diff([kept], 7), diff, editor)
+        # This controller's own hand: the editor is read with its type, so it
+        # comes back as `github-actions[bot]`. Refusing it refused every record
+        # the controller had refreshed — every record after its first write.
+        # The bare name is one a person can register, and counts for nothing.
+        kept = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by='github-actions[bot]')
+        self.assertEqual(parse_controller_diff([kept], 7), diff)
+        posing = dict(made, updated_at='2026-09-11T12:00:00Z', edited_by='github-actions')
+        self.assertIsNone(parse_controller_diff([posing], 7))
         # And only beside this controller's record for this same pull request:
         # any workflow can post as the Actions app.
         alone = dict(made, id=2, body='<!-- pr-hygiene-diff-v1 ' + json.dumps(diff) + ' -->')
@@ -404,7 +405,9 @@ class GitHubTests(unittest.TestCase):
                              "createdAt": c["created_at"], "updatedAt": c["updated_at"],
                              "author": {"login": (c["user"]["login"] if isinstance(c["user"], dict) else c["user"]).removesuffix("[bot]"),
                                         "__typename": "Bot"},
-                             "editor": ({"login": c["edited_by"]} if c.get("edited_by") else None)}
+                             "editor": ({"login": c["edited_by"].removesuffix("[bot]"),
+                                         "__typename": "Bot" if c["edited_by"].endswith("[bot]") else "User"}
+                                        if c.get("edited_by") else None)}
                             for c in (comments or [])]},
                         "timelineItems": {"nodes": []}}}}}
                 return graph or self.graph()
@@ -800,13 +803,14 @@ class GitHubTests(unittest.TestCase):
              "state": "ready-for-human", "evidence": "c" * 64, "context": "d" * 64}, "text", diff)
         comment = {"id": 7, "user": "github-actions[bot]", "body": body,
                    "created_at": "2026-09-11T10:00:00Z", "updated_at": "2026-09-11T12:00:00Z",
-                   "edited_by": "github-actions"}
+                   "edited_by": "github-actions[bot]"}
         request, pages = self.snapshot_fixture(comments=[comment])
         with request, pages:
             read = self.api.snapshot(1, {"fallback": ["owner"], "areas": []})
             reused = self.api.snapshot(1, {"fallback": ["owner"], "areas": []},
                                        history={"comments": [comment], "lifecycle_at": None})
-        self.assertEqual(read["comments"][0].get("edited_by"), "github-actions")
+        # The editor is read with its type, so it carries `[bot]` like an author.
+        self.assertEqual(read["comments"][0].get("edited_by"), "github-actions[bot]")
         self.assertEqual(read["controller_diff"], diff)
         self.assertEqual(read["controller_diff"], reused["controller_diff"])
 
@@ -910,6 +914,78 @@ class GitHubTests(unittest.TestCase):
                 patch.object(self.api, "request", return_value=None):
             with self.assertRaises(GitHubError):
                 self.api.post_status("a" * 40, "success", "ready-to-merge")
+
+class EngineIdentityTests(unittest.TestCase):
+    """The engine's memory is recognised by who wrote it, from one list.
+
+    Repositories move to the PR Hygiene App one at a time, and either writer
+    must be able to continue the other's records — or a rollback starts
+    every pull request over. Listing an identity is the one change needed;
+    an unlisted one is still nobody's.
+    """
+
+    APP = 'pr-hygiene[bot]'
+    NOW = '2026-09-11T10:00:00Z'
+
+    def setUp(self):
+        from pr_review import main
+        self.main = main
+        self.record = main.state_record({}, {'number': 7, 'head': 'a' * 40, 'state': 'waiting-bots',
+                                             'admitted_at': '2026-09-01T10:00:00Z', 'ready_since': None},
+                                        'c' * 64)
+        self.diff = {'number': 7, 'diff': 'd' * 64, 'diff_heads': ['a' * 40], 'receipts': {}}
+
+    def comments(self, user):
+        body = GitHub.state_comment_body(self.record, 'x', self.diff)
+        return [dict(id=1, user=user, created_at=self.NOW, updated_at=self.NOW, body=body)]
+
+    def listed(self):
+        from pr_review import policy
+        return patch.object(policy, 'ENGINE_LOGINS', frozenset({'github-actions[bot]', self.APP}))
+
+    def test_a_listed_identity_continues_the_record(self):
+        from pr_review.github import parse_controller_diff
+        from pr_review.policy import nudged_at
+        with self.listed():
+            state, comment_id = parse_controller_state(self.comments(self.APP))
+            self.assertEqual((state['admitted_at'], comment_id), ('2026-09-01T10:00:00Z', 1))
+            self.assertIsNotNone(parse_controller_diff(self.comments(self.APP), 7))
+            self.assertEqual(len(self.main.bot_comments({'number': 7, 'comments': self.comments(self.APP)},
+                                                        self.main.STATE_MARKER)), 1)
+            nudge = [dict(id=2, user=self.APP, created_at=self.NOW, updated_at=self.NOW,
+                          body=f"{self.main.NUDGE_MARKER} bot=coderabbitai sha={'a' * 40} -->")]
+            self.assertEqual(nudged_at(nudge, 'coderabbitai', 'a' * 40), self.NOW)
+
+    def test_the_list_is_lowercase(self):
+        from pr_review.policy import ENGINE_LOGINS
+        self.assertEqual(ENGINE_LOGINS, {x.lower() for x in ENGINE_LOGINS})
+
+    def test_an_unlisted_identity_is_nobodys(self):
+        from pr_review.github import parse_controller_diff
+        state, comment_id = parse_controller_state(self.comments(self.APP))
+        self.assertIsNone(comment_id)
+        self.assertIsNone(parse_controller_diff(self.comments(self.APP), 7))
+        self.assertEqual(self.main.bot_comments({'number': 7, 'comments': self.comments(self.APP)},
+                                                self.main.STATE_MARKER), [])
+
+
+    def test_only_the_bot_spelling_counts_in_any_case(self):
+        # The bare name is one a person can register; only the `[bot]` login
+        # GitHub gives an App is the engine, whatever its case.
+        with self.listed():
+            self.assertIsNone(parse_controller_state(self.comments('pr-hygiene'))[1])
+            self.assertIsNone(parse_controller_state(self.comments('github-actions'))[1])
+            self.assertEqual(parse_controller_state(self.comments('PR-Hygiene[bot]'))[1], 1)
+
+    def test_a_status_by_a_listed_identity_is_the_engines_own(self):
+        api = GitHub('dashpay/platform')
+        status = {'state': 'pending', 'context': 'PR Hygiene', 'description': 'ready-for-human',
+                  'created_at': self.NOW, 'creator': {'login': self.APP}}
+        with self.listed(), patch.object(api, '_head_statuses', return_value=[status]):
+            self.assertTrue(api.ready_published('a' * 40))
+            self.assertEqual(api.head_seen_at('a' * 40), self.NOW)
+        with patch.object(api, '_head_statuses', return_value=[status]):
+            self.assertFalse(api.ready_published('a' * 40))
 
 
 if __name__ == "__main__":
