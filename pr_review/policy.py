@@ -85,6 +85,10 @@ def validate_policy(policy, root: Path | None = None):
     branches = policy['target_branches']
     if not isinstance(branches, list) or not branches or any(not isinstance(x, str) or not x.strip() for x in branches) or len(set(branches)) != len(branches):
         raise ValueError('Invalid target branches')
+    # `*` is the only pattern `governs` understands; anything else GitHub's
+    # rules accept would be read literally and match no branch at all.
+    if any(re.search(r'[?\[\]{}\\]|\*\*', x) for x in branches):
+        raise ValueError('Target branch patterns support only `*`')
     _fields(policy['fallback'], {'owners', 'reviewers'}, {'owners', 'reviewers'})
     _handles(policy['fallback']['owners'], True)
     _handles(policy['fallback']['reviewers'])
@@ -166,7 +170,7 @@ def admit(policy, prs, nowISO):
     _time(nowISO)
     grouped = defaultdict(list)
     for pr in prs:
-        if pr['state'] == 'open' and not pr['draft'] and pr['base'] in policy['target_branches']:
+        if pr['state'] == 'open' and not pr['draft'] and governs(policy, pr['base']):
             grouped[pr['author'].lower()].append(pr)
     result = {}
     for candidates in grouped.values():
@@ -454,6 +458,17 @@ def holders(policy, pr):
     return {who for who in named if who not in machines and not who.endswith('[bot]')}
 
 
+def governs(policy, branch):
+    """Whether pull requests into `branch` are under this policy.
+
+    Each target is a branch name or a pattern in the form the repository's
+    own branch rules use — `*` matches any run of characters except `/` — so
+    a release that renames its development branches stays covered.
+    """
+    return bool(branch) and any(re.fullmatch('[^/]*'.join(map(re.escape, target.split('*'))), branch)
+                                for target in policy['target_branches'])
+
+
 def machine_author(policy, pr):
     """Whether this pull request was opened by something that cannot attest for itself.
 
@@ -648,7 +663,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             return stop('configuration-error', 'Incomplete GitHub snapshot', status='error')
         if not re.fullmatch(r'[0-9a-f]{40}', pr['head']):
             return stop('configuration-error', 'Invalid head SHA', status='error')
-        if pr['state'] != 'open' or pr['base'] not in policy['target_branches']:
+        if pr['state'] != 'open' or not governs(policy, pr['base']):
             return stop('configuration-error', 'PR is outside the active policy scope')
         if pr['draft']:
             return stop('draft', 'Draft PR does not occupy a review slot')

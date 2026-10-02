@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from pr_review.policy import admit, codeowners, evaluate, fingerprint, validate_policy
+from pr_review.policy import admit, codeowners, evaluate, fingerprint, governs, validate_policy
 
 
 HEAD = 'a' * 40
@@ -176,6 +176,42 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(result['reviewers'], 'a human is asked, not an attestation')
         pr['reviews'].append(dict(id=4, user='owner', state='APPROVED', commit_id=HEAD, submitted_at=NOW, body=''))
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
+
+    def test_target_branches_are_patterns_like_the_repositorys_branch_rules(self):
+        # Platform protects its development branches as `v*-dev` and renames
+        # them every release: a list of names went stale the day v4.2-dev
+        # and v4.3-dev became v5.1-dev and v6.0-dev, and every pull request
+        # on the new branches silently left the policy.
+        p, pr = fixture()
+        p['target_branches'] = ['v*-dev']
+        validate_policy(p)
+        for base in ('v4.2-dev', 'v5.1-dev', 'v6.0-dev'):
+            self.assertTrue(governs(p, base), base)
+            pr['base'] = base
+            self.assertNotEqual(evaluate(p, pr, NOW, NOW)['state'], 'configuration-error', base)
+        # As in GitHub's own branch patterns, `*` stops at a slash.
+        for base in ('master', 'feat/v5-dev', 'v5/x-dev', 'v5.1-dev-old'):
+            self.assertFalse(governs(p, base), base)
+        pr['base'] = 'feat/v5-dev'
+        self.assertIn('PR is outside the active policy scope', evaluate(p, pr, NOW, NOW)['blockers'])
+        # A plain name still means exactly that branch.
+        p['target_branches'] = ['develop']
+        self.assertTrue(governs(p, 'develop'))
+        self.assertFalse(governs(p, 'developer'))
+        # A pull request with no known base is never governed, whatever the pattern.
+        p['target_branches'] = ['*']
+        self.assertFalse(governs(p, None))
+        self.assertFalse(governs(p, ''))
+
+    def test_only_the_star_is_a_pattern(self):
+        # GitHub's rules also know `?`, `[...]` and `**`; read literally here
+        # they would match nothing and quietly take a branch out of the policy,
+        # so a policy using them is refused rather than half-honoured.
+        p, _ = fixture()
+        for target in ('v?-dev', 'v[45]-dev', 'release/**', 'v{4,5}-dev', 'v\\-dev'):
+            p['target_branches'] = [target]
+            with self.assertRaises(ValueError, msg=target):
+                validate_policy(p)
 
     def test_a_review_bot_that_opens_a_pull_request_is_not_asked_to_attest(self):
         # thepastaclaw reviews pull requests and opens its own. It is an

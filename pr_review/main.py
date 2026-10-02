@@ -16,7 +16,7 @@ from .github import (DIFF_MARKER, STATE_MARKER, STATE_PATTERN, GitHub, GitHubErr
                      parse_controller_diff, parse_controller_state)
 from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
                      STATE_LABELS, admit, codeowners, diff_print, effective_admission, evaluate,
-                     fingerprint, machine_author, missing_paths, validate_policy)
+                     fingerprint, governs, machine_author, missing_paths, validate_policy)
 from .registry import POLICIES, entry_for, load_registry, policy_path
 
 WAIVED_LABEL = 'bot-review-skipped'
@@ -64,7 +64,7 @@ def load_histories(api, selected):
 def admission_conflicts(policy, candidates):
     counts = {}
     for pr in candidates:
-        if (pr['state'] == 'open' and not pr['draft'] and pr['base'] in policy['target_branches']
+        if (pr['state'] == 'open' and not pr['draft'] and governs(policy, pr['base'])
                 and effective_admission(pr)):
             author = pr['author'].lower()
             counts[author] = counts.get(author, 0) + 1
@@ -109,7 +109,7 @@ def collect(api, policy, number=None, apply=False, reconcile_author=False, batch
             waiting_on_build=False):
     """Load global admission history, then full evidence for requested PRs."""
     prs = api.open_prs()
-    selected = [p for p in prs if p['base'] in policy['target_branches']]
+    selected = [p for p in prs if governs(policy, p['base'])]
     batch_numbers = None
     if batch_size is not None:
         if number is not None:
@@ -181,7 +181,7 @@ def collect(api, policy, number=None, apply=False, reconcile_author=False, batch
 def _mark_unreadable(api, policy, pr):
     try:
         current = api.pull(pr['number'])
-        if current['state'] == 'open' and current['base'] in policy['target_branches']:
+        if current['state'] == 'open' and governs(policy, current['base']):
             api.post_status(current['head'], 'error', 'Incomplete policy evidence; reconciliation required')
     except GitHubError:
         print(f"PR #{pr['number']}: unable to publish evidence error status", file=sys.stderr)
@@ -204,7 +204,7 @@ def _mark_configuration_error(repository, policy, number):
     api = GitHub(repository)
     try:
         current = api.pull(number)
-        if current['state'] != 'open' or current['draft'] or current['base'] not in branches:
+        if current['state'] != 'open' or current['draft'] or not governs(policy, current['base']):
             return
         if any(pr['number'] != number and pr['head'] == current['head'] for pr in api.open_prs()):
             print(f'PR #{number}: shared head; configuration error reported by the workflow only', file=sys.stderr)
@@ -247,7 +247,7 @@ def clear_marks(api, policy, prs, apply=False):
     """
     mine = set(STATE_LABELS) | {WAIVED_LABEL}
     for pr in prs:
-        if pr['state'] != 'open' or pr['base'] in policy['target_branches']:
+        if pr['state'] != 'open' or governs(policy, pr['base']):
             continue
         labels = set(pr.get('labels') or [])
         block = current_checklist(pr.get('body'))
@@ -569,7 +569,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if context_fingerprint(current_prs, pr['author']) != context:
             return False
         # Only this author's histories can change this PR's admission decision.
-        relevant = [p for p in current_prs if p['base'] in policy['target_branches']
+        relevant = [p for p in current_prs if governs(policy, p['base'])
                     and p['author'].lower() == pr['author'].lower()]
         histories = load_histories(api, relevant)
         baseline = [p for p in expected if p['author'].lower() == pr['author'].lower()]
