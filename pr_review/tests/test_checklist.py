@@ -853,6 +853,34 @@ class RecordTests(unittest.TestCase):
         self.assertFalse(any(c.args[1] == 'pending' and 'Evaluating' in c.args[2] for c in api.post_status.call_args_list),
                          'the fast path: the record holds only what matters, not the evidence fingerprint')
 
+    def test_a_forged_newest_record_is_written_over_once_and_then_read(self):
+        # Nothing is read from a newest record somebody else edited, and
+        # nothing older stands in for it. The run writes this controller's own
+        # record over it, in place; the next run reads that back as the newest
+        # and has nothing left to write, so the forgery costs one run.
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        pr = self.settled(self.pr, result)
+
+        def read(pr):
+            pr['controller_state'], pr['controller_comment_id'] = main.parse_controller_state(pr['comments'])
+            pr['controller_diff'] = main.parse_controller_diff(pr['comments'], pr['number'])
+            return pr
+        forged = dict(pr['comments'][-1], updated_at='2026-09-11T13:00:00Z', edited_at='2026-09-11T13:00:00Z',
+                      edited_by='llbartekll', body=GitHub.state_comment_body(
+                          dict(pr['controller_state'], admitted_at='2020-01-01T00:00:00Z'), main.move_text(result)))
+        pr['comments'][-1] = forged
+        self.assertIsNone(read(pr)['controller_state'])
+        api = self.publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.upsert_state.assert_called_once()
+        _, record, text, comment_id, diff = api.upsert_state.call_args.args
+        self.assertEqual(comment_id, 50, 'written over in place, not posted anew')
+        pr['comments'][-1] = dict(forged, updated_at=LATER, edited_at=LATER, edited_by='github-actions[bot]',
+                                  body=GitHub.state_comment_body(record, text, diff))
+        self.assertEqual(read(pr)['controller_comment_id'], 50)
+        self.assertEqual(pr['controller_state']['admitted_at'], NOW)
+        api = self.publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.upsert_state.assert_not_called()
+
     def test_a_state_change_that_is_not_a_move_refreshes_the_record_silently(self):
         # The build scan selects on the recorded state. waiting-build is not a
         # move, so it must still reach the record — by editing the newest
@@ -992,7 +1020,8 @@ class SecondReviewTests(unittest.TestCase):
         result = evaluate(self.policy, self.pr, NOW, LATER)
         record = main.state_record(self.pr, result, 'c' * 64)
         older_written_last = dict(id=1, user='github-actions[bot]', created_at='2026-09-10T00:00:00Z', updated_at='2026-09-11T11:00:00Z',
-                                  edited_by='github-actions[bot]', body=GitHub.state_comment_body(record, 'old text'))
+                                  edited_at='2026-09-11T11:00:00Z', edited_by='github-actions[bot]',
+                                  body=GitHub.state_comment_body(record, 'old text'))
         newer = dict(id=2, user='github-actions[bot]', created_at='2026-09-10T12:00:00Z', updated_at='2026-09-10T12:00:00Z',
                      body=GitHub.state_comment_body(dict(record, ready_since='2026-09-10T12:00:00Z'), 'other text'))
         parsed, holder_id = main.parse_controller_state([newer, older_written_last])
@@ -1114,6 +1143,7 @@ class StaleMarkTests(unittest.TestCase):
                 'receipts': {'e' * 64: '2026-09-02T09:00:00Z'}}
         return dict(id=comment_id, user='github-actions[bot]', created_at=NOW, updated_at=updated,
                     edited_by='github-actions[bot]' if updated != NOW else None,
+                    edited_at=updated if updated != NOW else None,
                     body=GitHub.state_comment_body(record, display, diff))
 
     def test_the_diff_history_is_kept_and_the_slot_given_up(self):

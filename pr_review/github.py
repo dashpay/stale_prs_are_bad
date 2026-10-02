@@ -283,14 +283,14 @@ def parse_controller_diff(comments, number):
             continue
         if diff["number"] != number:
             continue
-        found.append((_text(comment.get("updated_at") or comment["created_at"], "comment update time"),
-                      comment["id"], diff))
+        # By the same clock as the record beside it.
+        found.append((_text(_written_at(comment), "comment write time"), comment["id"], diff))
     return max(found, key=lambda item: item[:2])[2] if found else None
 
 
 def parse_controller_state(comments):
-    """Ignore copied receipts and records somebody else edited; the newest record wins; refuse corrupt
-    history, and comments read without who last edited them."""
+    """Ignore copied receipts; the newest record decides, and decides nothing if somebody else edited it;
+    refuse corrupt history, and comments read without who last edited them."""
     found = []
     for comment in comments:
         # Read without its editor, an edited record cannot be told from one
@@ -306,10 +306,11 @@ def parse_controller_state(comments):
         # holds the author's place in the review queue and whether this head
         # was ever ready for a human — forge it and a pull request jumps the
         # queue, or skips the green build asked for before a human is. Edited
-        # by anyone but this controller, it is read as if it were not there.
-        # Not refused: that would put any pull request into a configuration
-        # error, one edit away.
+        # by anyone but this controller, nothing in it is read. Not refused:
+        # that would put any pull request into a configuration error, one
+        # edit away.
         if not _engine_words(comment):
+            found.append((_text(_written_at(comment), "comment write time"), comment["id"], None))
             continue
         matches = list(STATE_PATTERN.finditer(body))
         if len(matches) != 1 or body.count(STATE_MARKER) != 1:
@@ -319,17 +320,28 @@ def parse_controller_state(comments):
         except (ValueError, TypeError) as error:
             raise GitHubError("Malformed controller state JSON") from error
         _validate_state(state)
-        found.append((_text(comment.get("updated_at") or comment["created_at"], "comment update time"),
-                      comment["id"], state))
+        found.append((_text(_written_at(comment), "comment write time"), comment["id"], state))
     if not found:
         return (None, None)
     # The record most recently written is the current one: a refresh edits
-    # the newest holder in place and every edit bumps updated_at, so whichever
-    # comment was written last carries the truth. Admission is carried forward
-    # unchanged from record to record, which is what keeps the author's slots
-    # stable. GitHub reports whole seconds, so the id breaks a tie.
+    # the newest holder in place, so whichever comment was written last
+    # carries the truth. Admission is carried forward unchanged from record
+    # to record, which is what keeps the author's slots stable — and is why
+    # a newest record somebody else edited decides that nothing is known,
+    # rather than letting an older one speak: that would hand back whatever
+    # admission the older one held. GitHub reports whole seconds, so the id
+    # breaks a tie.
     written_at, comment_id, state = max(found, key=lambda record: record[:2])
-    return state, comment_id
+    return (state, comment_id) if state is not None else (None, None)
+
+
+def _written_at(comment):
+    """When a comment was last written: its last recorded edit, or its posting.
+
+    Not its update time, which GitHub also moves when a comment is hidden;
+    ordered by that, hiding an older record would make it the current one.
+    """
+    return comment.get("edited_at") or comment.get("created_at")
 
 
 def _text(value, label):

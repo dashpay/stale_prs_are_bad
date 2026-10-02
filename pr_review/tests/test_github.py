@@ -87,11 +87,52 @@ class BuildVerdictTests(unittest.TestCase):
         # access a configuration error on any pull request, one edit away.
         broken = dict(forged, body=forged['body'].replace('"version":1', '"version":2'))
         self.assertEqual(parse_controller_state([broken]), (None, None))
-        # As if it were not there: a record of this controller's own beside
-        # it is still read, though the forged one was written later.
+        # The newest record decides even forged: nothing older stands in for
+        # it, or editing the newest would bring back what an older one held.
         kept = self.record('2026-09-11T10:00:00Z', None)
-        state, comment_id = parse_controller_state([kept, dict(forged, id=2)])
-        self.assertEqual((comment_id, state['admitted_at'], state['state']), (1, '2026-09-11T10:00:00Z', 'waiting-bots'))
+        self.assertEqual(parse_controller_state([kept, dict(forged, id=2)]), (None, None))
+
+    def test_editing_the_newest_record_does_not_bring_back_an_older_admission(self):
+        # An older announcement still carries the admission of its day; the
+        # newest record, set aside when the pull request left the policy,
+        # carries none. Were a forged newest record merely skipped, the older
+        # one would be read in its place, and one edit would hand back the
+        # place in the queue the pull request gave up.
+        from pr_review.policy import effective_admission
+        old = dict(self.record('2026-01-01T00:00:00Z', None, admitted_at='2026-01-01T00:00:00Z'),
+                   id=1, created_at='2026-01-01T00:00:00Z')
+        aside = dict(self.record('2026-09-12T00:00:00Z', 'github-actions[bot]', admitted_at=None, state='not-governed'),
+                     id=2, created_at='2026-09-01T00:00:00Z')
+        self.assertEqual(parse_controller_state([old, aside])[1], 2)
+        forged = dict(aside, edited_by='mallory', edited_at='2026-09-13T00:00:00Z', updated_at='2026-09-13T00:00:00Z')
+        state, comment_id = parse_controller_state([old, forged])
+        self.assertEqual((state, comment_id), (None, None))
+        self.assertIsNone(effective_admission({'controller_state': state, 'lifecycle_at': None}))
+
+    def test_an_older_record_hidden_since_is_not_taken_for_the_newest(self):
+        # Hiding a comment moves its update time and records no edit. The
+        # current record is the one this controller wrote last, whatever was
+        # done to an older one afterwards.
+        old = dict(self.record('2026-09-14T00:00:00Z', None, admitted_at='2026-01-01T00:00:00Z'),
+                   id=1, created_at='2026-01-01T00:00:00Z')
+        newer = dict(self.record('2026-09-12T00:00:00Z', 'github-actions[bot]', admitted_at=None, state='not-governed'),
+                     id=2, created_at='2026-09-01T00:00:00Z')
+        self.assertEqual(parse_controller_state([old, newer])[1], 2)
+
+    def test_an_older_diff_hidden_since_is_not_taken_for_the_newest(self):
+        # The diff is read by the same clock as the record beside it, or the
+        # two could come from different comments.
+        from pr_review.github import parse_controller_diff
+        record = {'version': 1, 'number': 7, 'head': 'b' * 40, 'admitted_at': None, 'ready_since': None,
+                  'state': 'waiting-bots', 'evidence': 'c' * 64, 'context': 'd' * 64}
+        older_diff = {'number': 7, 'diff': 'a' * 64, 'diff_heads': ['b' * 40]}
+        newer_diff = {'number': 7, 'diff': 'e' * 64, 'diff_heads': ['b' * 40]}
+        old = dict(id=1, user='github-actions[bot]', body=GitHub.state_comment_body(record, 'text', older_diff),
+                   created_at='2026-09-01T00:00:00Z', updated_at='2026-09-14T00:00:00Z', edited_at=None, edited_by=None)
+        newer = dict(id=2, user='github-actions[bot]', body=GitHub.state_comment_body(record, 'text', newer_diff),
+                     created_at='2026-09-10T00:00:00Z', updated_at='2026-09-12T00:00:00Z',
+                     edited_at='2026-09-12T00:00:00Z', edited_by='github-actions[bot]')
+        self.assertEqual(parse_controller_diff([old, newer], 7), newer_diff)
 
     def test_a_record_this_controller_refreshed_is_still_read(self):
         # Every run that changes the record rewrites it in place, so all but
@@ -842,6 +883,18 @@ class GitHubTests(unittest.TestCase):
         for query in asked:
             self.assertIn("lastEditedAt", query)
             self.assertIn("editor { login __typename }", query)
+
+    def test_a_forged_record_on_a_later_page_is_the_newest_and_nothing_is_read(self):
+        # The editor of a comment on the second page is read as surely as on
+        # the first, and the forged record there, being the newest, decides:
+        # the genuine one on the first page does not stand in for it.
+        everything = [self.long_comment(n) for n in range(1, 151)]
+        everything[119] = self.record_node(120, {"login": "llbartekll", "__typename": "User"}, "2026-09-12T00:00:00Z",
+                                           admitted_at="2020-01-01T00:00:00Z", state="ready-for-human")
+        comments = self.read_long({None: self.comment_page(everything[:100], 150, "c1"),
+                                   "c1": self.comment_page(everything[100:], 150)})[1]["comments"]
+        self.assertEqual(comments[119]["edited_by"], "llbartekll")
+        self.assertEqual(parse_controller_state(comments), (None, None))
 
     def test_a_record_somebody_else_edited_is_not_trusted_through_the_batched_query(self):
         # A person's edit names them. A deleted or suspended account's edit is
