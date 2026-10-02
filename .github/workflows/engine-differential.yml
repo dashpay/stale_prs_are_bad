@@ -193,6 +193,12 @@ jobs:
               break
             fi
             record $(( open * PER_OPEN_PR )) "$dir/report" report --repo "$repo" --format json
+            # Weighed again now the report's real cost is known: a report that
+            # read well past its estimate leaves less room than was planned.
+            if (( spent + PER_SWEEP > REQUEST_BUDGET )); then
+              echo "$repo: budget reached after its report; no sweep or one-author syncs this run"
+              continue
+            fi
             record "$PER_SWEEP" "$dir/sync-batch" sync --repo "$repo" --batch-size 6
             if [ ! -f "$dir/report/verdicts.json" ]; then
               continue
