@@ -640,7 +640,7 @@ class GitHub:
           }
         }"""
         owner, repo = self.repo.split("/")
-        nodes, after = [], None
+        nodes, after, seen = [], None, set()
         while True:
             response = self.request("POST", "graphql", {"query": query, "variables": {
                 "owner": owner, "repo": repo, "number": number, "after": after}})
@@ -660,13 +660,15 @@ class GitHub:
             except (KeyError, TypeError) as error:
                 raise GitHubError("Incomplete comment page") from error
             # More to read must come with somewhere new to read it from, or
-            # the same page could be asked for again for ever.
+            # the same pages could be asked for again for ever: a cursor seen
+            # before leads back to them.
             if (type(total) is not int or not isinstance(page, list) or type(more) is not bool
-                    or (more and (not page or not isinstance(cursor, str) or not cursor or cursor == after))):
+                    or (more and (not page or not isinstance(cursor, str) or not cursor or cursor in seen))):
                 raise GitHubError("Incomplete comment page")
             nodes.extend(page)
             if not more:
                 break
+            seen.add(cursor)
             after = cursor
         if len(nodes) < total:
             raise GitHubError("Comment pages hold fewer comments than the conversation")
@@ -772,7 +774,7 @@ class GitHub:
         if head in self._builds:
             return self._builds[head]
         owner, repo = self.repo.split("/")
-        nodes, cursor = [], None
+        nodes, cursor, seen = [], None, set()
         while True:
             response = self.request("POST", "graphql", {
                 "query": self.BUILD_QUERY,
@@ -809,8 +811,10 @@ class GitHub:
             if not info.get("hasNextPage"):
                 break
             cursor = info.get("endCursor")
-            if not cursor:
+            # A cursor seen before leads back to pages already read.
+            if not cursor or cursor in seen:
                 raise GitHubError("Check pagination did not advance")
+            seen.add(cursor)
         verdict = build_verdict(nodes)
         self._builds[head] = verdict
         return verdict

@@ -618,7 +618,9 @@ def load_recording(directory):
         raise RecordingError(f'{directory}: clock reads belong to format {FORMAT} and only to it')
 
     def lines(name):
-        return [json.loads(line) for line in (directory / name).read_text().splitlines() if line]
+        # One record per '\n'. Free text inside a record may hold the other
+        # characters `splitlines` breaks at, such as U+2028.
+        return [json.loads(line) for line in (directory / name).read_text().split('\n') if line]
 
     return {'meta': meta, 'calls': lines('calls.jsonl'), 'evaluations': lines('evaluations.jsonl'),
             'verdicts': json.loads((directory / 'verdicts.json').read_text()),

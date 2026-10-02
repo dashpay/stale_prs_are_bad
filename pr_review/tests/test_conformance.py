@@ -204,6 +204,19 @@ class RecordAndReplayTests(RecordingCase):
                          {'owner': 'admin', 'passerby': 'triage', 'reviewer': 'maintain'})
         self.assertEqual(self.replay(directory), [])
 
+    def test_an_answer_carrying_a_line_separator_is_read_back_whole(self):
+        # Pull request titles and comments are free text, and U+2028 is valid
+        # inside a JSON string written without ASCII escapes. Read back with
+        # `splitlines`, which also breaks there, one call became two halves
+        # that are not JSON, and the recording could not be replayed at all.
+        directory = self.record('report')
+        path = Path(directory, 'calls.jsonl')
+        calls = [json.loads(line) for line in path.read_text().split('\n') if line]
+        calls[0]['stdout'] += '\u2028\u2029\x85'
+        path.write_text(''.join(conformance._dump(call) + '\n' for call in calls))
+        self.assertIn('\u2028', path.read_text(), 'written as the recorder writes it, unescaped')
+        self.assertEqual(conformance.load_recording(directory)['calls'], calls)
+
     def test_a_dry_sync_captures_its_writes_and_sends_none(self):
         directory = self.record('sync')
         recording = conformance.load_recording(directory)
