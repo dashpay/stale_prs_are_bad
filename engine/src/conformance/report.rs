@@ -21,6 +21,10 @@ use std::panic::AssertUnwindSafe;
 /// the rest.
 pub const INDICES_SHOWN: usize = 12;
 
+/// How many strings that differ are described by their shape before the
+/// rest are counted.
+pub const SHAPES_SHOWN: usize = 20;
+
 /// A name that can only hold what a repository and a command are spelled
 /// with, so that it can carry nothing else into the report.
 pub fn plain(text: &str) -> String {
@@ -221,6 +225,7 @@ pub fn categories(rows: &[Row], cases: &str) -> String {
         }
     };
     let mut unreadable = Vec::new();
+    let mut shapes = Vec::new();
     for row in rows {
         let comparison = match &row.found {
             Ok(found) => &found.comparison,
@@ -240,6 +245,13 @@ pub fn categories(rows: &[Row], cases: &str) -> String {
                 Outcome::Differs(differences) => {
                     for difference in differences {
                         let field = format!("`{}`", difference.field());
+                        if let Some(shape) = &difference.shape {
+                            shapes.push(format!(
+                                "| {} | {field} | {}: {index} | {shape} |",
+                                layer.as_str(),
+                                row.label
+                            ));
+                        }
                         note(
                             *layer,
                             field,
@@ -311,6 +323,22 @@ pub fn categories(rows: &[Row], cases: &str) -> String {
             layer.as_str(),
             cases.join("; ")
         );
+    }
+    if !shapes.is_empty() {
+        let _ = write!(
+            out,
+            "\nStrings that differ, by shape: lengths in code points, the port's first and \
+             Python's second; the first offset at which they part, and the class of character \
+             there on each side; never a character itself.\n\n\
+             | Layer | Field | Case | Shape |\n|---|---|---|---|\n"
+        );
+        for line in shapes.iter().take(SHAPES_SHOWN) {
+            let _ = writeln!(out, "{line}");
+        }
+        let more = shapes.len().saturating_sub(SHAPES_SHOWN);
+        if more > 0 {
+            let _ = writeln!(out, "\nAnd {more} more.");
+        }
     }
     out
 }
@@ -392,11 +420,11 @@ mod tests {
                         differences: vec![Difference {
                             path: "verdict.admitted_at".into(),
                             kind: Kind::Value,
+                            shape: None,
                         }],
                         by: Explanation {
-                            clock: false,
-                            telemetry: false,
                             admission: true,
+                            ..Explanation::default()
                         },
                     },
                 },

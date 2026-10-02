@@ -870,3 +870,86 @@ async fn a_comment_that_differs_with_its_update_time_unmoved_still_fails() {
     );
     no_content::assert_no_contents(&said, &recording, &sources());
 }
+
+/// Pull request 2's description in the synthetic sweep, as its listing and
+/// its own read answered it.
+const DESCRIPTION: &str = r#""body": "Some text.""#;
+
+/// A copy of the sweep in which Python read pull request 2's description
+/// as `printed`, where GitHub answers `raw`: Python's reads in its calls
+/// and its `evaluate`'s `pr`, both as gh printed them to it. Returns the
+/// copy and what GitHub serves.
+fn description_read_as(into: &Path, printed: &str, raw: &str) -> (PathBuf, String) {
+    let recording = copy("sweep", into);
+    let calls = read(&recording.join("calls.jsonl"));
+    std::fs::write(
+        recording.join("calls.jsonl"),
+        rewritten(&calls, DESCRIPTION, &format!(r#""body": {printed}"#)),
+    )
+    .unwrap();
+    let evaluations = read(&recording.join("evaluations.jsonl"));
+    let compact = r#""body":"Some text.""#;
+    assert!(evaluations.contains(compact));
+    std::fs::write(
+        recording.join("evaluations.jsonl"),
+        evaluations.replace(compact, &format!(r#""body":{printed}"#)),
+    )
+    .unwrap();
+    (
+        recording,
+        rewritten(&calls, DESCRIPTION, &format!(r#""body": {raw}"#)),
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn control_characters_gh_prints_in_caret_notation_are_gh_s_and_not_the_ports() {
+    // GitHub answers the description with an escape character, and with a
+    // backslash followed by the text of one: what a terminal's colour codes
+    // leave in a bot's output. `gh api` prints both in caret notation, so
+    // Python's engine read `^[` where the Rust engine, reading GitHub
+    // itself, reads the characters.
+    let dir = tempfile::tempdir().unwrap();
+    let (recording, served) = description_read_as(
+        dir.path(),
+        r#""Some text. ^[[1mbold^[[0m and \\^[""#,
+        r#""Some text. \u001b[1mbold\u001b[0m and \\u001b""#,
+    );
+    let github = github(&served, None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(outcome.clean(), "{said}");
+    assert!(
+        said.contains(
+            "| live snapshot | `pr.body` | value, gone with Python's gh-printed control characters | 1 | dashpay/platform · sync: 0 |"
+        ),
+        "{said}"
+    );
+    only_reads(&github);
+    no_content::assert_no_contents(&said, &recording, &sources());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_string_that_differs_otherwise_fails_and_is_described_by_its_shape_alone() {
+    // An escape character where Python read something gh would never have
+    // printed for it: the port's difference, said by its shape — lengths,
+    // where it starts, what kind of character stands there on each side —
+    // and never by what either side holds.
+    let dir = tempfile::tempdir().unwrap();
+    let (recording, served) =
+        description_read_as(dir.path(), r#""Some text. ^Z""#, r#""Some text. \u001b""#);
+    let github = github(&served, None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(!outcome.clean(), "{said}");
+    assert!(
+        said.contains("| live snapshot | `pr.body` | value | 1 | dashpay/platform · sync: 0 |"),
+        "{said}"
+    );
+    assert!(
+        said.contains(
+            "| live snapshot | `pr.body` | dashpay/platform · sync: 0 | lengths 12 and 13, first difference at 11: control against ASCII punct; equal with line endings made one: no, under NFC: no, without trailing whitespace: no |"
+        ),
+        "{said}"
+    );
+    no_content::assert_no_contents(&said, &recording, &sources());
+}

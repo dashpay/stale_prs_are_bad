@@ -28,6 +28,7 @@
 mod compare;
 mod diff;
 mod exception;
+mod gh_output;
 pub mod live;
 mod recording;
 pub mod report;
@@ -37,7 +38,7 @@ pub use compare::{
     collected, compare, rebuild_snapshots, Check, Comparison, Explanation, Failure, Layer, Outcome,
     SHARED_HEAD,
 };
-pub use diff::{differences, Difference, Kind};
+pub use diff::{class, differences, Difference, Kind, Shape};
 pub use exception::{set_aside_exception_text, ExceptionText, OwnWords, SourceError};
 pub use recording::{LoadError, Recording, FILES, READABLE_FORMATS};
 pub use run::{replay_run, RunFiles, RUN_FILES};
