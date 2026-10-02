@@ -6,8 +6,11 @@ on:
     # UTC): analyze, commit the report to `data`, deploy Pages, post to the
     # service. A dispatch is a full run too.
     - cron: "0 */6 * * *"
-    # Every 15 minutes: analyze and post to the service, nothing else.
-    - cron: "*/15 * * * *"
+    # Every quarter hour in between: analyze and post to the service,
+    # nothing else. Never at a full run's minute, so the two never analyze
+    # the same moment twice.
+    - cron: "15,30,45 * * * *"
+    - cron: "0 1-5,7-11,13-17,19-23 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -23,7 +26,7 @@ concurrency:
   # Pages. Quarter-hourly runs queue among themselves, apart, so a newer one
   # can never cancel a full run still waiting for its turn (a group keeps
   # only its latest pending run).
-  group: pr-hygiene-${{ github.event.schedule == '*/15 * * * *' && 'quick' || 'full' }}
+  group: pr-hygiene-${{ (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 */6 * * *') && 'full' || 'quick' }}
   cancel-in-progress: false
 
 jobs:
@@ -34,8 +37,10 @@ jobs:
     permissions:
       contents: write       # push the regenerated report to the data branch
     outputs:
-      # Whether dashboard data was handed on, even when the run then fails.
+      # Whether dashboard data was handed on, even when the run then fails,
+      # and the digest the post job checks it against.
       snapshot: ${{ steps.handoff.outcome }}
+      sha256: ${{ steps.digest.outputs.sha256 }}
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -109,6 +114,10 @@ jobs:
 
       - name: Run analyzer
         if: ${{ !inputs.dry_run }}
+        # A quarter-hourly run does not turn red for a repository that could
+        # not be fetched: its data is still posted, the service marks that
+        # repository stale, and the full run still reports the failure.
+        continue-on-error: ${{ github.event_name != 'workflow_dispatch' && github.event.schedule != '0 */6 * * *' }}
         working-directory: data
         env:
           # The App token reads every governed repository; the job token can
@@ -123,6 +132,13 @@ jobs:
       # not be fetched. The data still goes on: the service keeps that
       # repository's last good data and marks it stale, while the others stay
       # current. The run itself stays red.
+      # Any step later in the run could replace the uploaded artifact; the
+      # post job posts only the bytes this digest names.
+      - name: Digest the dashboard data
+        id: digest
+        if: ${{ !inputs.dry_run && !cancelled() && hashFiles('dashboard.json') != '' }}
+        run: echo "sha256=$(sha256sum dashboard.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Hand the dashboard data to the publish job
         id: handoff
         if: ${{ !inputs.dry_run && !cancelled() && hashFiles('dashboard.json') != '' }}
@@ -234,3 +250,8 @@ jobs:
     uses: ./.github/workflows/pr-hygiene-post.yml
     with:
       service-url: ${{ vars.PR_HYGIENE_SERVICE_URL }}
+      sha256: ${{ needs.analyze.outputs.sha256 }}
+      # A quarter-hourly post that fails (the service down for a deploy) is a
+      # warning, not a red run every 15 minutes; the service's staleness
+      # alert is what notices a lasting outage.
+      tolerate-failure: ${{ github.event_name != 'workflow_dispatch' && github.event.schedule != '0 */6 * * *' }}

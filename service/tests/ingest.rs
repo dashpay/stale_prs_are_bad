@@ -465,11 +465,34 @@ async fn a_snapshot_with_a_time_out_of_range_is_refused_and_reads_stay_healthy()
         let (status, body) = get_json(&app, "/api/v1/prs/dashpay/platform/3000").await;
         assert_eq!(status, StatusCode::OK, "{what}: {body}");
     }
-    // A PR updated while the run was still reading is real data.
+    // A PR updated while the run was still reading is real data — up to the
+    // hour a run may take, and no further.
     let mut d = snapshot(5);
     let at = d.generated_at + chrono::TimeDelta::minutes(10);
     pr_mut(&mut d, 3000).updated_at = Some(at);
     ingest(&app, &d).await;
+    let mut d = snapshot(4);
+    let at = d.generated_at + chrono::TimeDelta::hours(1);
+    pr_mut(&mut d, 3000).updated_at = Some(at);
+    ingest(&app, &d).await;
+    let mut d = snapshot(3);
+    let at = d.generated_at + chrono::TimeDelta::hours(1) + chrono::TimeDelta::minutes(2);
+    pr_mut(&mut d, 3000).updated_at = Some(at);
+    let (status, body) = post(&app, Some(&token()), common::body(&d)).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "past the run allowance: {body}"
+    );
+}
+
+#[tokio::test]
+async fn a_run_dated_before_2000_is_refused() {
+    let app = app();
+    let mut d = snapshot(5);
+    d.generated_at = chrono::DateTime::from_timestamp(946_684_799, 0).unwrap();
+    let (status, body) = post(&app, Some(&token()), common::body(&d)).await;
+    assert!(status.is_client_error(), "{status}: {body}");
 }
 
 fn pr_mut(d: &mut Dashboard, number: u64) -> &mut pr_hygiene::dashboard::PrOut {

@@ -64,15 +64,22 @@ as `PR_HYGIENE_OIDC_AUDIENCE`. Every run then calls
 
 Runs: every 15 minutes (analyze and post only) and every 6 hours or on
 dispatch (also commit to the `data` branch and deploy Pages). A dry run
-posts nothing. A failed post fails the job and is not retried — a token
-posts once; the next run, at most 15 minutes later, carries newer data.
+posts nothing. A post is never retried — a token posts once; the next run,
+at most 15 minutes later, carries newer data. On a quarter-hourly run a
+failed post is a warning (the service's staleness alert notices a lasting
+outage); on a full run it fails the job. The post job sends only the bytes
+whose SHA-256 the analyze job recorded: the token pin protects the token,
+and the digest protects the data from any later step that could replace
+the artifact.
 A 403 names the claim that did not match; the job prints its
 `job_workflow_ref` and `workflow_ref` before posting.
 
-The analyzer exits non-zero when a repository cannot be fetched, which
-fails the analyze job: such runs are neither published nor posted. Runs
-that only lack an engine export are posted, and those repositories show as
-stale.
+When a repository cannot be fetched the analyzer still writes the data
+and then exits non-zero. The data is posted anyway: the service keeps that
+repository's last good data and marks it stale, while the others stay
+current. A full run then turns red and does not commit or deploy Pages; a
+quarter-hourly run stays green with a warning. Runs that only lack an
+engine export are posted too, and those repositories show as stale.
 
 ### In front of it
 

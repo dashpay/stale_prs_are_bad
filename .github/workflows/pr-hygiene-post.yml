@@ -5,7 +5,9 @@ name: PR Hygiene post
 # hold a token the service accepts: the service requires the token's
 # `job_workflow_ref` to be this file on master, while every other job of
 # the calling workflow — the Pages deploy among them, which also holds
-# `id-token: write` — carries the caller's own ref.
+# `id-token: write` — carries the caller's own ref. The token pin protects
+# the token, not the artifact: any step of the run could replace that, so
+# the bytes posted must match the digest the analyze job recorded.
 #
 # No checkout, no build, no third-party code: the artifact, curl and the
 # runner's token endpoint.
@@ -17,6 +19,14 @@ on:
         description: The service's https base URL; the token's audience, verbatim
         type: string
         required: true
+      sha256:
+        description: Digest of dashboard.json as the analyze job wrote it
+        type: string
+        required: true
+      tolerate-failure:
+        description: A failed post is a warning rather than a failed run
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,7 +56,19 @@ jobs:
           echo "job_workflow_ref: $JOB_WORKFLOW_REF"
           echo "workflow_ref:     $WORKFLOW_REF"
 
+      - name: Check the data is what the analyze job wrote
+        env:
+          EXPECTED: ${{ inputs.sha256 }}
+        run: |
+          set -euo pipefail
+          actual=$(sha256sum dashboard-data/dashboard.json | cut -d' ' -f1)
+          if [ -z "$EXPECTED" ] || [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::dashboard.json is not the file the analyze job wrote; not posting"
+            exit 1
+          fi
+
       - name: Mint a token and post
+        continue-on-error: ${{ inputs.tolerate-failure }}
         env:
           SERVICE_URL: ${{ inputs.service-url }}
         run: |
