@@ -203,7 +203,7 @@ and fails on any difference from what is committed.
 
 `evaluate` is replaced before the engine or any test is imported, so every
 name it is bound to is the observing one and the engine carries no hook for
-it; an independent count of calls agrees (328). Evidence built from mocks
+it; an independent count of calls agrees (329). Evidence built from mocks
 would not survive JSON and is not kept; the harvest reports how many calls
 that was (none, today). The one test that evaluates in child processes, to
 vary the hash seed, is not seen; other cases cover the renames it uses.
