@@ -13,6 +13,8 @@
 
 use crate::pycompat::PyValue;
 use std::fmt;
+use unicode_normalization::char::is_combining_mark;
+use unicode_normalization::UnicodeNormalization;
 
 /// The names of the fields of a snapshot, of `evaluate`'s result and of a
 /// verdict row, at any depth: the only keys a path spells out.
@@ -182,6 +184,93 @@ pub struct Difference {
     /// The path with its list indices: `pr.reviews[0].state`.
     pub path: String,
     pub kind: Kind,
+    /// For two strings that differ, how: never what either holds.
+    pub shape: Option<Shape>,
+}
+
+/// How two strings differ, without what either holds: their lengths, where
+/// they first part, the class of character at that place on each side,
+/// and whether they would be equal once line endings are made one, once
+/// both are in NFC, or once trailing whitespace is taken off.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shape {
+    /// Code points on the port's side, then on Python's.
+    pub lengths: (usize, usize),
+    /// The first code point at which they differ.
+    pub at: usize,
+    /// What stands there on each side, by [`class`].
+    pub classes: (&'static str, &'static str),
+    pub same_line_endings: bool,
+    pub same_nfc: bool,
+    pub same_trimmed: bool,
+}
+
+impl Shape {
+    /// The shape of two strings that differ: the port's, then Python's.
+    pub fn of(ours: &str, python: &str) -> Shape {
+        let a: Vec<char> = ours.chars().collect();
+        let b: Vec<char> = python.chars().collect();
+        let at = a
+            .iter()
+            .zip(&b)
+            .position(|(x, y)| x != y)
+            .unwrap_or(a.len().min(b.len()));
+        let one_ending = |s: &str| s.replace("\r\n", "\n").replace('\r', "\n");
+        let nfc = |s: &str| s.nfc().collect::<String>();
+        Shape {
+            lengths: (a.len(), b.len()),
+            at,
+            classes: (class(&a, at), class(&b, at)),
+            same_line_endings: one_ending(ours) == one_ending(python),
+            same_nfc: nfc(ours) == nfc(python),
+            same_trimmed: ours.trim_end() == python.trim_end(),
+        }
+    }
+}
+
+impl fmt::Display for Shape {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let yes = |same: bool| if same { "yes" } else { "no" };
+        write!(
+            f,
+            "lengths {} and {}, first difference at {}: {} against {}; equal with line endings \
+             made one: {}, under NFC: {}, without trailing whitespace: {}",
+            self.lengths.0,
+            self.lengths.1,
+            self.at,
+            self.classes.0,
+            self.classes.1,
+            yes(self.same_line_endings),
+            yes(self.same_nfc),
+            yes(self.same_trimmed),
+        )
+    }
+}
+
+/// The class of the character at `at` of `text`: one of a few names, so
+/// that what stands there can be told without saying it.
+pub fn class(text: &[char], at: usize) -> &'static str {
+    let Some(&c) = text.get(at) else {
+        return "end of string";
+    };
+    match c {
+        '\r' if text.get(at + 1) == Some(&'\n') => "CRLF",
+        '\r' => "CR",
+        '\n' => "LF",
+        '\t' => "TAB",
+        '\u{2028}' => "U+2028",
+        '\u{2029}' => "U+2029",
+        '\u{85}' => "U+0085",
+        '\u{a0}' => "NBSP",
+        '\u{fffd}' => "U+FFFD",
+        _ if c.is_control() => "control",
+        _ if c.is_whitespace() => "other whitespace",
+        _ if c.is_ascii_alphanumeric() => "ASCII letter/digit",
+        _ if c.is_ascii() => "ASCII punct",
+        _ if is_combining_mark(c) => "combining mark",
+        _ if c.is_alphabetic() => "non-ASCII letter",
+        _ => "other non-ASCII",
+    }
 }
 
 impl Difference {
@@ -263,12 +352,14 @@ pub fn differences(ours: &PyValue, python: &PyValue, root: &str) -> Vec<Differen
                     found.push(Difference {
                         path: at(key),
                         kind: Kind::Missing,
+                        shape: None,
                     });
                 }
                 for key in mine.keys().filter(|k| !theirs.contains_key(*k)) {
                     found.push(Difference {
                         path: at(key),
                         kind: Kind::Extra,
+                        shape: None,
                     });
                 }
                 let shared_mine = mine.keys().filter(|k| theirs.contains_key(*k));
@@ -277,6 +368,7 @@ pub fn differences(ours: &PyValue, python: &PyValue, root: &str) -> Vec<Differen
                     found.push(Difference {
                         path: path.clone(),
                         kind: Kind::Order,
+                        shape: None,
                     });
                 }
                 // Pushed in reverse so that they are taken in Python's order.
@@ -299,6 +391,7 @@ pub fn differences(ours: &PyValue, python: &PyValue, root: &str) -> Vec<Differen
                     found.push(Difference {
                         path,
                         kind: Kind::Length,
+                        shape: None,
                     });
                     continue;
                 }
@@ -309,10 +402,15 @@ pub fn differences(ours: &PyValue, python: &PyValue, root: &str) -> Vec<Differen
             _ if variant(ours) != variant(python) => found.push(Difference {
                 path,
                 kind: Kind::Type,
+                shape: None,
             }),
             _ if !same_scalar(ours, python) => found.push(Difference {
                 path,
                 kind: Kind::Value,
+                shape: match (ours, python) {
+                    (PyValue::Str(a), PyValue::Str(b)) => Some(Shape::of(a, b)),
+                    _ => None,
+                },
             }),
             _ => {}
         }
@@ -418,8 +516,58 @@ mod tests {
         let difference = Difference {
             path: "pr.threads[12].voices[0].user".into(),
             kind: Kind::Value,
+            shape: None,
         };
         assert_eq!(difference.field(), "pr.threads[].voices[].user");
+    }
+
+    #[test]
+    fn two_strings_that_differ_are_described_by_shape_and_class_alone() {
+        let shape = |ours: &str, python: &str| Shape::of(ours, python);
+        let at = |ours: &str, python: &str| {
+            let s = shape(ours, python);
+            (s.lengths, s.at, s.classes)
+        };
+        assert_eq!(at("ab\r\ncd", "ab\ncd"), ((6, 5), 2, ("CRLF", "LF")));
+        assert_eq!(at("a\rb", "a\nb"), ((3, 3), 1, ("CR", "LF")));
+        assert_eq!(
+            at("a\u{2028}", "a\u{2029}"),
+            ((2, 2), 1, ("U+2028", "U+2029"))
+        );
+        assert_eq!(at("a\u{85}", "a\u{a0}"), ((2, 2), 1, ("U+0085", "NBSP")));
+        assert_eq!(at("a\u{1b}", "a^"), ((2, 2), 1, ("control", "ASCII punct")));
+        assert_eq!(
+            at("a\u{2003}", "aZ"),
+            ((2, 2), 1, ("other whitespace", "ASCII letter/digit"))
+        );
+        assert_eq!(
+            at("aé", "a\u{301}"),
+            ((2, 2), 1, ("non-ASCII letter", "combining mark"))
+        );
+        assert_eq!(
+            at("a\u{fffd}", "a✓"),
+            ((2, 2), 1, ("U+FFFD", "other non-ASCII"))
+        );
+        assert_eq!(
+            at("abc", "ab"),
+            ((3, 2), 2, ("ASCII letter/digit", "end of string"))
+        );
+        assert_eq!(at("a\t", "a"), ((2, 1), 1, ("TAB", "end of string")));
+        // What would make them equal, said as yes or no.
+        let s = shape("x\r\ny ", "x\ny ");
+        assert!(s.same_line_endings && !s.same_nfc && !s.same_trimmed);
+        let s = shape("e\u{301}", "\u{e9}");
+        assert!(s.same_nfc && !s.same_line_endings);
+        let s = shape("x \n", "x");
+        assert!(s.same_trimmed && !s.same_nfc);
+        assert_eq!(
+            shape("a\u{1b}", "a^").to_string(),
+            "lengths 2 and 2, first difference at 1: control against ASCII punct; equal with \
+             line endings made one: no, under NFC: no, without trailing whitespace: no"
+        );
+        // Only strings have a shape.
+        let found = differences(&v(r#"["x", 1]"#), &v(r#"["y", 2]"#), "pr");
+        assert!(found[0].shape.is_some() && found[1].shape.is_none());
     }
 
     #[test]

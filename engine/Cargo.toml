@@ -15,6 +15,11 @@ indexmap = "2"
 regex = { version = "1.12", default-features = false, features = ["std", "perf"] }
 sha2 = "0.10"
 thiserror = "1.0"
+# Only the differential's report uses it, to say whether two strings that
+# differ are equal under NFC and whether a character is a combining mark.
+# No decision does, so its Unicode version, newer than Python 3.12's, cannot
+# move a verdict.
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 # Reads the golden files, independently of the crate's own JSON reader.

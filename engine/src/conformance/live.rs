@@ -43,6 +43,7 @@ use super::compare::{
 };
 use super::diff::{differences, Difference, Kind};
 use super::exception::OwnWords;
+use super::gh_output::printed;
 use super::recording::Recording;
 use super::run::{replayed, synced, Synced};
 use crate::evidence::queries;
@@ -1100,18 +1101,38 @@ fn snapshot_check(
             error.to_string(),
         ),
         Ok(snapshot) => {
-            let left: Vec<Difference> = differences(&snapshot, python, "pr")
-                .into_iter()
-                .filter(|d| !motion.excuses(&d.path))
-                .collect();
+            let unexcused = |snapshot: &PyValue| -> Vec<Difference> {
+                differences(snapshot, python, "pr")
+                    .into_iter()
+                    .filter(|d| !motion.excuses(&d.path))
+                    .collect()
+            };
+            let left = unexcused(&snapshot);
             if left.is_empty() && motion.moved() {
                 moved
+            } else if !left.is_empty() && unexcused(&printed(&snapshot)).is_empty() {
+                Check {
+                    layer: Layer::LiveSnapshot,
+                    index,
+                    outcome: Outcome::Explained {
+                        differences: left,
+                        by: GH_PRINTED,
+                    },
+                }
             } else {
                 Check::new(Layer::LiveSnapshot, index, left)
             }
         }
     }
 }
+
+/// A difference that is how `gh api` printed GitHub's answer to Python.
+const GH_PRINTED: Explanation = Explanation {
+    clock: false,
+    telemetry: false,
+    admission: false,
+    gh_printed: true,
+};
 
 /// Up to `picks` of the pull requests a recording's run evaluated first,
 /// rotating with `slot` so that each comes round, read now through
@@ -1362,6 +1383,7 @@ impl Decided<'_> {
             clock,
             telemetry,
             admission,
+            gh_printed: false,
         };
         subsets(available).into_iter().find(|by| {
             self.again(
@@ -1397,6 +1419,7 @@ fn subsets(available: Explanation) -> Vec<Explanation> {
             clock: bits & 1 != 0,
             telemetry: bits & 2 != 0,
             admission: bits & 4 != 0,
+            gh_printed: false,
         };
         let fits = (!by.clock || available.clock)
             && (!by.telemetry || available.telemetry)
@@ -1624,8 +1647,24 @@ pub fn live_run<T: Transport>(
         let exception_text =
             field(evaluation, "result").is_some_and(|result| own.python_exception_text(result));
         let found = compare_result(verdict, python_row, "verdict", exception_text, own);
+        // A verdict carries some of its pull request's text as it was read
+        // (its title): as gh printed it, on Python's side.
+        let printed_verdict = || {
+            compare_result(
+                &printed(verdict),
+                python_row,
+                "verdict",
+                exception_text,
+                own,
+            )
+        };
         let outcome = if found.is_empty() {
             Outcome::Matched
+        } else if printed_verdict().is_empty() {
+            Outcome::Explained {
+                differences: found,
+                by: GH_PRINTED,
+            }
         } else {
             match decided.explain_verdict(snapshot, verdict, python_row, evaluation, exception_text)
             {
@@ -1701,6 +1740,7 @@ pub fn live_run<T: Transport>(
                 let found = vec![Difference {
                     path: kind.clone(),
                     kind: Kind::WouldBeWrite,
+                    shape: None,
                 }];
                 match again.explain(|aims, aimed| {
                     aims.numbers.contains(number) && aimed.to(number).is_empty()
@@ -1735,6 +1775,7 @@ pub fn live_run<T: Transport>(
                 let found = vec![Difference {
                     path: format!("{kind}, {ELSEWHERE}"),
                     kind: Kind::WouldBeWrite,
+                    shape: None,
                 }];
                 match again.explain(|_, aimed| aimed.elsewhere.is_empty()) {
                     Some(by) => Outcome::Explained {
@@ -1842,6 +1883,7 @@ impl<'a> Again<'a> {
             clock: true,
             telemetry: pages_differ(&self.recording.meta, self.payload),
             admission: false,
+            gh_printed: false,
         };
         for by in subsets(available) {
             let at = match self.tried.iter().position(|(tried, _)| *tried == by) {
@@ -2008,6 +2050,7 @@ mod tests {
             clock: true,
             telemetry: true,
             admission: true,
+            gh_printed: false,
         };
         let tried: Vec<String> = subsets(all).iter().map(ToString::to_string).collect();
         assert_eq!(

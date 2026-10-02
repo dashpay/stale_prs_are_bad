@@ -401,6 +401,30 @@ hold, and fails closed or fails the run rather than guess:
   of the same pairs as CPython and raises where it raises; past that CPython
   merges runs and may meet a different incomparable pair first.
 
+One more is not the engine's at all but `gh`'s, and the port does not copy
+it:
+
+- **Control characters as `gh api` prints them.** Python's engine reads
+  GitHub through `gh api`, which runs its JSON output through go-gh's
+  `asciisanitizer` to keep a terminal from acting on it. Every C0 control
+  character but tab, newline, vertical tab and carriage return, and every
+  C1 control character, raw or escaped, is printed in caret notation
+  (escape as `^[`); so is the text `\u00XX` of one after a backslash, which
+  is no control character at all (`\u001b` quoted in a comment becomes
+  `\^[`). So Python decides on, and when it rewrites a description writes
+  back, text with those characters replaced. The Rust engine reads GitHub
+  itself, as the service will, and keeps what was written: the
+  substitution is a display measure of the CLI, gone with Python's engine
+  at cut-over, and copying it would make the service rewrite what people
+  wrote. The live comparison holds a snapshot, and a verdict row, to
+  Python's under this rule (`conformance::gh_output`): a difference that
+  vanishes once every string on the port's side is written as gh prints it
+  is *explained*, by *gh-printed control characters*. The replay is
+  unaffected: Python's recording holds what gh printed, and both engines
+  replay that. A verdict that gh's substitution changes in another way than
+  by carrying the text, which nothing seen so far does, would still read as
+  a difference.
+
 ## The differential job
 
 `.github/workflows/engine-differential.yml` is the Rust engine's shadow on
@@ -645,7 +669,14 @@ holds the counts tables only.
 - *The Rust engine differed*: the categories table gives the layer, the field
   path, the kind (value, type, length, missing, extra, key order, exception
   text, or a failure such as a write made to another route) and the case
-  indices. Cases index `evaluations.jsonl` for snapshots and evaluations;
+  indices. Where two strings differ, a table under it gives each case's
+  *shape*: both lengths in code points, the first offset at which they
+  part, the class of character there on each side (`CR`, `LF`, `CRLF`,
+  `TAB`, `U+2028`, `U+2029`, `U+0085`, `NBSP`, `U+FFFD`, `control`, other
+  whitespace, ASCII letter/digit, ASCII punct, combining mark, non-ASCII
+  letter, other non-ASCII, end of string), and whether they are equal with
+  line endings made one, under NFC, or without trailing whitespace — never
+  a character itself. Cases index `evaluations.jsonl` for snapshots and evaluations;
   `verdicts.json` for verdicts, run verdicts and outputs; the recorded writes,
   in order from 0, for writes (one the recording does not hold is numbered on
   past its last); and are 0 for the run as a whole (outcome,

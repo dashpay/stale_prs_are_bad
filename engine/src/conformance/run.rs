@@ -583,6 +583,7 @@ pub fn replay_run(recording: &Recording, files: &RunFiles, own: &OwnWords) -> Co
             vec![Difference {
                 path: "verdicts".into(),
                 kind: Kind::Length,
+                shape: None,
             }],
         ));
     } else {
@@ -609,6 +610,7 @@ pub fn replay_run(recording: &Recording, files: &RunFiles, own: &OwnWords) -> Co
                 vec![Difference {
                     path: "outputs".into(),
                     kind: Kind::Length,
+                    shape: None,
                 }],
             ));
         } else {

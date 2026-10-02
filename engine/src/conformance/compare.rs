@@ -193,11 +193,15 @@ impl fmt::Display for Failure {
 /// Which of Python's own inputs made a live difference vanish when the
 /// port was given them in place of its own: the instant it decided at, the
 /// review system's status page, the instant a pull request was admitted.
+/// Or that it is how `gh api` printed GitHub's answer to Python
+/// (`gh_printed`, see `gh_output`): not one of Python's inputs but its view
+/// of them, a deliberate divergence.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Explanation {
     pub clock: bool,
     pub telemetry: bool,
     pub admission: bool,
+    pub gh_printed: bool,
 }
 
 impl fmt::Display for Explanation {
@@ -206,6 +210,7 @@ impl fmt::Display for Explanation {
             (self.clock, "clock"),
             (self.telemetry, "status page"),
             (self.admission, "admission"),
+            (self.gh_printed, "gh-printed control characters"),
         ]
         .into_iter()
         .filter(|(on, _)| *on)
@@ -516,6 +521,7 @@ pub(super) fn compare_result(
                     ExceptionText::Absent => Kind::ExceptionTextAbsent,
                     ExceptionText::OwnWords => Kind::ExceptionTextOwnWords,
                 },
+                shape: None,
             });
         }
     }
