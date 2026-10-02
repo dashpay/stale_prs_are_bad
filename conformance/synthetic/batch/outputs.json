@@ -1,0 +1,21 @@
+[
+ {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": {
+   "state": "success",
+   "context": "PR Hygiene",
+   "description": "ready-to-merge"
+  },
+  "labels": [],
+  "checklist": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai ✓ · thepastaclaw ✓\n- [x] Self-review — posted; again after any push\n- [x] Within your 5 open PRs\n- [x] Build green\n- [x] Approvals — you own every area touched; none needed\n\nWhen every box is checked the `PR Hygiene` check passes and this can merge.\n<!-- pr-hygiene:end -->",
+  "move": "<!-- pr-hygiene:move state=ready-to-merge sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nPolicy satisfied — this can merge.\nFull checklist in the description.",
+  "record": "{\"admitted_at\":\"2026-09-11T00:00:00Z\",\"context\":\"ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be\",\"evidence\":\"39856f7858e2f72f3bc718581b6744b41402d9f09c2812998beb384f20d553cc\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"ready-to-merge\",\"version\":1}",
+  "diff": "{\"diff\":\"828fef4c8b4cf740d29ddd7c16009ddf616afb229afa60195fabe18890bdbd61\",\"diff_heads\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"],\"diff_seen\":null,\"number\":1,\"receipts\":{}}",
+  "markers": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T00:00:00Z\",\"context\":\"ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be\",\"evidence\":\"39856f7858e2f72f3bc718581b6744b41402d9f09c2812998beb384f20d553cc\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"ready-to-merge\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"828fef4c8b4cf740d29ddd7c16009ddf616afb229afa60195fabe18890bdbd61\",\"diff_heads\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"],\"diff_seen\":null,\"number\":1,\"receipts\":{}} -->",
+  "comment": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T00:00:00Z\",\"context\":\"ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be\",\"evidence\":\"39856f7858e2f72f3bc718581b6744b41402d9f09c2812998beb384f20d553cc\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"ready-to-merge\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"828fef4c8b4cf740d29ddd7c16009ddf616afb229afa60195fabe18890bdbd61\",\"diff_heads\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"],\"diff_seen\":null,\"number\":1,\"receipts\":{}} -->\n\n<!-- pr-hygiene:move state=ready-to-merge sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nPolicy satisfied — this can merge.\nFull checklist in the description.",
+  "comment_refused": null,
+  "diff_print": "828fef4c8b4cf740d29ddd7c16009ddf616afb229afa60195fabe18890bdbd61",
+  "receipt_prints": {}
+ }
+]

@@ -1,0 +1,42 @@
+[
+ {
+  "number": 2,
+  "head": "cccccccccccccccccccccccccccccccccccccccc",
+  "status": {
+   "state": "pending",
+   "context": "PR Hygiene",
+   "description": "ready-for-human"
+  },
+  "labels": [
+   "ready-for-human"
+  ],
+  "checklist": "<!-- pr-hygiene:start -->\n# PR Hygiene · `ccccccc`\n- [x] Bots — coderabbitai ✓ · thepastaclaw ✓\n- [x] Self-review — posted; again after any push\n- [x] Within your 5 open PRs\n- [x] Build green\n- Approvals\n  - [ ] `drive` (`packages/drive/2.rs`) — owner\n\nWhen every box is checked the `PR Hygiene` check passes and this can merge.\n<!-- pr-hygiene:end -->",
+  "move": "<!-- pr-hygiene:move state=ready-for-human sha=cccccccccccccccccccccccccccccccccccccccc -->\nReady for review — `drive`: owner.\nFull checklist in the description.",
+  "record": "{\"admitted_at\":\"2026-09-12T10:00:00Z\",\"context\":\"b9ccd88c7f5a85b339852a21656b9b3969c6a138e20e0f78687e46d89aa355a0\",\"evidence\":\"6666835308e4823b10767feee8da4d2dd58891205231f24cb5177ab60a5a8dfb\",\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"number\":2,\"ready_since\":null,\"state\":\"ready-for-human\",\"version\":1}",
+  "diff": "{\"diff\":\"097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb\",\"diff_heads\":[\"cccccccccccccccccccccccccccccccccccccccc\"],\"diff_seen\":null,\"number\":2,\"receipts\":{}}",
+  "markers": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-12T10:00:00Z\",\"context\":\"b9ccd88c7f5a85b339852a21656b9b3969c6a138e20e0f78687e46d89aa355a0\",\"evidence\":\"6666835308e4823b10767feee8da4d2dd58891205231f24cb5177ab60a5a8dfb\",\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"number\":2,\"ready_since\":null,\"state\":\"ready-for-human\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb\",\"diff_heads\":[\"cccccccccccccccccccccccccccccccccccccccc\"],\"diff_seen\":null,\"number\":2,\"receipts\":{}} -->",
+  "comment": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-12T10:00:00Z\",\"context\":\"b9ccd88c7f5a85b339852a21656b9b3969c6a138e20e0f78687e46d89aa355a0\",\"evidence\":\"6666835308e4823b10767feee8da4d2dd58891205231f24cb5177ab60a5a8dfb\",\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"number\":2,\"ready_since\":null,\"state\":\"ready-for-human\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb\",\"diff_heads\":[\"cccccccccccccccccccccccccccccccccccccccc\"],\"diff_seen\":null,\"number\":2,\"receipts\":{}} -->\n\n<!-- pr-hygiene:move state=ready-for-human sha=cccccccccccccccccccccccccccccccccccccccc -->\nReady for review — `drive`: owner.\nFull checklist in the description.",
+  "comment_refused": null,
+  "diff_print": "097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb",
+  "receipt_prints": {}
+ },
+ {
+  "number": 5,
+  "head": "5555555555555555555555555555555555555555",
+  "status": {
+   "state": "pending",
+   "context": "PR Hygiene",
+   "description": "draft"
+  },
+  "labels": [],
+  "checklist": null,
+  "move": null,
+  "record": "{\"admitted_at\":null,\"context\":\"6a85f0b1c602a02af2319560319ebc1110d7912819ede1875055eebe724525e1\",\"evidence\":\"514dd5117afd313bfba601f0c78243fc92e257cc88cab633d03037c85ed50a18\",\"head\":\"5555555555555555555555555555555555555555\",\"number\":5,\"ready_since\":null,\"state\":\"draft\",\"version\":1}",
+  "diff": "{\"diff\":\"61878ad420410f0d914ffeab71ae4c887dfc95e4735ee06ca3012fbda38fdb42\",\"diff_heads\":[\"5555555555555555555555555555555555555555\"],\"diff_seen\":null,\"number\":5,\"receipts\":{}}",
+  "markers": "<!-- platform-pr-review-state-v1 {\"admitted_at\":null,\"context\":\"6a85f0b1c602a02af2319560319ebc1110d7912819ede1875055eebe724525e1\",\"evidence\":\"514dd5117afd313bfba601f0c78243fc92e257cc88cab633d03037c85ed50a18\",\"head\":\"5555555555555555555555555555555555555555\",\"number\":5,\"ready_since\":null,\"state\":\"draft\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"61878ad420410f0d914ffeab71ae4c887dfc95e4735ee06ca3012fbda38fdb42\",\"diff_heads\":[\"5555555555555555555555555555555555555555\"],\"diff_seen\":null,\"number\":5,\"receipts\":{}} -->",
+  "comment": "<!-- platform-pr-review-state-v1 {\"admitted_at\":null,\"context\":\"6a85f0b1c602a02af2319560319ebc1110d7912819ede1875055eebe724525e1\",\"evidence\":\"514dd5117afd313bfba601f0c78243fc92e257cc88cab633d03037c85ed50a18\",\"head\":\"5555555555555555555555555555555555555555\",\"number\":5,\"ready_since\":null,\"state\":\"draft\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"61878ad420410f0d914ffeab71ae4c887dfc95e4735ee06ca3012fbda38fdb42\",\"diff_heads\":[\"5555555555555555555555555555555555555555\"],\"diff_seen\":null,\"number\":5,\"receipts\":{}} -->\n\nPR Hygiene: the checklist is in the description.",
+  "comment_refused": null,
+  "diff_print": "61878ad420410f0d914ffeab71ae4c887dfc95e4735ee06ca3012fbda38fdb42",
+  "receipt_prints": {}
+ }
+]

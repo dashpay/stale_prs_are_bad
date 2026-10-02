@@ -1,0 +1,91 @@
+{
+  "generated_at": "2026-09-12T10:00:00Z",
+  "pull_requests": [
+    {
+      "number": 1,
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "author": "owner",
+      "title": "PR 1",
+      "url": "https://x/1",
+      "state": "ready-to-merge",
+      "status": "success",
+      "blockers": [
+        "All policy requirements are satisfied"
+      ],
+      "reviewers": [],
+      "objectors": [],
+      "areas": [
+        "drive"
+      ],
+      "ready_since": null,
+      "admitted_at": "2026-09-11T00:00:00Z",
+      "bot_completed_at": "2026-09-11T10:00:00Z",
+      "self_reviewed_at": "2026-09-11T11:00:00Z",
+      "nudge": [],
+      "waived": [],
+      "approvals": [
+        {
+          "area": "drive",
+          "files": [
+            "packages/drive/1.rs"
+          ],
+          "approvers": [],
+          "approved_by": [],
+          "owned": true
+        }
+      ],
+      "objections": [],
+      "checklist": [
+        {
+          "item": "bots",
+          "done": true,
+          "lines": [
+            "coderabbitai \u2713",
+            "thepastaclaw \u2713"
+          ],
+          "skippable": false
+        },
+        {
+          "item": "self_review",
+          "done": true,
+          "bot_author": false,
+          "on_their_behalf": [],
+          "address": []
+        },
+        {
+          "item": "slot",
+          "done": true,
+          "limit": 5
+        },
+        {
+          "item": "build",
+          "done": true,
+          "state": "green",
+          "latched": false
+        },
+        {
+          "item": "approvals",
+          "done": true,
+          "areas": [
+            {
+              "area": "drive",
+              "files": [
+                "packages/drive/1.rs"
+              ],
+              "approvers": [],
+              "approved_by": [],
+              "owned": true
+            }
+          ],
+          "awaiting": []
+        }
+      ],
+      "reviewed_heads": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "reviewed_since": null,
+      "receipts": {},
+      "repository": "dashpay/platform"
+    }
+  ]
+}

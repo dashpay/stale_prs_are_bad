@@ -28,6 +28,25 @@ never show:
   asked once more and answered, and a call that runs out of Python's own
   sixty seconds, which is not.
 
+The rest walk write paths, and print the JSON report:
+
+- `sweep`: a full `sync`. One pull request's evidence cannot be read and
+  only its head is marked; a draft loses the checklist its description still
+  carries; two pull requests rebased off the policy lose the engine's
+  labels and checklist, their records set aside rather than deleted — one
+  of them found the engine's only through the comment listing, since all it
+  wears is a name the engine retired.
+- `batch`: `sync --batch-size 1`, the hourly rotation, which picks a pull
+  request whose admission is on record and whose announcement for this
+  head says something else: it is edited in place, and the success is
+  published after the last re-check.
+- `nudge`: a policy with bot timeouts and the review system's status page.
+  Neither bot has reported; the page says one of them failed on this
+  head, so both are due, and the run asks only one.
+- `failing-publish`: the pull request cannot be read again while its verdict
+  is published, so it is marked as failed and the run fails after it.
+- `report-json`: the JSON report, filtered to one person.
+
     uv run -q --python 3.12 --no-project --with pyyaml python conformance/synthetic/generate.py
 
 Python 3.12 only, as the corpus is. The same bytes on every run: the clock,
@@ -36,6 +55,7 @@ the fake's commit and the environment are fixed, and `python` in each
 """
 
 import contextlib
+import copy
 import io
 import json
 import os
@@ -53,6 +73,7 @@ from pr_review import main  # noqa: E402
 from pr_review.github import GitHub  # noqa: E402
 from pr_review.tests.test_conformance import (CLOCK, OTHER_HEAD, REPO, FakeGh, _graph, _pr,  # noqa: E402
                                               policies)
+from pr_review.tests.test_policy import HEAD, fixture  # noqa: E402
 
 PYTHON = (3, 12)
 FILES = ('recording.json', 'calls.jsonl', 'evaluations.jsonl', 'verdicts.json', 'outputs.json', 'printed.txt')
@@ -70,6 +91,16 @@ def record_body(admitted_at, state='waiting-bots', diff=None):
     record = {'version': 1, 'number': 2, 'head': OTHER_HEAD, 'admitted_at': admitted_at, 'ready_since': None,
               'state': state, 'evidence': 'e' * 64, 'context': 'f' * 64}
     return GitHub.state_comment_body(record, 'The engine wrote this.', diff)
+
+
+def record_of(number, head, admitted_at, state, words, diff=None):
+    """The engine's record comment for any pull request, with `words` under it."""
+    record = {'version': 1, 'number': number, 'head': head, 'admitted_at': admitted_at, 'ready_since': None,
+              'state': state, 'evidence': 'e' * 64, 'context': 'f' * 64}
+    return GitHub.state_comment_body(record, words, diff)
+
+
+BLOCK = '<!-- pr-hygiene:start -->\n# PR Hygiene · `stale`\n- [ ] Bots\n<!-- pr-hygiene:end -->'
 
 
 class Scenario(FakeGh):
@@ -92,6 +123,15 @@ class Scenario(FakeGh):
         self.failing = {}
         # (method, path) that runs out of Python's sixty seconds once.
         self.timeouts = set()
+        # (method, path) answered with a failure on its nth call: {n: stderr}.
+        self.failing_at = {}
+        self.asked = {}
+        # The comment listing's answer, by pull request.
+        self.rest_comments = {}
+        # The policy recorded under, when not the fixture's, and the status
+        # page, when the policy reads one.
+        self.policy = None
+        self.telemetry = None
 
     def __call__(self, command, input=None, **options):
         command = list(command)
@@ -105,6 +145,9 @@ class Scenario(FakeGh):
             raise subprocess.TimeoutExpired(command, options.get('timeout'))
         if key in self.failing:
             return subprocess.CompletedProcess(command, 1, '', self.failing.pop(key))
+        self.asked[key] = self.asked.get(key, 0) + 1
+        if self.asked[key] in self.failing_at.get(key, {}):
+            return subprocess.CompletedProcess(command, 1, '', self.failing_at[key][self.asked[key]])
         body = self.answer(arguments[1], arguments[2], json.loads(input) if input else None)
         if isinstance(body, dict) and body.get('errors'):
             said = '; '.join(error.get('message', error['type']) for error in body['errors'])
@@ -146,6 +189,8 @@ class Scenario(FakeGh):
             return [self.statuses.get(parts[1], [])]
         if method == 'GET' and parts[0] == 'issues' and parts[2] == 'timeline':
             return [self.timelines.get(int(parts[1]), [])]
+        if method == 'GET' and parts[0] == 'issues' and parts[2] == 'comments':
+            return [self.rest_comments.get(int(parts[1]), [])]
         return super().answer(method, path, payload)
 
     def histories(self, query):
@@ -303,8 +348,85 @@ def transient_retry():
     return gh, ['sync', '--pr', '2']
 
 
+def governed_elsewhere(gh, number, base, labels, body, words, comment_id, diff=None):
+    """Pull request `number`, rebased onto `base`, wearing `labels`, with the engine's record on it."""
+    head = f'{number}' * 40
+    pr = _pr(number, 'owner', head, '2026-09-09T00:00:00Z')
+    pr['base']['ref'] = base
+    pr.update(labels=[{'name': name} for name in labels], body=body)
+    gh.prs[number] = pr
+    gh.reviews[number] = []
+    body = record_of(number, head, '2026-09-09T12:00:00Z', 'waiting-bots', words, diff)
+    gh.history[number] = [node(comment_id, body, ENGINE, '2026-09-09T12:00:00Z')]
+    gh.rest_comments[number] = [{'id': comment_id, 'user': {'login': 'github-actions[bot]', 'type': 'Bot'},
+                                 'body': body, 'created_at': '2026-09-09T12:00:00Z',
+                                 'updated_at': '2026-09-09T12:00:00Z'}]
+
+
+def sweep():
+    gh = Scenario()
+    # Its changed files cannot all be read: only this head is marked.
+    gh.prs[1]['changed_files'] = 2
+    # Off the policy, wearing the engine's marks: they go, the record stays.
+    diff = {'number': 3, 'diff': 'a' * 64, 'diff_heads': ['3' * 40], 'diff_seen': '2026-09-09T12:00:00Z',
+            'receipts': {}}
+    governed_elsewhere(gh, 3, 'feature/x', ['waiting-bots', 'bot-review-skipped', 'enhancement'],
+                       'Text.\n\n' + BLOCK, 'PR Hygiene: the checklist is in the description.', 300, diff)
+    # Off the policy, wearing only a name the engine retired: the comment
+    # listing says the record is the engine's.
+    governed_elsewhere(gh, 4, 'feature/y', ['ready-to-merge'], 'Some text.',
+                       'PR Hygiene: the checklist is in the description.', 400)
+    # A draft whose description still carries the block.
+    gh.prs[5] = _pr(5, 'drafter', '5' * 40, '2026-09-10T03:00:00Z')
+    gh.prs[5].update(draft=True, body='Work in progress.\n\n' + BLOCK)
+    gh.reviews[5] = []
+    gh.history[5] = []
+    return gh, ['sync', '--format', 'json']
+
+
+def batch():
+    gh = Scenario()
+    words = (f'<!-- pr-hygiene:move state=ready-to-merge sha={HEAD} -->\nPolicy satisfied — said before.\n'
+             'Full checklist in the description.')
+    gh.history[1] = [node(150, record_of(1, HEAD, '2026-09-11T00:00:00Z', 'ready-to-merge', words), ENGINE,
+                          '2026-09-11T00:00:00Z')] + gh.history[1]
+    return gh, ['sync', '--batch-size', '1', '--format', 'json']
+
+
+def nudge():
+    gh = Scenario()
+    gh.policy = dict(fixture()[0], bot_timeouts={'nudge_after_hours': 6, 'waive_after_hours': 16})
+    # Neither bot has reported on this head, seen eight hours ago.
+    gh.reviews[2] = [review for review in gh.reviews[2] if review['user']['login'] == 'passerby']
+    gh.statuses[OTHER_HEAD] = [{'id': 5, 'context': 'PR Hygiene', 'state': 'pending', 'description': 'waiting-bots',
+                                'created_at': '2026-09-12T02:00:00Z',
+                                'creator': {'login': 'github-actions[bot]', 'type': 'Bot'}}]
+    gh.telemetry = {'schema_version': 1, 'data_as_of': '2026-09-12T09:55:00Z',
+                    'live': {'active': [], 'heads': {}, 'capacity': {}},
+                    'history': {'recent_events': [
+                        {'kind': 'head.queued', 'repo': REPO, 'number': 1, 'ts': '2026-09-12T04:00:00Z',
+                         'detail': f'{HEAD[:8]} trigger=new_push priority=0'},
+                        {'kind': 'run.failed', 'repo': REPO, 'number': 2, 'ts': '2026-09-12T05:00:00Z',
+                         'detail': 'after 2 attempt(s)'}], 'daily': []}}
+    return gh, ['sync', '--pr', '2', '--format', 'json']
+
+
+def failing_publish():
+    gh = Scenario()
+    # Read for the snapshot, then refused when read again to publish.
+    gh.failing_at[('GET', f'repos/{REPO}/pulls/2')] = {
+        2: 'gh: API rate limit exceeded for installation ID 1 (HTTP 403)'}
+    return gh, ['sync', '--pr', '2', '--format', 'json']
+
+
+def report_json():
+    return Scenario(), ['report', '--user', 'reviewer', '--format', 'json']
+
+
 SCENARIOS = {'report': report, 'sync-pr-2': sync_pr_2, 'rich-evidence': rich_evidence, 'long-history': long_history,
-             'edited-record': edited_record, 'partial-answer': partial_answer, 'transient-retry': transient_retry}
+             'edited-record': edited_record, 'partial-answer': partial_answer, 'transient-retry': transient_retry,
+             'sweep': sweep, 'batch': batch, 'nudge': nudge, 'failing-publish': failing_publish,
+             'report-json': report_json}
 
 
 def record(name, destination):
@@ -312,9 +434,11 @@ def record(name, destination):
     gh, options = SCENARIOS[name]()
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch, name)
+        page = AssertionError('no status page offline') if gh.telemetry is None else (
+            lambda *_, **__: copy.deepcopy(gh.telemetry))
         with patch('subprocess.run', side_effect=gh), patch('pr_review.github.time.sleep'), patch.dict(os.environ), \
-                patch('pr_review.telemetry.fetch', side_effect=AssertionError('no status page offline')), \
-                policies() as root, patch.object(main, 'clock', return_value=CLOCK), \
+                patch('pr_review.telemetry.fetch', side_effect=page), \
+                policies(gh.policy) as root, patch.object(main, 'clock', return_value=CLOCK), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             os.environ.pop('GITHUB_RUN_ID', None)
             try:
