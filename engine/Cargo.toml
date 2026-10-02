@@ -13,6 +13,7 @@ indexmap = "2"
 # compile, so every pattern has to use the classes read from Python in
 # `pycompat::re` rather than the regex crate's own, newer Unicode data.
 regex = { version = "1.12", default-features = false, features = ["std", "perf"] }
+sha2 = "0.10"
 thiserror = "1.0"
 
 [dev-dependencies]

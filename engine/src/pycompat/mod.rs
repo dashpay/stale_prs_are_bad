@@ -12,7 +12,10 @@
 //! - [`text`]: `str` methods that are Unicode-aware in Python;
 //! - [`re`]: `re`'s character classes as Rust `regex` classes;
 //! - [`datetime`]: `datetime.fromisoformat`, `isoformat` and comparisons;
-//! - [`ties`]: `max` and `min` with a key, which keep the first of equals.
+//! - [`ties`]: `max` and `min` with a key, which keep the first of equals;
+//! - [`ops`]: `==`, `<`, `in` and hashing across every pair of types;
+//! - [`hashlib`]: the digests the engine prints, `hashlib.sha256`;
+//! - [`urllib`]: how a login or a commit goes into a route.
 //!
 //! The character tables come from enumerating every code point under Python
 //! 3.12 (Unicode 15.0), not from Rust's standard library or the regex
@@ -20,12 +23,15 @@
 
 pub mod datetime;
 pub mod error;
+pub mod hashlib;
 pub mod json;
+pub mod ops;
 pub mod re;
 #[rustfmt::skip]
 pub mod tables;
 pub mod text;
 pub mod ties;
+pub mod urllib;
 pub mod value;
 
 pub use datetime::{PyDateTime, PyTimeDelta};
