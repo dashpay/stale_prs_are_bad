@@ -243,6 +243,20 @@ when asked (`cargo test -p pr-hygiene-engine --test evidence -- --ignored`),
 and refuses a recording that was not redacted. Its driver is the engine's
 `conformance` module, which the differential job (below) runs too.
 
+Its `tests/reconcile` replays each recording as a whole run, from the
+recorded `argv`, clock, policy, status page and `GITHUB_RUN_ID`, the dry sync
+walking the write path as Python's did. Every write is answered only as the
+next write the recording holds, with the same route and the same body as a
+JSON value; the verdicts, the canonical outputs, the clock reads (site and
+point among the calls), the outcome and, for `--format json`, the report must
+all come out the same, and every recorded call must be made once, in the
+order recorded. The hourly batch of `--batch-size` is chosen by the test from
+the recorded clock, as `periodic_batch` chooses it; the engine itself takes
+whichever batch its caller chooses. Its driver is `replay_run`, in the same
+`conformance` module as the snapshot driver, and it says what differs by
+layer, field path and kind, never by what a recording holds. The same test
+runs over `conformance/live` when asked (`--test reconcile -- --ignored`).
+
 ## Evaluate cases
 
 ```sh
@@ -355,7 +369,9 @@ regenerates the files and fails on any difference, as it does the corpus.
 
 `engine/tests/policy` runs every evaluate case and the `policy.admit`,
 `policy.receipt_print` and `policy.diff_print` function cases through the
-Rust port, comparing each result as the JSON Python's writer makes of it.
+Rust port, comparing each result as the JSON Python's writer makes of it;
+`engine/tests/reconcile` does the same for the `main.*`,
+`github.GitHub.state_comment_body` and `telemetry.head_state` cases.
 `conformance/pending.txt` lists, one path per line relative to this
 directory, the cases the port is known not to match yet. It only shrinks: a
 listed case that passes fails the test, and so do an unlisted case that
@@ -481,8 +497,13 @@ write. A difference is run again with Python's clock, status page and
   These are what one engine writes and the other reads back.
 - **The printed report**, where the port prints one.
 - **Whether the run failed**, not the message it failed with.
-- **Replaying the state after the writes** must produce no writes. Nothing
-  here builds that state; the port's own replay fake does.
+- **Replaying the state after the writes** must produce no writes once it
+  has settled. Nothing here builds that state; the port's stateful fake
+  (`engine/tests/reconcile/fake.rs`) does. Python's engine settles in one run
+  except in two places, and the port with it: a head the engine has never
+  posted a status for, whose first status moves the evidence its success is
+  re-checked against, and a first request for review, whose waiting time
+  starts once a record shows the admission. Each takes one more run.
 
 ## What is excluded
 
@@ -505,8 +526,8 @@ write. A difference is run again with Python's clock, status page and
   another engine logs a site for each read of its own clock, named as Python's
   are, and the two logs are compared.
 - **What happens when a write fails.** Every canned answer is a success. The
-  failure paths — a label that 404s, a reviewer request refused with 422 —
-  belong to the port's own HTTP-mock tests.
+  failure paths — a label that 404s, a reviewer request refused with 422, a
+  status GitHub does not acknowledge — are shown on the port's stateful fake.
 - **A run that reads its own write.** See the dry `sync` under Recording.
 
 ## Python behaviours the port must reproduce
@@ -575,3 +596,12 @@ write. A difference is run again with Python's clock, status page and
   a bot such as `github-actions` that opens a thread is looked up as a person
   (a 404, read as unknown access, which lets its thread count as an objection).
   No live verdict depends on this today.
+- **Two runs to settle, in two places.** A head the engine has never posted a
+  status for has no `head_seen_at`; the run's first status gives it one, and
+  `fingerprint` holds it, so the re-check before a success finds the evidence
+  changed and posts `Review evidence changed; reconciliation required`. The
+  next run publishes the verdict. And `evaluate` starts a pull request's
+  waiting time (`ready_since`) only from a previous record's admission, so the
+  run that first asks for a review writes a record without it, and the next
+  run refreshes that record in place and posts the status again. Copied as it
+  is, and fixed once, after cut-over.

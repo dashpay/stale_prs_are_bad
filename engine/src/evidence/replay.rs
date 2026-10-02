@@ -8,8 +8,12 @@
 //! byte for byte, GraphQL documents and JSON separators included — which is
 //! what holds the port's requests to Python's. Each recorded answer is
 //! served once, in the order recorded; a call the recording does not hold,
-//! or asked more often than it was recorded, is refused, and so is anything
-//! that is not a read.
+//! or asked more often than it was recorded, is refused.
+//!
+//! A write is answered as the recorder answered it, and only as the next
+//! write the recording holds: the same method and route, and a body that
+//! is the same JSON value, every string in it byte for byte. Anything else
+//! is refused, naming where the two differ.
 //!
 //! Whether a failure is worth one more try is decided here as Python
 //! decided it: by looking for a gateway error, a timeout or a truncated
@@ -22,6 +26,7 @@ use crate::pycompat::text::py_lstrip;
 use crate::pycompat::{py_dumps, py_loads, PyDict, PyValue};
 use indexmap::IndexMap;
 use regex::Regex;
+use std::collections::VecDeque;
 use std::sync::LazyLock;
 
 /// What `gh` said when a call failed, that makes it worth asking again.
@@ -134,14 +139,25 @@ enum Recorded {
 
 #[derive(Debug, Default)]
 struct Answers {
-    recorded: Vec<Recorded>,
+    /// Each answer, with the ordinal of the call it answered.
+    recorded: Vec<(usize, Recorded)>,
     served: usize,
+}
+
+/// One recorded write: the `gh api` command, and the answer the recorder
+/// made for it.
+#[derive(Debug)]
+struct RecordedWrite {
+    ordinal: usize,
+    arguments: Vec<String>,
+    stdin: Option<String>,
+    stdout: String,
 }
 
 /// The `gh api` command a call becomes: its arguments and its stdin.
 type Command = (Vec<String>, Option<String>);
 
-/// Answers from a recording's reads.
+/// Answers from a recording's reads, and checks its writes.
 #[derive(Debug, Default)]
 pub struct ReplayTransport {
     answers: IndexMap<Command, Answers>,
@@ -149,6 +165,9 @@ pub struct ReplayTransport {
     missing: usize,
     /// Reads refused because they were asked more often than recorded.
     exhausted: usize,
+    writes: VecDeque<RecordedWrite>,
+    /// The ordinal of every recorded call served, in the order asked.
+    served: Vec<usize>,
 }
 
 /// Why a recording could not be read.
@@ -205,9 +224,14 @@ impl ReplayTransport {
     }
 
     fn add(&mut self, entry: &PyDict, line: usize) -> Result<(), RecordingError> {
-        if string(field(entry, "kind", line)?, "kind", line)? != "read" {
-            return Ok(());
+        let kind = string(field(entry, "kind", line)?, "kind", line)?;
+        // The recorder numbers its calls from one; a line without a number
+        // is numbered by where it stands.
+        let ordinal = match entry.get("ordinal") {
+            Some(PyValue::Int(n)) => n.as_i64().and_then(|n| usize::try_from(n).ok()),
+            _ => None,
         }
+        .unwrap_or(line);
         let PyValue::List(arguments) = field(entry, "args", line)? else {
             return Err(RecordingError {
                 line,
@@ -222,6 +246,27 @@ impl ReplayTransport {
             PyValue::None => None,
             value => Some(string(value, "stdin", line)?),
         };
+        if kind != "read" {
+            // The recorder answers every write with a success of its own
+            // making; a write recorded as failing is one no replay here can
+            // answer as GitHub did, and is refused rather than taken as a
+            // success.
+            if entry.contains_key("raised")
+                || !matches!(entry.get("exit"), Some(PyValue::Int(exit)) if exit.is_zero())
+            {
+                return Err(RecordingError {
+                    line,
+                    problem: "a write recorded as failing is not replayed".into(),
+                });
+            }
+            self.writes.push_back(RecordedWrite {
+                ordinal,
+                arguments,
+                stdin,
+                stdout: string(field(entry, "stdout", line)?, "stdout", line)?,
+            });
+            return Ok(());
+        }
         let recorded = if entry.contains_key("raised") {
             Recorded::Raised
         } else {
@@ -245,7 +290,7 @@ impl ReplayTransport {
             .entry((arguments, stdin))
             .or_default()
             .recorded
-            .push(recorded);
+            .push((ordinal, recorded));
         Ok(())
     }
 
@@ -268,6 +313,71 @@ impl ReplayTransport {
     pub fn exhausted(&self) -> usize {
         self.exhausted
     }
+
+    /// How many recorded writes were never made.
+    pub fn unwritten(&self) -> usize {
+        self.writes.len()
+    }
+
+    /// The ordinal of every recorded call served, in the order it was
+    /// asked: `1, 2, 3, …` when the calls were made in the order recorded.
+    pub fn served(&self) -> &[usize] {
+        &self.served
+    }
+
+    /// A write, answered only as the next write the recording holds.
+    fn write(&mut self, call: &Call) -> Result<Reply, TransportError> {
+        let (arguments, stdin) =
+            gh_arguments(call).map_err(|error| TransportError::Refused(error.to_string()))?;
+        let Some(recorded) = self.writes.front() else {
+            return Err(TransportError::Refused(format!(
+                "A write the recording does not hold: {}",
+                named(call, &arguments)
+            )));
+        };
+        let differs = |what: &str, was: &str, now: &str| {
+            TransportError::Refused(format!(
+                "Write #{} differs from the recording in its {what}: recorded {was}, made {now}",
+                recorded.ordinal
+            ))
+        };
+        if recorded.arguments != arguments {
+            return Err(differs(
+                "route",
+                &recorded.arguments.join(" "),
+                &arguments.join(" "),
+            ));
+        }
+        let (was, now) = (
+            same_value(recorded.stdin.as_deref()),
+            same_value(stdin.as_deref()),
+        );
+        if was != now {
+            return Err(differs("body", &was, &now));
+        }
+        let ordinal = recorded.ordinal;
+        let answer = self
+            .writes
+            .pop_front()
+            .map_or_else(String::new, |recorded| recorded.stdout);
+        self.served.push(ordinal);
+        Ok(Reply::Text(answer))
+    }
+}
+
+/// A request body as the JSON value it carries, keys sorted, so that two
+/// bodies holding the same entries compare equal; the text itself when it
+/// is not JSON.
+fn same_value(stdin: Option<&str>) -> String {
+    let Some(stdin) = stdin else {
+        return "nothing".into();
+    };
+    match py_loads(stdin) {
+        Ok(value) => {
+            py_dumps(&value, true, Some((",", ":")), None).unwrap_or_else(|_| stdin.to_owned())
+        }
+        Err(_) => stdin.to_owned(),
+    }
 }
 
 /// How a refusal names a call: the `gh api` command, and for GraphQL,
@@ -282,9 +392,7 @@ fn named(call: &Call, arguments: &[String]) -> String {
 impl Transport for ReplayTransport {
     fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
         if !is_read(call) {
-            return Err(TransportError::Refused(format!(
-                "A write is not replayed: {call}"
-            )));
+            return self.write(call);
         }
         let (arguments, stdin) =
             gh_arguments(call).map_err(|error| TransportError::Refused(error.to_string()))?;
@@ -296,7 +404,7 @@ impl Transport for ReplayTransport {
                 named(call, &key.0)
             )));
         };
-        let Some(answer) = answers.recorded.get_mut(answers.served) else {
+        let Some((ordinal, answer)) = answers.recorded.get_mut(answers.served) else {
             self.exhausted += 1;
             return Err(TransportError::Refused(format!(
                 "A read asked more often than the recording holds it ({} times): {}",
@@ -305,6 +413,7 @@ impl Transport for ReplayTransport {
             )));
         };
         answers.served += 1;
+        self.served.push(*ordinal);
         // Each answer is served once, so it is moved out rather than copied.
         match std::mem::replace(answer, Recorded::Raised) {
             Recorded::Raised => Err(Failure::unavailable().into()),

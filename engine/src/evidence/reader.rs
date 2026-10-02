@@ -1094,6 +1094,13 @@ impl<T: Transport> GitHub<T> {
         Ok(self.statuses.get(head).map_or(&[], Vec::as_slice))
     }
 
+    /// The statuses cached for `head`, read first if they are not: what
+    /// a status the engine posts is checked against and added to.
+    pub(crate) fn head_statuses_mut(&mut self, head: &str) -> Read<&mut Vec<PyValue>> {
+        self.head_statuses(head)?;
+        Ok(self.statuses.entry(head.to_owned()).or_default())
+    }
+
     /// `GitHub.head_seen_at(head)`: when the engine first published a status
     /// for this head. Statuses cannot be edited or deleted, so this is a
     /// time no author can move.

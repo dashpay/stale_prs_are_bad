@@ -42,6 +42,21 @@ pub enum Layer {
     Evaluation,
     /// A row of `verdicts.json`.
     Verdict,
+    /// A whole run replayed: its outcome, and how often it read the status
+    /// page.
+    Run,
+    /// A verdict row the whole run made.
+    RunVerdict,
+    /// The recorded writes, every one made.
+    Write,
+    /// What a verdict puts on GitHub, by `outputs.json`.
+    Output,
+    /// The JSON report the run printed.
+    Report,
+    /// Where the run read the clock, and when among its calls.
+    Clock,
+    /// Every recorded call made once, in the order recorded.
+    Call,
 }
 
 impl Layer {
@@ -50,6 +65,13 @@ impl Layer {
             Layer::Snapshot => "snapshot",
             Layer::Evaluation => "evaluation",
             Layer::Verdict => "verdict",
+            Layer::Run => "run",
+            Layer::RunVerdict => "run verdict",
+            Layer::Write => "write",
+            Layer::Output => "output",
+            Layer::Report => "report",
+            Layer::Clock => "clock",
+            Layer::Call => "call",
         }
     }
 }
@@ -88,6 +110,13 @@ pub enum Failure {
     NoEvaluation,
     /// A verdict row whose evaluation gave the port no result.
     NoResult,
+    /// A recorded command the port does not run, or a recording that does
+    /// not say how it was run.
+    Command,
+    /// A write the recording holds that the run never made.
+    WriteNotMade,
+    /// A verdict whose outputs the port could not make.
+    Unmade,
 }
 
 impl fmt::Display for Failure {
@@ -108,6 +137,9 @@ impl fmt::Display for Failure {
             Failure::EvaluateNotPorted => f.write_str("evaluate refused: not ported"),
             Failure::NoEvaluation => f.write_str("verdict without an evaluation"),
             Failure::NoResult => f.write_str("verdict's evaluation gave no result"),
+            Failure::Command => f.write_str("a command the port does not run"),
+            Failure::WriteNotMade => f.write_str("recorded write never made"),
+            Failure::Unmade => f.write_str("outputs the port could not make"),
         }
     }
 }
@@ -136,7 +168,7 @@ pub struct Check {
 }
 
 impl Check {
-    fn new(layer: Layer, index: usize, found: Vec<Difference>) -> Self {
+    pub(super) fn new(layer: Layer, index: usize, found: Vec<Difference>) -> Self {
         let outcome = if found.is_empty() {
             Outcome::Matched
         } else {
@@ -149,7 +181,12 @@ impl Check {
         }
     }
 
-    fn failed(layer: Layer, index: usize, failure: Failure, detail: impl Into<String>) -> Self {
+    pub(super) fn failed(
+        layer: Layer,
+        index: usize,
+        failure: Failure,
+        detail: impl Into<String>,
+    ) -> Self {
         Check {
             layer,
             index,
@@ -246,7 +283,11 @@ pub fn collected(calls: &str) -> Vec<PyInt> {
 }
 
 /// What stopped a read, by its class; a refusal by which counter moved.
-fn read_failure(error: &ReadError, transport: &ReplayTransport, before: (usize, usize)) -> Failure {
+pub(super) fn read_failure(
+    error: &ReadError,
+    transport: &ReplayTransport,
+    before: (usize, usize),
+) -> Failure {
     match error {
         ReadError::GitHub(_) => Failure::GitHubError,
         ReadError::Exception { class, .. } => Failure::Raised(*class),
@@ -360,7 +401,7 @@ pub fn rebuild_snapshots(recording: &Recording) -> (Vec<Check>, usize) {
 /// verdict row: a row whose head another pull request shares is made a
 /// configuration error after `evaluate`, and its first reason is then the
 /// engine's own words, whatever `python_exception_text` would make of it.
-fn compare_result(
+pub(super) fn compare_result(
     ours: &PyValue,
     python: &PyValue,
     root: &str,

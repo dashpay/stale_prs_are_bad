@@ -498,16 +498,58 @@ fn a_replay_serves_each_recorded_answer_once_in_order() {
         Err(TransportError::Refused(why))
             if why == "A read the recording does not hold: gh api --method GET repos/dashpay/platform/pulls/2"
     ));
-    // A write is not replayed, even one the recording holds.
-    let delete = Call::Rest {
+    // A write is answered as the recorder answered it, and only as the
+    // next write the recording holds.
+    let delete = |id: u32| Call::Rest {
         method: Method::Delete,
-        path: "repos/dashpay/platform/issues/comments/5".into(),
+        path: format!("repos/dashpay/platform/issues/comments/{id}"),
         body: None,
         paginate: false,
     };
     assert!(matches!(
-        replay.call(&delete),
-        Err(TransportError::Refused(_))
+        replay.call(&delete(6)),
+        Err(TransportError::Refused(why)) if why.contains("Write #3 differs from the recording in its route")
+    ));
+    assert_eq!(replay.call(&delete(5)), Ok(Reply::Text(String::new())));
+    assert!(matches!(
+        replay.call(&delete(5)),
+        Err(TransportError::Refused(why)) if why.starts_with("A write the recording does not hold")
+    ));
+    // Each answer is logged under the ordinal it was recorded with; both
+    // reads here were recorded as the first call.
+    assert_eq!(replay.served(), [1, 1, 3]);
+    assert_eq!((replay.unasked(), replay.unwritten()), (0, 0));
+}
+
+#[test]
+fn a_replayed_write_is_held_to_its_body_as_a_json_value() {
+    // The body is compared as the value it carries: key order and spacing
+    // are how Python spelled it, the strings are what it said.
+    let status = |description: &str| {
+        let mut body = pr_hygiene_engine::pycompat::PyDict::new();
+        body.insert("state".into(), py(json!("pending")));
+        body.insert("context".into(), py(json!("PR Hygiene")));
+        body.insert("description".into(), py(json!(description)));
+        Call::Rest {
+            method: Method::Post,
+            path: format!("repos/dashpay/platform/statuses/{}", "a".repeat(40)),
+            body: Some(PyValue::Dict(body)),
+            paginate: false,
+        }
+    };
+    let recorded = || {
+        recording(&[json!({"ordinal": 1, "kind": "write",
+            "args": ["--method", "POST", format!("repos/dashpay/platform/statuses/{}", "a".repeat(40)), "--input", "-"],
+            "stdin": r#"{"description":"ready é","context":"PR Hygiene","state":"pending"}"#,
+            "exit": 0, "stdout": r#"{"id": 1}"#, "stderr": ""})])
+    };
+    assert_eq!(
+        recorded().call(&status("ready é")),
+        Ok(Reply::Text(r#"{"id": 1}"#.into()))
+    );
+    assert!(matches!(
+        recorded().call(&status("ready e")),
+        Err(TransportError::Refused(why)) if why.contains("in its body")
     ));
 }
 

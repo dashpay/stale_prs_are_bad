@@ -1,0 +1,23 @@
+[
+ {
+  "number": 2,
+  "head": "cccccccccccccccccccccccccccccccccccccccc",
+  "status": {
+   "state": "pending",
+   "context": "PR Hygiene",
+   "description": "waiting-bots"
+  },
+  "labels": [
+   "waiting-bots"
+  ],
+  "checklist": "<!-- pr-hygiene:start -->\n# PR Hygiene · `ccccccc`\n- [ ] Bots — coderabbitai not yet · thepastaclaw not yet — `/skip-bots` proceeds without the ones not yet reported\n- [x] Self-review — posted; again after any push\n- [x] Within your 5 open PRs\n- [x] Build green\n- Approvals\n  - [ ] `drive` (`packages/drive/2.rs`) — owner\n\nWhen every box is checked the `PR Hygiene` check passes and this can merge.\n<!-- pr-hygiene:end -->",
+  "move": null,
+  "record": "{\"admitted_at\":\"2026-09-12T10:00:00Z\",\"context\":\"b9ccd88c7f5a85b339852a21656b9b3969c6a138e20e0f78687e46d89aa355a0\",\"evidence\":\"98cd7a48dda2aef2a18606026a6bddd417c2571e3a5a01cd0afc8d8a9a6702da\",\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"number\":2,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1}",
+  "diff": "{\"diff\":\"097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb\",\"diff_heads\":[\"cccccccccccccccccccccccccccccccccccccccc\"],\"diff_seen\":\"2026-09-12T02:00:00Z\",\"number\":2,\"receipts\":{}}",
+  "markers": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-12T10:00:00Z\",\"context\":\"b9ccd88c7f5a85b339852a21656b9b3969c6a138e20e0f78687e46d89aa355a0\",\"evidence\":\"98cd7a48dda2aef2a18606026a6bddd417c2571e3a5a01cd0afc8d8a9a6702da\",\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"number\":2,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb\",\"diff_heads\":[\"cccccccccccccccccccccccccccccccccccccccc\"],\"diff_seen\":\"2026-09-12T02:00:00Z\",\"number\":2,\"receipts\":{}} -->",
+  "comment": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-12T10:00:00Z\",\"context\":\"b9ccd88c7f5a85b339852a21656b9b3969c6a138e20e0f78687e46d89aa355a0\",\"evidence\":\"98cd7a48dda2aef2a18606026a6bddd417c2571e3a5a01cd0afc8d8a9a6702da\",\"head\":\"cccccccccccccccccccccccccccccccccccccccc\",\"number\":2,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb\",\"diff_heads\":[\"cccccccccccccccccccccccccccccccccccccccc\"],\"diff_seen\":\"2026-09-12T02:00:00Z\",\"number\":2,\"receipts\":{}} -->\n\nPR Hygiene: the checklist is in the description.",
+  "comment_refused": null,
+  "diff_print": "097c3d38551385b5c6ddab1c049e104dcb09e0d359644b9de8244b42f19967fb",
+  "receipt_prints": {}
+ }
+]

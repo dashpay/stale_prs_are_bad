@@ -120,15 +120,15 @@ fn every_synthetic_recording_matches_and_is_counted() {
     let (output, said) = run(&[&synthetic()]);
     assert!(output.status.success(), "{said}");
     assert!(
-        said.contains("7 recording(s): the Rust engine matched every one."),
+        said.contains("13 recording(s): the Rust engine matched every one."),
         "{said}"
     );
     assert!(
-        said.contains("| dashpay/platform · report | 2/2 | 2/2 | 2/2 | 0 | 16 | 0 |"),
+        said.contains("| dashpay/platform · report (report) | 2/2 | 2/2 | 2/2 | 0 | 16 | 0 |"),
         "{said}"
     );
     assert!(
-        said.contains("| **all** (7 recordings) | 10/10 | 10/10 | 8/8 | 0 | 280 | 0 |"),
+        said.contains("| **all** (13 recordings) | 18/18 | 18/18 | 15/15 | 0 | 438 | 0 |"),
         "{said}"
     );
     assert!(said.contains("No differences."), "{said}");

@@ -36,7 +36,8 @@ pub const DIFF_MARKER: &str = "<!-- pr-hygiene-diff-v1";
 /// so no account is ever taken for it.
 pub const EDITOR_UNKNOWN: &str = "(editor unknown)";
 
-static STATE_PATTERN: LazyLock<Regex> =
+/// The record's marker line, its JSON the one group.
+pub(crate) static STATE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| compiled(r"<!-- platform-pr-review-state-v1 (\{[^\r\n]*\}) -->"));
 static DIFF_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| compiled(r"<!-- pr-hygiene-diff-v1 (\{[^\r\n]*\}) -->"));

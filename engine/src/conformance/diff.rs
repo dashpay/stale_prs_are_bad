@@ -37,7 +37,11 @@ const FIELDS: &[&str] = &[
     "bot_author",
     "bot_completed_at",
     "build",
+    "calls",
     "checklist",
+    "clock_reads",
+    "comment",
+    "comment_refused",
     "comments",
     "commit_id",
     "complete",
@@ -47,8 +51,10 @@ const FIELDS: &[&str] = &[
     "controller_diff",
     "controller_state",
     "created_at",
+    "description",
     "diff",
     "diff_heads",
+    "diff_print",
     "diff_seen",
     "done",
     "draft",
@@ -57,6 +63,7 @@ const FIELDS: &[&str] = &[
     "evidence",
     "filename",
     "files",
+    "generated_at",
     "head",
     "head_seen_at",
     "id",
@@ -67,17 +74,24 @@ const FIELDS: &[&str] = &[
     "lifecycle_at",
     "limit",
     "lines",
+    "markers",
+    "move",
     "nudge",
     "number",
     "objections",
     "objectors",
     "on_their_behalf",
+    "outcome",
+    "outputs",
     "owned",
     "permissions",
     "previous_filename",
+    "pull_requests",
     "ready_published",
     "ready_since",
+    "receipt_prints",
     "receipts",
+    "record",
     "repo",
     "repository",
     "requested_reviewers",
@@ -93,11 +107,13 @@ const FIELDS: &[&str] = &[
     "state",
     "status",
     "submitted_at",
+    "telemetry_reads",
     "threads",
     "title",
     "updated_at",
     "url",
     "user",
+    "verdicts",
     "version",
     "voices",
     "waived",
@@ -106,8 +122,8 @@ const FIELDS: &[&str] = &[
 ];
 
 /// Maps keyed by data rather than by field: access by login, receipts by
-/// the digest of what they cover.
-const KEYED_BY_DATA: [&str; 2] = ["permissions", "receipts"];
+/// the digest of what they cover, receipt prints by comment id.
+const KEYED_BY_DATA: [&str; 3] = ["permissions", "receipt_prints", "receipts"];
 
 /// What differs at a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

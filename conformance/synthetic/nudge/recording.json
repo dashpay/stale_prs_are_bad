@@ -1,0 +1,94 @@
+{
+ "format": 2,
+ "repository": "dashpay/platform",
+ "argv": [
+  "sync",
+  "--repo",
+  "dashpay/platform",
+  "--pr",
+  "2",
+  "--format",
+  "json"
+ ],
+ "clock": "2026-09-12T10:00:00Z",
+ "clock_reads": [
+  {
+   "site": "collect",
+   "after": 2
+  },
+  {
+   "site": "run",
+   "after": 10
+  }
+ ],
+ "policy": {
+  "version": 1,
+  "repository": "dashpay/platform",
+  "max_active_prs": 5,
+  "target_branches": [
+   "v4.2-dev"
+  ],
+  "fallback": {
+   "owners": [
+    "fallback"
+   ],
+   "reviewers": []
+  },
+  "areas": [
+   {
+    "id": "drive",
+    "paths": [
+     "packages/drive/"
+    ],
+    "owners": [
+     "owner"
+    ],
+    "reviewers": [
+     "reviewer"
+    ]
+   }
+  ],
+  "bot_timeouts": {
+   "nudge_after_hours": 6,
+   "waive_after_hours": 16
+  }
+ },
+ "telemetry": {
+  "schema_version": 1,
+  "data_as_of": "2026-09-12T09:55:00Z",
+  "live": {
+   "active": [],
+   "heads": {},
+   "capacity": {}
+  },
+  "history": {
+   "recent_events": [
+    {
+     "kind": "head.queued",
+     "repo": "dashpay/platform",
+     "number": 1,
+     "ts": "2026-09-12T04:00:00Z",
+     "detail": "aaaaaaaa trigger=new_push priority=0"
+    },
+    {
+     "kind": "run.failed",
+     "repo": "dashpay/platform",
+     "number": 2,
+     "ts": "2026-09-12T05:00:00Z",
+     "detail": "after 2 attempt(s)"
+    }
+   ],
+   "daily": []
+  }
+ },
+ "telemetry_reads": 1,
+ "outcome": {
+  "returned": 0
+ },
+ "environment": {
+  "GITHUB_RUN_ID": null
+ },
+ "python": "3.12",
+ "engine_commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+ "redacted": null
+}
