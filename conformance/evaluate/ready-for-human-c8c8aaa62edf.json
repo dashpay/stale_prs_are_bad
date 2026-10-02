@@ -1,0 +1,535 @@
+{
+ "policy": {
+  "version": 1,
+  "repository": "dashpay/platform",
+  "max_active_prs": 5,
+  "bot_authors": [
+   "infraclaw-dash",
+   "DCG-Claude",
+   "Claudius-Maginificent"
+  ],
+  "bot_timeouts": {
+   "nudge_after_hours": 6,
+   "waive_after_hours": 16
+  },
+  "target_branches": [
+   "v5.0-dev",
+   "v5.1-dev",
+   "v6.0-dev",
+   "v*-dev"
+  ],
+  "fallback": {
+   "owners": [
+    "QuantumExplorer",
+    "shumkov"
+   ],
+   "reviewers": []
+  },
+  "areas": [
+   {
+    "id": "rs-drive",
+    "paths": [
+     "packages/rs-drive/"
+    ],
+    "owners": [
+     "QuantumExplorer"
+    ],
+    "reviewers": [
+     "shumkov"
+    ],
+    "metadata": {
+     "contributors": [
+      "Lukasz"
+     ]
+    }
+   },
+   {
+    "id": "rs-drive-abci",
+    "paths": [
+     "packages/rs-drive-abci/"
+    ],
+    "owners": [
+     "QuantumExplorer"
+    ],
+    "reviewers": [
+     "shumkov"
+    ],
+    "metadata": {
+     "contributors": [
+      "Lukasz"
+     ]
+    }
+   },
+   {
+    "id": "dpp",
+    "paths": [
+     "packages/rs-dpp/"
+    ],
+    "owners": [
+     "QuantumExplorer",
+     "shumkov"
+    ],
+    "reviewers": [],
+    "metadata": {
+     "contributors": [
+      "Lukasz"
+     ]
+    }
+   },
+   {
+    "id": "rs-platform-wallet",
+    "paths": [
+     "packages/rs-platform-wallet/"
+    ],
+    "owners": [
+     "llbartekll"
+    ],
+    "reviewers": [
+     "ZocoLini",
+     "HashEngineering",
+     "romchornyi"
+    ],
+    "metadata": {
+     "contributors": [
+      "Sam",
+      "Lukasz",
+      "Ivan",
+      "Pasta"
+     ]
+    }
+   },
+   {
+    "id": "rs-platform-wallet-ffi",
+    "paths": [
+     "packages/rs-platform-wallet-ffi/"
+    ],
+    "owners": [
+     "llbartekll"
+    ],
+    "reviewers": [
+     "ZocoLini",
+     "HashEngineering",
+     "romchornyi"
+    ],
+    "metadata": {
+     "contributors": [
+      "Sam",
+      "Lukasz",
+      "Ivan",
+      "Pasta"
+     ]
+    }
+   },
+   {
+    "id": "wallet-storage",
+    "paths": [
+     "packages/rs-platform-wallet-storage/"
+    ],
+    "owners": [
+     "lklimek"
+    ],
+    "reviewers": [],
+    "metadata": {
+     "contributors": [
+      "Sam",
+      "Ivan"
+     ]
+    }
+   },
+   {
+    "id": "swift-sdk",
+    "paths": [
+     "packages/swift-sdk/"
+    ],
+    "owners": [
+     "llbartekll",
+     "romchornyi"
+    ],
+    "reviewers": [],
+    "metadata": {
+     "contributors": [
+      "Sam",
+      "Pasta",
+      "Borja",
+      "Brian"
+     ],
+     "qa": [
+      "Andrei"
+     ]
+    }
+   },
+   {
+    "id": "rust-sdk",
+    "paths": [
+     "packages/rs-sdk/"
+    ],
+    "owners": [
+     "lklimek",
+     "shumkov"
+    ],
+    "reviewers": [],
+    "metadata": {
+     "contributors": [
+      "Sam",
+      "Pasta",
+      "Borja"
+     ],
+     "qa": [
+      "thephez"
+     ]
+    }
+   },
+   {
+    "id": "rust-sdk-ffi",
+    "paths": [
+     "packages/rs-sdk-ffi/"
+    ],
+    "owners": [
+     "lklimek",
+     "shumkov"
+    ],
+    "reviewers": [],
+    "metadata": {
+     "contributors": [
+      "Sam"
+     ]
+    }
+   },
+   {
+    "id": "dashmate",
+    "paths": [
+     "packages/dashmate/"
+    ],
+    "owners": [
+     "shumkov",
+     "ktechmidas"
+    ],
+    "reviewers": [],
+    "metadata": {
+     "contributors": [
+      "Sam"
+     ],
+     "qa": [
+      "thephez"
+     ]
+    }
+   },
+   {
+    "id": "js-wasm-sdk",
+    "paths": [
+     "packages/js-dash-sdk/",
+     "packages/js-evo-sdk/",
+     "packages/wasm-sdk/"
+    ],
+    "owners": [
+     "shumkov"
+    ],
+    "reviewers": [],
+    "metadata": {
+     "contributors": [
+      "Sam"
+     ],
+     "qa": [
+      "thephez"
+     ]
+    }
+   },
+   {
+    "id": "rust-dapi",
+    "paths": [
+     "packages/rs-dapi/"
+    ],
+    "owners": [
+     "lklimek"
+    ],
+    "reviewers": [
+     "QuantumExplorer",
+     "shumkov"
+    ]
+   },
+   {
+    "id": "system-contracts",
+    "paths": [
+     "packages/data-contracts/",
+     "packages/dashpay-contract/",
+     "packages/dpns-contract/",
+     "packages/masternode-reward-shares-contract/",
+     "packages/withdrawals-contract/",
+     "packages/wallet-utils-contract/",
+     "packages/token-history-contract/",
+     "packages/document-history-contract/",
+     "packages/keyword-search-contract/"
+    ],
+    "owners": [
+     "QuantumExplorer",
+     "shumkov"
+    ],
+    "reviewers": [],
+    "metadata": {
+     "contributors": [
+      "HashEngineering"
+     ]
+    }
+   },
+   {
+    "id": "kotlin-sdk",
+    "paths": [
+     "packages/kotlin-sdk/"
+    ],
+    "owners": [
+     "HashEngineering"
+    ],
+    "reviewers": [],
+    "metadata": {
+     "contributors": [
+      "Sam",
+      "Roman",
+      "Brian"
+     ],
+     "qa": [
+      "Brian",
+      "Andrei"
+     ]
+    }
+   },
+   {
+    "id": "github",
+    "paths": [
+     ".github/"
+    ],
+    "owners": [
+     "ktechmidas"
+    ],
+    "reviewers": [
+     "shumkov"
+    ]
+   }
+  ]
+ },
+ "pr": {
+  "number": 1,
+  "author": "llbartekll",
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base": "v4.2-dev",
+  "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": "2026-09-10T00:00:00Z",
+  "draft": false,
+  "state": "open",
+  "url": "url",
+  "title": "title",
+  "files": [
+   {
+    "filename": "packages/swift-sdk/Sources/a.swift"
+   },
+   {
+    "filename": ".editorconfig"
+   },
+   {
+    "filename": ".github/workflows/swift-sdk-build.yml"
+   },
+   {
+    "filename": ".github/workflows/tests.yml"
+   },
+   {
+    "filename": "AGENTS.md"
+   }
+  ],
+  "reviews": [
+   {
+    "id": 5,
+    "user": "romchornyi",
+    "state": "APPROVED",
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "submitted_at": "2026-09-11T10:30:00Z",
+    "body": ""
+   }
+  ],
+  "comments": [
+   {
+    "id": 1,
+    "user": "llbartekll",
+    "body": "/skip-bots",
+    "created_at": "2026-09-11T10:00:00Z",
+    "updated_at": "2026-09-11T10:00:00Z"
+   },
+   {
+    "id": 2,
+    "user": "llbartekll",
+    "body": "/self-reviewed",
+    "created_at": "2026-09-11T14:00:00Z",
+    "updated_at": "2026-09-11T14:00:00Z"
+   }
+  ],
+  "threads": [],
+  "requested_reviewers": [],
+  "permissions": {
+   "llbartekll": "write",
+   "romchornyi": "write",
+   "QuantumExplorer": "admin",
+   "shumkov": "admin",
+   "ktechmidas": "admin"
+  },
+  "controller_state": null,
+  "labels": [],
+  "complete": true,
+  "build": "green",
+  "head_seen_at": "2026-09-11T09:00:00Z",
+  "body": ""
+ },
+ "admitted_at": "2026-09-11T12:00:00Z",
+ "now": "2026-09-11T15:00:00Z",
+ "telemetry_states": null,
+ "result": {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "author": "llbartekll",
+  "title": "title",
+  "url": "url",
+  "state": "ready-for-human",
+  "status": "pending",
+  "blockers": [
+   "Human approval or objection resolution is required",
+   "Proceeded without coderabbitai: skipped by @llbartekll",
+   "Proceeded without thepastaclaw: skipped by @llbartekll"
+  ],
+  "reviewers": [
+   "QuantumExplorer",
+   "ktechmidas",
+   "shumkov"
+  ],
+  "objectors": [],
+  "areas": [
+   "fallback",
+   "github",
+   "swift-sdk"
+  ],
+  "ready_since": null,
+  "admitted_at": "2026-09-11T12:00:00Z",
+  "bot_completed_at": "2026-09-11T10:00:00Z",
+  "self_reviewed_at": "2026-09-11T14:00:00Z",
+  "nudge": [],
+  "waived": [
+   "coderabbitai",
+   "thepastaclaw"
+  ],
+  "approvals": [
+   {
+    "area": "swift-sdk",
+    "files": [
+     "packages/swift-sdk/Sources/a.swift"
+    ],
+    "approvers": [],
+    "approved_by": [],
+    "owned": true
+   },
+   {
+    "area": "fallback",
+    "files": [
+     ".editorconfig",
+     "AGENTS.md"
+    ],
+    "approvers": [
+     "QuantumExplorer",
+     "shumkov"
+    ],
+    "approved_by": [],
+    "owned": false
+   },
+   {
+    "area": "github",
+    "files": [
+     ".github/workflows/swift-sdk-build.yml",
+     ".github/workflows/tests.yml"
+    ],
+    "approvers": [
+     "ktechmidas",
+     "shumkov"
+    ],
+    "approved_by": [],
+    "owned": false
+   }
+  ],
+  "objections": [],
+  "checklist": [
+   {
+    "item": "bots",
+    "done": true,
+    "lines": [
+     "coderabbitai skipped by llbartekll",
+     "thepastaclaw skipped by llbartekll"
+    ],
+    "skippable": false
+   },
+   {
+    "item": "self_review",
+    "done": true,
+    "bot_author": false,
+    "on_their_behalf": [],
+    "address": []
+   },
+   {
+    "item": "slot",
+    "done": true,
+    "limit": 5
+   },
+   {
+    "item": "build",
+    "done": true,
+    "state": "green",
+    "latched": false
+   },
+   {
+    "item": "approvals",
+    "done": false,
+    "areas": [
+     {
+      "area": "swift-sdk",
+      "files": [
+       "packages/swift-sdk/Sources/a.swift"
+      ],
+      "approvers": [],
+      "approved_by": [],
+      "owned": true
+     },
+     {
+      "area": "fallback",
+      "files": [
+       ".editorconfig",
+       "AGENTS.md"
+      ],
+      "approvers": [
+       "QuantumExplorer",
+       "shumkov"
+      ],
+      "approved_by": [],
+      "owned": false
+     },
+     {
+      "area": "github",
+      "files": [
+       ".github/workflows/swift-sdk-build.yml",
+       ".github/workflows/tests.yml"
+      ],
+      "approvers": [
+       "ktechmidas",
+       "shumkov"
+      ],
+      "approved_by": [],
+      "owned": false
+     }
+    ],
+    "awaiting": []
+   }
+  ],
+  "reviewed_heads": [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "reviewed_since": "2026-09-11T09:00:00Z",
+  "receipts": {},
+  "skipped_by": "llbartekll"
+ },
+ "tests": [
+  "test_checklist.RecordTests.test_the_first_pass_converts_a_standing_record_of_this_move_rather_than_announcing_it"
+ ],
+ "python_exception_text": false
+}
