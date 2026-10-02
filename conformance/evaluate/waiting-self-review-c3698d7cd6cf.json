@@ -163,5 +163,6 @@
  "tests": [
   "test_policy.PolicyTests.test_self_review_still_names_a_commit_and_rejects_other_text"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

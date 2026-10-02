@@ -404,5 +404,6 @@
  "tests": [
   "test_checklist.SecondReviewTests.test_a_pull_request_back_in_draft_loses_the_stale_block"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

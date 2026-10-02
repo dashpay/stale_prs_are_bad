@@ -180,5 +180,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_cosmetic_edit_is_not_the_bot_speaking_again"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

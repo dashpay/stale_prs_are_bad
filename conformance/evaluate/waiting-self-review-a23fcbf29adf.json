@@ -163,5 +163,6 @@
  "tests": [
   "test_policy.PolicyTests.test_self_review_requires_unedited_author_confirmation"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

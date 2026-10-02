@@ -191,5 +191,6 @@
  "tests": [
   "test_policy.PolicyTests.test_nobody_approves_what_they_are_holding"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

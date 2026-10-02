@@ -506,5 +506,6 @@
  "tests": [
   "test_checklist.ChecklistTests.test_a_bot_that_reported_and_still_objects_says_both"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

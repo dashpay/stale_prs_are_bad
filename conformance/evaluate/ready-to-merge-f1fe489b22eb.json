@@ -166,5 +166,6 @@
  "tests": [
   "test_bot_timeouts.WaiverTests.test_a_sole_required_bot_can_be_waived_or_the_feature_is_pointless"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -546,5 +546,6 @@
  "tests": [
   "test_checklist.ChecklistTests.test_a_bot_author_is_not_told_to_post_it_itself"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

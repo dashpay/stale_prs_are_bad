@@ -554,5 +554,6 @@
  "tests": [
   "test_checklist.PublishTests.test_a_bot_reporting_while_an_objection_waits_tells_the_author_again"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

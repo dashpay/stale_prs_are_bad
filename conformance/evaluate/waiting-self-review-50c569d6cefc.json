@@ -487,5 +487,6 @@
  "tests": [
   "test_checklist.PublishTests.test_a_hand_ticked_box_or_a_wiped_block_is_repaired"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

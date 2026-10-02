@@ -188,5 +188,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_bot_completing_again_does_not_ask_for_another_attestation"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

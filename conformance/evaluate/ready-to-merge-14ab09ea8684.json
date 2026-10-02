@@ -537,5 +537,6 @@
  "tests": [
   "test_checklist.SecondReviewTests.test_a_bot_author_still_gets_the_merge_announcement_and_its_record"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

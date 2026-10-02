@@ -168,5 +168,6 @@
  "tests": [
   "test_policy.PolicyTests.test_somebody_it_was_not_handed_to_still_cannot"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

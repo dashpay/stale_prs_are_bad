@@ -260,5 +260,6 @@
  "tests": [
   "test_policy.PolicyTests.test_the_verdict_says_who_must_approve_what_and_what_is_already_covered"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

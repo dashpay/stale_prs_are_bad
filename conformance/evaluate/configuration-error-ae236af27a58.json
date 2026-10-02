@@ -116,5 +116,6 @@
  "tests": [
   "test_policy.PolicyTests.test_missing_build_evidence_is_not_a_pass"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -489,5 +489,6 @@
  "tests": [
   "test_checklist.PublishTests.test_a_record_line_somebody_truncated_does_not_wedge_the_pull_request"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

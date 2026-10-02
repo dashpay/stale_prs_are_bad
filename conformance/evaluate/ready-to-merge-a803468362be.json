@@ -173,5 +173,6 @@
  "tests": [
   "test_bot_timeouts.WaiverTests.test_a_self_review_written_before_the_waiver_still_counts"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -174,5 +174,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_blocker_resolved_without_a_push_leaves_an_earlier_attestation_standing"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

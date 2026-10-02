@@ -186,5 +186,6 @@
  "tests": [
   "test_policy.PolicyTests.test_handing_it_to_an_owner_is_not_the_owner_having_read_it"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

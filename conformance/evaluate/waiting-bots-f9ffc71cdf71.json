@@ -495,5 +495,6 @@
  "tests": [
   "test_checklist.RecordTests.test_two_standing_comments_converge_to_one"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

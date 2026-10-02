@@ -18,6 +18,18 @@ jobs:
         with:
           persist-credentials: false
           path: proposed
+      # The Python the engine runs on in every governed repository, and the
+      # one the conformance corpus is harvested with.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Install PyYAML for the tests and the repository checks
+        # The runner's own Python came with it; this one does not. Pinned by
+        # hash, as the actions are by commit.
+        run: |
+          echo 'pyyaml==6.0.3 --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc' \
+            > "$RUNNER_TEMP/requirements.txt"
+          python3 -m pip install --require-hashes -r "$RUNNER_TEMP/requirements.txt"
       - name: Unit tests
         working-directory: proposed
         run: python3 -m unittest discover -s pr_review/tests -v

@@ -193,5 +193,6 @@
  "tests": [
   "test_policy.PolicyTests.test_an_unresolved_thread_from_whoever_holds_it_is_still_an_objection"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -173,5 +173,6 @@
  "tests": [
   "test_bot_timeouts.WaiverTests.test_a_waiver_unblocks_the_pull_request_and_is_stated"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

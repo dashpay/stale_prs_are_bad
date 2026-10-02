@@ -456,5 +456,6 @@
  "tests": [
   "test_repositories.RepositoryConfigurationTests.test_github_directory_is_ktechmidas_everywhere_with_shumkov_as_backup"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

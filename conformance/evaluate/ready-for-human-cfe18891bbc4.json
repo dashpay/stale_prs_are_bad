@@ -532,5 +532,6 @@
   "test_checklist.ChecklistTests.test_after_the_attestation_only_the_uncovered_files_are_left",
   "test_checklist.ChecklistTests.test_each_reviewer_is_told_which_areas_are_theirs"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

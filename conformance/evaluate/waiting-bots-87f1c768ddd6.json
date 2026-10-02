@@ -166,5 +166,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_bot_asked_about_this_work_is_not_asked_again_on_the_next_commit"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

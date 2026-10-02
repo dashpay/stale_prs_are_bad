@@ -527,5 +527,6 @@
  "tests": [
   "test_checklist.SecondReviewTests.test_a_first_waiting_build_with_no_comment_is_found_by_the_scan_through_its_status"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

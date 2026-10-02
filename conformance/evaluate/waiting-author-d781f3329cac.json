@@ -171,5 +171,6 @@
  "tests": [
   "test_bot_timeouts.WaiverTests.test_an_objection_on_the_current_head_still_blocks_and_is_never_waived"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

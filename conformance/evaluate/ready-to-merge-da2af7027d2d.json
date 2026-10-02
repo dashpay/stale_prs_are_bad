@@ -181,5 +181,6 @@
  "tests": [
   "test_bot_timeouts.SkipBotsTests.test_a_skip_does_not_take_the_attestation_back"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

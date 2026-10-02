@@ -161,5 +161,6 @@
  "tests": [
   "test_bot_timeouts.SkipBotsTests.test_someone_without_write_access_cannot_skip"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

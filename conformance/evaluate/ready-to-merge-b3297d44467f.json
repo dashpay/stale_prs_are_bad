@@ -482,5 +482,6 @@
  "tests": [
   "test_checklist.PublishTests.test_the_second_verdict_sees_the_same_carried_review"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

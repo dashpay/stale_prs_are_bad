@@ -503,5 +503,6 @@
  "tests": [
   "test_checklist.PublishTests.test_the_same_move_on_the_same_head_is_kept_current_in_place"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

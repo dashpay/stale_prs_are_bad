@@ -190,5 +190,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_bot_authors_stand_in_attestation_is_dated_when_the_bots_were_done"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

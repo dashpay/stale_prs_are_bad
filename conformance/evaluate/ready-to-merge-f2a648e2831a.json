@@ -174,5 +174,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_receipt_this_controller_has_not_seen_dates_from_the_comment"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

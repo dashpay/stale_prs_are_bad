@@ -165,5 +165,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_review_written_on_another_diff_does_not_attest_to_this_one"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

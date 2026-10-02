@@ -122,5 +122,6 @@
  "tests": [
   "test_policy.PolicyTests.test_incomplete_or_unresolved_never_succeeds"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

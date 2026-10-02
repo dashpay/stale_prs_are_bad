@@ -234,5 +234,6 @@
  "tests": [
   "test_policy.PolicyTests.test_the_carried_commits_do_not_grow_without_bound"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

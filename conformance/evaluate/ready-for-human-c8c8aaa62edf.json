@@ -531,5 +531,6 @@
  "tests": [
   "test_checklist.RecordTests.test_the_first_pass_converts_a_standing_record_of_this_move_rather_than_announcing_it"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

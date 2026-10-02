@@ -185,5 +185,6 @@
  "tests": [
   "test_policy.PolicyTests.test_fixed_owner_pr_returns_to_objecting_reviewers_queue"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

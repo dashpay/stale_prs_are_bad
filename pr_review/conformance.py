@@ -769,6 +769,10 @@ def python_exception_text(result):
 
 # The instant the engine's own clock reads during a harvest.
 HARVEST_CLOCK = '2026-10-01T00:00:00Z'
+# The one Python cases are harvested on, the one CI runs. What `fromisoformat`
+# accepts and how `str` classifies characters change between minor versions,
+# and a case made on another one would pin that Python's answer instead.
+HARVEST_PYTHON = (3, 12)
 CASE_FILE = re.compile(r'[a-z-]+-[0-9a-f]{12}\.json')
 
 
@@ -785,7 +789,11 @@ def harvest(destination, start='pr_review/tests'):
     carries no hook for it.
     """
     import unittest
-    bound = [name for name in ('pr_review.main', 'pr_review.aggregate') if name in sys.modules]
+    if sys.version_info[:2] != HARVEST_PYTHON:
+        raise RecordingError('harvest runs on Python {}.{} only; this is Python {}'.format(
+            *HARVEST_PYTHON, sys.version.split()[0]))
+    python = '{}.{}'.format(*sys.version_info[:2])
+    bound =[name for name in ('pr_review.main', 'pr_review.aggregate') if name in sys.modules]
     if bound or any(name.startswith('test_') or name.startswith('pr_review.tests') for name in sys.modules):
         raise RecordingError('evaluate must be observed before the engine or the tests are imported')
     import inspect
@@ -851,7 +859,8 @@ def harvest(destination, start='pr_review/tests'):
     destination.mkdir(parents=True, exist_ok=True)
     kept, lossy = {}, 0
     for name, case in sorted(cases.items()):
-        case = dict(case, tests=sorted(case['tests']), python_exception_text=python_exception_text(case['result']))
+        case = dict(case, tests=sorted(case['tests']), python_exception_text=python_exception_text(case['result']),
+                    python=python)
         # Only what survives JSON as it was: a tuple read back as a list, or a
         # key that was not a string, can decide differently, and a case that
         # does not replay against itself teaches the port nothing.

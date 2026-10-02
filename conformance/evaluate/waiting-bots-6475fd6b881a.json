@@ -169,5 +169,6 @@
  "tests": [
   "test_policy.PolicyTests.test_an_edited_bot_summary_is_a_new_report_not_a_new_attestation"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

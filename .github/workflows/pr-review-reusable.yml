@@ -31,6 +31,13 @@ jobs:
       (github.event_name != 'push' || github.ref_name == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
+      # Before anything runs python3. What `fromisoformat` accepts and which
+      # characters count as whitespace change between minor versions, so the
+      # engine runs on the Python its conformance corpus was made with.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
       - name: Resolve the engine pin, policy branch protection and target branch
         id: target
         env:

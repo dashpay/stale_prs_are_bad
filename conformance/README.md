@@ -12,8 +12,10 @@ There are two artifacts.
 | Boundary recordings | `conformance/live/` | **no** (`.gitignore`) | a whole run against real pull requests: every GitHub call and its answer, the verdicts, the ordered writes, the exact text written |
 | Evaluate cases | `conformance/evaluate/` | yes | every `policy.evaluate` call the engine's own test suite makes: inputs and result |
 
-Python 3.12 is what these were produced with; any Python from 3.10 runs the
-engine. With [uv](https://docs.astral.sh/uv/), prefix each command below with
+Python 3.12 is what these were produced with, and what the engine and its
+tests run on in CI (`actions/setup-python`); any Python from 3.10 runs the
+engine, but `harvest` refuses any other than 3.12. With
+[uv](https://docs.astral.sh/uv/), prefix each command below with
 `uv run -q --python 3.12 --no-project --with pyyaml`.
 
 ## Boundary recordings
@@ -187,7 +189,9 @@ python -m pr_review.conformance harvest      # rewrites conformance/evaluate
 Runs the engine's test suite (all but `test_conformance`) with `policy.evaluate`
 observed, and writes one file per distinct call:
 `{policy, pr, admitted_at, now, telemetry_states, result, tests,
-python_exception_text}`. `tests` names the tests that made it. Files are named
+python_exception_text, python}`. `tests` names the tests that made it; `python`
+is the minor version that made it (only the minor: CI's patch release need not
+be yours). Files are named
 `<state>-<first 12 hex of SHA-256 over the case>.json`, so the same call is the
 same file on every harvest; the engine clock is fixed at `2026-10-01T00:00:00Z`
 during a harvest for the few tests that leave it running. A case is kept only

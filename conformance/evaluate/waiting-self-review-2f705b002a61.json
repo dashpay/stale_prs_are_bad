@@ -218,5 +218,6 @@
  "tests": [
   "test_repositories.RepositoryConfigurationTests.test_rust_dashcore_crates_are_owned_by_the_repository_wildcard"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

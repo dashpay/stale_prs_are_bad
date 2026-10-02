@@ -174,5 +174,6 @@
  "tests": [
   "test_policy.PolicyTests.test_the_attestation_is_the_phrase_however_it_is_spelled"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

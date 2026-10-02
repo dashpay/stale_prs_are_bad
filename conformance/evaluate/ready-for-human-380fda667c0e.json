@@ -184,5 +184,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_pull_request_ready_without_a_recorded_clock_still_latches"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

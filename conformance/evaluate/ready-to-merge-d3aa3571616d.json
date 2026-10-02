@@ -173,5 +173,6 @@
  "tests": [
   "test_policy.PolicyTests.test_sixth_waits_without_blocking_admitted_five"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

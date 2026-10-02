@@ -495,5 +495,6 @@
  "tests": [
   "test_checklist.PublishTests.test_a_named_machine_author_is_not_told_its_move"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

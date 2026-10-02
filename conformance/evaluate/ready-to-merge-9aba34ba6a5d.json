@@ -177,5 +177,6 @@
   "test_policy.PolicyTests.test_taking_it_over_afterwards_makes_what_was_posted_count",
   "test_policy.PolicyTests.test_whoever_the_pull_request_was_handed_to_can_attest"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

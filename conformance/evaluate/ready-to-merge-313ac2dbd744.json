@@ -189,5 +189,6 @@
  "tests": [
   "test_policy.PolicyTests.test_dismissal_and_stale_approval_do_not_satisfy_human_area"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

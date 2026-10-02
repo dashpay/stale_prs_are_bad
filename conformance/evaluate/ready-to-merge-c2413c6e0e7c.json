@@ -184,5 +184,6 @@
  "tests": [
   "test_policy.BotFindingTests.test_a_bots_suggestion_does_not_hold_the_pull_request"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

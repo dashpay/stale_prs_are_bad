@@ -171,5 +171,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_machine_account_holding_it_is_still_nobody"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -122,5 +122,6 @@
  "tests": [
   "test_policy.PolicyTests.test_only_a_satisfied_policy_passes_the_check"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

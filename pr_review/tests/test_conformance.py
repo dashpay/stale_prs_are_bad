@@ -488,6 +488,20 @@ class EvaluateCaseTests(unittest.TestCase):
         failed = [line for path in paths for line in conformance.replay_case(path)]
         self.assertEqual(failed, [])
 
+    def test_every_committed_case_says_which_python_made_it(self):
+        made_on = {json.loads(path.read_text()).get('python') for path in self.CASES.glob('*.json')}
+        self.assertEqual(made_on, {'{}.{}'.format(*conformance.HARVEST_PYTHON)})
+
+    def test_a_harvest_on_another_python_is_refused(self):
+        # A case pins what the Python that made it answered, and `fromisoformat`
+        # answers differently from one minor version to the next: a corpus
+        # harvested on the wrong one would hold another engine to that one.
+        with tempfile.TemporaryDirectory() as root, \
+                patch.object(conformance.sys, 'version_info', (3, 13, 0, 'final', 0)), \
+                self.assertRaisesRegex(conformance.RecordingError, r'Python 3\.12 only'):
+            conformance.harvest(Path(root, 'evaluate'))
+        self.assertFalse(Path(root, 'evaluate').exists())
+
     def test_only_text_python_wrote_is_marked_as_an_exception(self):
         policy, pr = fixture()
         own = conformance.evaluate_case_result({'policy': dict(policy, unknown=True), 'pr': pr,

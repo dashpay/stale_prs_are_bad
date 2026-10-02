@@ -190,5 +190,6 @@
  "tests": [
   "test_policy.PolicyTests.test_outside_area_writer_objection_blocks_owner_and_requests_rereview"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

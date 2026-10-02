@@ -157,5 +157,6 @@
  "tests": [
   "test_policy.PolicyTests.test_the_advice_is_given_while_a_producer_is_still_to_report"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

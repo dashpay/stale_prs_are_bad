@@ -164,5 +164,6 @@
  "tests": [
   "test_policy.PolicyTests.test_an_attestation_sharing_a_second_with_the_heads_first_status_does_not_count"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }
