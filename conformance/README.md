@@ -408,25 +408,54 @@ live data. It runs every six hours (03:40, 09:40, 15:40 and 21:40 UTC) and
 on dispatch, on `master` only, with the read-only App token that
 `pr-hygiene.yml`'s export uses.
 
-**What it records.** The governed repositories are taken in turn, starting
-from a different one each run. For each, the Python engine records the JSON
-`report`, a dry `sync --batch-size 6` (the hourly sweep), and a dry
+**What it records.** Each run gives some repositories their *full pass*: a
+dry `sync --format json` of every open pull request the policy governs,
+which reads, decides and walks the write path of each, and prints the JSON
+report. The repositories in the job's `FULL_PASS_ALONE` (platform, whose 98
+open pull requests cost about as much as the other four repositories
+together) each have a run's turn of their own; every other repository
+shares one turn more. The runs take the turns in order by their six-hour
+slot, so with platform alone each repository is fully covered every other
+run — twice a day, and still daily if a run is lost. The repositories whose
+turn it is go first, while the budget is whole, and each also gets a dry
 `sync --pr N` (the path the service runs) for one pull request of each of
-three authors. The authors are read from the report and rotate with the run.
-A budget of 1 000 requests bounds the run. Requests are counted from the
+three authors, chosen from the full pass's verdicts. The others are taken in
+turn, starting from a different one each run, and get what every repository
+got before the full pass: the JSON `report`, a dry `sync --batch-size 6`
+(the hourly sweep's batch), and the three one-author syncs, chosen from the
+report. For a repository in its turn the full pass supersedes the report,
+the batch and the report's pull requests read live (below): it reads every
+pull request the report does, prints the same JSON report, and walks the
+write path and the tidying of every pull request the batch would. The
+one-author syncs stay: they are the service's event path, with its own
+choice of which of the author's pull requests to decide. The job summary
+opens with a line per repository: whether this run made its full pass, and
+if not, why and when its turn comes; and how the pass compared live, in
+counts.
+
+Two budgets bound the run, 2 000 requests for the recordings and 1 600 for
+the live reads. Requests are counted from the
 recordings, one per page of a paginated read (`differential --requests`),
 and a dry run that wrote no recording is charged its estimate. Before each
-step the job weighs its estimate against what is left: eight requests per
-open pull request for a report (which reads about six), 150 for a sweep and
-60 for a one-author sync. A step that does not fit is skipped, and its
-repository comes first in a later run. A step's real cost is not capped once
-it runs, so the budget sits well below 1 500, where the last step admitted
-could cost a third more than its estimate and still stay under. The App's
+step the job weighs its estimate against what is left: twelve requests per
+open pull request for a full pass, eight for a report (which reads about
+six), 150 for a sweep's batch and 60 for a one-author sync. A full pass that
+does not fit gives way to the report, batch and samples; any other step that
+does not fit is skipped, and its repository comes first in a later run. A
+step's real cost is not capped once it runs. The costs, measured on the runs
+of 2026-10-02: a report reads six to seven requests an open pull request
+(194 for rust-dashcore's 33), and a batch that covered all of a repository's
+pull requests (tenderdash's four) twice its report; a one-author sync 15 to
+39. Platform's turn spends about 1 850 on recordings and 1 450 on live
+reads, the other turn about 1 300 and 700. The App's
 remaining REST and GraphQL limits are logged before and after, and read
-again before each repository: recording stops when either is below 1 000
+again before each repository: recording stops when either is below 1 500
 plus what that repository is expected to cost, its live reads included
-(below), and when either cannot be
-read. Each is read from the `x-ratelimit-remaining` header of a real request
+(below), and when either cannot be read; a full pass that does not fit
+there gives way to the report, batch and samples first. The App had 5 220
+to 5 449 REST requests left before each run measured, and
+`pr-hygiene.yml`'s full runs, whose export reads about 900, start three
+hours away. Each limit is read from the `x-ratelimit-remaining` header of a real request
 of its kind — a repository read for REST, a `rateLimit` query for GraphQL —
 whose `x-ratelimit-resource` says which limit it counted against. GitHub
 calls those headers the authoritative count and `GET /rate_limit` an
@@ -477,34 +506,47 @@ fails the run; the whole run stops at it, and its outcome says so. The
 deliberate divergences above have no category yet, so one would show as a
 plain difference. Formats 1 and 2 both load.
 
-**What it reads live.** Right after a repository is recorded, the Rust
-engine reads the same pull requests again, live, with the same token,
-through the service's HTTP transport behind its read-only layer
-(`differential-live`, in the service crate; its comparisons are the
-engine's `conformance::live`, and its report the same format as the replay
-tool's):
+**What it reads live.** Right after each recording, the Rust engine reads
+the same pull requests again, live, with the same token, through the
+service's HTTP transport behind its read-only layer (`differential-live`,
+in the service crate; its comparisons are the engine's `conformance::live`,
+and its report the same format as the replay tool's):
 
+- **a full pass**: the same `sync` run whole, live, over every open pull
+  request (`Selection::All`), walking the write path;
+- **each one-author sync**: the same `sync --pr N` run whole, live, the
+  same way;
 - **a report's**: two of its pull requests, rotating with the run, read as
   Python's first snapshots were and compared exactly with the `pr`
   Python's `evaluate` was given;
-- **each one-author sync**: the same `sync --pr N` run whole, live, walking
-  the write path. Its snapshots and verdict rows are compared with
-  Python's. Where Python's own run of it ran to its end, decided the same
-  pull requests and wrote nothing, it is held to wanting to write nothing at
-  all (*no write*); otherwise it is counted *unsettled*. The evidence print
-  in the engine's record is not asked to be current: the engine rewrites a
-  record only when its state, head, admission or ready time would change,
-  so a conversation that goes on without changing the verdict leaves the
-  print behind.
-- the sweep is not read live.
+- the sweep's batch is not read live.
+
+A sync's snapshots and verdict rows are compared with Python's, pull
+request by pull request. Where Python's own run of it ran to its end, each
+pull request both runs decided that it wrote nothing to is held to getting
+no write from the live run either (*no write*); one Python's run wrote to
+is counted *unsettled*. A write is set against the pull request its route
+names: by number, by head (a status) or by comment id (a record rewritten).
+A write to a pull request neither run decided — a sweep tidying one the
+policy no longer governs, or marking one whose evidence could not be read —
+is held the same way where Python's run made none to any. The evidence
+print in the engine's record is not asked to be current: the engine
+rewrites a record only when its state, head, admission or ready time would
+change, so a conversation that goes on without changing the verdict leaves
+the print behind.
 
 Nothing is written. The engine's observing layer answers every call that is
 not a read (Python's own `is_read`) as a write GitHub refused, never
-passing it on, and names the first by its method and route with every part
-that is data written `*` (the run goes on as if refused, so any write after
-it may follow from the refusal, and is not named). Beneath it the read-only
-layer lets through only the engine's own reads of the governed
-repositories.
+passing it on, and names the first to each pull request by its method and
+route with every part that is data written `*` (the run goes on as if
+refused, so a later write to that pull request may follow from the refusal,
+and is not named). Two things a refusal carries to another pull request are
+allowed for. The run's one nudge is never spent, so every pull request
+after the first that wants a bot asked is asked too: only a run's first
+nudge is held. A record not written is not handed on to the author's next
+pull request, which can only make the live run write less there than
+Python's did. Beneath it the read-only layer lets through only the engine's
+own reads of the governed repositories.
 
 A verdict, or a write, that differs is decided again from what was read
 live with Python's own inputs in place of the port's: the instant it
@@ -512,11 +554,12 @@ decided at, the status page it read, the instant it admitted the pull
 request. The status page is substituted only where both sides read one,
 so a live read of it that failed is never taken for the page changing.
 Admission is substituted only where both sides admitted it and admitted
-the same pull requests in the same order. A write is decided again by
-running the whole run again over exactly the answers the live run got, so
-at no request's cost; there the clock carries the admission instant. A
-difference that then vanishes is *explained*, by the fewest of those inputs
-that do it, and is no failure.
+the same pull requests of its author in the same order. A write is decided
+again by running the whole run again over exactly the answers the live run
+got, so at no request's cost, once for each set of Python's inputs tried;
+there the clock carries the admission instant. A difference that then
+vanishes — for a write, from that pull request — is *explained*, by the
+fewest of those inputs that do it, and is no failure.
 
 A pull request *moved during the read*, counted and no failure, when
 between Python's reads and the live ones:
@@ -529,9 +572,12 @@ between Python's reads and the live ones:
   excused, and so is its verdict, but any other field of its snapshot is
   still held to Python's;
 - one of its author's open pull requests did, as the open listing
-  answered (one opened, closed, pushed, drafted, updated): its verdict and
-  which pull requests the run decided are excused, since admission follows
-  from them.
+  answered (one opened, closed, pushed, drafted, updated): its verdict, a
+  write to it, and which pull requests the run decided are excused, since
+  admission follows from them. In a full pass that is only that author's
+  pull requests; which pull requests the pass decided is excused by any
+  open pull request moving, and a write to one neither run decided by that
+  one moving (by any, where the write names it by head).
 
 A read that failed live, every time it was asked, where Python's same read
 was answered stops that recording's comparison and is named as such
@@ -543,12 +589,17 @@ a comment edited, or a collaborator's access changed between the reads may
 not move the pull request's update time, and would then read as a
 difference.
 
-The live reads have their own budget, 400 requests, beside the recordings'.
-Each recording's reads are weighed before they are made: a one-author sync
-at what Python's recording of it cost minutes before, a report's pull
-request at eight, the two of them plus two. One that would not fit is
-skipped and counted. The reserve check before each repository counts its
-live reads too.
+A full pass reads its pull requests minutes after Python's — platform's
+takes Python about ten — so more of them read as moved than in a one-author
+run. A live read that failed twice stops the whole pass's comparison, as it
+does a one-author run's.
+
+The live reads have their own budget, 1 600 requests, beside the
+recordings'. Each recording's reads are weighed before they are made: a
+sync, of every pull request or of one author's, at what Python's recording
+of it cost minutes before, a report's pull request at eight, the two of
+them plus two. One that would not fit is skipped and counted. The reserve
+check before each repository counts its live reads too.
 
 **What it never outputs.** Recordings live in a mode-700 directory under the
 runner's temporary directory and are deleted by the job's last step, pass or
@@ -594,15 +645,19 @@ holds the counts tables only.
   the tool on the redacted copy.
 - *The Rust engine's live reads differed*: the record step's log has the
   live categories table, the same layout. Cases index the recording's
-  `evaluations.jsonl`; 0 for a run's writes.
+  `evaluations.jsonl`, a write by the pull request it was for; 0 for a
+  write to a pull request neither run decided, and for a run that decided
+  other pull requests.
   - A *live snapshot* that differs, under a replay of the same recording
     that matched, is the HTTP transport or something GitHub changed that the
     move check does not see.
   - A *live verdict* that differs under a matching live snapshot is an input
     the port took differently from Python other than the three it is given
     Python's of.
-  - *Would-be write, not sent* under *live writes*: a one-author run where
-    nothing had changed wanted to write; the route says what.
+  - *Would-be write, not sent* under *live writes*: a sync wanted to write
+    to a pull request nothing had changed on; the route says what. A route
+    followed by *to a pull request neither run decided* is a write to one
+    outside the run's pull requests, where Python's run made none.
   - *Live run evaluated other pull requests*: the live run decided another
     set than Python's, with none of the author's pull requests moved;
     *live read refused by the read-only layer*: the port asked a read the

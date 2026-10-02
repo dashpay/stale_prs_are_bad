@@ -1,18 +1,21 @@
 name: Engine differential
 
 # The Rust engine's shadow on live data. With a read-only token, the Python
-# engine records dry runs against the governed repositories: the report the
-# dashboard exports, the hourly sweep, and the one-author path the service
-# will run. The Rust port replays each recording and must rebuild the same
-# snapshots, reach the same evaluations and verdicts, and, replaying the
-# whole run, make the same writes in the same order with the same bodies,
-# the same outputs and report, and read the clock at the same points.
+# engine records dry runs against the governed repositories. Each run gives
+# some of them a full pass, a dry `sync` of every open pull request, in
+# turn; the others get the report the dashboard exports and the hourly
+# sweep's batch; every one gets the one-author path the service will run.
+# The Rust port replays each recording and must rebuild the same snapshots,
+# reach the same evaluations and verdicts, and, replaying the whole run,
+# make the same writes in the same order with the same bodies, the same
+# outputs and report, and read the clock at the same points.
 #
-# Right after each repository is recorded, the Rust engine reads the same
-# pull requests live through the service's read-only HTTP transport, with
-# the same token: a few of the report's, held to Python's snapshots, and
-# each one-author sync run whole, held to Python's snapshots and verdicts,
-# and to writing nothing where nothing changed since the engine last wrote.
+# Right after each recording, the Rust engine reads the same pull requests
+# live through the service's read-only HTTP transport, with the same
+# token: a full pass run whole over every pull request, a few of a
+# report's, and each one-author sync run whole. Each is held to Python's
+# snapshots and verdicts, pull request by pull request, and to writing
+# nothing to a pull request nothing changed on since the engine last wrote.
 # It never writes: every write it would make is answered as refused before
 # it reaches the transport, and the transport's read-only layer lets
 # through only the engine's own reads.
@@ -24,8 +27,9 @@ name: Engine differential
 # in memory only; what the live tool writes (its counts table and what it
 # spent) goes to a second mode-700 directory, deleted with the first.
 # Nothing is uploaded or cached. Only counts, field paths and case indices
-# are printed, and the job summary holds the counts tables.
-# conformance/README.md says how to read a red run.
+# are printed, and the job summary holds the counts tables, with a line per
+# repository saying whether this run covered it fully and when its turn
+# comes. conformance/README.md says how to read a red run.
 
 on:
   schedule:
@@ -53,24 +57,53 @@ jobs:
     # pr-hygiene.yml. An environment only master may use would be one.
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The full pass of the largest repository reads about 1 200 requests
+    # through Python and as many again live, at two to three requests a
+    # second.
+    timeout-minutes: 60
     env:
+      # What the costs below were measured on: the four runs of 2026-10-02
+      # (11:26, 15:49, 16:28, 16:48 UTC). A report cost 9 requests with one
+      # open pull request (grovedb), 29 with 4 (tenderdash), 48 to 54 with
+      # 8 or 9 (dash-evo-tool), 194 with 33 (rust-dashcore): six to seven
+      # an open pull request. A batch sweep cost 15 to 73, and 59 where its
+      # six covered every pull request there was (tenderdash's four), twice
+      # that repository's report. A one-author sync cost 15 to 39. Platform,
+      # 98 open, was never recorded: its report and sweep did not fit.
+      #
+      # The full pass: every repository named here has a run's turn of its
+      # own, and every other repository shares one turn more. The runs, four
+      # a day, take the turns in order, so with platform alone each
+      # repository's every open pull request is recorded and read live every
+      # other run: twice a day, and still daily if one run is lost.
+      FULL_PASS_ALONE: "dashpay/platform"
       # Requests to GitHub this run's recordings may spend, counted from the
       # recordings themselves, a paginated read once per page. Every step is
       # weighed against what is left before it runs, with the estimates
-      # below, and skipped when it would not fit. A step's real cost is not
-      # capped once it runs, so the budget sits well below 1 500: a step
-      # admitted last and costing a third more than its estimate stays under.
-      REQUEST_BUDGET: "1000"
+      # below, and skipped when it would not fit; a full pass is weighed
+      # first. A step's real cost is not capped once it runs. Platform's
+      # turn: its full pass (about 1 200) and samples, then the other four
+      # repositories' reports, sweeps and samples (about 630 as measured),
+      # about 1 850. The other turn: their full passes (about 450) and
+      # samples, then platform's report and sweep (about 950 by estimate).
+      REQUEST_BUDGET: "2000"
       # Before each repository the App must have this many requests left
-      # beyond what that repository is expected to cost, in both REST and
-      # GraphQL, so that pr-hygiene.yml's runs on the same installation are
-      # never starved.
-      RATE_RESERVE: "1000"
+      # beyond what that repository is expected to cost, its live reads
+      # included, in both REST and GraphQL, so that pr-hygiene.yml's runs on
+      # the same installation are never starved: a full run of it exports
+      # every repository's report, about 900 requests (the four measured
+      # above, 280, and platform's 98 at six or seven each).
+      RATE_RESERVE: "1500"
       # A report reads about six requests per open pull request (the pull
       # request, files, reviews, threads, statuses, checks), more where a
       # list runs past one page; eight leaves room for that.
       PER_OPEN_PR: "8"
+      # A full pass reads what a report does and walks the write path of
+      # each pull request: its identity read again, the five labels once,
+      # and for a ready one its evidence and admission read again before
+      # the status. Measured where a sweep covered a whole repository, twice
+      # its report (above): twelve an open pull request leaves room.
+      PER_FULL_PR: "12"
       # A sweep of six pull requests: their snapshots, their write paths
       # (identity re-reads, labels), and the final re-check of a ready one.
       PER_SWEEP: "150"
@@ -81,17 +114,22 @@ jobs:
       # rotating with the run so that every author comes round.
       AUTHORS_PER_REPOSITORY: "3"
       # Requests the Rust engine's live reads may make, beside the
-      # recordings' budget. A one-author sync read live costs what Python's
-      # recording of it cost minutes before, which the tool weighs it at; a
-      # report's pull request about eight. The run of 2026-10-02 had its
-      # one-author syncs cost 15 to 39 requests: fifteen of them and two
-      # pull requests of each of five reports come to about 400. That run
-      # found the App with 5 386 REST and 5 210 GraphQL requests left
-      # before it and 4 657 and 4 970 after it, so a run that spends up to
-      # 1 400 in all leaves pr-hygiene.yml, which shares the limit, over
-      # 3 000 of the hour; the reserve below, which now counts the live
-      # reads too, stops the job before it could take more.
-      LIVE_BUDGET: "400"
+      # recordings' budget. A sync read live, of every pull request or of
+      # one author's, costs what Python's recording of it cost minutes
+      # before, which the tool weighs it at; a report's pull request about
+      # eight. Measured, three one-author syncs and two report pull requests
+      # cost 23 to 73 a repository. Platform's turn: its full pass (about
+      # 1 200) and samples, then about 230 for the other four, about 1 450.
+      #
+      # So a run spends up to about 3 300 requests of the App's hour in
+      # platform's turn and about 2 000 in the other. The App had 5 220 to
+      # 5 449 REST and 4 657 to 5 450 GraphQL requests left before each of
+      # the runs above; pr-hygiene.yml's full runs start three hours away
+      # (its quarter-hourly runs do nothing until the service's URL is
+      # set), and the reserve above stops the job before a repository
+      # whenever the App has less left than that repository and the
+      # reserve need.
+      LIVE_BUDGET: "1600"
       # A report's pull requests read live, per repository, rotating with
       # the run.
       LIVE_REPORT_PRS: "2"
@@ -137,16 +175,20 @@ jobs:
           permission-issues: read
           permission-metadata: read
 
-      # Repositories are taken in turn from a different one each run, and each
-      # gets its report, its sweep and a few one-author syncs while the budget
-      # lasts; a repository that does not fit is first in a later run. What the
-      # engine prints, and anything it says on stderr, goes to /dev/null: it
-      # names pull requests and people. Right after a repository is recorded,
-      # the Rust engine reads it live, with the same token, while its own
-      # budget lasts; what the live tool prints is counts and field paths.
+      # The repositories whose turn this run is get their full pass first,
+      # while the budget is whole: a dry `sync` of every open pull request,
+      # read live by the Rust engine right after, then a few one-author
+      # syncs. The others are taken in turn from a different one each run,
+      # and each gets its report, its sweep's batch and a few one-author
+      # syncs while the budget lasts; a repository that does not fit is
+      # first in a later run. What the engine prints, and anything it says
+      # on stderr, goes to /dev/null: it names pull requests and people.
+      # Right after each recording the Rust engine reads it live, with the
+      # same token, while its own budget lasts; what the live tool prints is
+      # counts and field paths.
       - name: Record dry runs of the Python engine, and read them live with the Rust engine
         id: record
-        timeout-minutes: 30
+        timeout-minutes: 45
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
@@ -164,6 +206,12 @@ jobs:
           live_spent=0
           live_read=0
           live_failed=0
+          # Per repository: whether this run made its full pass, or why not
+          # and when its turn comes; and how the full pass compared live.
+          declare -A covered=()
+          declare -A counted=()
+          repos=()
+          turns=1
 
           # What the App has left in one limit, read from the headers of a
           # real request against it, which must say it counted against
@@ -203,6 +251,19 @@ jobs:
             if [ -n "$probe" ]; then
               echo "App rate limit remaining after (core graphql): $(remaining "$probe" || echo unknown)"
             fi
+            if (( ${#repos[@]} > 0 )); then
+              {
+                echo "## Engine differential, full coverage"
+                echo
+                echo "A full pass is a dry sync of every open pull request, recorded by Python, replayed by the Rust engine (the replay table) and read live by it (the counts here). It comes round to every repository every $turns runs."
+                echo
+                echo "| Repository | Full pass | Read live |"
+                echo "|---|---|---|"
+                for repo in "${repos[@]}"; do
+                  echo "| $repo | ${covered[$repo]:-not this run} | ${counted[$repo]:-} |"
+                done
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
           }
           trap finish EXIT
 
@@ -229,31 +290,45 @@ jobs:
             echo "$*: $requests requests ($rest REST, $queries GraphQL), engine exit $status; $spent spent"
           }
 
-          # The Rust engine reads live what Python just recorded under $1: a
-          # few of the report's pull requests, and each one-author sync run
-          # whole. The tool weighs each recording against what is left of
-          # the live budget, skips what would not fit, and says what it
-          # spent; one that cannot say is charged everything that was left.
+          # The Rust engine reads live what Python just recorded in the
+          # recordings given (any that is not one is passed over): a full
+          # pass and each one-author sync run whole, a few of a report's
+          # pull requests. The tool weighs each recording against what is
+          # left of the live budget, skips what would not fit, and says what
+          # it spent; one that cannot say is charged everything that was
+          # left. Afterwards $live_result says whether it ran, and a full
+          # pass's line of counts is in $live/coverage.
           read_live() {
-            local left=$(( LIVE_BUDGET - live_spent )) status=0 made
-            if (( left <= 0 )); then
-              echo "$repo: live budget reached; not read live"
+            local status=0 made left paths=() path
+            live_result=none
+            rm -f "$live/coverage"
+            for path in "$@"; do
+              if [ -f "$path/recording.json" ]; then
+                paths+=("$path")
+              fi
+            done
+            if (( ${#paths[@]} == 0 )); then
               return 0
             fi
-            if ! compgen -G "$1/*/recording.json" > /dev/null; then
+            left=$(( LIVE_BUDGET - live_spent ))
+            if (( left <= 0 )); then
+              echo "$repo: live budget reached; not read live"
+              live_result=spent
               return 0
             fi
             rm -f "$live/spent"
             # Its stderr is its own one-line errors and panic locations; only
             # lines in that form are shown, whatever else might be said there.
             "$live_tool" --budget "$left" --report-prs "$LIVE_REPORT_PRS" --slot "$slot" \
-              --spent "$live/spent" --summary "$live/summary.md" "$1" 2> "$live/stderr" || status=$?
+              --spent "$live/spent" --coverage "$live/coverage" --summary "$live/summary.md" \
+              "${paths[@]}" 2> "$live/stderr" || status=$?
             grep -E '^differential-live: ' "$live/stderr" >&2 || true
             rm -f "$live/stderr"
             made=$(cat "$live/spent" 2>/dev/null) || made=$left
             [[ "$made" =~ ^[0-9]+$ ]] || made=$left
             live_spent=$(( live_spent + made ))
             live_read=$(( live_read + 1 ))
+            live_result=compared
             if (( status != 0 )); then
               live_failed=$(( live_failed + 1 ))
               echo "::warning::$repo: the Rust engine's live reads differed or could not run (exit $status)"
@@ -261,74 +336,16 @@ jobs:
             echo "$repo: live reads made $made requests; $live_spent of $LIVE_BUDGET spent"
           }
 
-          listed=$(env -u GH_TOKEN python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))")
-          read -r -a repos <<<"$listed"
-          count=${#repos[@]}
-          probe=${repos[0]}
-          if ! limits=$(remaining "$probe"); then
-            echo "::error::The App's rate limits could not be read from a response's headers; nothing recorded"
-            exit 1
-          fi
-          spent=$(( spent + 2 ))
-          read -r core graphql <<<"$limits"
-          echo "App rate limit remaining before: core $core, graphql $graphql"
-          slot=$(( $(date -u +%s) / 21600 ))
-          for (( i = 0; i < count; i++ )); do
-            repo=${repos[$(( (slot + i) % count ))]}
-            dir="$root/${repo#*/}"
-            mkdir "$dir"
-            # What the report will cost scales with the open pull requests:
-            # one listing request per hundred of them tells how many.
-            if ! open=$(gh api "repos/$repo/pulls?state=open&per_page=100" --paginate --jq length | awk '{ n += $1 } END { print n + 0 }'); then
-              echo "::warning::$repo: could not count its open pull requests; skipped"
-              continue
+          # Up to AUTHORS_PER_REPOSITORY one-author syncs of $repo into
+          # $dir, one pull request per author, both chosen by the run's slot
+          # from the verdicts in $1. Only numbers come out: never who wrote
+          # them.
+          samples() {
+            local numbers number
+            if [ ! -f "$1" ]; then
+              return 0
             fi
-            spent=$(( spent + open / 100 + 1 ))
-            planned=$(( open * PER_OPEN_PR + PER_SWEEP ))
-            if (( spent + planned > REQUEST_BUDGET )); then
-              echo "$repo: not recorded this run; its report and sweep would pass the budget ($open open, $spent spent)"
-              continue
-            fi
-            # pr-hygiene.yml may be spending the same limit right now. A
-            # limit that cannot be read is not known to have room.
-            if ! limits=$(remaining "$repo"); then
-              echo "::warning::The App's rate limits could not be read; recording stops here"
-              echo "Recording stopped early: the App's rate limits could not be read." >> "$GITHUB_STEP_SUMMARY"
-              break
-            fi
-            spent=$(( spent + 2 ))
-            read -r core graphql <<<"$limits"
-            # The live reads of this repository, at most: its report's pull
-            # requests and every sample, within what is left of their budget,
-            # which the last of them may have overrun.
-            live_planned=$(( LIVE_REPORT_PRS * PER_OPEN_PR + 2 + AUTHORS_PER_REPOSITORY * PER_SAMPLE ))
-            if (( live_planned > LIVE_BUDGET - live_spent )); then
-              live_planned=$(( LIVE_BUDGET - live_spent ))
-            fi
-            if (( live_planned < 0 )); then
-              live_planned=0
-            fi
-            planned=$(( planned + live_planned ))
-            if (( core < RATE_RESERVE + planned || graphql < RATE_RESERVE + planned )); then
-              echo "::warning::The App has $core REST and $graphql GraphQL requests left; recording stops here"
-              echo "Recording stopped early: the App had $core REST and $graphql GraphQL requests left." >> "$GITHUB_STEP_SUMMARY"
-              break
-            fi
-            record $(( open * PER_OPEN_PR )) "$dir/report" report --repo "$repo" --format json
-            # Weighed again now the report's real cost is known: a report that
-            # read well past its estimate leaves less room than was planned.
-            if (( spent + PER_SWEEP > REQUEST_BUDGET )); then
-              echo "$repo: budget reached after its report; no sweep or one-author syncs this run"
-              read_live "$dir"
-              continue
-            fi
-            record "$PER_SWEEP" "$dir/sync-batch" sync --repo "$repo" --batch-size 6
-            if [ ! -f "$dir/report/verdicts.json" ]; then
-              continue
-            fi
-            # One pull request per author, for a few authors, both chosen by
-            # the run's slot. Only numbers come out: never who wrote them.
-            numbers=$(env -u GH_TOKEN python3 - "$dir/report/verdicts.json" "$slot" "$AUTHORS_PER_REPOSITORY" <<'PY'
+            numbers=$(env -u GH_TOKEN python3 - "$1" "$slot" "$AUTHORS_PER_REPOSITORY" <<'PY'
           import json
           import sys
 
@@ -350,7 +367,175 @@ jobs:
               fi
               record "$PER_SAMPLE" "$dir/sync-pr-$number" sync --repo "$repo" --pr "$number"
             done
-            read_live "$dir"
+          }
+
+          # What a repository is expected to cost in $mode with $open open
+          # pull requests: its recordings ($planned) and their live reads
+          # ($live_planned), the last within what is left of their budget,
+          # which the last of them may have overrun.
+          plan() {
+            if [ "$mode" = full ]; then
+              planned=$(( open * PER_FULL_PR ))
+              live_planned=$(( planned + AUTHORS_PER_REPOSITORY * PER_SAMPLE ))
+            else
+              planned=$(( open * PER_OPEN_PR + PER_SWEEP ))
+              live_planned=$(( LIVE_REPORT_PRS * PER_OPEN_PR + 2 + AUTHORS_PER_REPOSITORY * PER_SAMPLE ))
+            fi
+            if (( live_planned > LIVE_BUDGET - live_spent )); then
+              live_planned=$(( LIVE_BUDGET - live_spent ))
+            fi
+            if (( live_planned < 0 )); then
+              live_planned=0
+            fi
+          }
+
+          listed=$(env -u GH_TOKEN python3 -c "import json; print(' '.join(e['repository'] for e in json.load(open('policies/repositories.json'))['repositories']))")
+          read -r -a repos <<<"$listed"
+          count=${#repos[@]}
+          probe=${repos[0]}
+          slot=$(( $(date -u +%s) / 21600 ))
+          # Whose turn it is for the full pass: each repository named in
+          # FULL_PASS_ALONE has a turn of its own, in that order, and every
+          # other repository shares the one after them.
+          read -r -a alone <<<"$FULL_PASS_ALONE"
+          turns=$(( ${#alone[@]} + 1 ))
+          turn_of() {
+            local k
+            for k in "${!alone[@]}"; do
+              if [ "${alone[$k]}" = "$1" ]; then
+                echo "$k"
+                return 0
+              fi
+            done
+            echo "${#alone[@]}"
+          }
+          # The scheduled run at which $1's turn next comes: slots are six
+          # hours from midnight UTC, and the scheduled run is 3 h 40 min
+          # into one.
+          next_turn() {
+            local ahead
+            ahead=$(( ($(turn_of "$1") - slot % turns + turns) % turns ))
+            if (( ahead == 0 )); then
+              ahead=$turns
+            fi
+            date -u -d "@$(( (slot + ahead) * 21600 + 13200 ))" '+%Y-%m-%d %H:%M UTC'
+          }
+          full=()
+          rest=()
+          for (( i = 0; i < count; i++ )); do
+            repo=${repos[$(( (slot + i) % count ))]}
+            if (( $(turn_of "$repo") == slot % turns )); then
+              full+=("$repo")
+              covered[$repo]="not this run: recording stopped before it; its turn again: $(next_turn "$repo")"
+            else
+              rest+=("$repo")
+              covered[$repo]="not this run; its turn: $(next_turn "$repo")"
+            fi
+          done
+          echo "This run's full pass, turn $(( slot % turns )) of $turns: ${full[*]:-none}"
+
+          if ! limits=$(remaining "$probe"); then
+            echo "::error::The App's rate limits could not be read from a response's headers; nothing recorded"
+            exit 1
+          fi
+          spent=$(( spent + 2 ))
+          read -r core graphql <<<"$limits"
+          echo "App rate limit remaining before: core $core, graphql $graphql"
+          for repo in "${full[@]}" "${rest[@]}"; do
+            mode=sample
+            if (( $(turn_of "$repo") == slot % turns )); then
+              mode=full
+            fi
+            dir="$root/${repo#*/}"
+            mkdir "$dir"
+            # What the recordings will cost scales with the open pull
+            # requests: one listing request per hundred of them tells how
+            # many.
+            if ! open=$(gh api "repos/$repo/pulls?state=open&per_page=100" --paginate --jq length | awk '{ n += $1 } END { print n + 0 }'); then
+              echo "::warning::$repo: could not count its open pull requests; skipped"
+              if [ "$mode" = full ]; then
+                covered[$repo]="not this run: its open pull requests could not be counted; its turn again: $(next_turn "$repo")"
+              fi
+              continue
+            fi
+            spent=$(( spent + open / 100 + 1 ))
+            plan
+            if [ "$mode" = full ] && (( spent + planned > REQUEST_BUDGET )); then
+              echo "$repo: no full pass this run; it would pass the budget ($open open, $spent spent)"
+              covered[$repo]="not this run: over the request budget ($open open); its turn again: $(next_turn "$repo")"
+              mode=sample
+              plan
+            fi
+            if (( spent + planned > REQUEST_BUDGET )); then
+              echo "$repo: not recorded this run; its report and sweep would pass the budget ($open open, $spent spent)"
+              continue
+            fi
+            # pr-hygiene.yml may be spending the same limit right now. A
+            # limit that cannot be read is not known to have room.
+            if ! limits=$(remaining "$repo"); then
+              echo "::warning::The App's rate limits could not be read; recording stops here"
+              echo "Recording stopped early: the App's rate limits could not be read." >> "$GITHUB_STEP_SUMMARY"
+              break
+            fi
+            spent=$(( spent + 2 ))
+            read -r core graphql <<<"$limits"
+            need=$(( RATE_RESERVE + planned + live_planned ))
+            if [ "$mode" = full ] && (( core < need || graphql < need )); then
+              echo "$repo: no full pass this run; the App has $core REST and $graphql GraphQL requests left"
+              covered[$repo]="not this run: the App had $core REST and $graphql GraphQL requests left; its turn again: $(next_turn "$repo")"
+              mode=sample
+              plan
+              need=$(( RATE_RESERVE + planned + live_planned ))
+              if (( spent + planned > REQUEST_BUDGET )); then
+                continue
+              fi
+            fi
+            if (( core < need || graphql < need )); then
+              echo "::warning::The App has $core REST and $graphql GraphQL requests left; recording stops here"
+              echo "Recording stopped early: the App had $core REST and $graphql GraphQL requests left." >> "$GITHUB_STEP_SUMMARY"
+              break
+            fi
+
+            if [ "$mode" = full ]; then
+              # Every open pull request, with its JSON report, which the
+              # replay holds to Python's as it would a report's. It
+              # supersedes this repository's report, sweep's batch and
+              # report pull requests read live: it reads, decides and
+              # walks the write path of every one of them.
+              record "$planned" "$dir/sync" sync --repo "$repo" --format json
+              if [ ! -f "$dir/sync/recording.json" ]; then
+                covered[$repo]="not this run: Python's dry run wrote no recording; its turn again: $(next_turn "$repo")"
+                continue
+              fi
+              covered[$repo]="this run"
+              read_live "$dir/sync"
+              case $live_result in
+                compared)
+                  if [ -s "$live/coverage" ]; then
+                    counted[$repo]=$(head -n 1 "$live/coverage")
+                  else
+                    counted[$repo]="the live tool could not compare it"
+                  fi
+                  ;;
+                spent) counted[$repo]="not read live: the live budget was spent" ;;
+                *) counted[$repo]="not read live" ;;
+              esac
+              samples "$dir/sync/verdicts.json"
+              read_live "$dir"/sync-pr-*
+              continue
+            fi
+
+            record $(( open * PER_OPEN_PR )) "$dir/report" report --repo "$repo" --format json
+            # Weighed again now the report's real cost is known: a report that
+            # read well past its estimate leaves less room than was planned.
+            if (( spent + PER_SWEEP > REQUEST_BUDGET )); then
+              echo "$repo: budget reached after its report; no sweep or one-author syncs this run"
+              read_live "$dir/report"
+              continue
+            fi
+            record "$PER_SWEEP" "$dir/sync-batch" sync --repo "$repo" --batch-size 6
+            samples "$dir/report/verdicts.json"
+            read_live "$dir/report" "$dir"/sync-pr-*
           done
 
           if (( unwritten > 0 )); then
