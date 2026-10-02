@@ -1,10 +1,12 @@
 //! SQLite: the snapshots received, each repository's last good data, the
-//! view assembled from them, and every stage change observed.
+//! view assembled from them, every stage change observed, sign-in, and the
+//! inputs of each person's speed.
 //!
 //! One writer, in `BEGIN IMMEDIATE` transactions, so the "is it newer"
 //! check and the write cannot interleave with another ingest. The API reads
 //! through its own read-only connection.
 
+use crate::speed::{self, ClosedRecorded, Speed};
 use crate::view::{self, Kept, RepoData, View};
 use anyhow::Context;
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
@@ -25,7 +27,7 @@ pub const RAW_RETENTION: TimeDelta = TimeDelta::days(30);
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Bumped with every change to the tables below.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -98,6 +100,91 @@ CREATE TABLE IF NOT EXISTS opt_outs (
     user_id       INTEGER PRIMARY KEY,
     opted_out_at  TEXT NOT NULL
 );
+-- Speed inputs (see speed.rs): keyed by GitHub user id, never recorded for
+-- anyone in opt_outs, kept 13 months.
+--
+-- Each PR's author, from the PR itself. `seen_at` is when the PR was last
+-- seen, and dates the row for retention.
+CREATE TABLE IF NOT EXISTS pr_authors (
+    repo          TEXT NOT NULL,
+    number        INTEGER NOT NULL,
+    author_id     INTEGER NOT NULL,
+    seen_at       TEXT NOT NULL,
+    PRIMARY KEY (repo, number)
+);
+CREATE INDEX IF NOT EXISTS pr_authors_by_author ON pr_authors (author_id);
+-- A person asked to review a PR, from `asked_at` until `ended_at` (NULL
+-- while open). While open it is matched by the login asked; `person_id` is
+-- filled once an event of the same snapshot ties that login to an account,
+-- and an ask that ends without one is deleted. `timed` is 0 when its start
+-- is not known or it ran through a gap in reading its repository: counted,
+-- never timed.
+CREATE TABLE IF NOT EXISTS asks (
+    id            INTEGER PRIMARY KEY,
+    repo          TEXT NOT NULL,
+    number        INTEGER NOT NULL,
+    person_id     INTEGER,
+    login         TEXT,
+    asked_at      TEXT NOT NULL,
+    ended_at      TEXT,
+    outcome       TEXT CHECK (outcome IN ('answered', 'covered', 'left')),
+    timed         INTEGER NOT NULL,
+    CHECK ((ended_at IS NULL) = (outcome IS NULL)),
+    CHECK (ended_at IS NULL OR (person_id IS NOT NULL AND login IS NULL)),
+    CHECK (ended_at IS NOT NULL OR login IS NOT NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS asks_open ON asks (repo, number, login)
+    WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS asks_by_person ON asks (person_id);
+CREATE INDEX IF NOT EXISTS asks_by_end ON asks (ended_at);
+-- A PR's time in its author's stage. `author_secs` sums its stretches
+-- there that are over; `resumed_at` is when the current one began (NULL
+-- while bots or a build have the PR, since `paused_at`).
+CREATE TABLE IF NOT EXISTS turns (
+    id            INTEGER PRIMARY KEY,
+    repo          TEXT NOT NULL,
+    number        INTEGER NOT NULL,
+    author_id     INTEGER NOT NULL,
+    started_at    TEXT NOT NULL,
+    ended_at      TEXT,
+    author_secs   INTEGER NOT NULL DEFAULT 0,
+    resumed_at    TEXT,
+    paused_at     TEXT,
+    timed         INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS turns_open ON turns (repo, number)
+    WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS turns_by_author ON turns (author_id);
+CREATE INDEX IF NOT EXISTS turns_by_end ON turns (ended_at);
+-- A merged PR: first ready for review, and merged.
+CREATE TABLE IF NOT EXISTS merges (
+    repo          TEXT NOT NULL,
+    number        INTEGER NOT NULL,
+    author_id     INTEGER NOT NULL,
+    ready_at      TEXT NOT NULL,
+    merged_at     TEXT NOT NULL,
+    PRIMARY KEY (repo, number)
+);
+CREATE INDEX IF NOT EXISTS merges_by_author ON merges (author_id);
+CREATE INDEX IF NOT EXISTS merges_by_time ON merges (merged_at);
+-- A decisive review as GitHub reports it; a dismissal adds a row.
+CREATE TABLE IF NOT EXISTS reviews (
+    repo          TEXT NOT NULL,
+    number        INTEGER NOT NULL,
+    reviewer_id   INTEGER NOT NULL,
+    state         TEXT NOT NULL,
+    at            TEXT NOT NULL,
+    PRIMARY KEY (repo, number, reviewer_id, at, state)
+);
+CREATE INDEX IF NOT EXISTS reviews_by_reviewer ON reviews (reviewer_id);
+CREATE INDEX IF NOT EXISTS reviews_by_time ON reviews (at);
+-- Each repository's last read for speed, and whether a snapshot has since
+-- failed to read it. Names no one.
+CREATE TABLE IF NOT EXISTS speed_reads (
+    repo          TEXT PRIMARY KEY,
+    read_at       TEXT NOT NULL,
+    stale         INTEGER NOT NULL
+);
 ";
 
 /// How long a sign-in may take between leaving for GitHub and coming back.
@@ -121,11 +208,11 @@ const USED_TOKEN_RETENTION: TimeDelta = TimeDelta::days(1);
 /// and reads back as exactly the time written: the analyzer's clock has
 /// nanoseconds, and a rounded copy of a snapshot's time would make the
 /// same snapshot look newer than itself.
-fn ts(t: DateTime<Utc>) -> String {
+pub(crate) fn ts(t: DateTime<Utc>) -> String {
     t.to_rfc3339_opts(SecondsFormat::Nanos, true)
 }
 
-fn parse_ts(s: &str) -> anyhow::Result<DateTime<Utc>> {
+pub(crate) fn parse_ts(s: &str) -> anyhow::Result<DateTime<Utc>> {
     Ok(DateTime::parse_from_rfc3339(s)
         .with_context(|| format!("stored time {s:?}"))?
         .with_timezone(&Utc))
@@ -262,6 +349,7 @@ impl Store {
             tx.execute("DELETE FROM repos WHERE repo = ?1", [repo])?;
             kept.remove(repo);
         }
+        speed::record(&tx, d)?;
 
         let view = view::assemble(d, id, received_at, &kept);
         tx.execute(
@@ -279,6 +367,31 @@ impl Store {
             stale: view.stale_repos().into_iter().map(String::from).collect(),
             stage_changes,
         })
+    }
+
+    /// Store a snapshot from a file, as `ingest` does with no token. One not
+    /// newer than the latest still adds its closed PRs' merges, reviews and
+    /// authors: a year's backfill is read once, too large to post, and
+    /// imported after posting has begun.
+    pub fn import(
+        &mut self,
+        d: &Dashboard,
+        raw: &str,
+        received_at: DateTime<Utc>,
+    ) -> anyhow::Result<Imported> {
+        let outcome = self.ingest(d, raw, None, received_at)?;
+        let closed = match outcome {
+            Outcome::NotNewer { .. } => {
+                let tx = self
+                    .conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let added = speed::record_closed(&tx, d)?;
+                tx.commit()?;
+                Some(added)
+            }
+            Outcome::Stored { .. } | Outcome::TokenUsed => None,
+        };
+        Ok(Imported { outcome, closed })
     }
 
     /// Remember a sign-in under way under the random id its cookie carries,
@@ -389,9 +502,10 @@ impl Store {
         Ok(())
     }
 
-    /// Record that `user_id` opted out, and forget their speed inputs. The
+    /// Record that `user_id` (signed in as `login`) opted out, and forget
+    /// their speed inputs; every ingest from now on leaves them out. The
     /// public queue is a mirror of GitHub and is not touched.
-    pub fn opt_out(&mut self, user_id: i64, now: DateTime<Utc>) -> anyhow::Result<()> {
+    pub fn opt_out(&mut self, user_id: i64, login: &str, now: DateTime<Utc>) -> anyhow::Result<()> {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -399,25 +513,26 @@ impl Store {
             "INSERT OR IGNORE INTO opt_outs (user_id, opted_out_at) VALUES (?1, ?2)",
             params![user_id, ts(now)],
         )?;
-        forget_speed_inputs(&tx, user_id)?;
+        forget_speed_inputs(&tx, user_id, login)?;
         tx.commit()?;
         Ok(())
     }
 
-    /// "Delete my account": every session of `user_id` and their speed
-    /// inputs. An opt-out is kept, or the next ingest would start recording
-    /// them again.
-    pub fn delete_user(&mut self, user_id: i64) -> anyhow::Result<()> {
+    /// "Delete my account": every session of `user_id` (signed in as
+    /// `login`) and their speed inputs. An opt-out is kept, or the next
+    /// ingest would start recording them again.
+    pub fn delete_user(&mut self, user_id: i64, login: &str) -> anyhow::Result<()> {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM sessions WHERE user_id = ?1", [user_id])?;
-        forget_speed_inputs(&tx, user_id)?;
+        forget_speed_inputs(&tx, user_id, login)?;
         tx.commit()?;
         Ok(())
     }
 
-    /// Delete expired sessions and abandoned sign-ins.
+    /// Delete expired sessions, abandoned sign-ins, and speed inputs past
+    /// their retention.
     pub fn purge_expired(&mut self, now: DateTime<Utc>) -> anyhow::Result<Purged> {
         let tx = self
             .conn
@@ -427,20 +542,32 @@ impl Store {
             "DELETE FROM prelogins WHERE created_at <= ?1",
             [ts(now - PRELOGIN_LIFETIME)],
         )?;
+        let speed_inputs = speed::purge(&tx, now)?;
         tx.commit()?;
         Ok(Purged {
             sessions,
             prelogins,
+            speed_inputs,
         })
     }
 }
 
 /// Delete what is stored about `user_id` for computing their speed, in the
-/// transaction of the opt-out or deletion that asks for it. No speed inputs
-/// are stored yet, so there is nothing to delete; every table that comes to
-/// hold them must be cleared of the person here.
-fn forget_speed_inputs(_tx: &Transaction<'_>, _user_id: i64) -> anyhow::Result<()> {
+/// transaction of the opt-out or deletion that asks for it: every row keyed
+/// by their id, and the open asks known only by the login they signed in
+/// with, which no id ties to anyone yet.
+fn forget_speed_inputs(tx: &Transaction<'_>, user_id: i64, login: &str) -> anyhow::Result<()> {
+    speed::forget(tx, user_id)?;
+    speed::forget_login(tx, login)?;
     Ok(())
+}
+
+/// What a local import did: the snapshot stored or not and, when it was
+/// not newer than the latest, what its closed PRs added.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Imported {
+    pub outcome: Outcome,
+    pub closed: Option<ClosedRecorded>,
 }
 
 /// The SHA-256, in hex, of a random id handed to a browser: the database
@@ -479,6 +606,7 @@ pub struct Session {
 pub struct Purged {
     pub sessions: usize,
     pub prelogins: usize,
+    pub speed_inputs: usize,
 }
 
 fn load_kept(tx: &Transaction<'_>) -> anyhow::Result<HashMap<String, Kept>> {
@@ -630,6 +758,24 @@ impl Reader {
             )
             .optional()?
             .is_some())
+    }
+
+    /// Whether `user_id` opted out.
+    pub fn opted_out(&self, user_id: i64) -> anyhow::Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM opt_outs WHERE user_id = ?1",
+                [user_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
+    /// The speed of `user_id` as of `now`, from their speed inputs.
+    pub fn speed(&self, user_id: i64, now: DateTime<Utc>) -> anyhow::Result<Speed> {
+        speed::speed(&self.conn, user_id, now)
     }
 
     /// The version of the view stored, if any.
@@ -1151,9 +1297,9 @@ mod tests {
         db.store
             .create_session(&session_id(3), 7, "bob", None, now)
             .unwrap();
-        db.store.opt_out(42, now).unwrap();
-        db.store.opt_out(42, now + minutes(1)).unwrap();
-        db.store.delete_user(42).unwrap();
+        db.store.opt_out(42, "alice", now).unwrap();
+        db.store.opt_out(42, "alice", now + minutes(1)).unwrap();
+        db.store.delete_user(42, "alice").unwrap();
         assert_eq!(
             count(&db, "SELECT count(*) FROM sessions WHERE user_id = 42"),
             0

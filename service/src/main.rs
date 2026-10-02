@@ -6,7 +6,7 @@ use pr_hygiene_service::config::ServeConfig;
 use pr_hygiene_service::github::GithubSignIn;
 use pr_hygiene_service::oidc::{GithubKeys, KeyCache};
 use pr_hygiene_service::snapshot;
-use pr_hygiene_service::store::{Outcome, Reader, Store};
+use pr_hygiene_service::store::{Imported, Outcome, Reader, Store};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -104,9 +104,9 @@ async fn keep_keys_fresh(keys: Arc<KeyCache>) {
     }
 }
 
-/// Delete expired sessions and abandoned sign-ins at start-up and daily
-/// after: they let no one in once expired, but they are personal data.
-/// Runs with sign-in off too, so sessions from when it was on still go.
+/// Delete expired sessions, abandoned sign-ins and speed inputs past
+/// their retention at start-up and daily after: they are personal data.
+/// Runs with sign-in off too, so what was kept while it was on still goes.
 async fn purge_daily(state: Arc<AppState>) {
     loop {
         // A failure is logged where it happens; the next day tries again.
@@ -114,7 +114,8 @@ async fn purge_daily(state: Arc<AppState>) {
             tracing::info!(
                 sessions = purged.sessions,
                 prelogins = purged.prelogins,
-                "expired sign-in data purged"
+                speed_inputs = purged.speed_inputs,
+                "expired personal data purged"
             );
         }
         tokio::time::sleep(Duration::from_secs(24 * 60 * 60)).await;
@@ -149,15 +150,17 @@ fn import(db: &Path, file: &Path) -> anyhow::Result<()> {
     let d = snapshot::parse(raw.as_bytes(), Utc::now())
         .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
     let mut store = Store::open(db)?;
-    match store.ingest(&d, &raw, None, Utc::now())? {
+    let Imported { outcome, closed } = store.import(&d, &raw, Utc::now())?;
+    match outcome {
         Outcome::Stored {
             snapshot,
             stale,
             stage_changes,
         } => println!(
-            "stored snapshot {snapshot} ({} PRs, {} people); stale: {}; stage changes: {stage_changes}",
+            "stored snapshot {snapshot} ({} PRs, {} people, {} closed); stale: {}; stage changes: {stage_changes}",
             d.prs.len(),
             d.people.len(),
+            d.closed.len(),
             if stale.is_empty() { "none".to_string() } else { stale.join(", ") }
         ),
         Outcome::NotNewer { latest } => {
@@ -165,6 +168,14 @@ fn import(db: &Path, file: &Path) -> anyhow::Result<()> {
         }
         // An import carries no token to have been used.
         Outcome::TokenUsed => println!("not stored: token already used"),
+    }
+    if let Some(added) = closed {
+        println!(
+            "from its {} closed PRs: {} merges and {} reviews added",
+            d.closed.len(),
+            added.merges,
+            added.reviews
+        );
     }
     Ok(())
 }
