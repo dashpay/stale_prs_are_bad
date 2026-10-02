@@ -608,7 +608,11 @@ async fn an_opt_out_is_kept_when_the_account_is_deleted() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    assert!(set_cookie(&res, SESSION_COOKIE).is_some(), "cookie cleared");
+    let cleared = set_cookie(&res, SESSION_COOKIE).expect("cookie cleared");
+    assert!(
+        cleared.to_ascii_lowercase().contains("max-age=0"),
+        "{cleared}"
+    );
     assert_eq!(me(&app, Some(&laptop)).await.0, StatusCode::UNAUTHORIZED);
     assert_eq!(
         me(&app, Some(&phone)).await.0,
