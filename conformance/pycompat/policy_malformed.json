@@ -1,4 +1,4 @@
-{"python": "3.12.14","cases":[
+{"python": "3.12","cases":[
 {"base":"evaluate/configuration-error-1082b0beb412.json","target":"policy","path":["areas",0],"value":"2026-09-11T12:00:00","outcome":{"state":"configuration-error","digest":"788d856b22e845ec","exception_text":null}},
 {"base":"evaluate/configuration-error-1082b0beb412.json","target":"pr","path":["head"],"value":true,"outcome":{"state":"configuration-error","digest":"8751dba7a450632e","exception_text":"expected string or bytes-like object, got 'bool'"},"fingerprint":"1859a347e9b833684f659f4aa240e540c66401fd38bf886a8e2a337a6de8c49a"},
 {"base":"evaluate/configuration-error-1082b0beb412.json","target":"policy","path":["fallback","owners"],"value":null,"outcome":{"state":"configuration-error","digest":"499c5fcd18508f41","exception_text":null}},

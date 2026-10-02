@@ -28,13 +28,29 @@ pub(crate) fn lower(value: &PyValue) -> Result<String, PyErr> {
     Ok(py_lower(str_method(value, "lower")?))
 }
 
-/// The strings of a list `validate_policy` accepted as strings. Anything
-/// else is the `AttributeError` the `.lower()` Python calls on each raises.
+/// The strings of a list `validate_policy` accepted as a list of strings.
+/// Anything else cannot reach here; it is refused rather than read.
 pub(crate) fn strings(value: &PyValue) -> Result<Vec<&str>, PyErr> {
-    crate::pycompat::object::iterate(value)?;
+    let refused = || PyErr::Unported(format!("a list of strings after validation: {value:?}"));
     match value {
-        PyValue::List(items) => items.iter().map(|item| str_method(item, "lower")).collect(),
-        _ => Ok(Vec::new()),
+        PyValue::List(items) => items
+            .iter()
+            .map(|item| match item {
+                PyValue::Str(s) => Ok(s.as_str()),
+                _ => Err(refused()),
+            })
+            .collect(),
+        _ => Err(refused()),
+    }
+}
+
+/// The string `validate_policy` accepted at `value`.
+pub(crate) fn string(value: &PyValue) -> Result<&str, PyErr> {
+    match value {
+        PyValue::Str(s) => Ok(s),
+        other => Err(PyErr::Unported(format!(
+            "a string after validation: {other:?}"
+        ))),
     }
 }
 
@@ -46,8 +62,7 @@ pub(crate) fn upper(value: &PyValue) -> Result<Option<String>, PyErr> {
 
 /// `value.upper() in words`, for ASCII words.
 pub(crate) fn upper_in(value: &PyValue, words: &[&str]) -> Result<bool, PyErr> {
-    let upper = py_upper_ascii(str_method(value, "upper")?);
-    Ok(upper.is_some_and(|upper| words.contains(&upper.as_str())))
+    Ok(upper(value)?.is_some_and(|upper| words.contains(&upper.as_str())))
 }
 
 /// The text `re.search(pattern, value)` and its kin read; Python raises
@@ -70,9 +85,16 @@ pub(crate) fn sha256_hex(text: &str) -> String {
         .collect()
 }
 
-/// An aware instant, as `_time` returns one.
+/// An aware instant, as `_time` returns one. Only [`time_text`] makes one,
+/// so every `Instant` has an offset.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Instant(pub(crate) PyDateTime);
+pub(crate) struct Instant(PyDateTime);
+
+impl Instant {
+    pub(crate) fn datetime(&self) -> &PyDateTime {
+        &self.0
+    }
+}
 
 impl Ord for Instant {
     fn cmp(&self, other: &Self) -> Ordering {

@@ -139,11 +139,18 @@ fn evaluate_raises_and_answers_where_pythons_did() {
         );
         let label = format!("{base} {target}{} = {}", entry["path"], entry["value"]);
         let is_float = entry["value"].get("float").is_some();
+        // The one refusal the port makes on purpose: a float where a print
+        // is hashed. Python's JSON writer would write it; the engine's
+        // writes no float, and nothing GitHub answers puts one there, so the
+        // run fails loudly instead.
+        let refused_float = |error: &PyErr| {
+            is_float && matches!(error, PyErr::Unported(why) if why.contains("float"))
+        };
         if let Some(python) = entry.get("fingerprint") {
             match (fingerprint(field(&case, "pr")), python) {
                 (Ok(ours), Value::String(theirs)) if ours == *theirs => {}
                 (Err(error), Value::Object(raised)) if raised["raised"] == class(&error) => {}
-                (Err(PyErr::Unported(_)), Value::String(_)) if is_float => {}
+                (Err(error), Value::String(_)) if refused_float(&error) => {}
                 (ours, theirs) => {
                     failures.push(format!("{label}: fingerprint {ours:?}, python {theirs}"))
                 }
@@ -164,11 +171,7 @@ fn evaluate_raises_and_answers_where_pythons_did() {
                 }
                 continue;
             }
-            // The one refusal the port makes on purpose: a float where a
-            // print is hashed. Python's JSON writer would write it; the
-            // engine's writes no float, and nothing GitHub answers puts one
-            // there, so the run fails loudly instead.
-            (Err(PyErr::Unported(_)), None) if is_float => {
+            (Err(error), None) if refused_float(&error) => {
                 continue;
             }
             (Err(error), None) => {

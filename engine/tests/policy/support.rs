@@ -37,6 +37,14 @@ pub fn at<'a>(value: &'a mut PyValue, path: &[&str]) -> &'a mut PyValue {
     here
 }
 
+/// The list at `path`; anything else is a mistake in the test.
+pub fn list_mut<'a>(target: &'a mut PyValue, path: &[&str]) -> &'a mut Vec<PyValue> {
+    match at(target, path) {
+        PyValue::List(items) => items,
+        other => panic!("not a list at {path:?}: {other:?}"),
+    }
+}
+
 /// `target[path] = new`, the last step a key.
 pub fn set(target: &mut PyValue, path: &[&str], new: PyValue) {
     let (key, parents) = path.split_last().expect("a path");

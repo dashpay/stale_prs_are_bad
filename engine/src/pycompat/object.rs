@@ -12,8 +12,9 @@
 //!
 //! Nothing here recurses with the depth of a value, so a value nested as
 //! deep as the JSON reader allows cannot overflow a thread's stack. Python
-//! raises `RecursionError` on the deepest of them instead; no input the
-//! engine reads comes near that depth.
+//! recurses, and raises `RecursionError` where these do not: `==` and
+//! `repr` near ten thousand levels, `copy.deepcopy` near five hundred.
+//! Nothing GitHub answers nests a tenth as deep.
 
 use super::error::PyErr;
 use super::text::py_repr_str;
@@ -309,28 +310,50 @@ pub fn py_item_order(a: &PyValue, b: &PyValue) -> Result<Ordering, PyErr> {
     }
 }
 
-/// `sorted(...)` where comparing two items can raise: a stable sort that
-/// gives back the first error a comparison raised.
-///
-/// Python's sort compares other pairs than this one does. On a list whose
-/// every pair compares the two agree; on one holding values that cannot be
-/// compared, whether each raises depends on which pairs it happened to
-/// compare.
+/// `sorted(...)` where comparing two items can raise: CPython 3.12's
+/// `list.sort` for a list of fewer than 64 items, which asks `<` of the same
+/// pairs in the same order, so it raises where Python raises and, failing
+/// that, leaves the same order. It finds the run at the start (reversing
+/// one that strictly descends), then inserts each later item by binary
+/// search. A longer list is sorted the same way; CPython would merge runs
+/// instead, which leaves the same order but asks `<` of other pairs, so on
+/// values it cannot compare the two may differ in whether they raise.
 pub fn py_sort_by<T>(
     items: &mut [T],
     mut compare: impl FnMut(&T, &T) -> Result<Ordering, PyErr>,
 ) -> Result<(), PyErr> {
-    let mut error = None;
-    items.sort_by(|a, b| {
-        if error.is_some() {
-            return Ordering::Equal;
+    let n = items.len();
+    if n < 2 {
+        return Ok(());
+    }
+    let mut less = |a: &T, b: &T| compare(a, b).map(|order| order == Ordering::Less);
+    // `count_run`: the longest run at the start, ascending or strictly
+    // descending.
+    let mut run = 2;
+    if less(&items[1], &items[0])? {
+        while run < n && less(&items[run], &items[run - 1])? {
+            run += 1;
         }
-        compare(a, b).unwrap_or_else(|raised| {
-            error = Some(raised);
-            Ordering::Equal
-        })
-    });
-    error.map_or(Ok(()), Err)
+        items[..run].reverse();
+    } else {
+        while run < n && !less(&items[run], &items[run - 1])? {
+            run += 1;
+        }
+    }
+    // `binarysort`: each later item goes after every equal one before it.
+    for start in run..n {
+        let (mut low, mut high) = (0, start);
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if less(&items[start], &items[middle])? {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        items[low..=start].rotate_right(1);
+    }
+    Ok(())
 }
 
 /// `repr(x)` for a float: the shortest digits that read back as the same
@@ -349,6 +372,8 @@ pub fn py_float_repr(x: f64) -> String {
     let (mantissa, exponent) = scientific
         .split_once('e')
         .unwrap_or((scientific.as_str(), "0"));
+    // `{:e}` of a finite float always has an `e` and a whole exponent, so
+    // neither fallback is taken.
     let exponent: i32 = exponent.parse().unwrap_or(0);
     let (sign, mantissa) = match mantissa.strip_prefix('-') {
         Some(rest) => ("-", rest),
@@ -359,6 +384,7 @@ pub fn py_float_repr(x: f64) -> String {
     let point = exponent + 1;
     let mut out = String::from(sign);
     if !(-4 < point && point <= 16) {
+        // A finite float's `{:e}` has at least one digit.
         let (first, rest) = digits.split_at(1);
         out.push_str(first);
         if !rest.is_empty() {

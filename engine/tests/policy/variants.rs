@@ -43,10 +43,13 @@ fn ties_strips_sorts_and_prints_are_pythons() {
     };
     let mut failures = Vec::new();
     let mut fingerprints = 0;
+    let mut evaluated = 0;
+    let mut diff_prints = 0;
     for entry in entries.iter() {
         let kind = text(field(entry, "kind"));
         match kind {
             "evaluate" => {
+                evaluated += 1;
                 let name = text(field(entry, "name"));
                 let ours = evaluate(
                     field(entry, "policy"),
@@ -76,6 +79,7 @@ fn ties_strips_sorts_and_prints_are_pythons() {
                     _ => field(entry, "pr"),
                 };
                 let ours = if kind == "diff_print" {
+                    diff_prints += 1;
                     diff_print(pr).map(|print| print.map_or(PyValue::None, PyValue::Str))
                 } else {
                     fingerprints += 1;
@@ -94,6 +98,8 @@ fn ties_strips_sorts_and_prints_are_pythons() {
         }
     }
     assert!(fingerprints > 270, "only {fingerprints} fingerprints");
+    assert!(evaluated >= 25, "only {evaluated} evaluations");
+    assert!(diff_prints >= 4, "only {diff_prints} diff prints");
     assert!(
         failures.is_empty(),
         "{} of {} differ:\n{}",

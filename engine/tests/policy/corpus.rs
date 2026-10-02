@@ -84,8 +84,50 @@ fn evaluate_case(path: &Path) -> Result<(), String> {
         if theirs.is_some() != mine.is_some() {
             return Err(format!("exception text: python {theirs:?}, ours {mine:?}"));
         }
+        // Nor may the port's be one of the engine's own reasons, which would
+        // mean it stopped where Python raised.
+        if let Some(own) = mine
+            .as_deref()
+            .and_then(|mine| own_words().into_iter().find(|own| mine.starts_with(own)))
+        {
+            return Err(format!(
+                "exception text {mine:?} is the engine's own {own:?}"
+            ));
+        }
     }
     compare(&ours, &python)
+}
+
+/// The engine's own words, as `conformance.py` tells them from a Python
+/// exception's: the reasons `evaluate` stops with (its `_OWN_BLOCKERS`) and
+/// the start of every message `policy.py` raises.
+fn own_words() -> Vec<String> {
+    let source = |name: &str| {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../pr_review")
+            .join(name);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    };
+    let conformance = source("conformance.py");
+    let start = conformance
+        .find("_OWN_BLOCKERS = (")
+        .expect("conformance.py names _OWN_BLOCKERS");
+    let end = start + conformance[start..].find(")\n").expect("the tuple ends");
+    let literal = regex::Regex::new(r"'([^']*)'").expect("a pattern");
+    let raised = regex::Regex::new(r"raise ValueError\(f?'([^'{]*)").expect("a pattern");
+    let policy = source("policy.py");
+    let words: Vec<String> = literal
+        .captures_iter(&conformance[start..end])
+        .chain(raised.captures_iter(&policy))
+        .map(|caps| caps[1].to_owned())
+        .filter(|word| !word.is_empty())
+        .collect();
+    assert!(
+        words.len() > 30,
+        "only {} of the engine's own words",
+        words.len()
+    );
+    words
 }
 
 fn compare(ours: &PyValue, python: &PyValue) -> Result<(), String> {
@@ -186,12 +228,18 @@ fn the_corpus_matches_python_but_for_the_pending_cases() {
         }
         counts.push(format!("{dir}: {passed} of {} pass", cases.len()));
     }
-    // A listed case this gate owns must exist; other gates own the rest.
+    // A listed case must exist, as a case this gate runs or as a file other
+    // gates own.
     for listed in &pending {
         let ours = GATED
             .iter()
             .any(|dir| listed.starts_with(&format!("{dir}/")));
-        if ours && !seen.contains(listed) {
+        let exists = if ours {
+            seen.contains(listed)
+        } else {
+            conformance().join(listed).is_file()
+        };
+        if !exists {
             problems.push(format!(
                 "{listed} is in pending.txt but no such case exists"
             ));

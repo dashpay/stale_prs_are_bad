@@ -193,7 +193,8 @@ pub(crate) static SECTIONS: LazyLock<Vec<Section>> = LazyLock::new(|| {
         .collect()
 });
 
-/// `re.compile` keeps the patterns it was last asked for, up to this many.
+/// How many patterns `re` keeps compiled; this cache starts over once it
+/// holds as many.
 const MAX_CACHE: usize = 512;
 
 /// Patterns built at run time, by the pattern text they compile.
@@ -201,19 +202,25 @@ static CACHE: LazyLock<Mutex<HashMap<String, Regex>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// `pattern`, compiled once. Every pattern built here is escaped text and
-/// fixed classes; one that does not compile is a bug in the port, and
-/// fails the run rather than matching nothing.
+/// fixed classes, so one that does not compile is either a bug in the port
+/// or input far past what the engine writes (a commit id thousands of
+/// characters long, past the regex crate's size limit); either fails the
+/// run rather than matching nothing.
 fn cached(pattern: String) -> Result<Regex, PyErr> {
     // A thread that panicked holding the lock left a map of finished
     // entries; nothing is ever half-written to it.
-    let mut cache = CACHE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(found) = cache.get(&pattern) {
+    let lock = || {
+        CACHE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    };
+    if let Some(found) = lock().get(&pattern) {
         return Ok(found.clone());
     }
+    // Compiled outside the lock; two threads may both compile one pattern.
     let built = Regex::new(&pattern)
         .map_err(|error| PyErr::Unported(format!("pattern {pattern:?}: {error}")))?;
+    let mut cache = lock();
     if cache.len() >= MAX_CACHE {
         cache.clear();
     }
@@ -276,9 +283,13 @@ mod tests {
         );
         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
         let value: Value = serde_json::from_str(&text).unwrap();
+        let minor: Vec<&str> = crate::pycompat::tables::PYTHON_VERSION
+            .split('.')
+            .take(2)
+            .collect();
         assert_eq!(
             value["python"],
-            crate::pycompat::tables::PYTHON_VERSION,
+            minor.join("."),
             "the golden and the generated tables are from different Pythons"
         );
         value
@@ -390,6 +401,68 @@ mod tests {
         }
     }
 
+    /// The Python pattern, and its flags among `I`, `M` and `S`, each port
+    /// above was made from.
+    const PORTED_FROM: [(&str, &str, &str); 21] = [
+        (
+            "handle",
+            r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?",
+            "",
+        ),
+        ("repository", r"[\w.-]+/[\w.-]+", ""),
+        ("branch_syntax", r"[?\[\]{}\\]|\*\*", ""),
+        ("area_id", r"[a-z0-9][a-z0-9-]*", ""),
+        ("prefix", r"(?:[A-Za-z0-9_.-]+/)+", ""),
+        ("head_sha", r"[0-9a-f]{40}", ""),
+        (
+            "risk_block",
+            r"<!-- final_review_risk_start -->(.*?)<!-- final_review_risk_end -->",
+            "S",
+        ),
+        (
+            "bookkeeping",
+            r"(?is)<details>\s*<summary>[^A-Za-z<]*(?:run configuration|commits|files selected for processing|recent review info)\s*(?:\(\d+\))?\s*</summary>.*?</details>",
+            "IS",
+        ),
+        (
+            "checkbox_item",
+            r#"(?m)^[-*]\s*\[[ xX]\]\s*<!--\s*\{"checkboxId"[^>]*-->.*$"#,
+            "M",
+        ),
+        ("checkbox", r#"<!--\s*\{"checkboxId"[^>]*-->"#, ""),
+        ("passed", "\u{2705}", ""),
+        ("separator", r"(?m)^\|(?:\s*:?-+:?\s*\|)+[ \t]*$\n?", "M"),
+        (
+            "table_row",
+            r"(?m)^(\|(?:\\.|[^|\n\\])*\|((?:\\.|[^|\n\\])*)\|).*$",
+            "M",
+        ),
+        ("table", r"(?m)(?:^\|.*\n?)+", "M"),
+        ("spaces", r"\s+", ""),
+        (
+            "attestation",
+            r"/self[- ]?review(?:ed)?(?:\s+(?P<head>[0-9a-fA-F]{40}))?",
+            "I",
+        ),
+        ("hidden_markup", r"<!--.*?-->", "S"),
+        (
+            "pasta_heading",
+            r"(?m)^\*\*(?P<label>[^\x00-\x7f][^*:\n]*):",
+            "M",
+        ),
+        (
+            "rabbit_heading",
+            r"(?m)^_[^_\n]+_(?:[ \t]*\|[ \t]*_[^_\n]+_)+[ \t\r]*$",
+            "M",
+        ),
+        (
+            "receipt_coverage",
+            r"(?m)^<!-- final_review_risk_coverage:\s*",
+            "M",
+        ),
+        ("receipt_tail", r"\s*-->[ \t]*(?:\r?\n|$)", ""),
+    ];
+
     #[test]
     fn a_head_outside_ascii_names_no_final_phase() {
         // Python folds such a head with its own Unicode case data, which
@@ -414,6 +487,16 @@ mod tests {
         for case in file["cases"].as_array().unwrap() {
             let name = text(&case["name"]);
             names.insert(name.to_owned());
+            if let Some(source) = case["source"].as_str() {
+                // The pattern policy.py compiles now must be the one this
+                // port was made from.
+                let ported = PORTED_FROM
+                    .iter()
+                    .find(|(ported, _, _)| *ported == name)
+                    .map(|(_, source, flags)| (*source, *flags));
+                let python = (source, text(&case["flags"]));
+                assert_eq!(ported, Some(python), "{name}: policy.py's pattern changed");
+            }
             let method = text(&case["method"]);
             let re = port(name, &case["params"]);
             for pair in case["results"].as_array().unwrap() {

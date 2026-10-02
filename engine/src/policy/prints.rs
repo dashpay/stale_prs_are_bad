@@ -134,6 +134,10 @@ fn comments_of(relevant: &mut PyValue) -> Result<Vec<&mut PyValue>, PyErr> {
 /// Who last edited a comment and when GraphQL says it was edited are left
 /// out too, so the print does not depend on which route read the comment;
 /// the update time already moves with every edit.
+///
+/// Python copies the snapshot with `copy.deepcopy`, which raises
+/// `RecursionError` on a value nested some five hundred levels deep; this
+/// does not, and nothing GitHub answers nests that deep.
 pub fn fingerprint(pr: &PyValue) -> Result<String, PyErr> {
     let mut relevant = pr.clone();
     for name in [

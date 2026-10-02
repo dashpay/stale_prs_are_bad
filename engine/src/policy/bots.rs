@@ -71,11 +71,15 @@ impl<'a> Facts<'a> {
 fn hours(stamp: &PyValue, now: &PyValue) -> Result<f64, PyErr> {
     let now = time(now)?;
     let then = time(stamp)?;
-    Ok(now.0.py_sub(&then.0)?.total_seconds() / 3600.0)
+    Ok(now.datetime().py_sub(then.datetime())?.total_seconds() / 3600.0)
 }
 
 /// `hours >= bound`, a float against whatever the policy holds.
 fn at_least(hours: f64, bound: &PyValue) -> Result<bool, PyErr> {
+    // Nothing is at least NaN; `py_order` refuses to place one.
+    if matches!(bound, PyValue::Float(f) if f.is_nan()) {
+        return Ok(false);
+    }
     match py_order(&PyValue::Float(hours), bound) {
         Ok(order) => Ok(order != Ordering::Less),
         Err(PyErr::Type(_)) => Err(PyErr::type_error(format!(
@@ -339,15 +343,15 @@ pub(crate) fn schedule(
 
     // The moment a waiver takes effect is a property of the head, not of
     // the run that noticed it, so it does not move with the clock.
-    let mut due_at = utc_z(&time(seen)?.0.py_add(whole_hours(waive_after)?)?);
+    let mut due_at = utc_z(&time(seen)?.datetime().py_add(whole_hours(waive_after)?)?);
     let mut waived = at_least(waited, waive_after)?;
     let mut reason = waived.then_some("window");
     // A bot that has said it cannot review this head is not one that has
     // not answered yet: an hour after its notice, proceed without it.
     if let Some(limited) = &limited {
         if hours(limited, now)? >= 1.0 {
-            let hour = PyTimeDelta::from_micros(3_600_000_000);
-            let limit_at = utc_z(&time(limited)?.0.py_add(hour)?);
+            let hour = whole_hours(&PyValue::Int(1.into()))?;
+            let limit_at = utc_z(&time(limited)?.datetime().py_add(hour)?);
             if !waived || time_text(&limit_at)? < time_text(&due_at)? {
                 due_at = limit_at;
                 waived = true;

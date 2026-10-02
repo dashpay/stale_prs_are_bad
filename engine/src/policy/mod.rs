@@ -82,8 +82,11 @@ pub const RETIRED_LABELS: [&str; 4] = [
     "waiting-author",
     "ready-to-merge",
 ];
+/// The marker the move comment starts with.
 pub const MOVE_MARKER: &str = "<!-- pr-hygiene:move";
+/// Where this controller's checklist starts in a description.
 pub const CHECKLIST_START: &str = "<!-- pr-hygiene:start -->";
+/// Where it ends.
 pub const CHECKLIST_END: &str = "<!-- pr-hygiene:end -->";
 /// The marker a CodeRabbit receipt carries before the JSON naming the
 /// commit it covers.
@@ -91,9 +94,12 @@ pub const RECEIPT_MARKER: &str = "final_review_risk_coverage";
 /// What every spelling the attestation pattern accepts contains, so that a
 /// comment holding one starts a run at once.
 pub const ATTESTATION_TRIGGERS: [&str; 3] = ["/self-review", "/selfreview", "/self review"];
+/// Where CodeRabbit's notice that it is rate limited starts.
 pub const RATE_LIMITED: &str =
     "<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->";
+/// The words of that notice the caller workflow looks for.
 pub const RATE_LIMITED_MARKER: &str = "rate limited by coderabbit.ai";
+/// Where the notice ends.
 pub const RATE_LIMITED_END: &str =
     "<!-- end of auto-generated comment: rate limited by coderabbit.ai -->";
 

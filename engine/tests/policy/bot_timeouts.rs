@@ -3,7 +3,7 @@
 //! tests of `evaluate` are in the corpus; those of the status page reader
 //! belong to `telemetry`, which is not part of the policy.
 
-use crate::support::{ago, at, fixture, remove, s, set, value, NOW};
+use crate::support::{ago, fixture, list_mut, remove, s, set, value, NOW};
 use pr_hygiene_engine::policy::{bot_schedule, Schedule};
 use pr_hygiene_engine::pycompat::PyValue;
 use serde_json::json;
@@ -29,9 +29,9 @@ fn waiting(hours_since_seen: f64) -> (PyValue, PyValue) {
         &["bot_timeouts"],
         value(json!({"nudge_after_hours": 6, "waive_after_hours": 16})),
     );
-    if let PyValue::List(reviews) = at(&mut pr, &["reviews"]) {
-        reviews.retain(|r| !matches!(r, PyValue::Dict(d) if matches!(d.get("user"), Some(PyValue::Str(u)) if u == "thepastaclaw")));
-    }
+    list_mut(&mut pr, &["reviews"]).retain(|r| {
+        !matches!(r, PyValue::Dict(d) if matches!(d.get("user"), Some(PyValue::Str(u)) if u == "thepastaclaw"))
+    });
     set(&mut pr, &["head_seen_at"], s(&ago(hours_since_seen)));
     (policy, pr)
 }
@@ -121,6 +121,24 @@ fn coderabbit_announcing_its_own_limit_is_not_awaited_for_the_whole_window() {
     // Within the hour it documents for its own retry, it is still awaited.
     comments(&mut pr, notice(&ago(0.2)));
     assert_eq!(waived_at(&policy, &pr), None);
+}
+
+#[test]
+fn coderabbit_is_not_nudged_within_the_hour_it_asked_for() {
+    // It documents an hour's retry after its own limit. Asking again inside
+    // that hour only adds to the load it reported, however long ago the
+    // head appeared; Python answers the same.
+    let (policy, mut pr) = waiting(7.0);
+    assert!(
+        schedule(&policy, &pr, "coderabbitai", None).nudge,
+        "past the nudge window, an unheard-of bot is asked"
+    );
+    comments(
+        &mut pr,
+        json!([{"user": "coderabbitai[bot]", "created_at": ago(0.2), "updated_at": ago(0.2),
+                "body": format!("{RATE_LIMITED}\nwait")}]),
+    );
+    assert!(!schedule(&policy, &pr, "coderabbitai", None).nudge);
 }
 
 #[test]

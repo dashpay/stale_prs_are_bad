@@ -17,18 +17,19 @@ use super::prints::carried_heads;
 use super::receipts::{rabbit_receipt, receipt_instant, receipt_print};
 use super::validate::{governs, required_bots, validate_policy};
 use super::values::{
-    dict, earliest, latest, lower, or_empty_dict, re_text, s, strs, time, upper, upper_in,
-    EMPTY_DICT, EMPTY_STR,
+    dict, earliest, latest, lower, or_empty_dict, re_text, s, string, strings, strs, time, upper,
+    upper_in, EMPTY_DICT, EMPTY_STR,
 };
 use super::{holders, machine_author, may_object, BOTS, WRITE};
 use crate::pycompat::object::{
-    get, get_or, getitem, hashable, in_str_set, is_str, iterate, no_attribute, or, py_eq, py_str,
-    str_method,
+    get, get_or, getitem, hashable, in_str_set, is_str, iterate, no_attribute, or, py_eq,
+    py_item_order, py_sort_by, py_str, str_method,
 };
-use crate::pycompat::text::py_strip;
+use crate::pycompat::text::{py_lower, py_strip};
 use crate::pycompat::{PyDict, PyErr, PyList, PyValue};
 use indexmap::IndexMap;
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
 /// Where `evaluate` stops: the state, the status, and the reasons that
@@ -67,26 +68,26 @@ struct Area<'p> {
 }
 
 impl<'p> Area<'p> {
-    fn read(area: &'p PyValue, id: Option<&'p str>) -> Result<Self, PyErr> {
-        let strings = |key: &str| -> Result<Vec<&'p str>, PyErr> {
-            match getitem(area, key)? {
-                PyValue::List(items) => items.iter().map(|x| str_method(x, "lower")).collect(),
-                other => Err(no_attribute(other, "lower")),
-            }
-        };
+    /// One of `policy['areas']`.
+    fn read(area: &'p PyValue) -> Result<Self, PyErr> {
         Ok(Area {
-            id: match id {
-                Some(id) => id,
-                None => str_method(getitem(area, "id")?, "startswith")?,
-            },
-            paths: if id.is_some() {
-                Vec::new()
-            } else {
-                strings("paths")?
-            },
-            owners: strings("owners")?,
-            reviewers: strings("reviewers")?,
+            id: string(getitem(area, "id")?)?,
+            paths: strings(getitem(area, "paths")?)?,
+            owners: strings(getitem(area, "owners")?)?,
+            reviewers: strings(getitem(area, "reviewers")?)?,
             unresolved: get(area, "unresolved")?.truthy(),
+        })
+    }
+
+    /// `dict(policy['fallback'], id='fallback')`: it covers whatever no
+    /// area's prefix does, and has no paths and no unresolved identities.
+    fn fallback(fallback: &'p PyValue) -> Result<Self, PyErr> {
+        Ok(Area {
+            id: "fallback",
+            paths: Vec::new(),
+            owners: strings(getitem(fallback, "owners")?)?,
+            reviewers: strings(getitem(fallback, "reviewers")?)?,
+            unresolved: get(fallback, "unresolved")?.truthy(),
         })
     }
 
@@ -263,11 +264,11 @@ fn decide(
     let areas = match getitem(policy, "areas")? {
         PyValue::List(items) => items
             .iter()
-            .map(|area| Area::read(area, None))
+            .map(Area::read)
             .collect::<Result<Vec<_>, PyErr>>()?,
         other => return Err(no_attribute(other, "get")),
     };
-    let fallback = Area::read(getitem(policy, "fallback")?, Some("fallback"))?;
+    let fallback = Area::fallback(getitem(policy, "fallback")?)?;
     // Areas in the order files first touch them: every surface lists them
     // so, and an order that changed between runs rewrote what was posted.
     let mut touched: IndexMap<&str, &Area<'_>> = IndexMap::new();
@@ -313,7 +314,7 @@ fn decide(
     match getitem(pr, "permissions")? {
         PyValue::Dict(entries) => {
             for (login, level) in entries.iter() {
-                permissions.insert(crate::pycompat::text::py_lower(login), level.clone());
+                permissions.insert(py_lower(login), level.clone());
             }
         }
         other => return Err(no_attribute(other, "items")),
@@ -322,7 +323,7 @@ fn decide(
     let mut people: IndexMap<String, &str> = IndexMap::new();
     for area in touched.values() {
         for person in area.people() {
-            people.insert(crate::pycompat::text::py_lower(person), person);
+            people.insert(py_lower(person), person);
         }
     }
     for area in touched.values() {
@@ -398,8 +399,10 @@ fn decide(
             bot_threads.push(thread.as_ref());
         }
     }
-    let mut sorted_heads: Vec<String> = heads.iter().cloned().collect();
-    sorted_heads.sort();
+    // The marker naming any of the heads, built the first time a review
+    // could carry it; a set iterates its heads sorted, as Python sorts them.
+    let sorted_heads: Vec<String> = heads.iter().cloned().collect();
+    let mut final_marker = None;
     let mut pasta: Vec<PyValue> = Vec::new();
     let mut rabbit: Vec<PyValue> = Vec::new();
     for review in &reviews {
@@ -410,7 +413,14 @@ fn decide(
         }
         if user == "thepastaclaw" && matches!(state.as_deref(), Some("APPROVED" | "COMMENTED")) {
             let body = re_text(getitem(review, "body")?)?;
-            if final_phase(&sorted_heads)?.is_some_and(|marker| marker.is_match(body)) {
+            if final_marker.is_none() {
+                final_marker = Some(final_phase(&sorted_heads)?);
+            }
+            if final_marker
+                .iter()
+                .flatten()
+                .any(|marker| marker.is_match(body))
+            {
                 pasta.push(getitem(review, "submitted_at")?.clone());
             }
         }
@@ -758,10 +768,11 @@ fn decide(
                 .get(&user)
                 .cloned()
                 .unwrap_or_else(|| spoke.clone());
-            let later = latest([&earlier, spoke])?
-                .cloned()
-                .unwrap_or(earlier.clone());
-            objectors.insert(user, later);
+            // `max` of two never comes back empty.
+            if let Some(later) = latest([&earlier, spoke])? {
+                let later = later.clone();
+                objectors.insert(user, later);
+            }
         }
     }
     if first.is_none() {
@@ -781,11 +792,7 @@ fn decide(
         let files = strs(files_by_area.get(area.id).into_iter().flatten().cloned());
         // You may merge your own work in your own area without a second
         // person; being handed a pull request is not having written it.
-        let owners: BTreeSet<String> = area
-            .owners
-            .iter()
-            .map(|x| crate::pycompat::text::py_lower(x))
-            .collect();
+        let owners: BTreeSet<String> = area.owners.iter().map(|x| py_lower(x)).collect();
         if owners.contains(&author) {
             approvals.push(dict([
                 ("area", s(area.id)),
@@ -800,7 +807,7 @@ fn decide(
         // said nothing may still approve.
         let eligible: BTreeSet<String> = area
             .people()
-            .map(crate::pycompat::text::py_lower)
+            .map(py_lower)
             .filter(|login| *login != author && !attested_by.contains(login))
             .collect();
         let mut approved_by = Vec::new();
@@ -927,7 +934,6 @@ fn decide(
         }
         let mut reasons = vec!["Human approval or objection resolution is required".to_owned()];
         if !stranded.is_empty() {
-            let mut stranded = stranded.clone();
             stranded.sort();
             reasons.push(format!(
                 "Nobody may approve {}: everyone who could has attested to it instead",
@@ -950,9 +956,7 @@ fn decide(
 
     // In the order the verdict weighs them, so the first unchecked line is
     // the state.
-    let first_word = |line: &str| {
-        crate::pycompat::text::py_lower(line.split_once(' ').map_or(line, |(word, _)| word))
-    };
+    let first_word = |line: &str| py_lower(line.split_once(' ').map_or(line, |(word, _)| word));
     let skippable = missing.iter().any(|bot| !waived.contains_key(bot));
     let self_review_done =
         !attestations.is_empty() && !(self_time.is_some() && !unanswered.is_empty());
@@ -1053,8 +1057,8 @@ fn latest_reviews<'a>(
         let id = getitem(review, "id")?;
         keyed.push((at, id, review.as_ref()));
     }
-    crate::pycompat::object::py_sort_by(&mut keyed, |a, b| match a.0.cmp(&b.0) {
-        std::cmp::Ordering::Equal => crate::pycompat::object::py_item_order(a.1, b.1),
+    py_sort_by(&mut keyed, |a, b| match a.0.cmp(&b.0) {
+        Ordering::Equal => py_item_order(a.1, b.1),
         other => Ok(other),
     })?;
     let mut latest = IndexMap::new();

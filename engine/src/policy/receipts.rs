@@ -61,6 +61,7 @@ pub fn receipt_print(comment: &PyValue) -> Result<Option<String>, PyErr> {
     // what the author has to do.
     said = TABLE_ROW
         .replace_all(&said, |row: &regex::Captures<'_>| {
+            // Both groups take part in every match, so indexing them cannot fail.
             let keep = if PASSED.is_match(&row[2]) { 1 } else { 0 };
             row[keep].to_owned()
         })
@@ -69,6 +70,7 @@ pub fn receipt_print(comment: &PyValue) -> Result<Option<String>, PyErr> {
     // nothing is dropped.
     said = TABLE
         .replace_all(&said, |block: &regex::Captures<'_>| {
+            // Group 0 is the whole match.
             let mut lines = py_splitlines(&block[0], true);
             lines.sort();
             lines.concat()
@@ -104,6 +106,8 @@ pub(crate) fn rabbit_receipt(body: &PyValue, head: &PyValue) -> Result<bool, PyE
     let body = re_text(body)?;
     for marker in RECEIPT_COVERAGE.find_iter(body) {
         let rest = &body[marker.end()..];
+        // A lone surrogate escape, which Python reads and a Rust string
+        // cannot hold, takes the path of JSON that does not read.
         let decoded = match py_raw_decode(rest) {
             Ok(decoded) => decoded,
             Err(PyErr::Value(_) | PyErr::Type(_)) => continue,
@@ -153,6 +157,7 @@ pub fn finding_severities(author: &PyValue, body: &PyValue) -> Result<Vec<String
     let mut labels: Vec<String> = Vec::new();
     if producer == "thepastaclaw" {
         for heading in PASTA_HEADING.captures_iter(&text) {
+            // `label` is not optional, so every match has it.
             labels.push(py_strip(&heading["label"]).to_owned());
         }
     } else {

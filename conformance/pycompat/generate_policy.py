@@ -33,7 +33,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from pr_review import policy  # noqa: E402
 
-PYTHON = sys.version.split()[0]
+# Only the minor version: CI regenerates these on whichever 3.12 release it
+# has, and has to write the same bytes.
+PYTHON = f"{sys.version_info.major}.{sys.version_info.minor}"
 OUT = ROOT / 'conformance' / 'pycompat'
 SOURCE = (ROOT / 'pr_review' / 'policy.py').read_text()
 
@@ -276,7 +278,9 @@ def regex_goldens(rng):
     for name, source, flags, method, params, inputs in named:
         compiled = re.compile(source, flags)
         pool_here = inputs + (pool if method in ('finditer', 'search') else [])
-        cases.append(case(name, compiled, method, params, pool_here))
+        flags = ''.join(letter for letter, flag in (('I', re.I), ('M', re.M), ('S', re.S)) if compiled.flags & flag)
+        # The pattern itself, so a port can be held to the one Python compiles.
+        cases.append(dict(case(name, compiled, method, params, pool_here), source=compiled.pattern, flags=flags))
     in_source(r"r'(?m)^' + re.escape(start) + r'[ \t]*$'")
     in_source(r"r'(?ms)^' + re.escape(start) + r'[ \t]*$.*?^' + re.escape(end) + r'[ \t]*$'")
     for index, (start, end) in enumerate(SECTIONS):
@@ -373,7 +377,26 @@ def object_goldens(rng):
 
     upper = [[c, chr(c).upper()] for c in range(0x110000)
              if not 0xD800 <= c <= 0xDFFF and not chr(c).isascii() and chr(c).upper().isascii()]
-    write_json('object.json', [], float_repr=reprs, str=strs, eq=eq, order=order, upper_into_ascii=upper)
+    # `sorted()`: which order it leaves, or which TypeError it raises first,
+    # depends on the pairs it compares. Lists mostly of one kind, with now
+    # and then a value of another; those of 64 items and more, where CPython
+    # merges runs, only of values that all compare.
+    rng = random.Random(20261004)
+    kinds = [lambda: rng.randint(-3, 3), lambda: rng.choice([True, False]), lambda: rng.choice([0.5, -1.0, 2.0, 1e300]),
+             lambda: rng.choice(['a', 'b', 'B', '\xe9', '']), lambda: [rng.randint(0, 2)],
+             lambda: rng.choice([None, {}, [None], ['a', 1]])]
+    sorts = []
+    for _ in range(400):
+        size = rng.choice([rng.randint(1, 12), rng.randint(13, 63), rng.randint(64, 90)])
+        main = rng.choice(kinds[:5])
+        items = [main() if rng.random() > (0 if size >= 64 else 0.08) else rng.choice(kinds)() for _ in range(size)]
+        try:
+            sorts.append({'items': tag(items), 'sorted': tag(sorted(items))})
+        except TypeError as error:
+            if size < 64:
+                sorts.append({'items': tag(items), 'type_error': str(error)})
+    write_json('object.json', [], float_repr=reprs, str=strs, eq=eq, order=order, sort=sorts,
+               upper_into_ascii=upper)
 
 
 # --- evaluate on input of the wrong shape ------------------------------------------

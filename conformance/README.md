@@ -340,11 +340,15 @@ uv run -q --python 3.12 --no-project --with pyyaml python conformance/pycompat/g
 Writes what the policy port needs beyond that, from `pr_review/policy.py`
 itself: `policy_regex.json` (every pattern the policy uses, with what `re`
 matched), `object.json` (`str()`, float `repr`, `==` and `<` between values,
-the characters whose `upper()` is ASCII), and `policy_malformed.json`
-(corpus cases with one field deleted or given another type, and whether
-`evaluate` raised or what it answered). It refuses to run when a pattern it
-copies no longer appears in `policy.py`; run it again when the policy's
-patterns or `evaluate` change.
+the characters whose `upper()` is ASCII, what `sorted()` leaves or raises),
+`policy_malformed.json` (corpus cases with one field deleted or given another
+type, whether `evaluate` raised or what it answered, and `fingerprint`), and
+`policy_variants.json` (what the corpus cannot tell apart: which of two
+equal instants a verdict keeps, what `strip` takes around an attestation or
+a skip, the order `diff_print` sorts files in, and `fingerprint` of every
+corpus snapshot). It refuses to run when a pattern it copies no longer
+appears in `policy.py`, and records only the minor version of Python, so CI
+regenerates the files and fails on any difference, as it does the corpus.
 
 ## The Rust engine's gate
 

@@ -3,7 +3,7 @@
 //! holds. Each keeps its Python name, which says the behaviour.
 
 use crate::support::{
-    at, comment, fixture, is_value_error, rabbit, s, set, value, Rabbit, HEAD, NOW,
+    comment, fixture, is_value_error, list_mut, rabbit, s, set, value, Rabbit, HEAD, NOW,
 };
 use pr_hygiene_engine::policy::{
     admit, diff_print, finding_blocks, finding_severities, fingerprint, governs, receipt_print,
@@ -97,9 +97,7 @@ fn a_machine_author_that_owns_an_area_is_refused_by_the_policy() {
     ] {
         for spelling in ["infraclaw-dash", "INFRACLAW-DASH"] {
             let mut q = p.clone();
-            if let PyValue::List(items) = at(&mut q, place) {
-                items.push(s(spelling));
-            }
+            list_mut(&mut q, place).push(s(spelling));
             assert!(is_value_error(validate_policy(&q)), "{place:?} {spelling}");
         }
     }
@@ -148,17 +146,18 @@ fn integer_configuration_does_not_accept_float_lookalikes() {
 fn validation_rejects_overlap_and_excluded_identity() {
     let (mut p, _) = fixture();
     validate_policy(&p).unwrap();
-    if let PyValue::List(paths) = at(&mut p, &["areas", "0", "paths"]) {
-        paths.push(s("packages/drive/nested/"));
-    }
+    list_mut(&mut p, &["areas", "0", "paths"]).push(s("packages/drive/nested/"));
     assert!(is_value_error(validate_policy(&p)));
     let (mut p, _) = fixture();
     set(&mut p, &["areas", "0", "reviewers"], strs(&["strophy"]));
     assert!(is_value_error(validate_policy(&p)));
 }
 
+// Python's `test_whole_repository_owner_covers_root_files_and_cross_directory_rename`,
+// as far as it calls a helper: the empty prefix is a valid policy. What it
+// asserts of `evaluate` the corpus holds; its `codeowners` check is not ported.
 #[test]
-fn whole_repository_owner_covers_root_files_and_cross_directory_rename() {
+fn an_empty_prefix_covering_the_whole_repository_is_a_valid_policy() {
     let (mut p, _) = fixture();
     set(&mut p, &["areas", "0", "paths"], strs(&[""]));
     validate_policy(&p).unwrap();
@@ -167,19 +166,20 @@ fn whole_repository_owner_covers_root_files_and_cross_directory_rename() {
 #[test]
 fn whole_repository_prefix_cannot_overlap_other_areas() {
     let (mut p, _) = fixture();
-    if let PyValue::List(areas) = at(&mut p, &["areas"]) {
-        areas.push(value(
-            json!({"id": "whole", "paths": [""], "owners": ["whole"], "reviewers": []}),
-        ));
-    }
+    list_mut(&mut p, &["areas"]).push(value(
+        json!({"id": "whole", "paths": [""], "owners": ["whole"], "reviewers": []}),
+    ));
     match validate_policy(&p) {
         Err(PyErr::Value(error)) => assert!(error.to_string().contains("Overlapping"), "{error}"),
         other => panic!("{other:?}"),
     }
 }
 
+// Python's `test_named_area_without_owner_is_explicit_configuration_gap`,
+// as far as it calls a helper; the configuration error `evaluate` then
+// reports is in the corpus.
 #[test]
-fn named_area_without_owner_is_explicit_configuration_gap() {
+fn an_area_without_owners_is_valid_when_it_names_its_unresolved_identity() {
     let (mut p, _) = fixture();
     set(&mut p, &["areas", "0", "owners"], strs(&[]));
     set(
@@ -190,8 +190,10 @@ fn named_area_without_owner_is_explicit_configuration_gap() {
     validate_policy(&p).unwrap();
 }
 
+// Python's `test_empty_unresolved_area_never_emits_native_owner_suppression`,
+// as far as it calls a helper; its `codeowners` check is not ported.
 #[test]
-fn empty_unresolved_area_never_emits_native_owner_suppression() {
+fn a_whole_repository_area_with_only_an_unresolved_identity_is_valid() {
     let (mut p, _) = fixture();
     set(&mut p, &["areas", "0", "paths"], strs(&[""]));
     set(&mut p, &["areas", "0", "owners"], strs(&[]));
@@ -308,12 +310,10 @@ fn fingerprint_ignores_controller_effects_but_not_evidence() {
     let original = fingerprint(&pr).unwrap();
     set(&mut pr, &["labels"], strs(&["ready-for-human"]));
     set(&mut pr, &["requested_reviewers"], strs(&["reviewer"]));
-    if let PyValue::List(comments) = at(&mut pr, &["comments"]) {
-        comments.push(value(json!({
-            "user": "github-actions[bot]",
-            "body": "<!-- platform-pr-review-state-v1 -->",
-        })));
-    }
+    list_mut(&mut pr, &["comments"]).push(value(json!({
+        "user": "github-actions[bot]",
+        "body": "<!-- platform-pr-review-state-v1 -->",
+    })));
     assert_eq!(original, fingerprint(&pr).unwrap());
     set(&mut pr, &["reviews", "0", "state"], s("CHANGES_REQUESTED"));
     assert_ne!(original, fingerprint(&pr).unwrap());
@@ -332,12 +332,10 @@ fn asking_a_bot_to_review_is_not_mistaken_for_changed_evidence() {
     // From test_bot_timeouts.py: a nudge is this controller's own comment.
     let (_, mut pr) = fixture();
     let before = fingerprint(&pr).unwrap();
-    if let PyValue::List(comments) = at(&mut pr, &["comments"]) {
-        comments.push(value(json!({
-            "user": "github-actions[bot]", "created_at": NOW, "updated_at": NOW,
-            "body": format!("<!-- pr-hygiene-nudge v1 bot=thepastaclaw sha={HEAD} -->\n@thepastaclaw review"),
-        })));
-    }
+    list_mut(&mut pr, &["comments"]).push(value(json!({
+        "user": "github-actions[bot]", "created_at": NOW, "updated_at": NOW,
+        "body": format!("<!-- pr-hygiene-nudge v1 bot=thepastaclaw sha={HEAD} -->\n@thepastaclaw review"),
+    })));
     assert_eq!(fingerprint(&pr).unwrap(), before);
 }
 

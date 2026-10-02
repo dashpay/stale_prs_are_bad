@@ -47,6 +47,16 @@ jobs:
             echo '::error::The committed corpus is stale. Run "python -m pr_review.conformance harvest" on Python 3.12 and commit the result.'
             exit 1
           fi
+      - name: The policy port's goldens are what generate_policy.py writes
+        # They record what policy.py and Python's re answer; a change to
+        # either has to carry them, or the Rust port is held to old answers.
+        working-directory: proposed
+        run: |
+          python3 conformance/pycompat/generate_policy.py
+          if ! git diff --exit-code --stat -- conformance/pycompat; then
+            echo '::error::The policy goldens are stale. Run "python conformance/pycompat/generate_policy.py" on Python 3.12 and commit the result.'
+            exit 1
+          fi
       - name: Clone the default branch of every governed repository
         # Policies are read live by callers. Catch missing paths before rollout,
         # instead of discovering them in a repository's reconciliation jobs.
