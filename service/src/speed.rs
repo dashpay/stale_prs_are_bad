@@ -2,14 +2,14 @@
 //!
 //! The inputs are recorded at ingest, in the snapshot's own transaction,
 //! keyed by GitHub user id, only from repositories the snapshot read, and
-//! never for anyone who opted out:
+//! never under the id of anyone who opted out:
 //!
 //! - `asks`: a person asked to review a PR — while it waits on review, as an
 //!   approver of an area still unapproved or as an objector — from when to
 //!   when, and how it ended: `answered` (their own decisive review),
-//!   `covered` (the PR still waits on review, but no longer on them: a
-//!   co-approver cleared their area) or `left` (the PR left review, or
-//!   closed).
+//!   `covered` (others' reviews did without theirs: a co-approver cleared
+//!   their area, and the PR waits on others, is mergeable or merged) or
+//!   `left` (back to its author, closed unmerged, or gone).
 //! - `turns`: a PR's time in its author's stage (self-review, answering an
 //!   objection, a failed build). A run broken only by bots or a build is one
 //!   turn, timed by its stretches in the author's stage alone.
@@ -35,9 +35,12 @@
 //! within one snapshot. An interval is counted but not timed when its start
 //! is not known: it was already running when first seen (a repository read
 //! for the first time, or again after a gap) without a recorded start, or
-//! it began before the last look without being seen. One open while its
-//! repository could not be read is not timed either: what happened in the
-//! gap was not seen.
+//! it began before the last look, which already showed the PR in that
+//! stage, without being seen. One already open when a snapshot fails to
+//! read its repository is not timed either: what happened in the gap was
+//! not seen. After the gap the repository is seen afresh, as on a first
+//! read. A PR whose stage the engine did not give (`unknown`) is not seen
+//! either: what is open on it stays open, as it was.
 
 use crate::store::{parse_ts, ts};
 use crate::view;
@@ -113,22 +116,6 @@ enum Look {
     /// Read last in the snapshot generated at this time, and nothing missed
     /// since.
     After(DateTime<Utc>),
-}
-
-impl Look {
-    /// When an interval this look shows for the first time began, and
-    /// whether that is known. Known: the PR's recorded entry into its stage,
-    /// after the last look (or with no last look to be after). Otherwise it
-    /// began at some time not seen; the last look stands in for it (or this
-    /// one, with none), so a review between the two still ends it.
-    fn began(self, p: &PrOut, at: DateTime<Utc>) -> (DateTime<Utc>, bool) {
-        match (self, recorded(p)) {
-            (Look::After(prev), Some(entered)) if entered > prev => (entered, true),
-            (Look::After(prev), _) => (prev, false),
-            (Look::Fresh, Some(entered)) => (entered, true),
-            (Look::Fresh, None) => (at, false),
-        }
-    }
 }
 
 /// Logins this snapshot ties to account ids through the PRs' authors, open
@@ -466,12 +453,68 @@ impl<'a> Pass<'a> {
         if let Some(c) = self.closed.get(&number) {
             Seen::Closed(c)
         } else if let Some(p) = self.prs.get(&number) {
-            Seen::Open(p)
+            if p.stage == Stage::Unknown {
+                // No verdict this time: one snapshot's gap in the engine's
+                // export must not end, or split, what is open on the PR.
+                Seen::Unknown
+            } else {
+                Seen::Open(p)
+            }
         } else if self.closed_read {
             Seen::Gone
         } else {
             Seen::Unknown
         }
+    }
+
+    /// When an interval this snapshot shows for the first time began, and
+    /// whether that is known:
+    /// - the PR's recorded entry into its stage, when after the last look,
+    ///   or with no last look to be after;
+    /// - else the last look, when it showed the PR in another stage: the
+    ///   interval began since, and this look bounds it as closely as any
+    ///   change between two looks. A failed build is the usual case: the
+    ///   engine dates it from when the build began, which the last look
+    ///   already showed running;
+    /// - else it began some time not seen: counted, not timed. The last look
+    ///   (or this one, with none) stands in for the start, so a review
+    ///   between the two still ends it.
+    fn began(&self, tx: &Transaction<'_>, p: &PrOut) -> anyhow::Result<(DateTime<Utc>, bool)> {
+        Ok(match (self.look, recorded(p)) {
+            (Look::After(prev), Some(entered)) if entered > prev => (entered, true),
+            (Look::After(prev), _) => {
+                let was = self.stage_at(tx, p.number, prev)?;
+                let moved =
+                    was.is_some_and(|was| was != p.stage.key() && was != Stage::Unknown.key());
+                (prev, moved)
+            }
+            (Look::Fresh, Some(entered)) => (entered, true),
+            (Look::Fresh, None) => (self.at, false),
+        })
+    }
+
+    /// The PR's stage as of the snapshot generated at `at`, as recorded.
+    fn stage_at(
+        &self,
+        tx: &Transaction<'_>,
+        number: u64,
+        at: DateTime<Utc>,
+    ) -> anyhow::Result<Option<String>> {
+        Ok(tx
+            .prepare_cached(
+                "SELECT stage FROM stage_changes
+                 WHERE repo = ?1 AND number = ?2 AND observed_at <= ?3
+                 ORDER BY id DESC LIMIT 1",
+            )?
+            .query_row(
+                params![
+                    self.repo,
+                    i64::try_from(number).context("PR number out of range")?,
+                    ts(at)
+                ],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     /// When the PR left the stage it was last seen in: when it closed; its
@@ -556,7 +599,7 @@ impl<'a> Pass<'a> {
                 if person.is_some_and(|id| self.opted_out.contains(&id)) {
                     continue;
                 }
-                let (asked_at, timed) = self.look.began(p, self.at);
+                let (asked_at, timed) = self.began(tx, p)?;
                 insert.execute(params![
                     self.repo,
                     i64::try_from(number).context("PR number out of range")?,
@@ -571,8 +614,10 @@ impl<'a> Pass<'a> {
     }
 
     /// The person no longer asked, the ask ends: answered by their first
-    /// decisive review since they were asked; covered when the PR still
-    /// waits on review; left otherwise.
+    /// decisive review since they were asked; covered when others' reviews
+    /// did without theirs (the PR still waits on review, now on others, or
+    /// is approved and mergeable, or merged); left otherwise (back to its
+    /// author, closed unmerged, gone).
     fn end_ask(&self, tx: &Transaction<'_>, ask: &OpenAsk, seen: &Seen<'_>) -> anyhow::Result<()> {
         let reviews = seen.reviews();
         let person = ask
@@ -588,7 +633,10 @@ impl<'a> Pass<'a> {
         });
         let (outcome, ended_at) = match (answer, seen) {
             (Some(r), _) => ("answered", r.at),
-            (None, Seen::Open(p)) if p.stage == Stage::Review => ("covered", self.at),
+            (None, Seen::Open(p)) if matches!(p.stage, Stage::Review | Stage::Mergeable) => {
+                ("covered", self.at)
+            }
+            (None, Seen::Closed(c)) if c.merged_at.is_some() => ("covered", c.closed_at),
             (None, Seen::Closed(c)) => ("left", c.closed_at),
             (None, _) => ("left", self.at),
         };
@@ -667,7 +715,7 @@ impl<'a> Pass<'a> {
                     if self.opted_out.contains(&author) {
                         continue;
                     }
-                    let (started, timed) = self.look.began(p, self.at);
+                    let (started, timed) = self.began(tx, p)?;
                     tx.prepare_cached(
                         "INSERT INTO turns (repo, number, author_id, started_at, resumed_at, timed)
                          VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
@@ -685,7 +733,7 @@ impl<'a> Pass<'a> {
                 (Some(t), Seen::Open(p)) if stage == Some(Stage::SelfReview) => {
                     if t.resumed_at.is_none() {
                         let from = t.paused_at.unwrap_or(t.started_at);
-                        let resumed = self.look.began(p, self.at).0.max(from);
+                        let resumed = self.began(tx, p)?.0.max(from);
                         tx.execute(
                             "UPDATE turns SET resumed_at = ?2 WHERE id = ?1",
                             params![t.id, ts(resumed)],
@@ -1347,25 +1395,34 @@ mod tests {
         assert_eq!((w.asked, w.answered, w.open, w.n), (1, 0, 0, 0));
     }
 
+    /// Unanswered, an ask is covered when others' reviews did without the
+    /// person's — the PR approved and mergeable, or merged — and left when
+    /// the PR went back to its author or closed unmerged.
     #[test]
-    fn an_ask_ends_left_when_the_pr_leaves_review_or_closes_unanswered() {
+    fn an_unanswered_ask_ends_covered_or_left_by_where_the_pr_went() {
         let mut db = db();
         let bob = authored_by(9, "bob", BOB);
         db.ingest(&snap(
             &mar2("10:00"),
-            vec![
-                in_review(3, &mar2("09:00"), &["bob"]),
-                in_review(4, &mar2("09:00"), &["bob"]),
-                in_review(5, &mar2("09:00"), &["bob"]),
-                bob.clone(),
-            ],
+            [3, 4, 5, 14, 15, 16]
+                .into_iter()
+                .map(|n| in_review(n, &mar2("09:00"), &["bob"]))
+                .chain([bob.clone()])
+                .collect(),
         ));
         // 3: back to its author. 4: closed unmerged. 5: approved by bob and
         // merged minutes later, between two snapshots: only the closed list
-        // shows his review.
+        // shows his review. 14: approved by others. 15: merged on others'
+        // approvals. 16: merged while the run read, so in both lists; the
+        // closed one is the later read.
         db.ingest(&snap_closed(
             &mar2("10:15"),
-            vec![pr(3, Stage::SelfReview, &mar2("10:02")), bob],
+            vec![
+                pr(3, Stage::SelfReview, &mar2("10:02")),
+                pr(14, Stage::Mergeable, &mar2("10:05")),
+                in_review(16, &mar2("09:00"), &["bob"]),
+                bob,
+            ],
             vec![
                 closed(4, false, &mar2("10:10"), vec![]),
                 closed(
@@ -1374,15 +1431,80 @@ mod tests {
                     &mar2("10:12"),
                     vec![review("bob", BOB, Verdict::Approved, &mar2("10:08"))],
                 ),
+                closed(15, true, &mar2("10:11"), vec![]),
+                closed(
+                    16,
+                    true,
+                    &mar2("10:16"),
+                    vec![review("bob", BOB, Verdict::Approved, &mar2("10:14"))],
+                ),
             ],
         ));
         let outcome = |n: i64| {
-            let a = &db.asks_on(n)[0];
-            (a.outcome.clone().unwrap(), a.ended_at.unwrap())
+            let asks = db.asks_on(n);
+            assert_eq!(asks.len(), 1, "#{n}");
+            (asks[0].outcome.clone().unwrap(), asks[0].ended_at.unwrap())
         };
         assert_eq!(outcome(3), ("left".into(), t(&mar2("10:15"))));
         assert_eq!(outcome(4), ("left".into(), t(&mar2("10:10"))));
         assert_eq!(outcome(5), ("answered".into(), t(&mar2("10:08"))));
+        assert_eq!(outcome(14), ("covered".into(), t(&mar2("10:15"))));
+        assert_eq!(outcome(15), ("covered".into(), t(&mar2("10:11"))));
+        assert_eq!(outcome(16), ("answered".into(), t(&mar2("10:14"))));
+    }
+
+    /// The engine may list one person twice — an approver and an objector,
+    /// spelled two ways: one ask.
+    #[test]
+    fn a_person_asked_twice_over_on_one_pr_has_one_ask() {
+        let mut db = db();
+        let mut p = in_review(17, &mar2("09:00"), &["Bob"]);
+        p.objectors = vec!["bob".into()];
+        let bob = authored_by(9, "BOB", BOB);
+        db.ingest(&snap(&mar2("10:00"), vec![p.clone(), bob.clone()]));
+        db.ingest(&snap(&mar2("10:15"), vec![p, bob]));
+        let asks = db.asks_on(17);
+        assert_eq!(asks.len(), 1);
+        assert_eq!(asks[0].person, Some(BOB as i64));
+    }
+
+    /// For one snapshot the engine gives the PR no verdict: nothing is
+    /// known of it then, and what was open on it goes on, still timed.
+    #[test]
+    fn a_pr_without_a_verdict_for_a_snapshot_keeps_its_ask_and_turn() {
+        let mut db = db();
+        let bob = authored_by(9, "bob", BOB);
+        let unknown = |n: u64| {
+            let mut p = pr(n, Stage::Unknown, &mar2("01:00"));
+            p.since_basis = Some(SinceBasis::Opened);
+            p
+        };
+        let before = vec![
+            in_review(53, &mar2("09:00"), &["bob"]),
+            pr(54, Stage::SelfReview, &mar2("09:00")),
+            bob.clone(),
+        ];
+        db.ingest(&snap(&mar2("10:00"), before.clone()));
+        db.ingest(&snap(
+            &mar2("10:15"),
+            vec![unknown(53), unknown(54), bob.clone()],
+        ));
+        db.ingest(&snap(&mar2("10:30"), before));
+        let mut answered = pr(53, Stage::Mergeable, &mar2("10:40"));
+        answered.reviews = vec![review("bob", BOB, Verdict::Approved, &mar2("10:40"))];
+        db.ingest(&snap(
+            &mar2("10:45"),
+            vec![answered, pr(54, Stage::Review, &mar2("10:35")), bob],
+        ));
+        let asks = db.asks_on(53);
+        assert_eq!(asks.len(), 1, "one ask, not one before and one after");
+        assert_eq!(asks[0].outcome.as_deref(), Some("answered"));
+        assert!(asks[0].timed);
+        assert_eq!(asks[0].asked_at, t(&mar2("09:00")));
+        assert_eq!(asks[0].ended_at, Some(t(&mar2("10:40"))));
+        assert_eq!(db.one::<i64>("SELECT count(*) FROM turns"), 1);
+        assert_eq!(db.one::<i64>("SELECT author_secs FROM turns"), 95 * 60);
+        assert!(db.one::<bool>("SELECT timed FROM turns"));
     }
 
     /// Bob requests changes, the author answers, and the PR comes back to
@@ -1717,6 +1839,45 @@ mod tests {
         assert!(timed);
         let m = &db.speed(ALICE, "2026-03-20T00:00:00Z").months[0];
         assert_eq!(m.your_turn.n, 1);
+    }
+
+    /// Review, a push, bots, a build seen running, and the build fails:
+    /// the engine dates the failure from when the build began, before the
+    /// last look, which showed it building. The turn began since that look,
+    /// and is timed from it.
+    #[test]
+    fn a_turn_begun_by_a_failed_build_is_timed_from_the_last_look() {
+        let mut db = db();
+        db.ingest(&snap(
+            &mar2("10:00"),
+            vec![pr(52, Stage::Review, &mar2("09:00"))],
+        ));
+        db.ingest(&snap(
+            &mar2("10:15"),
+            vec![pr(52, Stage::Bots, &mar2("10:05"))],
+        ));
+        let mut building = pr(52, Stage::Ci, &mar2("01:00"));
+        building.since_basis = Some(SinceBasis::Opened);
+        db.ingest(&snap(&mar2("10:30"), vec![building]));
+        db.ingest(&snap(
+            &mar2("10:45"),
+            vec![pr(52, Stage::SelfReview, &mar2("10:20"))],
+        ));
+        db.ingest(&snap(
+            &mar2("11:00"),
+            vec![pr(52, Stage::Review, &mar2("10:55"))],
+        ));
+        let conn = Connection::open(&db.path).unwrap();
+        let (secs, started, timed): (i64, String, bool) = conn
+            .query_row(
+                "SELECT author_secs, started_at, timed FROM turns",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert!(timed);
+        assert_eq!(parse_ts(&started).unwrap(), t(&mar2("10:30")));
+        assert_eq!(secs, 25 * 60, "10:30 to 10:55");
     }
 
     #[test]
