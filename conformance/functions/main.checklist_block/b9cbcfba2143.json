@@ -1,0 +1,134 @@
+{
+ "function": "main.checklist_block",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "waiting-self-review",
+   "status": "pending",
+   "blockers": [
+    "Author must post /self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "Proceeded without coderabbitai: skipped by @llbartekll",
+    "Proceeded without thepastaclaw: skipped by @llbartekll"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "fallback",
+    "github",
+    "swift-sdk"
+   ],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [
+    "coderabbitai",
+    "thepastaclaw"
+   ],
+   "approvals": [],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": true,
+     "lines": [
+      "coderabbitai skipped by llbartekll",
+      "thepastaclaw skipped by llbartekll"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": false,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": true,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "swift-sdk",
+       "files": [
+        "packages/swift-sdk/Sources/a.swift"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      },
+      {
+       "area": "fallback",
+       "files": [
+        ".editorconfig",
+        "AGENTS.md"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "github",
+       "files": [
+        ".github/workflows/swift-sdk-build.yml",
+        ".github/workflows/tests.yml"
+       ],
+       "approvers": [
+        "ktechmidas",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {},
+   "skipped_by": "llbartekll"
+  }
+ },
+ "output": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai skipped by llbartekll · thepastaclaw skipped by llbartekll\n- [ ] Self-review — post `/self-reviewed`\n- [x] Within your 5 open PRs\n- [x] Build green\n- Approvals\n  - [x] `swift-sdk` — you own it\n  - [ ] files with no dedicated owner (`.editorconfig`, `AGENTS.md`) — QuantumExplorer or shumkov\n  - [ ] `github` (`.github/workflows/swift-sdk-build.yml`, `.github/workflows/tests.yml`) — ktechmidas or shumkov\n\nWhen every box is checked the `PR Hygiene` check passes and this can merge.\n<!-- pr-hygiene:end -->",
+ "tests": [
+  "test_checklist.ChecklistTests.test_every_requirement_is_shown_and_the_first_unchecked_is_the_state",
+  "test_checklist.PublishTests.test_a_bot_reporting_with_nothing_to_answer_is_not_announced_again",
+  "test_checklist.PublishTests.test_a_description_too_long_is_a_warning_not_an_error",
+  "test_checklist.PublishTests.test_a_hand_ticked_box_or_a_wiped_block_is_repaired",
+  "test_checklist.PublishTests.test_a_move_is_announced_once_with_the_record_and_the_block_written",
+  "test_checklist.PublishTests.test_a_new_head_is_announced_afresh_so_the_author_is_told_again",
+  "test_checklist.PublishTests.test_nothing_is_rewritten_when_description_labels_and_comment_already_agree",
+  "test_checklist.PublishTests.test_the_old_standing_comment_points_at_the_description_then_goes",
+  "test_checklist.PublishTests.test_the_same_move_on_the_same_head_is_kept_current_in_place",
+  "test_checklist.RecordTests.test_a_description_with_no_room_is_left_alone_on_the_fast_path",
+  "test_checklist.RecordTests.test_a_state_change_that_is_not_a_move_refreshes_the_record_silently",
+  "test_checklist.RecordTests.test_an_evidence_only_change_refreshes_the_record_in_place_and_posts_nothing",
+  "test_checklist.RecordTests.test_ready_since_does_not_drift_between_announcements",
+  "test_checklist.SecondReviewTests.test_a_foreign_bot_comment_quoting_the_marker_is_left_alone",
+  "test_checklist.SecondReviewTests.test_a_pull_request_back_in_draft_loses_the_stale_block",
+  "test_checklist.SecondReviewTests.test_the_move_coming_back_to_the_author_is_announced_again"
+ ],
+ "python": "3.12"
+}

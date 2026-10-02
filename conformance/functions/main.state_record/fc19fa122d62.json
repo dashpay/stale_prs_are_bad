@@ -1,0 +1,28 @@
+{
+ "function": "main.state_record",
+ "inputs": {
+  "pr": {},
+  "result": {
+   "number": 4660,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "state": "ready-to-merge",
+   "admitted_at": null,
+   "ready_since": null
+  },
+  "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+ },
+ "output": {
+  "number": 4660,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "admitted_at": null,
+  "ready_since": null,
+  "state": "ready-to-merge",
+  "version": 1,
+  "evidence": "9efdb10c81eaf55dc95e4320d1f02441576a405fb0551d5b8f1905bc0728f854",
+  "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+ },
+ "tests": [
+  "test_checklist.StaleMarkTests.test_a_retired_name_alone_is_swept_where_the_record_says_it_is_ours"
+ ],
+ "python": "3.12"
+}

@@ -1,0 +1,58 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "owner",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "packages/drive/a.rs"
+    }
+   ],
+   "reviews": [
+    {
+     "id": 2,
+     "user": "coderabbitai[bot]",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [
+    {
+     "id": 3,
+     "user": "owner",
+     "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "created_at": "2026-09-11T11:00:00Z",
+     "updated_at": "2026-09-11T11:00:00Z"
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "owner": "write",
+    "reviewer": "write",
+    "fallback": "write"
+   },
+   "controller_state": null,
+   "labels": [],
+   "complete": true,
+   "build": "green",
+   "head_seen_at": "2026-09-11T05:00:00Z"
+  }
+ },
+ "output": null,
+ "tests": [
+  "test_bot_timeouts.WaiverTests.test_a_bot_is_not_asked_while_the_pull_request_owes_it_an_answer"
+ ],
+ "python": "3.12"
+}

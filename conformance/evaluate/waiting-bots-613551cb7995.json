@@ -161,5 +161,6 @@
  "tests": [
   "test_bot_timeouts.SkipBotsTests.test_a_skip_by_someone_this_controller_cannot_vouch_for_is_ignored"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

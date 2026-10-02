@@ -199,5 +199,6 @@
   "test_checklist.ChecklistTests.test_an_answered_objection_waits_on_the_objector_under_approvals",
   "test_checklist.ChecklistTests.test_an_objector_is_asked_to_re_review_by_name"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

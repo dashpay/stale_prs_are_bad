@@ -511,5 +511,6 @@
  "tests": [
   "test_checklist.RecordTests.test_an_evidence_only_change_refreshes_the_record_in_place_and_posts_nothing"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

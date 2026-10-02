@@ -120,5 +120,6 @@
  "tests": [
   "test_policy.PolicyTests.test_named_area_without_owner_is_explicit_configuration_gap"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

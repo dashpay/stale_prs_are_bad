@@ -152,5 +152,6 @@
  "tests": [
   "test_bot_timeouts.SkipBotsTests.test_a_writer_can_skip_the_bots_for_this_head"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

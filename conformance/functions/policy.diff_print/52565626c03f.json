@@ -1,0 +1,84 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "owner",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "packages/drive/x.rs"
+    },
+    {
+     "filename": "docs/a.md"
+    },
+    {
+     "filename": ".github/workflows/ci.yml"
+    },
+    {
+     "filename": "AGENTS.md"
+    }
+   ],
+   "reviews": [
+    {
+     "id": 1,
+     "user": "thepastaclaw",
+     "state": "COMMENTED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+    },
+    {
+     "id": 2,
+     "user": "coderabbitai[bot]",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": ""
+    },
+    {
+     "id": 7,
+     "user": "editor",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T12:00:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [
+    {
+     "id": 3,
+     "user": "owner",
+     "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "created_at": "2026-09-11T11:00:00Z",
+     "updated_at": "2026-09-11T11:00:00Z"
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "owner": "write",
+    "reviewer": "write",
+    "fallback": "write",
+    "scribe": "write",
+    "editor": "write"
+   },
+   "controller_state": null,
+   "labels": [],
+   "complete": true,
+   "build": "green"
+  }
+ },
+ "output": null,
+ "tests": [
+  "test_policy.PolicyTests.test_the_verdict_says_who_must_approve_what_and_what_is_already_covered"
+ ],
+ "python": "3.12"
+}

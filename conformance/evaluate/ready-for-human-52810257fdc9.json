@@ -182,5 +182,6 @@
   "test_policy.PolicyTests.test_the_check_passes_in_exactly_one_state",
   "test_policy.PolicyTests.test_the_first_run_that_makes_it_ready_is_not_sent_back"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

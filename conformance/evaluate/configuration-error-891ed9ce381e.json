@@ -119,5 +119,6 @@
  "tests": [
   "test_policy.PolicyTests.test_an_unverifiable_reviewer_is_reported_as_unverifiable"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

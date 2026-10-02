@@ -175,5 +175,6 @@
   "test_policy.PolicyTests.test_the_check_passes_in_exactly_one_state",
   "test_policy.PolicyTests.test_the_owner_path_also_needs_a_green_build"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

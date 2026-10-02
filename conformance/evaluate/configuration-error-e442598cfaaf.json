@@ -117,5 +117,6 @@
  "tests": [
   "test_policy.PolicyTests.test_target_branches_are_patterns_like_the_repositorys_branch_rules"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

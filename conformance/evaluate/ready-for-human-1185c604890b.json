@@ -199,5 +199,6 @@
  "tests": [
   "test_policy.PolicyTests.test_rename_requires_source_and_destination_coverage"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

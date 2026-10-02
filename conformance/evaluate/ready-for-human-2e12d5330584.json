@@ -188,5 +188,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_machine_author_cannot_approve_its_own_pull_request"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

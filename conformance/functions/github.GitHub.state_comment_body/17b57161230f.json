@@ -1,0 +1,26 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "ready_since": null,
+   "state": "waiting-self-review",
+   "version": 1,
+   "evidence": "f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36",
+   "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+  },
+  "body": "<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nBots are done — your move: post `/self-reviewed`.\nFull checklist in the description.",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-self-review\",\"version\":1} -->\n\n<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nBots are done — your move: post `/self-reviewed`.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.PublishTests.test_nothing_is_rewritten_when_description_labels_and_comment_already_agree",
+  "test_checklist.RecordTests.test_a_description_with_no_room_is_left_alone_on_the_fast_path",
+  "test_checklist.RecordTests.test_a_state_change_that_is_not_a_move_refreshes_the_record_silently",
+  "test_checklist.RecordTests.test_an_evidence_only_change_refreshes_the_record_in_place_and_posts_nothing",
+  "test_checklist.RecordTests.test_ready_since_does_not_drift_between_announcements"
+ ],
+ "python": "3.12"
+}

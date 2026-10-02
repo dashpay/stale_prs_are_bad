@@ -181,5 +181,6 @@
  "tests": [
   "test_bot_timeouts.SkipBotsTests.test_a_skip_after_a_timeout_waiver_does_not_move_the_waiver"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

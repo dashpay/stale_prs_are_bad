@@ -503,5 +503,6 @@
  "tests": [
   "test_checklist.PublishTests.test_nothing_is_rewritten_when_description_labels_and_comment_already_agree"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

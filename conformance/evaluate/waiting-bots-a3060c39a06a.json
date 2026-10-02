@@ -165,5 +165,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_finding_is_named_even_while_another_bot_is_still_out"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

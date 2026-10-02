@@ -170,5 +170,6 @@
  "tests": [
   "test_policy.BotFindingTests.test_only_a_blocker_holds_it"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

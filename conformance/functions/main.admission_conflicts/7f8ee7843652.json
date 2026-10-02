@@ -1,0 +1,60 @@
+{
+ "function": "main.admission_conflicts",
+ "inputs": {
+  "policy": {
+   "version": 1,
+   "repository": "dashpay/platform",
+   "max_active_prs": 5,
+   "target_branches": [
+    "v4.2-dev"
+   ],
+   "fallback": {
+    "owners": [
+     "fallback"
+    ],
+    "reviewers": []
+   },
+   "areas": [
+    {
+     "id": "drive",
+     "paths": [
+      "packages/drive/"
+     ],
+     "owners": [
+      "owner"
+     ],
+     "reviewers": [
+      "reviewer"
+     ]
+    }
+   ]
+  },
+  "candidates": [
+   {
+    "number": 2,
+    "author": "alice",
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "state": "open",
+    "draft": false,
+    "labels": [],
+    "requested_reviewers": [],
+    "controller_comment_id": null,
+    "reviews": [],
+    "comments": [],
+    "created_at": "2026-09-11T12:00:00Z",
+    "lifecycle_at": null,
+    "build": "green",
+    "body": "",
+    "controller_state": null,
+    "controller_diff": null
+   }
+  ]
+ },
+ "output": [],
+ "tests": [
+  "test_main.PublicationTests.test_event_collection_scopes_to_author_and_closed_trigger_releases_slots"
+ ],
+ "python": "3.12"
+}

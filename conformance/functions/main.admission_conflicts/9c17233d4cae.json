@@ -1,0 +1,402 @@
+{
+ "function": "main.admission_conflicts",
+ "inputs": {
+  "policy": {
+   "version": 1,
+   "repository": "dashpay/platform",
+   "max_active_prs": 5,
+   "target_branches": [
+    "v4.2-dev"
+   ],
+   "fallback": {
+    "owners": [
+     "fallback"
+    ],
+    "reviewers": []
+   },
+   "areas": [
+    {
+     "id": "drive",
+     "paths": [
+      "packages/drive/"
+     ],
+     "owners": [
+      "owner"
+     ],
+     "reviewers": [
+      "reviewer"
+     ]
+    }
+   ]
+  },
+  "candidates": [
+   {
+    "number": 1,
+    "author": "busy",
+    "head": "1111111111111111111111111111111111111111",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "busy",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": {
+     "admitted_at": "2026-09-10T01:00:00Z",
+     "head": "1111111111111111111111111111111111111111",
+     "state": "waiting-bots",
+     "ready_since": null
+    },
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   },
+   {
+    "number": 2,
+    "author": "busy",
+    "head": "2222222222222222222222222222222222222222",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "busy",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": {
+     "admitted_at": "2026-09-10T02:00:00Z",
+     "head": "2222222222222222222222222222222222222222",
+     "state": "waiting-bots",
+     "ready_since": null
+    },
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   },
+   {
+    "number": 3,
+    "author": "busy",
+    "head": "3333333333333333333333333333333333333333",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "busy",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": {
+     "admitted_at": "2026-09-10T03:00:00Z",
+     "head": "3333333333333333333333333333333333333333",
+     "state": "waiting-bots",
+     "ready_since": null
+    },
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   },
+   {
+    "number": 4,
+    "author": "busy",
+    "head": "4444444444444444444444444444444444444444",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "busy",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": {
+     "admitted_at": "2026-09-10T04:00:00Z",
+     "head": "4444444444444444444444444444444444444444",
+     "state": "waiting-bots",
+     "ready_since": null
+    },
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   },
+   {
+    "number": 5,
+    "author": "busy",
+    "head": "5555555555555555555555555555555555555555",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "busy",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": {
+     "admitted_at": "2026-09-10T05:00:00Z",
+     "head": "5555555555555555555555555555555555555555",
+     "state": "waiting-bots",
+     "ready_since": null
+    },
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   },
+   {
+    "number": 6,
+    "author": "busy",
+    "head": "6666666666666666666666666666666666666666",
+    "base": "v4.2-dev",
+    "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "created_at": "2026-09-10T00:00:00Z",
+    "draft": false,
+    "state": "open",
+    "url": "url",
+    "title": "title",
+    "files": [
+     {
+      "filename": "packages/drive/a.rs"
+     }
+    ],
+    "reviews": [
+     {
+      "id": 1,
+      "user": "thepastaclaw",
+      "state": "COMMENTED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+     },
+     {
+      "id": 2,
+      "user": "coderabbitai[bot]",
+      "state": "APPROVED",
+      "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "submitted_at": "2026-09-11T10:00:00Z",
+      "body": ""
+     }
+    ],
+    "comments": [
+     {
+      "id": 3,
+      "user": "busy",
+      "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-09-11T11:00:00Z",
+      "updated_at": "2026-09-11T11:00:00Z"
+     }
+    ],
+    "threads": [],
+    "requested_reviewers": [],
+    "permissions": {
+     "owner": "write",
+     "reviewer": "write",
+     "fallback": "write"
+    },
+    "controller_state": {
+     "admitted_at": "2026-09-10T06:00:00Z",
+     "head": "6666666666666666666666666666666666666666",
+     "state": "waiting-bots",
+     "ready_since": null
+    },
+    "labels": [],
+    "complete": true,
+    "build": "green"
+   }
+  ]
+ },
+ "output": [
+  "busy"
+ ],
+ "tests": [
+  "test_main.PublicationTests.test_a_surplus_of_admissions_heals_instead_of_erroring_the_author"
+ ],
+ "python": "3.12"
+}

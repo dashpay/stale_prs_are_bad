@@ -168,5 +168,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_bot_that_was_assigned_is_not_holding_anything"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

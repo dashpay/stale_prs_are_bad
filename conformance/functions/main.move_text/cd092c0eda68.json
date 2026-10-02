@@ -1,0 +1,119 @@
+{
+ "function": "main.move_text",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "waiting-author",
+   "status": "pending",
+   "blockers": [
+    "coderabbitai left review threads unresolved; resolve them",
+    "Proceeded without thepastaclaw: skipped by @llbartekll"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "fallback",
+    "github",
+    "swift-sdk"
+   ],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [
+    "thepastaclaw"
+   ],
+   "approvals": [],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": false,
+     "lines": [
+      "coderabbitai 1 thread unresolved — resolve it",
+      "thepastaclaw skipped by llbartekll"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": false,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": [
+      "romchornyi requested changes"
+     ]
+    },
+    {
+     "item": "slot",
+     "done": true,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "swift-sdk",
+       "files": [
+        "packages/swift-sdk/Sources/a.swift"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      },
+      {
+       "area": "fallback",
+       "files": [
+        ".editorconfig",
+        "AGENTS.md"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "github",
+       "files": [
+        ".github/workflows/swift-sdk-build.yml",
+        ".github/workflows/tests.yml"
+       ],
+       "approvers": [
+        "ktechmidas",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {},
+   "skipped_by": "llbartekll"
+  }
+ },
+ "output": "<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nYour move: coderabbitai left review threads unresolved; resolve them.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.PublishTests.test_a_human_objection_does_not_make_the_bots_done"
+ ],
+ "python": "3.12"
+}

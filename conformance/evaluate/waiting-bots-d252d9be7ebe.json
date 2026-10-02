@@ -155,5 +155,6 @@
  "tests": [
   "test_policy.PolicyTests.test_waiting_for_the_bots_means_a_bot_has_not_reported"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

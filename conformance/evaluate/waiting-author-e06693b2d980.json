@@ -195,5 +195,6 @@
   "test_checklist.ChecklistTests.test_an_objection_before_the_attestation_is_the_authors_to_address",
   "test_policy.PolicyTests.test_an_objection_is_named_and_the_approval_picture_still_shows"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

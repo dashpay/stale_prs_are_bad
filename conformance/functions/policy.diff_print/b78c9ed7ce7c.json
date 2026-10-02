@@ -1,0 +1,20 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "files": [
+    {
+     "filename": "golden.bin",
+     "status": "added",
+     "content": "cccccccccccccccccccccccccccccccccccccccc",
+     "shape": "added"
+    }
+   ]
+  }
+ },
+ "output": "e7927ca780f291d5fac149fe8bbe3858563499af41ee619c680c54dec5b52d8c",
+ "tests": [
+  "test_policy.PolicyTests.test_a_new_file_needs_no_patch_to_be_carried"
+ ],
+ "python": "3.12"
+}

@@ -1,0 +1,52 @@
+{
+ "function": "main.diff_record",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "alice",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "state": "open",
+   "draft": false,
+   "labels": [],
+   "requested_reviewers": [],
+   "controller_comment_id": null,
+   "reviews": [],
+   "comments": [],
+   "created_at": "2026-09-11T12:00:00Z",
+   "lifecycle_at": null,
+   "build": "green",
+   "body": ""
+  },
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "alice",
+   "state": "ready-for-human",
+   "status": "success",
+   "blockers": [],
+   "reviewers": [
+    "bob"
+   ],
+   "areas": [
+    "core"
+   ],
+   "admitted_at": "2026-09-11T00:00:00Z",
+   "ready_since": null
+  }
+ },
+ "output": {
+  "number": 1,
+  "receipts": {},
+  "diff": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "diff_heads": [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "diff_seen": null
+ },
+ "tests": [
+  "test_main.PublicationTests.test_a_refused_reviewer_request_does_not_abort_the_pull_request"
+ ],
+ "python": "3.12"
+}

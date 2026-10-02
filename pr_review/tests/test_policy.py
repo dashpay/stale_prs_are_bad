@@ -1,4 +1,6 @@
 import copy
+import json
+from pathlib import Path
 import unittest
 
 from pr_review.policy import admit, codeowners, evaluate, fingerprint, governs, validate_policy
@@ -6,6 +8,16 @@ from pr_review.policy import admit, codeowners, evaluate, fingerprint, governs, 
 
 HEAD = 'a' * 40
 NOW = '2026-09-11T12:00:00Z'
+
+
+def platform_policy():
+    """dashpay/platform's policy as it stood when the tests that use it were written.
+
+    A realistic policy, frozen: what those tests hand the engine must not move
+    when the live one under policies/ is edited. Tests of the live policies
+    read policies/ themselves.
+    """
+    return json.loads((Path(__file__).resolve().parent / 'fixtures' / 'platform.json').read_text())
 
 
 def rules(text):
@@ -133,6 +145,17 @@ class PolicyTests(unittest.TestCase):
         result = evaluate(p, pr, NOW, NOW)
         self.assertEqual(result['state'], 'configuration-error')
         self.assertEqual(result['blockers'], ['Cannot verify write access for owner'])
+
+    def test_evidence_the_engine_cannot_read_is_an_error_status_not_a_crash(self):
+        # A changed file the snapshot holds without its name. `evaluate` has to
+        # answer — an error status somebody must look at — rather than raise
+        # and take every pull request after this one in the sweep down with
+        # it, and what it can say is only what Python said: the missing key.
+        p, pr = fixture()
+        del pr['files'][0]['filename']
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual((result['state'], result['status']), ('configuration-error', 'error'))
+        self.assertEqual(result['blockers'], ["'filename'"])
 
     def test_the_owner_path_also_needs_a_green_build(self):
         # An owner's pull request asks no human, so nothing else ever looks at

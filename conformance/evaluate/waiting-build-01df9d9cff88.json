@@ -547,5 +547,6 @@
  "tests": [
   "test_checklist.RecordTests.test_a_state_change_that_is_not_a_move_refreshes_the_record_silently"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

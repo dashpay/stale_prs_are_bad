@@ -164,5 +164,6 @@
  "tests": [
   "test_policy.BotFindingTests.test_a_self_review_is_reset_by_code_not_by_a_bot_reporting"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

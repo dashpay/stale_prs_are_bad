@@ -1,0 +1,77 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "owner",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "packages/drive/a.rs",
+     "status": "modified",
+     "content": "cccccccccccccccccccccccccccccccccccccccc",
+     "shape": "new patch against the moved base"
+    }
+   ],
+   "reviews": [
+    {
+     "id": 1,
+     "user": "thepastaclaw",
+     "state": "COMMENTED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+    },
+    {
+     "id": 2,
+     "user": "coderabbitai[bot]",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [
+    {
+     "id": 3,
+     "user": "owner",
+     "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "created_at": "2026-09-11T11:00:00Z",
+     "updated_at": "2026-09-11T11:00:00Z"
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "owner": "write",
+    "reviewer": "write",
+    "fallback": "write"
+   },
+   "controller_state": null,
+   "labels": [],
+   "complete": true,
+   "build": "green",
+   "controller_diff": {
+    "number": 1,
+    "diff": "df52bd9da337058462cc067de835ed80571e844d1c7e238b147d9e4faa262dbc",
+    "diff_heads": [
+     "ffffffffffffffffffffffffffffffffffffffff"
+    ],
+    "diff_seen": "2026-09-11T09:00:00Z"
+   },
+   "head_seen_at": "2026-09-11T13:00:00Z"
+  }
+ },
+ "output": "d15d5b5e75d37fa1720da55172387f7fd8905c858dca7eae2517d577fa39d8e7",
+ "tests": [
+  "test_policy.PolicyTests.test_keeping_your_own_side_of_a_conflict_is_not_the_same_work"
+ ],
+ "python": "3.12"
+}

@@ -542,5 +542,6 @@
  "tests": [
   "test_checklist.ChecklistTests.test_each_reviewer_is_told_which_areas_are_theirs"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

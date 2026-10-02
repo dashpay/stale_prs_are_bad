@@ -176,5 +176,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_push_that_changes_the_diff_starts_over"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -188,5 +188,6 @@
  "tests": [
   "test_policy.PolicyTests.test_an_objection_is_not_dropped_because_access_could_not_be_read"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

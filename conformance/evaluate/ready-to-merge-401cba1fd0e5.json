@@ -186,5 +186,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_push_that_leaves_the_diff_alone_keeps_the_review_it_had"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

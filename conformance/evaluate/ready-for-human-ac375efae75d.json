@@ -177,5 +177,6 @@
   "test_checklist.ChecklistTests.test_an_area_nobody_may_approve_is_said_so",
   "test_policy.PolicyTests.test_an_area_whose_only_approver_attested_is_not_an_area_needing_none"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

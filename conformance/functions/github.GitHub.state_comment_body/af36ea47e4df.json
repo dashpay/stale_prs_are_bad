@@ -1,0 +1,30 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "ready_since": null,
+   "state": "waiting-self-review",
+   "version": 1,
+   "evidence": "f0c7f7a289b857e853da0382dd40c67316060b3970b12f173f251c7ecf62a0af",
+   "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+  },
+  "body": "text",
+  "diff": {
+   "number": 1,
+   "receipts": {},
+   "diff": "9c496e0f6522b2244d29994c20fd603cd4a3ec83f908af12cd9c0ed679fe1d37",
+   "diff_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "diff_seen": "2026-09-11T09:00:00Z"
+  }
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be\",\"evidence\":\"f0c7f7a289b857e853da0382dd40c67316060b3970b12f173f251c7ecf62a0af\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-self-review\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"9c496e0f6522b2244d29994c20fd603cd4a3ec83f908af12cd9c0ed679fe1d37\",\"diff_heads\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"],\"diff_seen\":\"2026-09-11T09:00:00Z\",\"number\":1,\"receipts\":{}} -->\n\ntext",
+ "tests": [
+  "test_checklist.PublishTests.test_the_diff_is_written_beside_the_record_not_inside_it"
+ ],
+ "python": "3.12"
+}

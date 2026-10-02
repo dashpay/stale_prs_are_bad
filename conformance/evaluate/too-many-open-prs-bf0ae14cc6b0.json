@@ -178,5 +178,6 @@
   "test_checklist.ChecklistTests.test_beyond_the_limit_is_said_positively_and_unchecked",
   "test_policy.PolicyTests.test_the_check_passes_in_exactly_one_state"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

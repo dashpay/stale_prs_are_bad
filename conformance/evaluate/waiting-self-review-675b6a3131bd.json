@@ -491,5 +491,6 @@
  "tests": [
   "test_checklist.PublishTests.test_what_the_bot_said_is_written_down_so_an_edit_can_be_told_from_a_report"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -508,5 +508,6 @@
  "tests": [
   "test_checklist.PublishTests.test_a_human_objection_does_not_make_the_bots_done"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

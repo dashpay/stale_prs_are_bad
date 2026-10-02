@@ -176,5 +176,6 @@
  "tests": [
   "test_policy.PolicyTests.test_whole_repository_owner_covers_root_files_and_cross_directory_rename"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

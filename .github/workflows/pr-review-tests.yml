@@ -18,9 +18,35 @@ jobs:
         with:
           persist-credentials: false
           path: proposed
+      # The Python the engine runs on in every governed repository, and the
+      # one the conformance corpus is harvested with.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Install PyYAML for the tests and the repository checks
+        # The runner's own Python came with it; this one does not. Pinned by
+        # hash, as the actions are by commit.
+        run: |
+          echo 'pyyaml==6.0.3 --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc' \
+            > "$RUNNER_TEMP/requirements.txt"
+          python3 -m pip install --require-hashes -r "$RUNNER_TEMP/requirements.txt"
       - name: Unit tests
         working-directory: proposed
         run: python3 -m unittest discover -s pr_review/tests -v
+      - name: The committed conformance corpus is what a fresh harvest writes
+        # A change to the engine or its tests that changes a case has to carry
+        # the re-harvested corpus with it, or another engine is held to answers
+        # this one no longer gives.
+        working-directory: proposed
+        run: |
+          python3 -m pr_review.conformance harvest "$RUNNER_TEMP/evaluate" --functions "$RUNNER_TEMP/functions"
+          stale=0
+          diff -r conformance/evaluate "$RUNNER_TEMP/evaluate" || stale=1
+          diff -r conformance/functions "$RUNNER_TEMP/functions" || stale=1
+          if [ "$stale" = 1 ]; then
+            echo '::error::The committed corpus is stale. Run "python -m pr_review.conformance harvest" on Python 3.12 and commit the result.'
+            exit 1
+          fi
       - name: Clone the default branch of every governed repository
         # Policies are read live by callers. Catch missing paths before rollout,
         # instead of discovering them in a repository's reconciliation jobs.

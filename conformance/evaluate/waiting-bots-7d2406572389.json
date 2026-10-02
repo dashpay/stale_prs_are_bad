@@ -162,5 +162,6 @@
  "tests": [
   "test_bot_timeouts.SkipBotsTests.test_a_suggestion_left_open_does_not_stop_a_skip"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

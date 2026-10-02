@@ -1,0 +1,163 @@
+{
+ "function": "main.move_text",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "ready-to-merge",
+   "status": "success",
+   "blockers": [
+    "All policy requirements are satisfied",
+    "Proceeded without coderabbitai: skipped by @llbartekll",
+    "Proceeded without thepastaclaw: skipped by @llbartekll"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "fallback",
+    "github",
+    "swift-sdk"
+   ],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": "2026-09-11T11:00:00Z",
+   "nudge": [],
+   "waived": [
+    "coderabbitai",
+    "thepastaclaw"
+   ],
+   "approvals": [
+    {
+     "area": "swift-sdk",
+     "files": [
+      "packages/swift-sdk/Sources/a.swift"
+     ],
+     "approvers": [],
+     "approved_by": [],
+     "owned": true
+    },
+    {
+     "area": "fallback",
+     "files": [
+      ".editorconfig",
+      "AGENTS.md"
+     ],
+     "approvers": [
+      "QuantumExplorer",
+      "shumkov"
+     ],
+     "approved_by": [
+      "shumkov"
+     ],
+     "owned": false
+    },
+    {
+     "area": "github",
+     "files": [
+      ".github/workflows/swift-sdk-build.yml",
+      ".github/workflows/tests.yml"
+     ],
+     "approvers": [
+      "ktechmidas",
+      "shumkov"
+     ],
+     "approved_by": [
+      "shumkov"
+     ],
+     "owned": false
+    }
+   ],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": true,
+     "lines": [
+      "coderabbitai skipped by llbartekll",
+      "thepastaclaw skipped by llbartekll"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": true,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": true,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": true,
+     "areas": [
+      {
+       "area": "swift-sdk",
+       "files": [
+        "packages/swift-sdk/Sources/a.swift"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      },
+      {
+       "area": "fallback",
+       "files": [
+        ".editorconfig",
+        "AGENTS.md"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "shumkov"
+       ],
+       "approved_by": [
+        "shumkov"
+       ],
+       "owned": false
+      },
+      {
+       "area": "github",
+       "files": [
+        ".github/workflows/swift-sdk-build.yml",
+        ".github/workflows/tests.yml"
+       ],
+       "approvers": [
+        "ktechmidas",
+        "shumkov"
+       ],
+       "approved_by": [
+        "shumkov"
+       ],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {},
+   "skipped_by": "llbartekll"
+  }
+ },
+ "output": "<!-- pr-hygiene:move state=ready-to-merge sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nPolicy satisfied — this can merge.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.SecondReviewTests.test_the_status_never_depends_on_the_description_or_the_labels"
+ ],
+ "python": "3.12"
+}

@@ -489,5 +489,6 @@
  "tests": [
   "test_checklist.PublishTests.test_words_that_cannot_be_written_back_are_replaced_not_refused"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

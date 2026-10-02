@@ -164,5 +164,6 @@
  "tests": [
   "test_bot_timeouts.SkipBotsTests.test_the_author_may_skip_their_own_bots_and_it_says_so"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

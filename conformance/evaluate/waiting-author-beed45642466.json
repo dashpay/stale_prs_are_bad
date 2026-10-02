@@ -194,5 +194,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_reviewers_objection_inside_the_authors_thread_still_counts"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

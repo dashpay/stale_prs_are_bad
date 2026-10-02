@@ -1,0 +1,29 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "version": 1,
+   "number": 1,
+   "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "admitted_at": null,
+   "ready_since": null,
+   "state": "ready-for-human",
+   "evidence": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "context": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "body": "text",
+  "diff": {
+   "number": 1,
+   "diff": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "diff_heads": [
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+   ],
+   "diff_seen": "2026-09-11T10:00:00Z"
+  }
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":null,\"context\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"evidence\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"head\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"number\":1,\"ready_since\":null,\"state\":\"ready-for-human\",\"version\":1} -->\n<!-- pr-hygiene-diff-v1 {\"diff\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"diff_heads\":[\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"],\"diff_seen\":\"2026-09-11T10:00:00Z\",\"number\":1} -->\n\ntext",
+ "tests": [
+  "test_github.GitHubTests.test_both_reads_of_one_pull_request_see_the_same_comments"
+ ],
+ "python": "3.12"
+}

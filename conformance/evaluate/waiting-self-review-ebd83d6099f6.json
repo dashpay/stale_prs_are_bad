@@ -504,5 +504,6 @@
  "tests": [
   "test_checklist.RecordTests.test_a_description_with_no_room_is_left_alone_on_the_fast_path"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

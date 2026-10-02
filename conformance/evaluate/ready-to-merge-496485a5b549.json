@@ -173,5 +173,6 @@
  "tests": [
   "test_multi_repo_main.MultiRepositoryTests.test_shared_engine_reads_registered_policy_and_checks_target_tree"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

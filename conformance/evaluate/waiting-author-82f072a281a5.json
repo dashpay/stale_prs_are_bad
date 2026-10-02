@@ -173,5 +173,6 @@
  "tests": [
   "test_policy.BotFindingTests.test_a_bots_changes_request_holds_whatever_its_threads_say"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

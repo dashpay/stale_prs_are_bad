@@ -175,5 +175,6 @@
   "test_policy.BotFindingTests.test_a_self_review_is_reset_by_code_not_by_a_bot_reporting",
   "test_policy.PolicyTests.test_a_bot_receipt_after_the_attestation_does_not_take_it_back"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

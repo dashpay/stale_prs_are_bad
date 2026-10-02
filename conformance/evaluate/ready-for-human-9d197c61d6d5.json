@@ -188,5 +188,6 @@
  "tests": [
   "test_policy.PolicyTests.test_unresolved_bot_and_human_threads_have_different_queue_effects"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

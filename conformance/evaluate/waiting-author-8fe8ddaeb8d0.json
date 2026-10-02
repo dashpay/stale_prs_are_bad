@@ -502,5 +502,6 @@
  "tests": [
   "test_checklist.ChecklistTests.test_the_self_review_line_never_says_post_it_while_checked"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -10,7 +10,8 @@ from unittest.mock import Mock, patch
 
 from pr_review import main
 from pr_review.github import GitHubError
-from pr_review.tests.test_policy import fixture, NOW
+from pr_review.policy import NUDGE_MARKER, nudged_at
+from pr_review.tests.test_policy import fixture, NOW, platform_policy
 
 
 @contextlib.contextmanager
@@ -347,8 +348,8 @@ class PublicationTests(unittest.TestCase):
         # change landed, over a directory someone legitimately removed.
         import tempfile
         from pr_review.policy import missing_paths
-        policy = json.loads(Path('policies/platform.json').read_text())
-        with tempfile.TemporaryDirectory() as root:
+        policy = platform_policy()
+        with tempfile.TemporaryDirectory() as root, broken_policies_root(policy) as policies:
             root = Path(root)
             for area in policy['areas'][1:]:
                 for prefix in area['paths']:
@@ -358,11 +359,13 @@ class PublicationTests(unittest.TestCase):
             with patch('sys.stderr', new_callable=io.StringIO) as err:
                 with patch.object(main, 'collect', return_value=([], [], [])) as collect:
                     with patch.object(main, 'GitHub'):
-                        main.run(['report', '--repo', 'dashpay/platform', '--repository-root', str(root)])
+                        main.run(['report', '--repo', 'dashpay/platform', '--policies-root', policies,
+                                  '--repository-root', str(root)])
             self.assertIn(gone[0], err.getvalue(), 'said, not fatal')
             self.assertTrue(collect.called, 'the reconcile went ahead')
             with self.assertRaises(ValueError):
-                main.run(['validate', '--repo', 'dashpay/platform', '--repository-root', str(root)])
+                main.run(['validate', '--repo', 'dashpay/platform', '--policies-root', policies,
+                          '--repository-root', str(root)])
 
     def test_labels_read_like_the_status(self):
         # One state label at a time, the waiver beside it, unrelated labels
@@ -479,6 +482,59 @@ class PublicationTests(unittest.TestCase):
         with patch.object(main,'load_histories',return_value=[self.pr]), patch.object(main,'evaluate',return_value=self.result):
             main.publish(self.api,self.policy,self.pr,self.result,[self.pr],apply=True,candidates=[self.pr])
         self.assertNotIn('success',[c.args[1] for c in self.api.post_status.call_args_list])
+
+
+class NudgeTests(unittest.TestCase):
+    """Asking a bot to look at a head: a few times per run, best effort, never at the reconciliation's cost."""
+
+    HEAD = 'a' * 40
+
+    def setUp(self):
+        self.pr = {'number': 7, 'head': self.HEAD, 'state': 'open'}
+        self.api = Mock()
+        self.api.pull.return_value = dict(self.pr)
+
+    def nudge(self, bots, allowance):
+        with patch('sys.stderr', new_callable=io.StringIO) as said:
+            posted = main.nudge(self.api, self.pr, {'nudge': bots}, allowance)
+        return posted, said.getvalue()
+
+    def test_a_run_whose_allowance_is_spent_asks_nobody(self):
+        # The allowance is what is left of the run's: once one pull request has
+        # used it, the rest of a sweep must not mention a bot at all — not even
+        # read the pull request to decide.
+        posted, _ = self.nudge(['thepastaclaw', 'coderabbitai'], 0)
+        self.assertEqual(posted, 0)
+        self.assertEqual(self.api.mock_calls, [])
+
+    def test_no_more_comments_than_the_allowance(self):
+        # Every nudge is a comment that notifies everyone on the pull request.
+        posted, _ = self.nudge(['thepastaclaw', 'coderabbitai'], 1)
+        self.assertEqual(posted, 1)
+        self.assertEqual(self.api.comment.call_count, 1)
+        self.assertIn('@thepastaclaw review', self.api.comment.call_args.args[1])
+
+    def test_the_comment_carries_the_marker_that_stops_a_second_ask(self):
+        # The policy reads the marker back to know this head was asked about;
+        # a comment it did not recognise would ask the bot again every run.
+        self.nudge(['thepastaclaw'], 1)
+        number, body = self.api.comment.call_args.args
+        self.assertEqual(number, 7)
+        self.assertTrue(body.startswith(f'{NUDGE_MARKER} bot=thepastaclaw sha={self.HEAD} -->\n@thepastaclaw review\n'))
+        posted = {'user': 'github-actions[bot]', 'body': body, 'created_at': NOW}
+        self.assertEqual(nudged_at([posted], 'thepastaclaw', [self.HEAD]), NOW)
+
+    def test_a_comment_that_cannot_be_posted_is_retried_next_run_and_costs_nothing(self):
+        # Best effort: the waiver that eventually unblocks the pull request does
+        # not depend on the ask, so a refused comment is said and passed over,
+        # never raised. Nothing was asked, so the run's one ask is still there
+        # for the next bot.
+        self.api.comment.side_effect = [GitHubError('HTTP 403'), {'id': 1}]
+        posted, said = self.nudge(['thepastaclaw', 'coderabbitai'], 1)
+        self.assertEqual(posted, 1)
+        self.assertIn('PR #7: could not ask thepastaclaw to review; will retry', said)
+        self.assertEqual([c.args[1].split('\n')[1] for c in self.api.comment.call_args_list],
+                         ['@thepastaclaw review', '@coderabbitai review'])
 
 
 if __name__ == '__main__':

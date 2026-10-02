@@ -1,0 +1,96 @@
+{
+ "function": "main.state_record",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "llbartekll",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [],
+   "reviews": [
+    {
+     "id": 5,
+     "user": "romchornyi",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:30:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [
+    {
+     "id": 1,
+     "user": "llbartekll",
+     "body": "/skip-bots",
+     "created_at": "2026-09-11T10:00:00Z",
+     "updated_at": "2026-09-11T10:00:00Z"
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "llbartekll": "write",
+    "romchornyi": "write",
+    "QuantumExplorer": "admin",
+    "shumkov": "admin",
+    "ktechmidas": "admin"
+   },
+   "controller_state": null,
+   "labels": [],
+   "complete": true,
+   "build": "green",
+   "head_seen_at": "2026-09-11T09:00:00Z",
+   "body": ""
+  },
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "configuration-error",
+   "status": "error",
+   "blockers": [
+    "No changed-file evidence"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": null,
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [],
+   "approvals": [],
+   "objections": [],
+   "checklist": [],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {}
+  },
+  "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+ },
+ "output": {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "admitted_at": "2026-09-11T12:00:00Z",
+  "ready_since": null,
+  "state": "configuration-error",
+  "version": 1,
+  "evidence": "bee1df1ce4873cdb6e8bc3aec9e1a28ad2270e9b78601e68af3bda18dffef921",
+  "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+ },
+ "tests": [
+  "test_checklist.RecordTests.test_a_configuration_error_writes_no_block_and_no_announcement"
+ ],
+ "python": "3.12"
+}

@@ -562,5 +562,6 @@
  "tests": [
   "test_checklist.RecordTests.test_ready_since_does_not_drift_between_announcements"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

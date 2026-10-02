@@ -174,5 +174,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_review_bot_that_opens_a_pull_request_is_not_asked_to_attest"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

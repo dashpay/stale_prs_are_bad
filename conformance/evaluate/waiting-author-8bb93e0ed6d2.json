@@ -514,5 +514,6 @@
  "tests": [
   "test_checklist.PublishTests.test_a_second_bot_speaking_after_the_author_was_told_tells_them_again"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

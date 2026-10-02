@@ -166,5 +166,6 @@
  "tests": [
   "test_policy.PolicyTests.test_the_attestation_can_be_the_body_of_the_authors_own_review"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

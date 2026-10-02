@@ -502,5 +502,6 @@
   "test_checklist.SecondReviewTests.test_the_holder_is_the_comment_the_record_was_read_from",
   "test_checklist.SecondReviewTests.test_the_move_coming_back_to_the_author_is_announced_again"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -155,5 +155,6 @@
  "tests": [
   "test_policy.PolicyTests.test_repository_without_coderabbit_waits_only_for_the_bots_it_runs"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

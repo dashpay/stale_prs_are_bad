@@ -1,0 +1,14 @@
+{
+ "function": "policy.receipt_print",
+ "inputs": {
+  "comment": {
+   "id": 1,
+   "body": "thanks!"
+  }
+ },
+ "output": null,
+ "tests": [
+  "test_policy.PolicyTests.test_a_comment_that_states_nothing_has_nothing_to_compare"
+ ],
+ "python": "3.12"
+}

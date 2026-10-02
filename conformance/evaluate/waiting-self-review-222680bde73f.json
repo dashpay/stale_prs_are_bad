@@ -168,5 +168,6 @@
  "tests": [
   "test_bot_timeouts.SkipBotsTests.test_only_the_bots_still_missing_are_waived"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

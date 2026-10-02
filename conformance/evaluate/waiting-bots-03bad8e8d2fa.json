@@ -496,5 +496,6 @@
  "tests": [
   "test_checklist.SecondReviewTests.test_the_holder_is_the_comment_the_record_was_read_from"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

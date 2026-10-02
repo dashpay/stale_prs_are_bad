@@ -182,5 +182,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_read_that_cannot_say_what_changed_starts_over"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

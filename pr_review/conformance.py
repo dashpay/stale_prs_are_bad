@@ -10,7 +10,7 @@ the reads and must arrive at the same verdicts and the same writes.
     python -m pr_review.main sync   --repo dashpay/platform --record DIR
     python -m pr_review.conformance replay DIR [DIR ...]
     python -m pr_review.conformance redact SOURCE DESTINATION
-    python -m pr_review.conformance harvest [conformance/evaluate]
+    python -m pr_review.conformance harvest [conformance/evaluate] [--functions conformance/functions]
 
 Nothing here sends a write. Every call is classified at the boundary, a write
 is answered by the recorder with a success of its own making, and only a call
@@ -32,7 +32,10 @@ from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 
-FORMAT = 1
+FORMAT = 2
+# Format 1 is format 2 without `clock_reads`. It still replays, with the one
+# comparison it cannot make left out.
+READABLE_FORMATS = (1, FORMAT)
 # The identity every write is answered as: the one the Actions workflow posts
 # under. The engine recognises its own statuses and comments by it, so an
 # answer under any other name would make it read its own writes as a stranger's.
@@ -212,6 +215,27 @@ class _InOrder:
         return [function(*items) for items in zip(*iterables)]
 
 
+# Where the engine lives: a frame from any other file is not the engine asking.
+_ENGINE = Path(__file__).resolve().parent
+
+
+def _clock_site(frame):
+    """The engine function that asked for the time: the first on the stack outside `clock` and `utc_now`.
+
+    By name, not line, so an edit elsewhere in the file moves nothing. A
+    comprehension, a generator expression or a lambda is not a site of its
+    own: whether a comprehension has a frame at all depends on the Python.
+    """
+    while frame is not None:
+        code = frame.f_code
+        where = Path(code.co_filename).resolve()
+        if (where.parent == _ENGINE and where.name != 'conformance.py'
+                and code.co_name not in {'clock', 'utc_now'} and not code.co_name.startswith('<')):
+            return code.co_name
+        frame = frame.f_back
+    return None
+
+
 def _iso(instant):
     return instant.astimezone(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
@@ -311,6 +335,7 @@ class _Session:
     def __init__(self, now):
         self.now = now
         self.calls = []
+        self.clock_reads = []
         self.verdicts = []
         self.evaluations = []
         self.outputs = []
@@ -333,6 +358,21 @@ class _Session:
     def loaded_policy(self, policy):
         self.policies_loaded += 1
         self.policy = copy.deepcopy(policy)
+
+    # -- the clock
+
+    def clock(self):
+        """The recorded instant, logged with where the engine asked for it.
+
+        The site, and the ordinal of the last call made before the read
+        (0 for none): a run that reads the time somewhere else, or at
+        another point among its calls, is told apart, though every read
+        returns the same instant.
+        """
+        site = _clock_site(sys._getframe(1))
+        with self._lock:
+            self.clock_reads.append({'site': site, 'after': len(self.calls)})
+        return _instant(self.now)
 
     # -- the boundary
 
@@ -410,8 +450,7 @@ class _Session:
             self._installed = True
             if isinstance(self, ReplaySession):
                 swap(github, 'time', _NoSleep)
-            fixed = _instant(self.now)
-            swap(engine, 'clock', lambda: fixed)
+            swap(engine, 'clock', self.clock)
             self._fetch = telemetry.fetch
             swap(telemetry, 'fetch', lambda *a, **k: self.telemetry())
             swap(engine, 'ThreadPoolExecutor', _InOrder)
@@ -533,6 +572,7 @@ def record(args, argv, engine):
         'repository': args.repo,
         'argv': _normalised_argv(args),
         'clock': session.now,
+        'clock_reads': session.clock_reads,
         'policy': session.policy,
         'telemetry': session.telemetry_payload,
         'telemetry_reads': session.telemetry_reads,
@@ -572,8 +612,10 @@ def write_recording(directory, meta, session):
 def load_recording(directory):
     directory = Path(directory)
     meta = json.loads((directory / 'recording.json').read_text())
-    if meta.get('format') != FORMAT:
+    if meta.get('format') not in READABLE_FORMATS:
         raise RecordingError(f'{directory}: unknown recording format {meta.get("format")!r}')
+    if (meta['format'] == FORMAT) != isinstance(meta.get('clock_reads'), list):
+        raise RecordingError(f'{directory}: clock reads belong to format {FORMAT} and only to it')
 
     def lines(name):
         return [json.loads(line) for line in (directory / name).read_text().splitlines() if line]
@@ -691,6 +733,16 @@ def compare(recording, session, outcome, mask=False):
                                'pull requests read differently')
     if getattr(session, 'printed', None) != recording['printed']:
         differences.append('the printed report differs')
+    if 'clock_reads' in recording['meta']:
+        recorded = [(r['site'], r['after']) for r in recording['meta']['clock_reads']]
+        replayed = [(r['site'], r['after']) for r in session.clock_reads]
+        if recorded != replayed:
+            index = next((i for i, (before, after) in enumerate(zip(recorded, replayed)) if before != after),
+                         min(len(recorded), len(replayed)))
+            said = ['{} after call {}'.format(*reads[index]) if index < len(reads) else 'nothing'
+                    for reads in (recorded, replayed)]
+            differences.append(f'clock reads: recorded {len(recorded)}, replayed {len(replayed)}; '
+                               f'read #{index + 1} recorded {said[0]}, replayed {said[1]}')
     if session.telemetry_reads != recording['meta'].get('telemetry_reads', 0):
         differences.append(f"status page read {session.telemetry_reads} time(s), "
                            f"recorded {recording['meta'].get('telemetry_reads', 0)}")
@@ -709,6 +761,8 @@ def replay_recording(directory):
     made_on = str(recording['meta'].get('python') or '')
     if made_on.split('.')[:2] != [str(sys.version_info.major), str(sys.version_info.minor)]:
         summary += f' (recorded on Python {made_on or "unknown"})'
+    if 'clock_reads' not in recording['meta']:
+        summary += f" (format {recording['meta'].get('format')}: clock reads not recorded, not compared)"
     return summary, differences
 
 
@@ -769,7 +823,21 @@ def python_exception_text(result):
 
 # The instant the engine's own clock reads during a harvest.
 HARVEST_CLOCK = '2026-10-01T00:00:00Z'
+# The one Python cases are harvested on, the one CI runs. What `fromisoformat`
+# accepts and how `str` classifies characters change between minor versions,
+# and a case made on another one would pin that Python's answer instead.
+HARVEST_PYTHON = (3, 12)
 CASE_FILE = re.compile(r'[a-z-]+-[0-9a-f]{12}\.json')
+# Test modules a harvest does not run, every other one under pr_review/tests
+# being the engine's own tests:
+# - test_conformance replays the cases a harvest writes, so it would only feed
+#   the corpus back into itself;
+# - test_repositories and test_roster check the live policies under policies/
+#   — who owns what, which branches are governed, today — so what they hand
+#   the engine changes with every policy edit, and a policy change must land
+#   without re-harvesting the corpus. Tests that only need a realistic policy
+#   read the frozen copy in pr_review/tests/fixtures/ instead.
+NOT_HARVESTED = ('test_conformance', 'test_repositories', 'test_roster')
 
 
 def case_name(case):
@@ -777,52 +845,145 @@ def case_name(case):
     return f"{case['result'].get('state') or 'none'}-{hashlib.sha256(body.encode()).hexdigest()[:12]}.json"
 
 
-def harvest(destination, start='pr_review/tests'):
-    """Run the test suite with every `policy.evaluate` call written down as a case.
+# ---------------------------------------------------------------- function cases
 
-    `evaluate` is replaced before the engine or any test module is imported,
-    so every name they bind it to is the observing one, and the engine itself
-    carries no hook for it.
+# The pure functions `main.py` relies on besides `evaluate`, by module and then
+# the name within it. Each is harvested like `evaluate`, into a directory of
+# that name: what another engine writes and reads back has to come out of
+# these byte for byte, and a whole run is a poor place to find which one did not.
+FUNCTIONS = ('main.checklist_block', 'main.move_text', 'github.GitHub.state_comment_body', 'main.state_record',
+             'main.diff_record', 'policy.admit', 'main.admission_conflicts', 'policy.receipt_print',
+             'policy.diff_print', 'telemetry.head_state')
+FUNCTION_CASE_FILE = re.compile(r'[0-9a-f]{12}\.json')
+
+
+def _home(name):
+    """The object that holds the function `name` names, and its attribute there."""
+    import importlib
+    if name not in FUNCTIONS:
+        raise RecordingError(f'{name!r} is not a function this corpus holds')
+    module, _, path = name.partition('.')
+    owner = importlib.import_module(f'{__package__}.{module}')
+    *outer, attribute = path.split('.')
+    for part in outer:
+        owner = getattr(owner, part)
+    return owner, attribute
+
+
+def _written(value):
+    """An answer as a case holds it. A set has neither JSON nor an order of its own, so it is written sorted."""
+    return sorted(value) if isinstance(value, (set, frozenset)) else value
+
+
+def function_case_name(case):
+    body = _dump({k: case[k] for k in ('function', 'inputs', 'output')})
+    return f'{hashlib.sha256(body.encode()).hexdigest()[:12]}.json'
+
+
+def function_case_result(case):
+    owner, attribute = _home(case['function'])
+    return _written(getattr(owner, attribute)(**copy.deepcopy(case['inputs'])))
+
+
+def replay_function_case(path):
+    """How a function case's output differs from what the function answers now, compared as JSON text."""
+    path = Path(path)
+    case = json.loads(path.read_text())
+    label = f'{path.parent.name}/{path.name}'
+    try:
+        replayed = function_case_result(case)
+    except Exception as error:
+        return [f'{label}: raised {type(error).__name__}: {error}']
+    return [] if _dump(replayed) == _dump(case['output']) else [f'{label}: output differs']
+
+
+# ---------------------------------------------------------------- harvesting
+
+def _observing(original, keep, counts, watching):
+    """`original`, handing each call's inputs, by parameter name, and its answer to `keep`
+    for as long as `watching[0]` holds.
+
+    The inputs are copied before the call, which may change what it was
+    given. A call whose inputs or answer `keep` cannot hold still runs, and
+    is counted; so is one that raised, which is not a case.
     """
-    import unittest
-    bound = [name for name in ('pr_review.main', 'pr_review.aggregate') if name in sys.modules]
-    if bound or any(name.startswith('test_') or name.startswith('pr_review.tests') for name in sys.modules):
-        raise RecordingError('evaluate must be observed before the engine or the tests are imported')
+    import functools
     import inspect
-    from . import policy as rules
-    original = rules.evaluate
     signature = inspect.signature(original)
-    cases, observed, skipped, current = {}, [0], [0], [None]
 
-    def evaluate(*arguments, **keywords):
+    @functools.wraps(original)
+    def observed(*arguments, **keywords):
+        if not watching[0]:
+            return original(*arguments, **keywords)
         try:
             inputs = copy.deepcopy((arguments, keywords))
         except Exception:
             inputs = None
-        result = original(*arguments, **keywords)
-        observed[0] += 1
+        try:
+            result = original(*arguments, **keywords)
+        except BaseException:
+            counts['raised'] += 1
+            raise
+        counts['calls'] += 1
         try:
             bound = signature.bind(*inputs[0], **inputs[1])
             bound.apply_defaults()
-            given = bound.arguments
-            case = {'policy': given['policy'], 'pr': given['pr'], 'admitted_at': given['admitted_at'],
-                    'now': given['nowISO'], 'telemetry_states': given['telemetry_states'],
-                    'result': copy.deepcopy(result)}
-            name = case_name(case)
+            keep(dict(bound.arguments), copy.deepcopy(result))
         except Exception:
-            skipped[0] += 1
-            return result
-        entry = cases.setdefault(name, dict(case, tests=set()))
-        if current[0]:
-            entry['tests'].add(current[0])
+            counts['not_serialisable'] += 1
         return result
 
-    rules.evaluate = evaluate
-    # A few tests leave the second evaluation inside `publish` on the real
-    # clock. Fixed here, those cases are the same on every harvest.
-    from . import main as engine
-    real_clock = engine.clock
-    engine.clock = lambda: _instant(HARVEST_CLOCK)
+    return observed
+
+
+def _write_cases(directory, kept, pattern):
+    directory.mkdir(parents=True, exist_ok=True)
+    # Only files a harvest names: anything else in the directory is not its own.
+    for stale in directory.glob('*.json'):
+        if pattern.fullmatch(stale.name) and stale.name not in kept:
+            stale.unlink()
+    for name, case in kept.items():
+        (directory / name).write_text(json.dumps(case, ensure_ascii=False, indent=1) + '\n')
+
+
+def harvest(destination, functions, start='pr_review/tests'):
+    """Run the test suite with every `policy.evaluate` call, and every call of
+    each of `FUNCTIONS`, written down as a case.
+
+    Each is replaced before the engine or any test module is imported, so
+    every name they bind it to is the observing one, and the engine itself
+    carries no hook for it.
+    """
+    import inspect
+    import unittest
+    if sys.version_info[:2] != HARVEST_PYTHON:
+        raise RecordingError('harvest runs on Python {}.{} only; this is Python {}'.format(
+            *HARVEST_PYTHON, sys.version.split()[0]))
+    python = '{}.{}'.format(*sys.version_info[:2])
+    bound = [name for name in ('pr_review.main', 'pr_review.aggregate') if name in sys.modules]
+    if bound or any(name.startswith('test_') or name.startswith('pr_review.tests') for name in sys.modules):
+        raise RecordingError('the harvested functions must be observed before the engine or the tests are imported')
+    counts = {name: {'calls': 0, 'not_serialisable': 0, 'raised': 0} for name in ('evaluate',) + FUNCTIONS}
+    cases, calls, current = {}, {name: {} for name in FUNCTIONS}, [None]
+    # Names bound by `from .policy import ...` keep the observing function
+    # after it is put back, and checking the cases below calls some of them:
+    # only calls the suite makes are cases.
+    watching = [True]
+
+    def keep_evaluation(given, result):
+        case = {'policy': given['policy'], 'pr': given['pr'], 'admitted_at': given['admitted_at'],
+                'now': given['nowISO'], 'telemetry_states': given['telemetry_states'], 'result': result}
+        entry = cases.setdefault(case_name(case), dict(case, tests=set()))
+        if current[0]:
+            entry['tests'].add(current[0])
+
+    def keeping(function):
+        def keep(given, output):
+            case = {'function': function, 'inputs': given, 'output': _written(output)}
+            entry = calls[function].setdefault(function_case_name(case), dict(case, tests=set()))
+            if current[0]:
+                entry['tests'].add(current[0])
+        return keep
 
     class Tracking(unittest.TextTestResult):
         def startTest(self, test):
@@ -833,45 +994,72 @@ def harvest(destination, start='pr_review/tests'):
         for test in suite:
             yield from tests(test) if isinstance(test, unittest.TestSuite) else [test]
 
-    # The engine's own tests. This module's tests replay the cases a harvest
-    # writes, so they would only feed the corpus back into itself.
-    suite = unittest.TestSuite(test for test in tests(unittest.TestLoader().discover(start))
-                               if not test.id().startswith('test_conformance.'))
-    report = io.StringIO()
-    try:
+    from . import policy as rules
+    with ExitStack() as stack:
+        def swap(owner, attribute, value):
+            previous = inspect.getattr_static(owner, attribute)
+            stack.callback(setattr, owner, attribute, previous)
+            setattr(owner, attribute, staticmethod(value) if isinstance(previous, staticmethod) else value)
+
+        swap(rules, 'evaluate', _observing(rules.evaluate, keep_evaluation, counts['evaluate'], watching))
+        # Those outside `main` first: importing `main` binds `admit` and
+        # `diff_print` to names of its own, and those must be the observing ones.
+        for name in sorted(FUNCTIONS, key=lambda name: name.startswith('main.')):
+            owner, attribute = _home(name)
+            swap(owner, attribute, _observing(getattr(owner, attribute), keeping(name), counts[name], watching))
+        # A few tests leave the second evaluation inside `publish` on the real
+        # clock. Fixed here, those cases are the same on every harvest.
+        from . import main as engine
+        swap(engine, 'clock', lambda: _instant(HARVEST_CLOCK))
+        suite = unittest.TestSuite(test for test in tests(unittest.TestLoader().discover(start))
+                                   if test.id().split('.')[0] not in NOT_HARVESTED)
+        report = io.StringIO()
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             outcome = unittest.TextTestRunner(resultclass=Tracking, stream=report).run(suite)
-    finally:
-        rules.evaluate, engine.clock = original, real_clock
+        watching[0] = False
     if not outcome.wasSuccessful():
         sys.stderr.write(report.getvalue())
         raise RecordingError(f'the test suite failed ({len(outcome.failures)} failures, '
                              f'{len(outcome.errors)} errors); no cases written')
-    destination = Path(destination)
-    destination.mkdir(parents=True, exist_ok=True)
-    kept, lossy = {}, 0
+    # Only what survives JSON as it was: a tuple read back as a list, or a key
+    # that was not a string, can decide differently, and a case that does not
+    # replay against itself teaches the port nothing.
+    kept = {}
+    counts['evaluate']['not_replayable'] = 0
     for name, case in sorted(cases.items()):
-        case = dict(case, tests=sorted(case['tests']), python_exception_text=python_exception_text(case['result']))
-        # Only what survives JSON as it was: a tuple read back as a list, or a
-        # key that was not a string, can decide differently, and a case that
-        # does not replay against itself teaches the port nothing.
+        case = dict(case, tests=sorted(case['tests']), python_exception_text=python_exception_text(case['result']),
+                    python=python)
         try:
             stored = json.loads(json.dumps(case, ensure_ascii=False))
-            if _differing(evaluate_case_result(stored), stored['result']):
-                lossy += 1
-                continue
+            exact = not _differing(evaluate_case_result(stored), stored['result'])
         except Exception:
-            lossy += 1
-            continue
-        kept[name] = case
-    # Only files a harvest names: anything else in the directory is not its own.
-    for stale in destination.glob('*.json'):
-        if CASE_FILE.fullmatch(stale.name) and stale.name not in kept:
-            stale.unlink()
-    for name, case in kept.items():
-        (destination / name).write_text(json.dumps(case, ensure_ascii=False, indent=1) + '\n')
-    return {'tests': outcome.testsRun, 'calls': observed[0], 'cases': len(kept),
-            'not_serialisable': skipped[0], 'not_replayable': lossy}
+            exact = False
+        if exact:
+            kept[name] = case
+        else:
+            counts['evaluate']['not_replayable'] += 1
+    _write_cases(Path(destination), kept, CASE_FILE)
+    counts['evaluate']['cases'] = len(kept)
+    for function in FUNCTIONS:
+        kept = {}
+        counts[function]['not_replayable'] = 0
+        for name, case in sorted(calls[function].items()):
+            case = dict(case, tests=sorted(case['tests']), python=python)
+            try:
+                stored = json.loads(json.dumps(case, ensure_ascii=False))
+                exact = _dump(function_case_result(stored)) == _dump(stored['output'])
+            except Exception:
+                exact = False
+            if exact:
+                kept[name] = case
+            else:
+                counts[function]['not_replayable'] += 1
+        _write_cases(Path(functions) / function, kept, FUNCTION_CASE_FILE)
+        counts[function]['cases'] = len(kept)
+    evaluated = counts.pop('evaluate')
+    return {'tests': outcome.testsRun, 'calls': evaluated['calls'], 'cases': evaluated['cases'],
+            'not_serialisable': evaluated['not_serialisable'], 'not_replayable': evaluated['not_replayable'],
+            'raised': evaluated['raised'], 'functions': counts}
 
 
 # ---------------------------------------------------------------- redaction
@@ -1073,52 +1261,57 @@ def _without_permissions(pr):
 # ---------------------------------------------------------------- command line
 
 def _targets(paths):
-    """Each recording or evaluate case under `paths`, in a stable order."""
+    """Each recording, evaluate case or function case under `paths`, in a stable order."""
     for path in map(Path, paths):
         if (path / 'recording.json').is_file():
             yield 'recording', path
         elif path.is_file() and path.suffix == '.json':
-            yield 'case', path
+            yield 'function' if 'function' in json.loads(path.read_text()) else 'case', path
         elif path.is_dir():
             for child in sorted(path.iterdir()):
                 if child.is_dir() or (child.suffix == '.json' and child.name != 'recording.json'):
                     yield from _targets([child])
         else:
-            raise RecordingError(f'{path}: neither a recording nor an evaluate case')
+            raise RecordingError(f'{path}: neither a recording nor a case')
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest='command', required=True)
-    replay = commands.add_parser('replay', help='re-run the engine against recordings and evaluate cases')
+    replay = commands.add_parser('replay', help='re-run the engine against recordings, evaluate and function cases')
     replay.add_argument('paths', nargs='+')
     redaction = commands.add_parser('redact', help='write a redacted copy of a live recording')
     redaction.add_argument('source')
     redaction.add_argument('destination')
-    harvesting = commands.add_parser('harvest', help='write every evaluate call the test suite makes as a case')
+    harvesting = commands.add_parser('harvest', help='write every evaluate call the test suite makes as a case, '
+                                                     'and every call of the functions main.py relies on')
     harvesting.add_argument('destination', nargs='?', default='conformance/evaluate')
+    harvesting.add_argument('--functions', default='conformance/functions', metavar='DIR',
+                            help='where the function cases go, one directory per function')
     args = parser.parse_args(argv)
     if args.command == 'harvest':
-        print(json.dumps(harvest(args.destination)))
+        print(json.dumps(harvest(args.destination, args.functions)))
         return 0
     if args.command == 'redact':
         counts, summary = redact(args.source, args.destination)
         print(f'{args.destination}: redacted ({json.dumps(counts)}); replays identically: {summary}')
         return 0
-    failed, recordings, cases = 0, 0, 0
+    failed, seen = 0, {'recording': 0, 'case': 0, 'function': 0}
     for kind, path in _targets(args.paths):
+        seen[kind] += 1
         if kind == 'recording':
-            recordings += 1
             summary, differences = replay_recording(path)
             print(f"{'FAIL' if differences else 'ok  '} {path}: {summary}")
+        elif kind == 'function':
+            differences = replay_function_case(path)
         else:
-            cases += 1
             differences = replay_case(path)
         for line in differences:
             print(f'     {line}')
         failed += bool(differences)
-    print(f'{recordings} recording(s), {cases} evaluate case(s), {failed} failed')
-    return 1 if failed or not recordings + cases else 0
+    print(f"{seen['recording']} recording(s), {seen['case']} evaluate case(s), {seen['function']} function case(s), "
+          f'{failed} failed')
+    return 1 if failed or not sum(seen.values()) else 0
 
 
 if __name__ == '__main__':

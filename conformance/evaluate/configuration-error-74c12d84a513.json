@@ -127,5 +127,6 @@
  "tests": [
   "test_policy.PolicyTests.test_the_diff_is_kept_through_a_verdict_that_stops_early"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

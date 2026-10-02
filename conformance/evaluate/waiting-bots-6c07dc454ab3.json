@@ -160,5 +160,6 @@
  "tests": [
   "test_bot_timeouts.SkipBotsTests.test_an_edited_skip_does_not_count"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

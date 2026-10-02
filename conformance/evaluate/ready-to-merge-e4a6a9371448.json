@@ -181,5 +181,6 @@
  "tests": [
   "test_policy.PolicyTests.test_non_writer_thread_cannot_block_owner_pr"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

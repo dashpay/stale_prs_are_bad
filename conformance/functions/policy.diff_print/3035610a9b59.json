@@ -1,0 +1,106 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "owner",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "packages/drive/a.rs",
+     "status": "modified",
+     "content": "cccccccccccccccccccccccccccccccccccccccc",
+     "shape": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+   ],
+   "reviews": [
+    {
+     "id": 1,
+     "user": "thepastaclaw",
+     "state": "COMMENTED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+    },
+    {
+     "id": 2,
+     "user": "coderabbitai[bot]",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [
+    {
+     "id": 3,
+     "user": "owner",
+     "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "created_at": "2026-09-11T11:00:00Z",
+     "updated_at": "2026-09-11T11:00:00Z"
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "owner": "write",
+    "reviewer": "write",
+    "fallback": "write"
+   },
+   "controller_state": null,
+   "labels": [],
+   "complete": true,
+   "build": "green",
+   "controller_diff": {
+    "number": 1,
+    "diff": "2cebcbc1c42b7c0fc5955831c7eb9783fc57c86059c9dbadbdbf1a5900aa528b",
+    "diff_heads": [
+     "0000000000000000000000000000000000000000",
+     "0000000000000000000000000000000000000001",
+     "0000000000000000000000000000000000000002",
+     "0000000000000000000000000000000000000003",
+     "0000000000000000000000000000000000000004",
+     "0000000000000000000000000000000000000005",
+     "0000000000000000000000000000000000000006",
+     "0000000000000000000000000000000000000007",
+     "0000000000000000000000000000000000000008",
+     "0000000000000000000000000000000000000009",
+     "000000000000000000000000000000000000000a",
+     "000000000000000000000000000000000000000b",
+     "000000000000000000000000000000000000000c",
+     "000000000000000000000000000000000000000d",
+     "000000000000000000000000000000000000000e",
+     "000000000000000000000000000000000000000f",
+     "0000000000000000000000000000000000000010",
+     "0000000000000000000000000000000000000011",
+     "0000000000000000000000000000000000000012",
+     "0000000000000000000000000000000000000013",
+     "0000000000000000000000000000000000000014",
+     "0000000000000000000000000000000000000015",
+     "0000000000000000000000000000000000000016",
+     "0000000000000000000000000000000000000017",
+     "0000000000000000000000000000000000000018",
+     "0000000000000000000000000000000000000019",
+     "000000000000000000000000000000000000001a",
+     "000000000000000000000000000000000000001b",
+     "000000000000000000000000000000000000001c",
+     "000000000000000000000000000000000000001d"
+    ],
+    "diff_seen": "2026-09-11T09:00:00Z"
+   },
+   "head_seen_at": "2026-09-11T13:00:00Z"
+  }
+ },
+ "output": "2cebcbc1c42b7c0fc5955831c7eb9783fc57c86059c9dbadbdbf1a5900aa528b",
+ "tests": [
+  "test_policy.PolicyTests.test_the_carried_commits_do_not_grow_without_bound"
+ ],
+ "python": "3.12"
+}

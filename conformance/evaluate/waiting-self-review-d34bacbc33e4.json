@@ -493,5 +493,6 @@
  "tests": [
   "test_checklist.ChecklistTests.test_a_colleagues_attestation_is_named_rather_than_ignored"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

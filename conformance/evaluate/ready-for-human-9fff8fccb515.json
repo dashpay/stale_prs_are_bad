@@ -184,5 +184,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_build_going_red_afterwards_does_not_take_the_review_back"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

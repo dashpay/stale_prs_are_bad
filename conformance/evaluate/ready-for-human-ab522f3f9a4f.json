@@ -542,5 +542,6 @@
  "tests": [
   "test_checklist.PublishTests.test_a_state_nobody_acts_on_and_back_does_not_announce_again"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

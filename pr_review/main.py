@@ -627,7 +627,6 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         return
 
     desired = state_record(pr, result, context)
-    now = utc_now()
 
     def finish(expected):
         # Admission history reads can be slow. Read this PR's review evidence

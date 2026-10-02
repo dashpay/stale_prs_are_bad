@@ -220,6 +220,21 @@ class RecordAndReplayTests(RecordingCase):
         self.assertGreaterEqual(status['id'], conformance.CANNED_ID_BASE)
         self.assertEqual(self.replay(directory), [])
 
+    def test_a_dry_sync_of_one_pull_request_round_trips(self):
+        # `sync --pr N` is what an event on one pull request runs, over that
+        # author's pull requests only: it has to replay as a sweep does, and
+        # what it would write touches that pull request alone.
+        directory = self.record('sync', '--pr', '2')
+        recording = conformance.load_recording(directory)
+        self.assertEqual(recording['meta']['argv'], ['sync', '--repo', REPO, '--pr', '2', '--format', 'markdown'])
+        self.assertEqual([(v['number'], v['state']) for v in recording['verdicts']], [(2, 'ready-for-human')])
+        routes = [(c['args'][1], c['args'][2].split(REPO + '/')[1]) for c in recording['calls'] if c['kind'] == 'write']
+        self.assertEqual(routes, [('POST', f'statuses/{OTHER_HEAD}'), ('PATCH', 'pulls/2'),
+                                  ('POST', 'issues/2/comments'), ('POST', 'issues/2/labels'),
+                                  ('POST', 'pulls/2/requested_reviewers'), ('POST', f'statuses/{OTHER_HEAD}')])
+        self.assertEqual(self.gh.writes(), [], 'nothing but reads reached gh')
+        self.assertEqual(self.replay(directory), [])
+
     def test_the_outputs_are_the_bytes_the_write_path_sends(self):
         directory = self.record('sync')
         recording = conformance.load_recording(directory)
@@ -348,6 +363,54 @@ class ClockTests(RecordingCase):
         self.assertEqual({v['admitted_at'] for v in verdicts}, {'2026-09-12T10:00:00Z'})
         self.assertEqual({e['now'] for e in conformance.load_recording(directory)['evaluations']},
                          {'2026-09-12T10:00:00Z'})
+
+    def test_every_clock_read_is_logged_with_where_the_engine_asked(self):
+        # Every read returns the recorded instant, so an engine that reads the
+        # time where Python does not still gives the same answers; only this
+        # log tells the two apart. `after` is the last call made before it.
+        directory = self.record('sync', '--pr', '1')
+        meta = json.loads(Path(directory, 'recording.json').read_text())
+        self.assertEqual(meta['format'], conformance.FORMAT)
+        self.assertEqual(meta['clock_reads'], [{'site': 'collect', 'after': 2}, {'site': 'run', 'after': 10}])
+        history = conformance.load_recording(directory)['calls'][1]
+        self.assertIn('fragment history', history['stdin'], 'admission is dated right after the histories are read')
+        self.assertEqual(self.replay(directory), [])
+
+    def test_a_clock_read_somewhere_else_is_caught(self):
+        directory = self.record('sync', '--pr', '1')
+        self.edit(directory, 'recording.json', lambda meta: meta['clock_reads'][1].update(site='collect'))
+        self.assertIn('clock reads: recorded 2, replayed 2; read #2 recorded collect after call 10, '
+                      'replayed run after call 10', self.replay(directory))
+
+    def test_an_extra_clock_read_is_caught(self):
+        directory = self.record('sync', '--pr', '1')
+        # The same answers, read at two more points: `collect` and
+        # `evaluate_snapshots` both ask who holds too many slots.
+        real = main.admission_conflicts
+        with patch.object(main, 'admission_conflicts', side_effect=lambda *a: (main.utc_now(), real(*a))[1]):
+            differences = self.replay(directory)
+        self.assertEqual(differences, ['clock reads: recorded 2, replayed 4; read #2 recorded run after call 10, '
+                                       'replayed collect after call 2'])
+
+    def test_a_recording_made_before_clock_reads_were_logged_still_replays(self):
+        directory = self.record('report')
+
+        def first_format(meta):
+            meta['format'] = 1
+            del meta['clock_reads']
+        self.edit(directory, 'recording.json', first_format)
+        with contextlib.redirect_stderr(io.StringIO()):
+            summary, differences = conformance.replay_recording(directory)
+        self.assertEqual(differences, [])
+        self.assertIn('format 1: clock reads not recorded, not compared', summary)
+        self.edit(directory, 'recording.json', lambda meta: meta.update(format=3))
+        with self.assertRaisesRegex(conformance.RecordingError, 'unknown recording format 3'):
+            conformance.load_recording(directory)
+        # A current recording that lost its log would replay with nothing to
+        # compare it against, and pass.
+        self.edit(directory, 'recording.json', lambda meta: meta.update(format=conformance.FORMAT))
+        with self.assertRaisesRegex(conformance.RecordingError, 'clock reads belong to format 2'):
+            conformance.load_recording(directory)
 
     def test_a_replay_runs_at_the_recorded_instant_whatever_the_time_now(self):
         directory = self.record('report')
@@ -488,6 +551,20 @@ class EvaluateCaseTests(unittest.TestCase):
         failed = [line for path in paths for line in conformance.replay_case(path)]
         self.assertEqual(failed, [])
 
+    def test_every_committed_case_says_which_python_made_it(self):
+        made_on = {json.loads(path.read_text()).get('python') for path in self.CASES.glob('*.json')}
+        self.assertEqual(made_on, {'{}.{}'.format(*conformance.HARVEST_PYTHON)})
+
+    def test_a_harvest_on_another_python_is_refused(self):
+        # A case pins what the Python that made it answered, and `fromisoformat`
+        # answers differently from one minor version to the next: a corpus
+        # harvested on the wrong one would hold another engine to that one.
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(conformance.sys, 'version_info', (3, 13, 0, 'final', 0)), \
+                    self.assertRaisesRegex(conformance.RecordingError, r'Python 3\.12 only'):
+                conformance.harvest(Path(root, 'evaluate'), Path(root, 'functions'))
+            self.assertEqual(list(Path(root).iterdir()), [], 'nothing is written')
+
     def test_only_text_python_wrote_is_marked_as_an_exception(self):
         policy, pr = fixture()
         own = conformance.evaluate_case_result({'policy': dict(policy, unknown=True), 'pr': pr,
@@ -513,3 +590,88 @@ class EvaluateCaseTests(unittest.TestCase):
             case['result']['blockers'] = ['something else']
             path.write_text(json.dumps(case))
             self.assertEqual(conformance.replay_case(path), [f'{path.name}: blockers differ'])
+
+
+class FunctionCaseTests(unittest.TestCase):
+    CASES = Path(__file__).resolve().parents[2] / 'conformance' / 'functions'
+
+    def cases(self, function):
+        return sorted((self.CASES / function).glob('*.json'))
+
+    def replay(self, paths):
+        return [line for path in paths for line in conformance.replay_function_case(path)]
+
+    def test_every_function_has_committed_cases_and_every_one_replays(self):
+        for function in conformance.FUNCTIONS:
+            with self.subTest(function=function):
+                paths = self.cases(function)
+                self.assertTrue(paths, 'harvested and committed')
+                self.assertEqual(self.replay(paths), [])
+
+    def test_one_character_more_in_what_the_engine_writes_fails_its_cases(self):
+        # The checklist and the move comment are read back on the next run and
+        # compared as text: a port one character off rewrites them every run.
+        for function in ('main.checklist_block', 'main.move_text'):
+            name = function.split('.')[1]
+            real = getattr(main, name)
+            with self.subTest(function=function), \
+                    patch.object(main, name, side_effect=lambda *a, real=real, **k: (real(*a, **k) or '') + ' '):
+                failed = self.replay(self.cases(function))
+            self.assertTrue(failed and all(line.endswith('output differs') for line in failed), failed)
+
+    def test_an_edited_output_is_caught(self):
+        source = next(p for p in self.cases('policy.admit') if len(json.loads(p.read_text())['output']) > 1)
+        case = json.loads(source.read_text())
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root, 'policy.admit', source.name)
+            path.parent.mkdir()
+            path.write_text(json.dumps(case))
+            self.assertEqual(self.replay([path]), [])
+            # The same entries in another order are other bytes.
+            case['output'] = dict(reversed(list(case['output'].items())))
+            path.write_text(json.dumps(case))
+            self.assertEqual(self.replay([path]), [f'policy.admit/{source.name}: output differs'])
+
+    def test_a_set_is_written_in_order(self):
+        # A set iterates in an order that moves with the hash seed; a case
+        # written in that order would differ from one harvest to the next.
+        self.assertEqual(conformance._written({'b', 'a', 'c'}), ['a', 'b', 'c'])
+        written = [json.loads(p.read_text())['output'] for p in self.cases('main.admission_conflicts')]
+        self.assertTrue(any(written), 'a case where somebody holds too many admissions')
+
+    def test_a_case_names_only_the_tests_that_made_it(self):
+        # Once the suite has run, checking the cases calls some functions again
+        # through names `main` bound to the observing ones. Were those calls
+        # observed, each would be credited to whichever test ran last: the
+        # workflow tests, which read YAML and call nothing harvested here.
+        named = {test for path in self.CASES.rglob('*.json') for test in json.loads(path.read_text())['tests']}
+        self.assertEqual({test for test in named if test.startswith('test_workflow.')}, set())
+
+    def test_no_case_comes_from_a_module_the_harvest_does_not_run(self):
+        # The live-policy tests hand the engine whatever policies/ says today;
+        # a case of theirs would turn every policy edit into a corpus change.
+        paths = [*(self.CASES.parent / 'evaluate').glob('*.json'), *self.CASES.glob('*/*.json')]
+        named = {test.split('.')[0] for path in paths for test in json.loads(path.read_text())['tests']}
+        self.assertEqual(named & set(conformance.NOT_HARVESTED), set())
+
+    def test_a_call_made_after_the_suite_is_neither_kept_nor_counted(self):
+        watching, kept = [True], []
+        counts = {'calls': 0, 'not_serialisable': 0, 'raised': 0}
+        observed = conformance._observing(lambda value: value * 2, lambda given, output: kept.append((given, output)),
+                                          counts, watching)
+        self.assertEqual(observed(1), 2)
+        watching[0] = False
+        self.assertEqual(observed(2), 4, 'still the function it stands for')
+        self.assertEqual((kept, counts['calls']), ([({'value': 1}, 2)], 1))
+
+    def test_a_case_can_only_name_a_function_the_corpus_holds(self):
+        # A case is data: it must not be able to name any callable it likes.
+        with self.assertRaises(conformance.RecordingError):
+            conformance.function_case_result({'function': 'main.os.system', 'inputs': {'command': 'true'}})
+
+    def test_replay_counts_function_cases_as_their_own_kind(self):
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            code = conformance.main(['replay', str(self.CASES / 'telemetry.head_state')])
+        self.assertEqual(code, 0)
+        count = len(self.cases('telemetry.head_state'))
+        self.assertIn(f'0 recording(s), 0 evaluate case(s), {count} function case(s), 0 failed', printed.getvalue())

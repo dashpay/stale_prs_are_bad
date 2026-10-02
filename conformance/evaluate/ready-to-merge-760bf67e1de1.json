@@ -174,5 +174,6 @@
  "tests": [
   "test_policy.PolicyTests.test_bare_self_review_covers_everything_pushed_so_far"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

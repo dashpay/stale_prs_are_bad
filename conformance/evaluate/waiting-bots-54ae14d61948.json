@@ -163,5 +163,6 @@
  "tests": [
   "test_policy.PolicyTests.test_bot_failure_blocks_even_owner"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

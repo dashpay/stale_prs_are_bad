@@ -547,5 +547,6 @@
  "tests": [
   "test_checklist.PublishTests.test_a_bot_reporting_with_nothing_to_answer_is_not_announced_again"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

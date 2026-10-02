@@ -1,0 +1,52 @@
+{
+ "function": "main.state_record",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "alice",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "state": "open",
+   "draft": true,
+   "labels": [],
+   "requested_reviewers": [],
+   "controller_comment_id": null,
+   "reviews": [],
+   "comments": [],
+   "created_at": "2026-09-11T12:00:00Z",
+   "lifecycle_at": null,
+   "build": "green",
+   "body": ""
+  },
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "alice",
+   "state": "draft",
+   "status": "pending",
+   "blockers": [],
+   "reviewers": [],
+   "areas": [
+    "core"
+   ],
+   "admitted_at": "2026-09-11T00:00:00Z",
+   "ready_since": null
+  },
+  "context": "eb8539b9c354b4492de19567a14f49edf1cc46605bd0db31c9735529f0440653"
+ },
+ "output": {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "admitted_at": "2026-09-11T00:00:00Z",
+  "ready_since": null,
+  "state": "draft",
+  "version": 1,
+  "evidence": "ca378f4665e110d4f1f053cc116dccc970d1f98ac95c56b061151a5f38ce3017",
+  "context": "eb8539b9c354b4492de19567a14f49edf1cc46605bd0db31c9735529f0440653"
+ },
+ "tests": [
+  "test_main.PublicationTests.test_draft_records_its_state_without_opening_a_comment"
+ ],
+ "python": "3.12"
+}

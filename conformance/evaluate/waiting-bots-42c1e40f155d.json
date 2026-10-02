@@ -160,5 +160,6 @@
  "tests": [
   "test_bot_timeouts.SkipBotsTests.test_a_skip_in_the_same_instant_as_the_status_does_not_carry"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -192,5 +192,6 @@
  "tests": [
   "test_policy.PolicyTests.test_an_objector_is_invited_back_whoever_is_holding_it"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

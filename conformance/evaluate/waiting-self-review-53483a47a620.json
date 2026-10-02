@@ -475,5 +475,6 @@
  "tests": [
   "test_checklist.PublishTests.test_a_comment_carrying_both_records_is_left_alone_when_it_agrees"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

@@ -1,0 +1,36 @@
+{
+ "function": "telemetry.head_state",
+ "inputs": {
+  "payload": {
+   "schema_version": 1,
+   "data_as_of": "2026-09-11T12:00:00Z",
+   "live": {
+    "active": [],
+    "heads": {},
+    "capacity": {}
+   },
+   "history": {
+    "recent_events": [
+     {
+      "kind": "head.queued",
+      "repo": "dashpay/x",
+      "number": 7,
+      "ts": "2026-09-11T11:00:00Z",
+      "detail": "aaaaaaaa trigger=new_push priority=0"
+     }
+    ],
+    "daily": []
+   }
+  },
+  "repository": "dashpay/x",
+  "number": 7,
+  "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "head_seen_at": "2026-09-11T03:00:00Z",
+  "now": "2026-09-11T12:00:00Z"
+ },
+ "output": null,
+ "tests": [
+  "test_bot_timeouts.TelemetryReaderTests.test_a_queued_event_is_matched_by_its_short_commit"
+ ],
+ "python": "3.12"
+}

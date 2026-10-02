@@ -170,5 +170,6 @@
  "tests": [
   "test_policy.PolicyTests.test_a_skipped_bot_and_a_wait_for_the_bots_cannot_both_be_true"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }

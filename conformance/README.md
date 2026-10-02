@@ -5,15 +5,18 @@ implementation of it can be held to the same answers, verdict for verdict and
 write for write. The code is `pr_review/conformance.py`; its tests are
 `pr_review/tests/test_conformance.py`.
 
-There are two artifacts.
+There are three artifacts.
 
 | Artifact | Where | Committed | What it pins |
 |---|---|---|---|
 | Boundary recordings | `conformance/live/` | **no** (`.gitignore`) | a whole run against real pull requests: every GitHub call and its answer, the verdicts, the ordered writes, the exact text written |
 | Evaluate cases | `conformance/evaluate/` | yes | every `policy.evaluate` call the engine's own test suite makes: inputs and result |
+| Function cases | `conformance/functions/<function>/` | yes | every call the test suite makes of the pure functions `main.py` relies on: inputs and output, byte for byte |
 
-Python 3.12 is what these were produced with; any Python from 3.10 runs the
-engine. With [uv](https://docs.astral.sh/uv/), prefix each command below with
+Python 3.12 is what these were produced with, and what the engine and its
+tests run on in CI (`actions/setup-python`); any Python from 3.10 runs the
+engine, but `harvest` refuses any other than 3.12. With
+[uv](https://docs.astral.sh/uv/), prefix each command below with
 `uv run -q --python 3.12 --no-project --with pyyaml`.
 
 ## Boundary recordings
@@ -27,17 +30,25 @@ unchanged and is part of what is recorded.
 ### Recording
 
 ```sh
-export GH_TOKEN=$(gh auth token)
+export GH_TOKEN=...      # read-only: see "Handling live recordings"
+RAW=$(mktemp -d)         # mode 700, outside every repository and worktree
 python -m pr_review.main report --repo dashpay/platform --format json \
-    --record conformance/live/raw/platform-report
+    --record "$RAW/platform-report"
 python -m pr_review.main sync --repo dashpay/platform \
-    --record conformance/live/raw/platform-sync          # dry: nothing is sent
+    --record "$RAW/platform-sync"            # dry: nothing is sent
+python -m pr_review.main sync --repo dashpay/platform --pr 1234 \
+    --record "$RAW/platform-sync-pr-1234"    # one pull request's author
 ```
 
 `--record DIR` is accepted on `report` and on `sync` without `--apply`, and
 nowhere else; it refuses `--apply`, and refuses a `DIR` that already holds
 anything. Every governed repository: `platform`, `rust-dashcore`,
 `tenderdash`, `grovedb`, `dash-evo-tool`.
+
+`sync --pr N` is the path an event on one pull request runs, and the one the
+service runs per author: it reads that author's pull requests, decides their
+admission, takes a snapshot of the one named (and of any of theirs whose slot
+it moves), and sweeps nothing else. Record it beside the batch syncs.
 
 What a recording run does differently, and only while recording:
 
@@ -63,7 +74,12 @@ What a recording run does differently, and only while recording:
   give the same writes — but it is not a forecast of the next real run.
 - **The clock is read once.** `main.clock()` is the one place the engine reads
   the time (`utc_now` and the batch rotations go through it); the recording
-  fixes it at the start of the run and stores it.
+  fixes it at the start of the run and stores it. Every later read returns
+  that instant and is logged, in order, as `{site, after}`: `site` is the
+  engine function that asked (the first on the stack outside `clock` and
+  `utc_now`, by name — never a line number, and never a comprehension or a
+  lambda, whose frames come and go between Python versions), `after` the
+  ordinal of the last call made before it, `0` for none.
 - **The review system's status page** (`telemetry.fetch`) is read for real
   once, if the policy has bot timeouts, and stored.
 - **Snapshots run one at a time.** In production four run at once and share
@@ -75,7 +91,7 @@ What a recording run does differently, and only while recording:
 
 | File | Contents |
 |---|---|
-| `recording.json` | `format`, `repository`, `argv` (the command, without local paths), `clock`, `policy` (as loaded), `telemetry` (the payload or `null`) and `telemetry_reads`, `outcome` (`{"returned": 0}` or the exception), `environment`, `python`, `engine_commit`, `redacted` |
+| `recording.json` | `format`, `repository`, `argv` (the command, without local paths), `clock` and `clock_reads`, `policy` (as loaded), `telemetry` (the payload or `null`) and `telemetry_reads`, `outcome` (`{"returned": 0}` or the exception), `environment`, `python`, `engine_commit`, `redacted` |
 | `calls.jsonl` | one line per `gh api` call, in the order made: `ordinal`, `kind` (`read`/`write`), `args`, `stdin`, `exit`, `stdout`, `stderr`; `raised` when `gh` could not run |
 | `verdicts.json` | the verdict rows, in order, exactly as `evaluate_snapshots` returned them |
 | `evaluations.jsonl` | every `evaluate` call of the run: `pr` (the evidence Python's reader produced), `admitted_at`, `now`, `telemetry_states`, `result`; `policy` only where it is not the recording's |
@@ -110,8 +126,8 @@ wrote, so their bytes are the engine's own JSON writer's.
 ### Redacting
 
 ```sh
-python -m pr_review.conformance redact conformance/live/raw/platform-report \
-    conformance/live/redacted/platform-report
+python -m pr_review.conformance redact "$RAW/platform-report" conformance/live/redacted/platform-report \
+    && rm -rf "$RAW/platform-report"
 ```
 
 A live recording is read with your token, so it holds what only you may see:
@@ -140,18 +156,33 @@ original's, the evidence differs in nothing but permission levels, and the
 writes differ in nothing but the evidence print. The copy stores what the
 engine decides on the redacted answers (its evidence prints change, since they
 hash the evidence), and is replayed once more after it is written. The raw
-recording is left in place; delete it once the redacted copy is made.
+recording is left in place; the command above deletes it once the redacted
+copy is written.
 
 Redacted recordings are still not committed: they are large, and dated the
 moment they are made.
 
+### Handling live recordings
+
+- **Record with a read-only token**: in a job, its installation token;
+  locally, a fine-grained token with read access only. The recorder sends no
+  write; the token makes sure none could be sent.
+- **A raw recording lives outside every repository and worktree**, in a
+  directory only you can open (mode 700, as `mktemp -d` makes one), and is
+  deleted as soon as its redacted copy is written.
+- **`conformance/live/` holds redacted copies only.**
+- **No recording, raw or redacted, goes into a CI artifact, an issue, a pull
+  request's text or an agent's prompt.** Report counts only: calls, writes,
+  verdicts, differences.
+
 ### Replaying
 
 ```sh
-python -m pr_review.conformance replay conformance/live/redacted conformance/evaluate
+python -m pr_review.conformance replay conformance/live/redacted conformance/evaluate conformance/functions
 ```
 
-Takes recordings, evaluate cases, or directories of either. For a recording
+Takes recordings, evaluate cases, function cases, or directories of any of
+them. For a recording
 it runs the engine at the recorded clock, with the recorded policy and status
 page, every read answered from the recording — each answer once, in the order
 given for the same request — and every write answered as when recording.
@@ -173,30 +204,46 @@ for another engine below. It fails when:
 - an output differs, or the printed report does;
 - an evaluation's result or evidence differs;
 - the engine asks a read the recording does not hold, or leaves one unasked;
-- the status page is read a different number of times.
+- the status page is read a different number of times;
+- the clock is read at another site, at another point among the calls, or a
+  different number of times.
 
 The summary line notes a recording made on another minor version of Python:
 what `fromisoformat` accepts changed between them.
 
+A recording is `format` 2. Format 1 is the same without `clock_reads`; it
+still replays, every comparison but that one made, and its summary line says
+so. Any other format is refused.
+
 ## Evaluate cases
 
 ```sh
-python -m pr_review.conformance harvest      # rewrites conformance/evaluate
+python -m pr_review.conformance harvest      # rewrites conformance/evaluate and conformance/functions
 ```
 
-Runs the engine's test suite (all but `test_conformance`) with `policy.evaluate`
-observed, and writes one file per distinct call:
+Runs the engine's test suite with `policy.evaluate` observed, and writes one
+file per distinct call:
 `{policy, pr, admitted_at, now, telemetry_states, result, tests,
-python_exception_text}`. `tests` names the tests that made it. Files are named
+python_exception_text, python}`. `tests` names the tests that made it; `python`
+is the minor version that made it (only the minor: CI's patch release need not
+be yours). Files are named
 `<state>-<first 12 hex of SHA-256 over the case>.json`, so the same call is the
 same file on every harvest; the engine clock is fixed at `2026-10-01T00:00:00Z`
 during a harvest for the few tests that leave it running. A case is kept only
 if it replays from its JSON exactly. Re-harvest whenever `evaluate` or its
-tests change, and commit the difference.
+tests change, and commit the difference: CI harvests into a scratch directory
+and fails on any difference from what is committed.
+
+Three test modules are not run (`NOT_HARVESTED` in `conformance.py`):
+`test_conformance`, which replays the corpus, and `test_repositories` and
+`test_roster`, which check the live policies under `policies/`. No case
+depends on a live policy, so editing one leaves the corpus as it is and lands
+without a re-harvest; tests that need a realistic policy read the frozen copy
+in `pr_review/tests/fixtures/`.
 
 `evaluate` is replaced before the engine or any test is imported, so every
 name it is bound to is the observing one and the engine carries no hook for
-it; an independent count of calls agrees (328). Evidence built from mocks
+it; an independent count of calls agrees (321). Evidence built from mocks
 would not survive JSON and is not kept; the harvest reports how many calls
 that was (none, today). The one test that evaluates in child processes, to
 vary the hash seed, is not seen; other cases cover the renames it uses.
@@ -204,6 +251,46 @@ vary the hash seed, is not seen; other cases cover the renames it uses.
 `python_exception_text` is true for a `configuration-error` whose first reason
 is neither one `evaluate` stops with nor a message `policy.py` raises — read
 from its source, so a new message is known without being listed.
+
+## Function cases
+
+The same harvest observes the pure functions `main.py` relies on besides
+`evaluate`, and writes one file per distinct call into
+`conformance/functions/<function>/<first 12 hex of SHA-256 over the case>.json`:
+`{function, inputs, output, tests, python}`, `inputs` by parameter name.
+
+| Function | What it makes |
+|---|---|
+| `main.checklist_block` | the description's block |
+| `main.move_text` | the move comment's words |
+| `github.GitHub.state_comment_body` | the record comment, markers and words |
+| `main.state_record` | the record inside the state marker |
+| `main.diff_record` | the diff record beside it |
+| `policy.admit` | who holds a review slot, and since when |
+| `main.admission_conflicts` | authors holding more slots than the policy allows |
+| `policy.receipt_print` | what a bot's comment said, apart from how |
+| `policy.diff_print` | what a reviewer read |
+| `telemetry.head_state` | what the review system last said about a head |
+
+`diff_print` and `receipt_print` are also called from inside `evaluate`, and
+those calls are cases too. Nothing in the engine changes for this: each
+function is replaced, like `evaluate`, before anything binds it.
+
+`output` is compared as JSON text, so key order and every character count.
+Two answers have no JSON of their own: `admit` keys its map by pull request
+number, written as JSON writes any key, as a string (`{"12":"2026-…"}`, as
+`serde_json` writes an integer key too); `admission_conflicts` answers a set,
+written sorted. A case is kept only if it replays from its JSON exactly; today
+one call does not (a `state_record` made while a test had replaced
+`fingerprint` with a stand-in, which the real one does not reproduce). None raised and none
+held anything JSON cannot, today; the harvest prints all of these counts per
+function. A `state_record` output carries the evidence and context prints of
+its inputs: here, unlike across runs, they are the same bytes from the same
+inputs, made by the JSON writer the port has to have anyway.
+
+```sh
+python -m pr_review.conformance replay conformance/functions
+```
 
 ## What another engine must match exactly
 
@@ -231,10 +318,13 @@ from its source, so a new message is known without being listed.
 
 ## What this corpus cannot tell apart
 
-- **When the clock is read.** It is fixed for the whole run, so an engine that
-  reuses the run's instant where Python reads the clock again — the second
-  evaluation before a success, the admission re-check — gives the same
-  answers here. In a real run they differ by seconds.
+- **When the clock is read, from the answers alone.** It is fixed for the
+  whole run, so an engine that reuses the run's instant where Python reads the
+  clock again — the second evaluation before a success, the admission
+  re-check — gives the same answers here; in a real run they differ by
+  seconds. Only the log of reads (`clock_reads`) tells the two apart, so
+  another engine logs a site for each read of its own clock, named as Python's
+  are, and the two logs are compared.
 - **What happens when a write fails.** Every canned answer is a success. The
   failure paths — a label that 404s, a reviewer request refused with 422 —
   belong to the port's own HTTP-mock tests.

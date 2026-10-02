@@ -118,5 +118,6 @@
   "test_policy.PolicyTests.test_incomplete_or_unresolved_never_succeeds",
   "test_policy.PolicyTests.test_the_check_passes_in_exactly_one_state"
  ],
- "python_exception_text": false
+ "python_exception_text": false,
+ "python": "3.12"
 }
