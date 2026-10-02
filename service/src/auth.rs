@@ -310,9 +310,9 @@ fn is_code(s: &str) -> bool {
 }
 
 /// `GET /api/v1/me`: who is signed in, with their public People entry
-/// (null when the data does not name them, or holds no snapshot yet). The
-/// entry is found by the login at sign-in: after a rename on GitHub it is
-/// null until the person signs in again.
+/// (null when the data does not name them, or holds no snapshot yet) and
+/// whether they opted out. The entry is found by the login at sign-in:
+/// after a rename on GitHub it is null until the person signs in again.
 pub async fn me(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -325,12 +325,39 @@ pub async fn me(
         Err(e) => return Err(e),
     };
     let person = view.as_ref().and_then(|v| v.person(&session.login));
+    let id = session.user_id;
+    let opted_out = state.read(move |reader| reader.opted_out(id)).await?;
     Ok(Json(json!({
         "id": session.user_id,
         "login": session.login,
         "person": person,
+        "opted_out": opted_out,
     }))
     .into_response())
+}
+
+/// `GET /api/v1/me/speed`: the signed-in person's own speed, computed now
+/// from their speed inputs alone, or `{"opted_out": true}`. It changes
+/// nothing, so it needs no `Origin`; like every route here it is readable
+/// by no other origin and never cached.
+pub async fn speed(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    state.signin()?;
+    let id = current_session(&state, &headers).await?.user_id;
+    let speed = state
+        .read(move |reader| {
+            if reader.opted_out(id)? {
+                return Ok(None);
+            }
+            reader.speed(id, Utc::now()).map(Some)
+        })
+        .await?;
+    Ok(match speed {
+        Some(speed) => Json(speed).into_response(),
+        None => Json(json!({ "opted_out": true })).into_response(),
+    })
 }
 
 /// No content, and the session cookie cleared.
@@ -363,7 +390,7 @@ pub async fn opt_out(
     same_origin(state.signin()?, &headers)?;
     let session = current_session(&state, &headers).await?;
     state
-        .write(move |store| store.opt_out(session.user_id, Utc::now()))
+        .write(move |store| store.opt_out(session.user_id, &session.login, Utc::now()))
         .await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
@@ -377,7 +404,7 @@ pub async fn delete_me(
     same_origin(state.signin()?, &headers)?;
     let session = current_session(&state, &headers).await?;
     state
-        .write(move |store| store.delete_user(session.user_id))
+        .write(move |store| store.delete_user(session.user_id, &session.login))
         .await?;
     signed_out()
 }

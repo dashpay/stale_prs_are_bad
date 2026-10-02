@@ -477,7 +477,7 @@ async fn me_has_no_person_for_someone_the_data_does_not_name() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
         body,
-        json!({ "id": 77, "login": "someone-new", "person": null })
+        json!({ "id": 77, "login": "someone-new", "person": null, "opted_out": false })
     );
     ingest(&app, &snapshot(5)).await;
     let (_, body) = me(&app, Some(&session)).await;
@@ -639,6 +639,7 @@ async fn with_sign_in_unconfigured_its_routes_are_404_and_the_rest_works() {
         (Method::GET, "/auth/login"),
         (Method::GET, "/auth/callback?code=x&state=y"),
         (Method::GET, "/api/v1/me"),
+        (Method::GET, "/api/v1/me/speed"),
     ]
     .into_iter()
     .chain(CHANGES)

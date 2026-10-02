@@ -150,6 +150,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/auth/logout", post(auth::logout))
         .route("/api/v1/me", get(auth::me).delete(auth::delete_me))
         .route("/api/v1/me/opt-out", post(auth::opt_out))
+        .route("/api/v1/me/speed", get(auth::speed))
         .layer(middleware::map_response(auth::private_headers));
     Router::new()
         .merge(public)

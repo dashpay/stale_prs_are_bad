@@ -13,6 +13,7 @@ pub mod digest;
 pub mod github;
 pub mod oidc;
 pub mod snapshot;
+pub mod speed;
 pub mod store;
 pub mod view;
 
