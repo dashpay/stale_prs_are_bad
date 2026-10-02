@@ -39,16 +39,13 @@
 use crate::store::{parse_ts, ts};
 use crate::view;
 use anyhow::Context;
-use chrono::{DateTime, Datelike, Months, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use pr_hygiene::dashboard::{
     ClosedPr, Dashboard, DecisiveReview, PrOut, SinceBasis, Stage, Verdict,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
-
-/// Speed inputs are kept this many months after the event that dates them.
-pub const RETENTION_MONTHS: u32 = 13;
 
 /// The most months a speed answer lists, the current one included.
 pub const MAX_MONTHS: i32 = 12;
@@ -736,12 +733,9 @@ pub(crate) fn forget_login(tx: &Transaction<'_>, login: &str) -> anyhow::Result<
     )?)
 }
 
-/// Delete speed inputs dated more than the retention before `now`. What is
-/// still open stays: it is current.
-pub(crate) fn purge(tx: &Transaction<'_>, now: DateTime<Utc>) -> anyhow::Result<usize> {
-    let cutoff = now
-        .checked_sub_months(Months::new(RETENTION_MONTHS))
-        .context("speed retention cutoff")?;
+/// Delete speed inputs dated before `cutoff`. What is still open stays: it
+/// is current.
+pub(crate) fn purge(tx: &Transaction<'_>, cutoff: DateTime<Utc>) -> anyhow::Result<usize> {
     let cutoff = ts(cutoff);
     let mut deleted = 0;
     for sql in [

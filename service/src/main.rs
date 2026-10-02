@@ -104,9 +104,9 @@ async fn keep_keys_fresh(keys: Arc<KeyCache>) {
     }
 }
 
-/// Delete expired sessions, abandoned sign-ins and speed inputs past
-/// their retention at start-up and daily after: they are personal data.
-/// Runs with sign-in off too, so what was kept while it was on still goes.
+/// Delete expired sessions, abandoned sign-ins, and stage history and
+/// speed inputs past their retention, at start-up and daily after. Runs
+/// with sign-in off too, so what was kept while it was on still goes.
 async fn purge_daily(state: Arc<AppState>) {
     loop {
         // A failure is logged where it happens; the next day tries again.
@@ -114,8 +114,9 @@ async fn purge_daily(state: Arc<AppState>) {
             tracing::info!(
                 sessions = purged.sessions,
                 prelogins = purged.prelogins,
+                stage_changes = purged.stage_changes,
                 speed_inputs = purged.speed_inputs,
-                "expired personal data purged"
+                "data past its retention purged"
             );
         }
         tokio::time::sleep(Duration::from_secs(24 * 60 * 60)).await;

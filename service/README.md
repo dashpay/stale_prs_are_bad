@@ -135,25 +135,42 @@ volume and has the `sqlite3` CLI:
 sqlite3 /data/pr-hygiene.sqlite3 "VACUUM INTO '/backup/pr-hygiene-$(date +%F).sqlite3'"
 ```
 
-Daily, with the same retention as the data. Losing the database loses
-history only, never a verdict: the engine's state stays on GitHub. To
-restore, stop the service and put the copy in place as
+Daily. **Keep backups no longer than 13 months**, the longest the service
+keeps anything personal (see [Retention](#retention)): a backup holds
+sessions, speed inputs and opt-outs as they were that day, and an opt-out
+or account deletion cannot reach into it. The service never sees its
+backups, so pruning them is the operator's (infra's) job. Losing the
+database loses history only, never a verdict: the engine's state stays on
+GitHub. To restore, stop the service and put the copy in place as
 `/data/pr-hygiene.sqlite3` (with no stale `-wal`/`-shm` beside it).
 
 ### Retention
 
-Raw snapshots are kept 30 days, then cleared at the next ingest (their
-metadata stays). Each repository's last good data and the view are kept
-until replaced. Stage changes are kept; they name PRs and stages, no person.
-The ids of tokens that have posted are kept a day, long after any expires.
+| Kept | For |
+|---|---|
+| Sessions — the GitHub user id and login only (with the SHA-256 of the cookie's id) | 30 days from sign-in |
+| Speed inputs | 13 months after the time that dates each row; an ask or turn still open is kept, as it is current |
+| Stage history (`stage_changes`; names PRs and stages, no person) | 13 months after the snapshot that first showed each row |
+| Raw snapshots | 30 days, then cleared at the next ingest; their time and commit stay |
+| Sign-ins under way | 10 minutes |
+| Opt-outs — the GitHub user id and when | until further notice, through account deletion |
+| Each repository's last good data, and the view | until replaced |
+| Ids of tokens that have posted | a day, long after any expires |
+| Backups | no longer than 13 months: the operator's job (see [Backup](#backup)) |
 
-Sign-in keeps (see [what is stored](#what-is-stored)): sessions until they
-expire, 30 days after sign-in; sign-ins under way 10 minutes; opt-outs
-until further notice; speed inputs 13 months after the time that dates
-each (an ask or turn still open is kept: it is current). Expired sessions,
-abandoned sign-ins and speed inputs past their 13 months are deleted at
-start-up and daily after. Backups hold them too, for the backups' own
-retention.
+Expired sessions, abandoned sign-ins, and stage history and speed inputs
+past their 13 months are deleted at start-up and daily after. A PR that
+has not changed stage in 13 months loses its only stage row and is
+recorded afresh at the next ingest.
+
+**Opting out** (`POST /api/v1/me/opt-out`) deletes your speed inputs at
+once and keeps them from being recorded again, at every ingest and import
+from then on; the opt-out itself keeps your user id only. The public
+queue, a mirror of GitHub, is unchanged, and you stay signed in.
+**Deleting your account** (`DELETE /api/v1/me`) deletes every session of
+yours, in every browser, and your speed inputs. It keeps an opt-out if you
+made one, so that goes on being honoured; without one, recording resumes
+from the next ingest, as for anyone in the public data.
 
 ## Sign in with GitHub
 
@@ -349,7 +366,8 @@ change, and while some of a repository's stage records could not be read
 (`stage_times_error`) a new entry time alone is not one either: the
 analyzer then falls back to other start times. `since` is exact where the
 analyzer's `since_basis` is `engine`; otherwise only `observed_at`, the
-generation time of the snapshot that first showed the row, bounds it.
+generation time of the snapshot that first showed the row, bounds it. Rows
+are kept 13 months after their `observed_at`.
 
 ## Public API
 

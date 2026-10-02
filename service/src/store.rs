@@ -9,7 +9,7 @@
 use crate::speed::{self, ClosedRecorded, Speed};
 use crate::view::{self, Kept, RepoData, View};
 use anyhow::Context;
-use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
+use chrono::{DateTime, Months, SecondsFormat, TimeDelta, Utc};
 use pr_hygiene::dashboard::{Dashboard, PrOut, SinceBasis, Stage};
 use rusqlite::{
     params, Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior,
@@ -23,6 +23,10 @@ use std::time::Duration;
 
 /// Raw snapshots are kept this long, for debugging and replaying a view.
 pub const RAW_RETENTION: TimeDelta = TimeDelta::days(30);
+
+/// Stage history and speed inputs are kept this long after the time that
+/// dates each row.
+pub const HISTORY_RETENTION: Months = Months::new(13);
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -61,6 +65,7 @@ CREATE TABLE IF NOT EXISTS stage_changes (
     snapshot_id   INTEGER NOT NULL REFERENCES snapshots (id)
 );
 CREATE INDEX IF NOT EXISTS stage_changes_by_pr ON stage_changes (repo, number, id);
+CREATE INDEX IF NOT EXISTS stage_changes_by_time ON stage_changes (observed_at);
 -- What the API serves, assembled at each ingest.
 CREATE TABLE IF NOT EXISTS view (
     id            INTEGER PRIMARY KEY CHECK (id = 1),
@@ -531,9 +536,16 @@ impl Store {
         Ok(())
     }
 
-    /// Delete expired sessions, abandoned sign-ins, and speed inputs past
-    /// their retention.
+    /// Delete expired sessions, abandoned sign-ins, and stage history and
+    /// speed inputs past their retention.
+    ///
+    /// A PR unchanged for longer than the retention loses its only stage
+    /// row; the next ingest records it afresh, its recorded entry time (the
+    /// engine's, not this table's) intact.
     pub fn purge_expired(&mut self, now: DateTime<Utc>) -> anyhow::Result<Purged> {
+        let history_cutoff = now
+            .checked_sub_months(HISTORY_RETENTION)
+            .context("history retention cutoff")?;
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -542,11 +554,16 @@ impl Store {
             "DELETE FROM prelogins WHERE created_at <= ?1",
             [ts(now - PRELOGIN_LIFETIME)],
         )?;
-        let speed_inputs = speed::purge(&tx, now)?;
+        let stage_changes = tx.execute(
+            "DELETE FROM stage_changes WHERE observed_at < ?1",
+            [ts(history_cutoff)],
+        )?;
+        let speed_inputs = speed::purge(&tx, history_cutoff)?;
         tx.commit()?;
         Ok(Purged {
             sessions,
             prelogins,
+            stage_changes,
             speed_inputs,
         })
     }
@@ -606,6 +623,7 @@ pub struct Session {
 pub struct Purged {
     pub sessions: usize,
     pub prelogins: usize,
+    pub stage_changes: usize,
     pub speed_inputs: usize,
 }
 
@@ -1353,6 +1371,40 @@ mod tests {
             .unwrap();
         assert!(db.reader.session(&session_id(1), now).unwrap().is_none());
         assert!(db.reader.session(&session_id(2), now).unwrap().is_some());
+    }
+
+    /// Stage history is kept 13 months, like the speed inputs: a row first
+    /// observed longer ago goes in the daily purge, a later one stays, and
+    /// raw snapshots keep their own 30 days.
+    #[test]
+    fn stage_changes_are_purged_thirteen_months_after_they_were_observed() {
+        let mut db = db();
+        let first = snapshot(0);
+        ingest(&mut db, &first);
+        let mut moved = snapshot(0);
+        moved.generated_at = first.generated_at + TimeDelta::days(60);
+        let pr = moved.prs.iter_mut().find(|p| p.number == 3000).unwrap();
+        pr.stage = Stage::Mergeable;
+        pr.engine_state = Some("ready-to-merge".into());
+        ingest(&mut db, &moved);
+        let all = count(&db, "SELECT count(*) FROM stage_changes");
+        let kept_until = first
+            .generated_at
+            .checked_add_months(HISTORY_RETENTION)
+            .unwrap();
+
+        let purged = db.store.purge_expired(kept_until - minutes(1)).unwrap();
+        assert_eq!(purged.stage_changes, 0, "a minute short of 13 months: kept");
+        let purged = db.store.purge_expired(kept_until + minutes(1)).unwrap();
+        assert_eq!(purged.stage_changes as i64, all - 1);
+        let left = db.reader.stage_changes(PLATFORM, 3000, i64::MAX).unwrap();
+        assert_eq!(left.len(), 1, "the move two months later stays");
+        assert_eq!(left[0].stage, Stage::Mergeable);
+        assert_eq!(
+            count(&db, "SELECT count(*) FROM snapshots WHERE raw IS NOT NULL"),
+            1,
+            "raw snapshots go by their own 30 days, at ingest"
+        );
     }
 
     #[test]
