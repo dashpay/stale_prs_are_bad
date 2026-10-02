@@ -176,7 +176,7 @@ fn run(options: Options) -> anyhow::Result<bool> {
             .append(true)
             .open(summary)
             .with_context(|| format!("opening {}", summary.display()))?;
-        write!(file, "{}", outcome.table())
+        write!(file, "{}", outcome.summary())
             .with_context(|| format!("writing {}", summary.display()))?;
     }
     if let Some(spent) = &options.spent {

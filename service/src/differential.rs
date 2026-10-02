@@ -123,6 +123,19 @@ impl Outcome {
     pub fn table(&self) -> String {
         counts_table(&self.rows, &TABLE)
     }
+
+    /// The counts table for a job summary that gathers one per repository:
+    /// [`TABLE`]'s columns, said once by whoever gathers them.
+    pub fn summary(&self) -> String {
+        counts_table(
+            &self.rows,
+            &Table {
+                intro: "Read live right after Python recorded; the record step's log has the \
+                        categories.",
+                ..TABLE
+            },
+        )
+    }
 }
 
 /// What a recording's live reads are, if it has any.

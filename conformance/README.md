@@ -424,7 +424,8 @@ it runs, so the budget sits well below 1 500, where the last step admitted
 could cost a third more than its estimate and still stay under. The App's
 remaining REST and GraphQL limits are logged before and after, and read
 again before each repository: recording stops when either is below 1 000
-plus what that repository is expected to cost, and when either cannot be
+plus what that repository is expected to cost, its live reads included
+(below), and when either cannot be
 read. Each is read from the `x-ratelimit-remaining` header of a real request
 of its kind — a repository read for REST, a `rateLimit` query for GraphQL —
 whose `x-ratelimit-resource` says which limit it counted against. GitHub
@@ -476,14 +477,61 @@ fails the run; the whole run stops at it, and its outcome says so. The
 deliberate divergences above have no category yet, so one would show as a
 plain difference. Formats 1 and 2 both load.
 
+**What it reads live.** Right after a repository is recorded, the Rust
+engine reads the same pull requests again, live, with the same token,
+through the service's HTTP transport behind its read-only layer
+(`differential-live`, in the service crate; its comparisons are the
+engine's `conformance::live`, and its report the same format as the replay
+tool's):
+
+- **a report's**: two of its pull requests, rotating with the run, read as
+  Python's first snapshots were and compared exactly with the `pr`
+  Python's `evaluate` was given;
+- **each one-author sync**: the same `sync --pr N` run whole, live, walking
+  the write path. Its snapshots and verdict rows are compared with
+  Python's. Where every pull request it decided carries the engine's
+  record and that record's evidence print is the print of what was just
+  read, and Python's own run of it wrote nothing, it is held to wanting to
+  write nothing at all (*no write*); otherwise it is counted *unsettled*.
+- the sweep is not read live.
+
+Nothing is written. The engine's observing layer answers every call that is
+not a read (Python's own `is_read`) as a write GitHub refused, never
+passing it on, and names it by its method and route with every part that
+is data written `*`. Beneath it the read-only layer lets through only the
+engine's own reads of the governed repositories.
+
+A verdict, or a write, that differs is decided again from what was read
+live with Python's own inputs in place of the port's: the instant it
+decided at, the status page it read, the instant it admitted the pull
+request. Admission is substituted only where both sides admitted it and
+admitted the same pull requests in the same order. A write is decided again
+by running the whole run again over exactly the answers the live run got,
+so at no request's cost; there the clock carries the admission instant. A
+difference that then vanishes is *explained*, by the fewest of those inputs
+that do it, and is no failure. A pull request whose `updated_at` or head
+moved between Python's reads and the live ones, or whose head's checks or
+statuses answered otherwise (a build finishing moves neither), *moved
+during the read*: counted, and no failure. Every other difference fails.
+
+The live reads have their own budget, 400 requests, beside the recordings'.
+Each recording's reads are weighed before they are made: a one-author sync
+at what Python's recording of it cost minutes before, a report's pull
+request at eight, the two of them plus two. One that would not fit is
+skipped and counted. The reserve check before each repository counts its
+live reads too.
+
 **What it never outputs.** Recordings live in a mode-700 directory under the
 runner's temporary directory and are deleted by the job's last step, pass or
-fail. No artifact, cache or upload holds one. The engine's printed report
-and stderr go to `/dev/null`, and Python's replay shows only its line per
-recording. The tool prints counts, field paths and case indices, never a
-title, body, login, permission level or error message. A key that is data is
-written `*` (a login under `permissions`) and an unknown key `?`. The job
-summary holds the counts table only.
+fail. No artifact, cache or upload holds one. What is read live is held in
+memory only; what the live tool writes, its counts tables and what it
+spent, goes to a second mode-700 directory deleted with the first. The
+engine's printed report and stderr go to `/dev/null`, and Python's replay
+shows only its line per recording. The tools print counts, field paths and
+case indices, never a title, body, login, permission level or error
+message, and the live tool sets up no log. A key that is data is written
+`*` (a login under `permissions`) and an unknown key `?`. The job summary
+holds the counts tables only.
 
 **Reading a red run.**
 
@@ -515,13 +563,23 @@ summary holds the counts table only.
   The recordings are gone by then. To reproduce, record the same command
   locally with a read-only token, redact it into `conformance/live/`, and run
   the tool on the redacted copy.
+- *The Rust engine's live reads differed*: the record step's log has the
+  live categories table, the same layout. Cases index the recording's
+  `evaluations.jsonl`; 0 for a run's writes.
+  - A *live snapshot* that differs, under a replay of the same recording
+    that matched, is the HTTP transport or something GitHub changed that the
+    move check does not see.
+  - A *live verdict* that differs under a matching live snapshot is an input
+    the port took differently from Python other than the three it is given
+    Python's of.
+  - *Would-be write, not sent* under *live writes*: a one-author run where
+    nothing had changed wanted to write; the route says what.
+  - *Live run evaluated other pull requests*: the live run decided another
+    set than Python's; *live read refused by the read-only layer*: the port
+    asked a read the read-only layer does not let through.
 
-**What comes next.** The live half: Rust reads the same pull requests over
-HTTP and its snapshots are compared with Python's. A pull
-request whose evidence print equals its last real record must produce no
-write. A difference is run again with Python's clock, status page and
-`admitted_at` substituted, and only one that then vanishes is categorised
-(clock, telemetry or admission).
+  To reproduce, run `differential-live` locally on a fresh recording with a
+  read-only token in `GH_TOKEN`.
 
 ## What another engine must match exactly
 
