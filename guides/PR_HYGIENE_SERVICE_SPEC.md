@@ -1,6 +1,6 @@
 # Spec: PR Hygiene as one service with an API
 
-Status: draft revision 6, 2026-10-02 — after simplicity, reliability/migration
+Status: draft revision 7, 2026-10-02 — after simplicity, reliability/migration
 and security reviews; the owner's decisions (**Rust**, a **public API**,
 **GitHub sign-in open to anyone** that personalises the page); then a
 Rust-port review and a public-API/privacy review. Replaces the delivery parts of `DASHBOARD_V2_SPEC.md`
@@ -356,6 +356,60 @@ note for infra.
 4. 1a-4 — the skill and the Slack digest on the API.
 5. 1a-5 — schema v2 (recently closed PRs with `merged_at`/`closed_at`,
    GitHub user ids), then sign-in + Me + speed together.
+
+## 6b. Step 1a-5 in detail — sign-in and your own speed
+
+**Schema v2 (analyzer).** Bumps `schema_version` to 2; the service accepts
+1 and 2 during the change.
+- `author_id` on every PR and `id` on every person: GitHub's numeric user
+  id (`databaseId`), read with the author and, for people known only by
+  login (policy rosters, engine reviewers), by one batched GraphQL lookup per
+  run. People are keyed by id; a renamed login keeps its history.
+- `reviews` on every PR: decisive reviews only (approve, changes requested)
+  with reviewer id, login, state and time — what review wait is measured to.
+- `closed`: PRs merged or closed in the last 30 days with author id,
+  `created_at`, the time it was first ready for review, and `merged_at` or
+  `closed_at` — what cycle time is measured on. One extra GraphQL list per
+  repository, ordered by update time, stopping at the window.
+
+**Speed (service).** Computed on request for the signed-in person only,
+from what the service has recorded since it started (no year-long backfill
+in this step; the page says from when):
+- *Review wait you gave*: per PR that entered Review asking you, from that
+  stage entry (`stage_changes`) to your first decisive review after it.
+- *Self-review turnaround*: the length of each Self-review interval on your
+  PRs (`stage_changes`).
+- *Cycle time*: first ready-for-review to merge, on your merged PRs.
+- Monthly medians with n; months with n < 3 show n only.
+Nothing per person is stored beyond `stage_changes` and the snapshots
+already kept; speed is never cached or served to anyone else.
+
+**Sign-in.** A separate GitHub App with **no permissions** (user-to-server
+sign-in only): `GET /auth/login` sets a short-lived, `__Host-` pre-login
+cookie holding `state` and a PKCE verifier and redirects to GitHub;
+`GET /auth/callback` checks `state` against the cookie, exchanges the code
+with the verifier and the client secret, calls `/user` once, discards the
+token, and creates a server-side session (random 256-bit id; the cookie
+`__Host-prh_session` is Secure, HttpOnly, SameSite=Lax, 30 days; the row
+holds user id, login and expiry only). `POST /auth/logout` (Origin checked)
+deletes the row. `GET /api/v1/me` and `GET /api/v1/me/speed`: `no-store`,
+same-origin, never behind a CDN cache. `POST /api/v1/me/opt-out` hides the
+person from People and stops speed being computed for them; `DELETE
+/api/v1/me` removes their sessions and opt-out record. Expired sessions are
+purged daily. No email is requested.
+
+**Page.** Me: signed out — "Sign in with GitHub" (saying it reads only your
+public profile) and a login search to anyone's public page; signed in —
+your People page plus a speed panel ("Only shown to you here. Built from
+public GitHub activity, so not secret; we don't publish or rank it."), and
+sign out / opt out / delete. A privacy page states the source (GitHub, not
+you), what is kept and for how long (sessions 30 days; stage history 13
+months), and how to opt out or delete. Logout and opt-out are fetch POSTs
+(the page's CSP has `form-action 'none'`).
+
+**Increments:** 1a-5a schema v2 in the analyzer (+ service accepts both);
+1a-5b sign-in and sessions; 1a-5c speed; 1a-5d the page's Me and privacy
+page.
 
 ## 7. Open PRs
 
