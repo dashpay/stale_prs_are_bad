@@ -491,28 +491,58 @@ tool's):
   the write path. Its snapshots and verdict rows are compared with
   Python's. Where every pull request it decided carries the engine's
   record and that record's evidence print is the print of what was just
-  read, and Python's own run of it wrote nothing, it is held to wanting to
-  write nothing at all (*no write*); otherwise it is counted *unsettled*.
+  read, and Python's own run of it ran to its end, decided the same pull
+  requests and wrote nothing, it is held to wanting to write nothing at all
+  (*no write*); otherwise it is counted *unsettled*. The engine rewrites a
+  record only when what it decides changes, so a record can carry an older
+  print and leave a settled pull request unsettled here: the rule errs
+  towards not judging.
 - the sweep is not read live.
 
 Nothing is written. The engine's observing layer answers every call that is
 not a read (Python's own `is_read`) as a write GitHub refused, never
-passing it on, and names it by its method and route with every part that
-is data written `*`. Beneath it the read-only layer lets through only the
-engine's own reads of the governed repositories.
+passing it on, and names the first by its method and route with every part
+that is data written `*` (the run goes on as if refused, so any write after
+it may follow from the refusal, and is not named). Beneath it the read-only
+layer lets through only the engine's own reads of the governed
+repositories.
 
 A verdict, or a write, that differs is decided again from what was read
 live with Python's own inputs in place of the port's: the instant it
 decided at, the status page it read, the instant it admitted the pull
-request. Admission is substituted only where both sides admitted it and
-admitted the same pull requests in the same order. A write is decided again
-by running the whole run again over exactly the answers the live run got,
-so at no request's cost; there the clock carries the admission instant. A
+request. The status page is substituted only where both sides read one,
+so a live read of it that failed is never taken for the page changing.
+Admission is substituted only where both sides admitted it and admitted
+the same pull requests in the same order. A write is decided again by
+running the whole run again over exactly the answers the live run got, so
+at no request's cost; there the clock carries the admission instant. A
 difference that then vanishes is *explained*, by the fewest of those inputs
-that do it, and is no failure. A pull request whose `updated_at` or head
-moved between Python's reads and the live ones, or whose head's checks or
-statuses answered otherwise (a build finishing moves neither), *moved
-during the read*: counted, and no failure. Every other difference fails.
+that do it, and is no failure.
+
+A pull request *moved during the read*, counted and no failure, when
+between Python's reads and the live ones:
+
+- its own read answered another update time, head, base, base commit,
+  draft or open state: everything about it is excused;
+- its head's checks or statuses answered otherwise, which GitHub records
+  without moving the pull request (a build finishing): its build, when its
+  head was first seen and whether a verdict was published on it are
+  excused, and so is its verdict, but any other field of its snapshot is
+  still held to Python's;
+- one of its author's open pull requests did, as the open listing
+  answered (one opened, closed, pushed, drafted, updated): its verdict and
+  which pull requests the run decided are excused, since admission follows
+  from them.
+
+A read that failed live, every time it was asked, where Python's same read
+was answered stops that recording's comparison and is named as such
+(*live read failed where Python's was answered*): GitHub failing it, or
+the transport. Every other difference fails.
+
+Accepted residuals, to watch on the first runs: a review thread resolved,
+a comment edited, or a collaborator's access changed between the reads may
+not move the pull request's update time, and would then read as a
+difference.
 
 The live reads have their own budget, 400 requests, beside the recordings'.
 Each recording's reads are weighed before they are made: a one-author sync
@@ -575,8 +605,10 @@ holds the counts tables only.
   - *Would-be write, not sent* under *live writes*: a one-author run where
     nothing had changed wanted to write; the route says what.
   - *Live run evaluated other pull requests*: the live run decided another
-    set than Python's; *live read refused by the read-only layer*: the port
-    asked a read the read-only layer does not let through.
+    set than Python's, with none of the author's pull requests moved;
+    *live read refused by the read-only layer*: the port asked a read the
+    read-only layer does not let through; *live read failed where Python's
+    was answered*: see above.
 
   To reproduce, run `differential-live` locally on a fresh recording with a
   read-only token in `GH_TOKEN`.

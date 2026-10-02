@@ -365,16 +365,27 @@ fn answer_value(answer: &Result<Reply, TransportError>) -> Option<PyValue> {
     }
 }
 
-/// The pull request's `updated_at` and head, as its own read answers them;
-/// one it does not give is `null`, and differs from one it gives.
+/// What identifies a pull request's state as its own read, or a listing,
+/// answers it: when it was last updated, its head, its base and the base's
+/// commit, whether it is a draft, whether it is open. A field the answer
+/// does not give is `null`, and differs from one it gives.
 fn identity(pull: &PyValue) -> Option<String> {
-    let updated = field(pull, "updated_at").cloned().unwrap_or(PyValue::None);
-    let head = field(pull, "head")
-        .and_then(|head| field(head, "sha"))
-        .cloned()
-        .unwrap_or(PyValue::None);
-    let pair = PyValue::List(PyList::from(vec![updated, head]));
-    py_dumps(&pair, false, None, None).ok()
+    let at = |path: &[&str]| {
+        path.iter()
+            .try_fold(pull, |value, key| field(value, key))
+            .cloned()
+            .unwrap_or(PyValue::None)
+    };
+    let fields = vec![
+        at(&["number"]),
+        at(&["updated_at"]),
+        at(&["head", "sha"]),
+        at(&["base", "ref"]),
+        at(&["base", "sha"]),
+        at(&["draft"]),
+        at(&["state"]),
+    ];
+    py_dumps(&PyValue::List(PyList::from(fields)), false, None, None).ok()
 }
 
 /// Whether the read keyed `key` is the build query of pull request
@@ -395,17 +406,33 @@ fn is_build_of(key: &CallKey, number: &PyInt) -> bool {
     is_build && of_number
 }
 
-/// Whether pull request `number` moved between Python's reads and the live
-/// ones: its `updated_at` or head as its own read answered them, or what
-/// its head's checks (the build query) or statuses answered. `heads` are
-/// the heads either side saw.
-fn moved(
+/// How a pull request changed between Python's reads and the live ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Motion {
+    /// Not that either read shows.
+    Still,
+    /// Its head's checks or statuses answered otherwise: a build finished,
+    /// a status was posted. GitHub records neither as an update of the pull
+    /// request. Only what those answers feed is excused: the build, when
+    /// the head was first seen, whether a verdict was published on it.
+    Checks,
+    /// Its own read answered another update time, head, base, draft or
+    /// open state.
+    Pull,
+}
+
+/// The fields of a snapshot read from its head's checks and statuses.
+const CHECK_FIELDS: [&str; 3] = ["pr.build", "pr.head_seen_at", "pr.ready_published"];
+
+/// How pull request `number` moved between Python's reads and the live
+/// ones. `heads` are the heads either side saw.
+fn motion(
     repository: &str,
     number: &PyInt,
     heads: &[&str],
     recorded: &HashMap<CallKey, Vec<PyValue>>,
     log: &[Logged],
-) -> bool {
+) -> Motion {
     let pull: CallKey = (
         ["--method", "GET"]
             .iter()
@@ -427,7 +454,7 @@ fn moved(
         .filter_map(|pull| identity(&pull))
         .collect();
     if identities.len() > 1 {
-        return true;
+        return Motion::Pull;
     }
     let statuses: Vec<String> = heads
         .iter()
@@ -444,16 +471,129 @@ fn moved(
         if !(is_build_of(&logged.key, number) || of_head(&logged.key)) {
             continue;
         }
-        let (Some(python), Some(live)) = (recorded.get(&logged.key), answer_value(&logged.answer))
-        else {
-            continue;
-        };
-        let agreed = python.windows(2).all(|pair| same(&pair[0], &pair[1]));
-        if !agreed || !python.iter().any(|answer| same(answer, &live)) {
-            return true;
+        if answered_otherwise(recorded.get(&logged.key), &logged.answer) {
+            return Motion::Checks;
         }
     }
-    false
+    Motion::Still
+}
+
+/// Whether a live answer is none of Python's to the same read, or Python's
+/// own answers to it disagreed; never where Python has no answer to it.
+fn answered_otherwise(python: Option<&Vec<PyValue>>, live: &Result<Reply, TransportError>) -> bool {
+    let (Some(python), Some(live)) = (python, answer_value(live)) else {
+        return false;
+    };
+    let agreed = python.windows(2).all(|pair| same(&pair[0], &pair[1]));
+    !agreed || !python.iter().any(|answer| same(answer, &live))
+}
+
+/// Whether the pull requests `author` has open moved between Python's
+/// reads and the live ones, as the open listing answered: one opened,
+/// closed, pushed to, drafted or updated. Which of them are reconciled
+/// together, and when each was admitted, follow from them.
+fn author_moved(
+    repository: &str,
+    author: &str,
+    recorded: &HashMap<CallKey, Vec<PyValue>>,
+    log: &[Logged],
+) -> bool {
+    let listing: CallKey = (
+        [
+            "--method".to_owned(),
+            "GET".to_owned(),
+            format!("repos/{repository}/pulls?state=open&per_page=100"),
+            "--paginate".to_owned(),
+            "--slurp".to_owned(),
+        ]
+        .to_vec(),
+        None,
+    );
+    let author = author.to_lowercase();
+    let theirs = |pages: &PyValue| -> BTreeSet<String> {
+        let mut found = BTreeSet::new();
+        let PyValue::List(pages) = pages else {
+            return found;
+        };
+        for page in pages.iter() {
+            let PyValue::List(page) = page else {
+                continue;
+            };
+            for pr in page.iter() {
+                let login = field(pr, "user").and_then(|user| field(user, "login"));
+                if matches!(login, Some(PyValue::Str(login)) if login.to_lowercase() == author) {
+                    found.extend(identity(pr));
+                }
+            }
+        }
+        found
+    };
+    let live = log
+        .iter()
+        .filter(|logged| logged.key == listing)
+        .filter_map(|logged| answer_value(&logged.answer));
+    let seen: BTreeSet<BTreeSet<String>> = recorded
+        .get(&listing)
+        .into_iter()
+        .flatten()
+        .cloned()
+        .chain(live)
+        .map(|pages| theirs(&pages))
+        .collect();
+    seen.len() > 1
+}
+
+/// Whether a read failed live, every time it was asked, where Python's
+/// same read was answered: GitHub failing it, or the transport. Either
+/// way what follows is not a comparison of the two engines.
+fn failed_where_python_read(recorded: &HashMap<CallKey, Vec<PyValue>>, log: &[Logged]) -> bool {
+    let mut answered: HashMap<&CallKey, bool> = HashMap::new();
+    for logged in log {
+        let ok = logged.answer.is_ok();
+        *answered.entry(&logged.key).or_default() |= ok;
+    }
+    answered
+        .into_iter()
+        .any(|(key, ok)| !ok && recorded.contains_key(key))
+}
+
+/// A live snapshot against Python's, by how the pull request moved.
+fn snapshot_check(
+    index: usize,
+    motion: Motion,
+    snapshot: Result<PyValue, ReadError>,
+    python: &PyValue,
+) -> Check {
+    let moved = Check {
+        layer: Layer::LiveSnapshot,
+        index,
+        outcome: Outcome::Moved,
+    };
+    match (motion, snapshot) {
+        (Motion::Pull, _) => moved,
+        (_, Err(error)) => Check::failed(
+            Layer::LiveSnapshot,
+            index,
+            live_failure(&error),
+            error.to_string(),
+        ),
+        (Motion::Still, Ok(snapshot)) => Check::new(
+            Layer::LiveSnapshot,
+            index,
+            differences(&snapshot, python, "pr"),
+        ),
+        (Motion::Checks, Ok(snapshot)) => {
+            let left: Vec<Difference> = differences(&snapshot, python, "pr")
+                .into_iter()
+                .filter(|d| !CHECK_FIELDS.iter().any(|f| d.path.starts_with(f)))
+                .collect();
+            if left.is_empty() {
+                moved
+            } else {
+                Check::new(Layer::LiveSnapshot, index, left)
+            }
+        }
+    }
 }
 
 /// Up to `picks` of the pull requests a recording's run evaluated first,
@@ -531,34 +671,28 @@ pub fn live_snapshots<T: Transport>(
         read.push((*index, number, *pr, snapshot));
     }
     let observed = api.client().transport();
+    live.requests = observed.requests();
     let recorded = recorded_answers(&recording.calls);
+    if failed_where_python_read(&recorded, &observed.log) {
+        checks.push(Check::failed(
+            Layer::LiveSnapshot,
+            0,
+            Failure::LiveReadFailed,
+            "a live read failed where Python's was answered",
+        ));
+        return live;
+    }
     for (index, number, pr, snapshot) in read {
         let heads: Vec<&str> = [head_of(pr), snapshot.as_ref().ok().and_then(|s| head_of(s))]
             .into_iter()
             .flatten()
             .collect();
-        if moved(repository, number, &heads, &recorded, &observed.log) {
+        let motion = motion(repository, number, &heads, &recorded, &observed.log);
+        if motion != Motion::Still {
             live.moved += 1;
-            checks.push(Check {
-                layer: Layer::LiveSnapshot,
-                index,
-                outcome: Outcome::Moved,
-            });
-            continue;
         }
-        checks.push(match snapshot {
-            Ok(snapshot) => {
-                Check::new(Layer::LiveSnapshot, index, differences(&snapshot, pr, "pr"))
-            }
-            Err(error) => Check::failed(
-                Layer::LiveSnapshot,
-                index,
-                live_failure(&error),
-                error.to_string(),
-            ),
-        });
+        checks.push(snapshot_check(index, motion, snapshot, pr));
     }
-    live.requests = observed.requests();
     live
 }
 
@@ -675,10 +809,7 @@ impl Decided<'_> {
         };
         let python_admitted = field(python, "admitted_at").unwrap_or(&PyValue::None);
         let clock = python_now != self.run.generated_at;
-        let telemetry = !same(
-            field(&self.recording.meta, "telemetry").unwrap_or(&PyValue::None),
-            &self.payload,
-        );
+        let telemetry = pages_differ(&self.recording.meta, &self.payload);
         let admission = live_admitted.truthy()
             && python_admitted.truthy()
             && !same(&live_admitted, python_admitted)
@@ -701,6 +832,15 @@ impl Decided<'_> {
             .is_some_and(|left| left.is_empty())
         })
     }
+}
+
+/// Whether Python's run and the live one both read the review system's
+/// status page and read it otherwise: the only way the page can explain a
+/// difference. A page read on one side only is no explanation, so a live
+/// read of it that failed is never taken for the page having changed.
+fn pages_differ(meta: &PyValue, live: &PyValue) -> bool {
+    let python = field(meta, "telemetry").unwrap_or(&PyValue::None);
+    python.truthy() && live.truthy() && !same(python, live)
 }
 
 /// Every non-empty combination of what `available` holds, the smaller
@@ -791,6 +931,30 @@ pub fn live_run<T: Transport>(
     let python: Vec<&PyValue> = recording.evaluations[..first].iter().collect();
     let python_numbers: Vec<Option<PyInt>> = python.iter().map(|e| evaluated_number(e)).collect();
 
+    let moved = |live: &mut Live, index: usize| {
+        live.comparison.checks.push(Check {
+            layer: Layer::LiveSnapshot,
+            index,
+            outcome: Outcome::Moved,
+        });
+    };
+    if failed_where_python_read(&recorded, &observed.log) {
+        return stop(
+            live,
+            Failure::LiveReadFailed,
+            "a live read failed where Python's was answered",
+        );
+    }
+    // Whether the author's open pull requests moved: which are reconciled
+    // together, and each one's admission, follow from them.
+    let author = python
+        .first()
+        .and_then(|e| field(e, "pr"))
+        .and_then(|pr| field(pr, "author"));
+    let author_moved = match author {
+        Some(PyValue::Str(author)) => author_moved(repository, author, &recorded, &observed.log),
+        _ => false,
+    };
     let run = match outcome {
         Ok(run) => run,
         Err(error) => {
@@ -798,21 +962,19 @@ pub fn live_run<T: Transport>(
                 .iter()
                 .filter_map(|e| field(e, "pr").and_then(head_of))
                 .collect();
-            if moved(repository, &number, &heads, &recorded, &observed.log) {
+            if author_moved
+                || motion(repository, &number, &heads, &recorded, &observed.log) != Motion::Still
+            {
                 live.moved += 1;
-                live.comparison.checks.push(Check {
-                    layer: Layer::LiveSnapshot,
-                    index: 0,
-                    outcome: Outcome::Moved,
-                });
+                moved(&mut live, 0);
                 return live;
             }
             return stop(live, live_failure(&error), &error.to_string());
         }
     };
     let live_numbers: Vec<Option<PyInt>> = run.snapshots.iter().map(number_of).collect();
-    // A pull request moved if either side saw it move, under either head.
-    let mut moved_numbers = BTreeSet::new();
+    // How each pull request either side decided moved, under either head.
+    let mut motions: HashMap<PyInt, Motion> = HashMap::new();
     for n in python_numbers.iter().chain(&live_numbers).flatten() {
         let heads: Vec<&str> = python
             .iter()
@@ -822,27 +984,24 @@ pub fn live_run<T: Transport>(
             .filter(|pr| number_of(pr).as_ref() == Some(n))
             .filter_map(head_of)
             .collect();
-        if moved(repository, n, &heads, &recorded, &observed.log) {
-            moved_numbers.insert(n.clone());
-        }
+        motions.insert(
+            n.clone(),
+            motion(repository, n, &heads, &recorded, &observed.log),
+        );
     }
-    live.moved = moved_numbers.len();
-    let checks = &mut live.comparison.checks;
+    live.moved = motions.values().filter(|m| **m != Motion::Still).count();
+    let any_moved = author_moved || live.moved > 0;
     if python_numbers != live_numbers {
-        checks.push(if moved_numbers.is_empty() {
-            Check::failed(
+        if any_moved {
+            moved(&mut live, 0);
+        } else {
+            live.comparison.checks.push(Check::failed(
                 Layer::LiveSnapshot,
                 0,
                 Failure::OtherPullRequests,
                 "the live run evaluated other pull requests",
-            )
-        } else {
-            Check {
-                layer: Layer::LiveSnapshot,
-                index: 0,
-                outcome: Outcome::Moved,
-            }
-        });
+            ));
+        }
     }
     let decided = Decided {
         recording,
@@ -851,6 +1010,7 @@ pub fn live_run<T: Transport>(
         payload: payload.clone(),
         own,
     };
+    let checks = &mut live.comparison.checks;
     for (index, evaluation) in python.iter().enumerate() {
         let Some(number) = &python_numbers[index] else {
             continue;
@@ -858,26 +1018,23 @@ pub fn live_run<T: Transport>(
         let Some(at) = live_numbers.iter().position(|n| n.as_ref() == Some(number)) else {
             continue;
         };
-        if moved_numbers.contains(number) {
-            for layer in [Layer::LiveSnapshot, Layer::LiveVerdict] {
-                checks.push(Check {
-                    layer,
-                    index,
-                    outcome: Outcome::Moved,
-                });
-            }
-            continue;
-        }
+        let motion = motions.get(number).copied().unwrap_or(Motion::Still);
         let (snapshot, verdict) = (&run.snapshots[at], &run.verdicts[at]);
         let wanted = field(evaluation, "pr").unwrap_or(&PyValue::None);
-        checks.push(Check::new(
-            Layer::LiveSnapshot,
-            index,
-            differences(snapshot, wanted, "pr"),
-        ));
+        checks.push(snapshot_check(index, motion, Ok(snapshot.clone()), wanted));
         let Some(python_row) = recording.verdicts.get(index) else {
             continue;
         };
+        // A verdict follows from its checks and from the author's other
+        // pull requests as well as from its own.
+        if motion != Motion::Still || author_moved {
+            checks.push(Check {
+                layer: Layer::LiveVerdict,
+                index,
+                outcome: Outcome::Moved,
+            });
+            continue;
+        }
         let exception_text =
             field(evaluation, "result").is_some_and(|result| own.python_exception_text(result));
         let found = compare_result(verdict, python_row, "verdict", exception_text, own);
@@ -903,34 +1060,40 @@ pub fn live_run<T: Transport>(
     // Nothing changed since the engine last wrote: every pull request the
     // run decided carries the engine's record, whose evidence print is the
     // print of what was just read; and Python's own run, minutes before,
-    // wrote nothing.
+    // ran to its end, decided the same pull requests and wrote nothing.
     let current = !run.snapshots.is_empty()
         && run.snapshots.iter().all(|snapshot| {
             let recorded = field(snapshot, "controller_state").and_then(|r| field(r, "evidence"));
             matches!((recorded, fingerprint(snapshot)), (Some(PyValue::Str(was)), Ok(now)) if *was == now)
         });
-    let settled = current && recorded_writes(&recording.calls) == 0;
+    let returned = field(&recording.meta, "outcome")
+        .and_then(|outcome| field(outcome, "returned"))
+        .is_some();
+    let settled = current
+        && returned
+        && python_numbers == live_numbers
+        && recorded_writes(&recording.calls) == 0;
     live.settled = Some(settled);
     if settled {
-        let would_be = observed.would_be();
-        let outcome = if would_be.is_empty() {
-            Outcome::Matched
-        } else if !moved_numbers.is_empty() {
-            Outcome::Moved
-        } else {
-            let found: Vec<Difference> = would_be
-                .iter()
-                .map(|kind| Difference {
+        // The first would-be write is the one the run wanted to make; the
+        // run went on as if GitHub had refused it, so any after it may
+        // follow from that refusal, and are not named.
+        let first_write = observed.would_be().first();
+        let outcome = match first_write {
+            None => Outcome::Matched,
+            Some(_) if any_moved => Outcome::Moved,
+            Some(kind) => {
+                let found = vec![Difference {
                     path: kind.clone(),
                     kind: Kind::WouldBeWrite,
-                })
-                .collect();
-            match explain_writes(recording, policy, &number, &run, &payload, &observed.log) {
-                Some(by) => Outcome::Explained {
-                    differences: found,
-                    by,
-                },
-                None => Outcome::Differs(found),
+                }];
+                match explain_writes(recording, policy, &number, &run, &payload, &observed.log) {
+                    Some(by) => Outcome::Explained {
+                        differences: found,
+                        by,
+                    },
+                    None => Outcome::Differs(found),
+                }
             }
         };
         checks.push(Check {
@@ -965,7 +1128,7 @@ fn explain_writes(
         .unwrap_or(PyValue::None);
     let available = Explanation {
         clock: true,
-        telemetry: !same(&python_payload, payload),
+        telemetry: pages_differ(&recording.meta, payload),
         admission: false,
     };
     subsets(available).into_iter().find(|by| {
@@ -1179,17 +1342,26 @@ mod tests {
             "repos/a/b/pulls/1",
             r#"{"updated_at": "t1", "head": {"sha": "h1"}, "base": {"repo": {"pushed_at": "y"}}}"#,
         );
-        assert!(!moved("a/b", &n, &["h1"], &recorded, &[still]));
+        assert_eq!(
+            motion("a/b", &n, &["h1"], &recorded, &[still]),
+            Motion::Still
+        );
         let updated = logged(
             "repos/a/b/pulls/1",
             r#"{"updated_at": "t2", "head": {"sha": "h1"}}"#,
         );
-        assert!(moved("a/b", &n, &["h1"], &recorded, &[updated]));
+        assert_eq!(
+            motion("a/b", &n, &["h1"], &recorded, &[updated]),
+            Motion::Pull
+        );
         let pushed = logged(
             "repos/a/b/pulls/1",
             r#"{"updated_at": "t1", "head": {"sha": "h2"}}"#,
         );
-        assert!(moved("a/b", &n, &["h1"], &recorded, &[pushed]));
+        assert_eq!(
+            motion("a/b", &n, &["h1"], &recorded, &[pushed]),
+            Motion::Pull
+        );
     }
 
     #[test]
@@ -1213,19 +1385,136 @@ mod tests {
             "repos/a/b/commits/h1/statuses?per_page=100",
             r#"[{"id": 1}]"#,
         );
-        assert!(!moved("a/b", &n, &["h1"], &recorded, &[same]));
+        assert_eq!(
+            motion("a/b", &n, &["h1"], &recorded, &[same]),
+            Motion::Still
+        );
         let posted = listing(
             "repos/a/b/commits/h1/statuses?per_page=100",
             r#"[{"id": 2}, {"id": 1}]"#,
         );
-        assert!(moved("a/b", &n, &["h1"], &recorded, &[posted]));
+        assert_eq!(
+            motion("a/b", &n, &["h1"], &recorded, &[posted]),
+            Motion::Checks
+        );
         // Any other read answering otherwise is a difference to report, not
         // a move to excuse.
         let files = listing(
             "repos/a/b/pulls/1/files?per_page=100",
             r#"[{"filename": "b"}]"#,
         );
-        assert!(!moved("a/b", &n, &["h1"], &recorded, &[files]));
+        assert_eq!(
+            motion("a/b", &n, &["h1"], &recorded, &[files]),
+            Motion::Still
+        );
+    }
+
+    #[test]
+    fn a_pull_request_moved_when_its_base_or_draft_did() {
+        let recorded = recorded_answers(&calls(&[
+            r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/pulls/1"], "stdin": null, "exit": 0, "stdout": "{\"updated_at\": \"t1\", \"head\": {\"sha\": \"h1\"}, \"base\": {\"ref\": \"dev\", \"sha\": \"b1\"}, \"draft\": false}", "stderr": ""}"#,
+        ]));
+        let n = PyInt::from(1);
+        for (live, moved) in [
+            (
+                r#"{"updated_at": "t1", "head": {"sha": "h1"}, "base": {"ref": "dev", "sha": "b1"}, "draft": false}"#,
+                Motion::Still,
+            ),
+            (
+                r#"{"updated_at": "t1", "head": {"sha": "h1"}, "base": {"ref": "dev", "sha": "b2"}, "draft": false}"#,
+                Motion::Pull,
+            ),
+            (
+                r#"{"updated_at": "t1", "head": {"sha": "h1"}, "base": {"ref": "dev", "sha": "b1"}, "draft": true}"#,
+                Motion::Pull,
+            ),
+        ] {
+            let read = logged("repos/a/b/pulls/1", live);
+            assert_eq!(
+                motion("a/b", &n, &["h1"], &recorded, &[read]),
+                moved,
+                "{live}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_authors_open_pull_requests_moved_when_any_of_theirs_did_and_only_theirs() {
+        let listing = |pages: &str| Logged {
+            key: gh_arguments(&Call::Rest {
+                method: Method::Get,
+                path: "repos/a/b/pulls?state=open&per_page=100".into(),
+                body: None,
+                paginate: true,
+            })
+            .unwrap(),
+            answer: Ok(Reply::Pages(vec![pages.into()])),
+        };
+        let recorded = recorded_answers(&calls(&[
+            r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/pulls?state=open&per_page=100", "--paginate", "--slurp"], "stdin": null, "exit": 0, "stdout": "[[{\"number\": 1, \"user\": {\"login\": \"Alice\"}, \"updated_at\": \"t1\"}, {\"number\": 2, \"user\": {\"login\": \"bob\"}, \"updated_at\": \"t1\"}]]", "stderr": ""}"#,
+        ]));
+        let same = listing(
+            r#"[{"number": 1, "user": {"login": "Alice"}, "updated_at": "t1"}, {"number": 2, "user": {"login": "bob"}, "updated_at": "t9"}]"#,
+        );
+        assert!(
+            !author_moved("a/b", "alice", &recorded, &[same]),
+            "bob's is not hers"
+        );
+        let opened = listing(
+            r#"[{"number": 1, "user": {"login": "Alice"}, "updated_at": "t1"}, {"number": 3, "user": {"login": "alice"}, "updated_at": "t2"}]"#,
+        );
+        assert!(author_moved("a/b", "alice", &recorded, &[opened]));
+        let closed = listing(r#"[{"number": 2, "user": {"login": "bob"}, "updated_at": "t1"}]"#);
+        assert!(author_moved("a/b", "alice", &recorded, &[closed]));
+    }
+
+    #[test]
+    fn checks_that_moved_excuse_only_what_they_feed() {
+        let python =
+            py_loads(r#"{"number": 1, "build": "running", "head_seen_at": null, "draft": false}"#)
+                .unwrap();
+        let built =
+            py_loads(r#"{"number": 1, "build": "green", "head_seen_at": "t", "draft": false}"#)
+                .unwrap();
+        let check = snapshot_check(0, Motion::Checks, Ok(built), &python);
+        assert!(matches!(check.outcome, Outcome::Moved), "{check:?}");
+        let drafted =
+            py_loads(r#"{"number": 1, "build": "green", "head_seen_at": null, "draft": true}"#)
+                .unwrap();
+        let check = snapshot_check(0, Motion::Checks, Ok(drafted), &python);
+        let Outcome::Differs(left) = check.outcome else {
+            panic!("{check:?}")
+        };
+        assert_eq!(
+            left.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+            ["pr.draft"],
+            "the build is excused, the rest is not"
+        );
+    }
+
+    #[test]
+    fn a_read_that_failed_live_where_python_was_answered_is_named() {
+        let recorded = recorded_answers(&calls(&[
+            r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/pulls/1"], "stdin": null, "exit": 0, "stdout": "{}", "stderr": ""}"#,
+        ]));
+        let key = gh_arguments(&rest(Method::Get, "repos/a/b/pulls/1", None)).unwrap();
+        let failed = || Logged {
+            key: key.clone(),
+            answer: Err(TransportError::Failed(Failed::unavailable())),
+        };
+        assert!(failed_where_python_read(&recorded, &[failed(), failed()]));
+        // Failed once and answered on the retry: a read like any other.
+        let answered = Logged {
+            key: key.clone(),
+            answer: Ok(Reply::Text("{}".into())),
+        };
+        assert!(!failed_where_python_read(&recorded, &[failed(), answered]));
+        // Failed where Python's failed too: nothing to set against it.
+        let other = Logged {
+            key: gh_arguments(&rest(Method::Get, "repos/a/b/labels/x", None)).unwrap(),
+            answer: Err(TransportError::Failed(Failed::unavailable())),
+        };
+        assert!(!failed_where_python_read(&recorded, &[other]));
     }
 
     /// A synthetic recording, read from the corpus.

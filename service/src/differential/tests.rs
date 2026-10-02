@@ -325,6 +325,44 @@ async fn a_pull_request_that_moved_between_the_reads_is_counted_not_failed() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_build_that_started_between_the_reads_excuses_the_build_alone() {
+    // GitHub records a check starting without moving the pull request's
+    // update time: the build query's answer is what shows it moved.
+    let recording = synthetic().join("sync-pr-2");
+    let running = r#""statusCheckRollup": {"contexts": {"nodes": [{"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS", "conclusion": null, "startedAt": "2026-09-12T10:01:00Z", "checkSuite": null}], "pageInfo": {"hasNextPage": false, "endCursor": null}}}"#;
+    let calls: String = read(&recording.join("calls.jsonl"))
+        .lines()
+        .map(|line| {
+            let line = if line.contains("statusCheckRollup") {
+                line.replace(
+                    r#"\"statusCheckRollup\": null"#,
+                    &running.replace('"', r#"\""#),
+                )
+            } else {
+                line.to_owned()
+            };
+            format!("{line}\n")
+        })
+        .collect();
+    let github = github(&calls, None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(outcome.clean(), "{said}");
+    // The snapshot differs in its build alone, which the move excuses; the
+    // verdict follows from the build, and is excused with it.
+    assert!(
+        said.contains("| dashpay/platform · sync --pr 2 | 0/1 | 0/1 | 0/0 | 1 | 0 | 1 | 0 |"),
+        "{said}"
+    );
+    assert!(
+        said.contains(
+            "| live verdict | — | moved during the read | 1 | dashpay/platform · sync --pr 2: 0 |"
+        ),
+        "{said}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_difference_where_nothing_moved_fails_by_its_field() {
     let recording = synthetic().join("sync-pr-2");
     // The same review withdrawn, and the pull request's update time as it
