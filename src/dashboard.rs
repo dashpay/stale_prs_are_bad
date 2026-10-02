@@ -19,10 +19,6 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// The engine's limit when a policy predates `max_active_prs` (it requires 5).
 const DEFAULT_SLOT_LIMIT: u32 = 5;
 
-/// The review engine's own review bots (`pr_review.policy.BOTS`). They
-/// review PRs and may open their own; a policy may not name them at all.
-const ENGINE_REVIEW_BOTS: &[&str] = &["thepastaclaw", "coderabbitai", "coderabbitai[bot]"];
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Dashboard {
     pub schema_version: u32,
@@ -717,8 +713,10 @@ pub fn kind(login: &str, policies: &HashMap<String, Policy>) -> Kind {
     }
 }
 
+/// One of the engine's review bots. They review PRs and may open their
+/// own; a policy may not name them at all.
 fn is_review_bot(login: &str) -> bool {
-    ENGINE_REVIEW_BOTS
+    pr_hygiene_engine::policy::BOTS
         .iter()
         .any(|b| b.eq_ignore_ascii_case(login))
 }
@@ -1251,8 +1249,9 @@ mod tests {
         assert_eq!(kind("claudius-maginificent", &policies()), Kind::Bot);
     }
 
-    /// Mirrors the engine's own list; a review bot added there and not here
-    /// would show as a person.
+    /// The board's review bots are the Rust engine's, which must be the
+    /// Python engine's; a review bot added there and not here would show as
+    /// a person.
     #[test]
     fn engine_review_bots_match_the_engine() {
         let engine =
@@ -1264,7 +1263,7 @@ mod tests {
             .expect("BOTS in pr_review/policy.py");
         let mut theirs: Vec<&str> = line.split('\'').skip(1).step_by(2).collect();
         theirs.sort();
-        let mut ours = ENGINE_REVIEW_BOTS.to_vec();
+        let mut ours = pr_hygiene_engine::policy::BOTS.to_vec();
         ours.sort();
         assert_eq!(theirs, ours);
     }
