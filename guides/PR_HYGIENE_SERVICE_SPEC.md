@@ -72,9 +72,12 @@ GitHub ───▶ │ webhook receiver ─▶ durable queue (SQLite) │ ◀�
     maps (IndexMap only), first-wins ties of `max(key=)`, `splitlines`/
     `strip`/`\s` character sets, lengths in code points, a canonical JSON
     writer matching `json.dumps` (sorted keys, ASCII-escaped). The exporter's
-    Python version is pinned.
-  - **Shadow** compares twice: Rust's engine on Python's evidence (exact), and
-    Rust's evidence reader against Python's (separately), per (PR, head).
+    Python version is pinned. The full list is in §6c.
+  - **Shadow** compares in two ways: Rust's engine on Python's recorded
+    evidence (exact), and Rust's live evidence reader against Python's
+    recorded evidence. Both run in a scheduled differential job, and the
+    service's read-only loop is compared with GitHub's state (§6c, 1b-5 and
+    1b-6).
   - Until a repo is cut over its Python engine keeps running; engine rule
     changes during the port land in both or wait.
 - **Memory unchanged in v1.** The Rust engine reads and writes the same
@@ -178,10 +181,13 @@ GitHub ───▶ │ webhook receiver ─▶ durable queue (SQLite) │ ◀�
   warning. Titles are stripped of control characters. When the service is
   down the skill says so. SKILL.md's "nothing about CI" rule is rewritten.
 - **Language and layout.** Rust only, one workspace:
-  `engine` (pure; `Clock`, `compat`), `github` (reqwest client, App auth,
-  the port of `github.py`, a `trait Api` with a replay fake), `reconcile`
-  (collect/publish), `store`, `service` (front, worker, scheduler),
-  `conformance`. Reused from `src/`: `dashboard.rs`, `stages.rs` (backfill),
+  - `engine`: synchronous, with no runtime. It holds `pycompat`, `policy`,
+    `evidence` (the port of `github.py` behind a `Transport`, with replay and
+    a stateful fake) and `reconcile`.
+  - `service`: front, worker and scheduler, plus the HTTP transport, App
+    authentication and the store.
+
+  §6c has the detail. Reused from `src/`: `dashboard.rs`, `stages.rs` (backfill),
   registry loading. Retired (≈3.8k lines): `scorer`, `renderer`,
   `analyzer`, `history`, `config`, and the Python engine. The dashboard's
   GraphQL fetcher does not supply engine evidence (`diff_print` needs REST
@@ -194,8 +200,15 @@ GitHub ───▶ │ webhook receiver ─▶ durable queue (SQLite) │ ◀�
 
 - The App's `PR Hygiene` status becomes the required source on **all five**
   repos — today it can be posted by any Actions workflow (or by anyone, on
-  platform and rust-dashcore). After cut-over the engine trusts only the
-  App's own `<slug>[bot]` identity.
+  platform and rust-dashcore). The engine's memory can be forged today. Any
+  workflow posts as `github-actions[bot]`, and any collaborator with write
+  access can edit the engine's comments.
+  - Before cut-over, records edited by anyone but the engine are ignored.
+  - After a repository's cut-over instant, a `github-actions[bot]` status or
+    record counts only if it predates that instant.
+  - The App is recognised by its numeric bot id as well as its login.
+
+  §6c, "Trust model", has the detail.
 - The key lives only in the worker, ideally as a non-exportable cloud KMS
   key; the internet-facing front holds none. Key-rotation runbook.
 - `pull_requests: write` lets an App approve. Code-owner review stays
@@ -444,152 +457,294 @@ State changes are fetch POSTs (the page's CSP has `form-action 'none'`).
 ## 6c. Step 1b in detail — the engine port
 
 Goal: a Rust engine that, given the same reads, reaches the same verdicts and
-makes the same writes as the Python engine. It must prove this on the corpus
-and then live in shadow, before it writes anything. 1b-1 (the recorder,
-#82) is merged: `conformance/README.md` is the contract this section relies
-on.
+makes the same writes as the Python engine. This is proven on the corpus and
+then on live repositories before the Rust engine writes anything. 1b-1 (the
+recorder, #82) is merged. `conformance/README.md` is the contract.
+(Revised after feasibility, conformance, scope and security reviews.)
 
-**Where it lives.** A new workspace member `engine/` (crate
-`pr-hygiene-engine`), a library with four layers. Each layer depends only on
-the ones above it:
+**Layout.** One **synchronous** library crate, `engine/`
+(`pr-hygiene-engine`), with no reqwest and no tokio, so the corpus tests
+never pull in a runtime. It has four modules; each depends only on the ones
+above it.
 
-1. `pycompat`: the Python behaviours the README lists, as small functions
-   with golden tests.
-   - `splitlines`, and `strip`/`split()` over Python's `isspace` set. That set
-     includes `\x1c`–`\x1f`, which Rust's `char::is_whitespace` and regex
-     `\s` do not.
-   - Code-point slicing.
-   - A `PyDateTime` that parses what Python 3.12's `fromisoformat` accepts
-     (after `Z` → `+00:00`) and re-renders the way `isoformat()` does, keeping
-     the offset and microseconds.
-   - One JSON writer, `py_dumps(value, sort_keys, separators)`, covering the
-     four shapes the engine hashes or writes: the marker writer, `diff_print`,
-     the admission context and the sort key in `fingerprint`. It always uses
-     `ensure_ascii`, lowercase `\uXXXX` and surrogate pairs.
-   - A regex rule: every pattern is ported with `\s` replaced by Python's
-     whitespace class. A non-multiline `$` is replaced by an explicit
-     `\n?\z` only where the match span is not used. Each pattern gets a
-     table test of inputs, with Python's matches recorded.
-   - Production Python is 3.12 (the `ubuntu-latest` runner's `python3`), so
-     3.12 is the reference.
-2. `policy`: the policy types and `evaluate`, a pure function.
-   - Policy types: serde, with `IndexMap` wherever Python iterates or
-     serialises a dict.
-   - `validate_policy`, `governs`, `evaluate` and its helpers: receipts,
-     attestations, bot schedules, fingerprints.
-   - No I/O and no clock: `now` is an argument.
-3. `evidence`: what `github.py` reads, behind a transport.
-   - `Transport::attempt(call) -> Attempt { exit_ok, stdout, stderr }`, where
-     `call` is the same argument shape `gh api` receives: method, path,
-     `--paginate --slurp`, stdin.
-   - Above it, a `Client` keeps `_run`'s rules: one retry for idempotent
-     calls on the same failure substrings, a partial GraphQL answer being an
-     answer, empty output being `None`, invalid JSON being an error.
-   - The snapshot builder, the access/status/build caches and the batch
-     history reader sit on top.
-   - Production uses an HTTP transport (an App installation token). It
-     renders what `gh` would have printed: the slurped page array, and
-     `gh`'s error line with `(HTTP <code>)`. One `Client` then serves HTTP,
-     replay and the fake.
-4. `reconcile`: what `main.py` does.
-   - `collect`, `publish`, `clear_marks`, `nudge`, the checklist, the move
-     comment, labels and statuses, and the report.
-   - The clock is a `Clock` the caller passes in. It is read at the same
-     points `utc_now` is read in Python.
+1. `pycompat`: Python's behaviours, each written alongside its first caller
+   rather than as a separate layer built up front.
+   - **Values.** `PyValue` is an ordered dynamic value built on `IndexMap`.
+     The engine's inputs arrive as `PyValue`, never as serde structs. Python
+     works on partial input before it validates: `carried_heads` runs before
+     `validate_policy`, and an absent `build` is not a `null` one. The case
+     files `configuration-error-74c12d84a513` and `-ae236af27a58` pin both.
+     Validation is ported over `PyValue` in Python's order and with Python's
+     messages, and typed views are built only after it passes. The error type
+     `PyErr::{Value, Type, Key}` maps one to one onto Python's `except`
+     clauses.
+   - **JSON reader.** A port of Python's scanner: `NaN`/`Infinity`, exact
+     integers of any size, `raw_decode`'s end offset, and a duplicate key
+     keeping its first position with its last value. This is what
+     `IndexMap::insert` does. The reader is fed by serde's streaming visitor
+     or is hand-written, never `serde_json::Value`.
+   - **JSON writer.** One writer covers all five shapes the engine produces:
+     - compact and sorted: the markers and the evidence print;
+     - compact and unsorted: `diff_print`;
+     - default separators and sorted: the admission context and the sort
+       key inside `fingerprint`;
+     - `indent=2`: the JSON report.
 
-The analyzer's `src/policy.rs` (registry, routing) overlaps layer 2. The
-engine's types become the one definition, and the analyzer moves onto them
-after 1b-2 in its own PR. Until then the two are not merged.
+     It always applies `ensure_ascii` (lowercase `\uXXXX`, surrogate pairs)
+     and rejects floats, of which no output contains any.
+   - **Character classes and regexes.** Generated by enumerating every code
+     point under Python 3.12, which pins Unicode 15 where current Rust is on
+     16. The generated sets are `isspace`, `\s`, `\w`, `\d`, the case-fold
+     set of each literal letter in a `(?i)` pattern, and `splitlines`'
+     breaks: its own set, which excludes `\x1f` and treats `\r\n` as one
+     break. The probes found real differences, all of which these sets
+     close:
+     - `(?i)` maps `İ`/`ı` onto `i` in Python and not in Rust;
+     - `[^A-Za-z<]` under `(?i)` diverges the other way;
+     - `\w` disagrees on `²`, `½`, combining marks and joiners.
 
-**Increments.** Each is its own PR and green before the next starts.
-- **1b-2 `pycompat` + `policy`.**
-  - All 274 committed evaluate cases must match, field for field. Blockers
-    marked `python_exception_text` are compared by state only.
-  - `pycompat` golden files are produced by Python into
-    `conformance/pycompat/`, from an input list that includes every edge
-    character above.
-  - The Python tests of the pure helpers (`test_policy.py`'s non-evaluate
-    tests, `test_bot_timeouts.py`) are ported as Rust tests.
-- **1b-3 `evidence`.**
-  - For every boundary recording, each snapshot the Rust reader builds
-    equals the `pr` Python's `evaluate` saw (`evaluations.jsonl`). It is
-    served only from recorded reads; a read the recording lacks is a failure.
-  - The `test_github.py` tests are ported against a stateful **fake
-    transport** in Rust. It answers from a scenario and applies writes to it.
-- **1b-4 `reconcile`.**
-  - Every recording gives the same verdicts, the same ordered writes (method,
-    path, body), the same canonical outputs and the same printed report.
-  - The fake is used to show three things the corpus cannot: replaying the
-    state after the writes yields no writes, failing writes take the Python
-    failure paths, and a first admission completes.
-  - `test_main.py` and `test_checklist.py` are ported.
-- **1b-5 shadow.**
-  - The service's worker runs the Rust engine on GitHub through a transport
-    that refuses every write: the recorder's default-deny classifier, ported.
-  - It stores, per (repo, PR, head), the verdict and the writes it would
-    have made, and compares them with the Python engine's posted status and
-    record.
-  - Differences fall into categories defined in advance: clock-dependent
-    timeouts, telemetry, admission time, and the deliberate divergences
-    below. Any other difference is a bug in the port.
-  - Step 2's entry criterion: three to four weeks with no uncategorised
-    difference, per repo.
+     Every pattern is ported with these classes. `fullmatch` becomes
+     `\A(?:…)\z` and `match` becomes `\A(?:…)`. Patterns built at run time
+     are cached. Each pattern has a table test of inputs whose matches were
+     recorded from Python.
+   - **`PyDateTime`.** A port of CPython 3.12's `_pydatetime` `fromisoformat`
+     and `isoformat`:
+     - naive values, since `age()` turns the `TypeError` of aware minus naive
+       into "unknown";
+     - offsets with microseconds;
+     - fractions cut to six digits;
+     - any date–time separator, and week dates;
+     - `.replace('Z', '+00:00')` replacing every `Z`, not only the last.
 
-**Corpus in CI.**
-- **Committed:**
-  - the evaluate cases;
-  - the `pycompat` goldens.
-- **CI keeps the corpus fresh.** The Python test job re-harvests both and
-  fails on any difference. A change to `pr_review/` therefore arrives with its
-  new corpus, and the Rust tests fail until the port follows.
-- **Live recordings stay local.**
-  - They are 85 MB, and the collaborator listing in them names collaborators
-    and private organisation members.
-  - `cargo test -p pr-hygiene-engine --test live -- --ignored` replays
-    whatever `conformance/live/` holds and skips when it is absent.
-  - A port PR states that it ran against a fresh recording.
-- **Rejected:**
-  - Committing redacted recordings: size, churn, and the collaborator list.
-  - Pseudonymising them: logins are threaded through free text, and
-    timestamps re-identify people anyway.
-  - A Python fake GitHub to produce synthetic recordings: the fake has to
-    live on after Python is retired, so it is written once, in Rust.
+     It is not adapted from chrono, whose `FixedOffset` holds whole seconds.
+   - **Ties.** `py_max_by` and `py_min_by` keep the first of equal
+     elements; Rust's `max_by_key` keeps the last. `clippy.toml` uses
+     `disallowed-methods` to ban `Iterator::{max, min}{,_by,_by_key}` in the
+     engine.
+   - **Goldens.** Python 3.12 generates them once into
+     `conformance/pycompat/` and records its version. They are regenerated
+     only when the reference Python changes.
+   - **`serde_json` features stay frozen.** `preserve_order` would reorder
+     the service's `json!` responses and change their ETags.
+     `arbitrary_precision` breaks `#[serde(flatten)]` numbers in
+     `src/policy.rs`. A CI check reads `cargo tree -e features -i
+     serde_json` and fails on either feature.
+2. `policy`: `validate_policy`, `governs` and `evaluate` with its helpers.
+   These are pure functions, and `now` is an argument.
+3. `evidence`: what `github.py` reads.
+   - The seam is `Transport::call(Call) -> Result<Reply, Failure>`.
+     - `Call` is one of `Rest { method, path, body, paginate }` and
+       `Graphql { query, variables }`.
+     - `Reply` holds the answer or its pages.
+     - `Failure { transient, status, body }` describes a failed call.
+   - A `Client` above it applies `_run`'s rules:
+     - one retry of an idempotent call when `transient`, with the 2 s sleep
+       injected;
+     - a GraphQL answer that carries `data` is an answer;
+     - an empty body is `None`;
+     - invalid JSON is an error.
+   - Two transports set `transient` differently:
+     - **Replay** applies Python's substring rule to the recorded output, so
+       conformance stays exact.
+     - **HTTP** sets it from the status code and the kind of error.
+   - Python's own 60 s subprocess timeout is not retried, while a timeout
+     reported by `gh` is. Both cases are tested.
+   - Requests carry the headers `gh` sends (checked with `GH_DEBUG=api`),
+     because REST response shapes depend on the API version.
+   - The snapshot builder, the per-evaluation caches and the history reader
+     sit on top of the `Client`.
+4. `reconcile`: the part of `main.py` the service runs.
+   - It covers `publish`, `clear_marks`, the checklist, the move comment,
+     labels, statuses, reviewer requests and nudges, over an explicit set of
+     PRs or authors.
+   - The clock is a `Clock` that the caller passes in.
+   - Actions-only scheduling is not ported: `periodic_batch`, the build scan,
+     the per-run nudge count and the Markdown report. The test harness
+     derives a recording's batch from its `argv` and clock.
 
-**Concurrency.** Python reads four snapshots at once, and its shared caches
-race (README, "Not to be copied"). The port reads sequentially in 1b. Any
-later concurrency fills each cache once before snapshots read it. The service
-reconciles per (repo, author), not as whole sweeps, so sequential reads cost
-nothing on its normal path.
+The HTTP transport and App authentication live in `service`. It runs the
+engine in `spawn_blocking`, and the transport calls the service's existing
+async reqwest client through `Handle::block_on`, so there is no second
+runtime. The analyzer's `src/policy.rs` moves onto the engine's policy
+types in its own PR after 1b-2.
 
-**Deliberate divergences** are listed here, and each is a shadow category:
-- The access race is not reproduced.
-- A record comment containing `NaN`/`Infinity` (only an admin edit can put
-  one there) is unreadable to the port; Python reads it.
+**Python-side preparation** (small PRs, before 1b-3):
+- Pin Python 3.12 (`setup-python`) in `pr-review-reusable.yml` and
+  `pr-review-tests.yml`. The harvest records the version and asserts it.
+- Harvest the pure functions `main.py` calls as committed, byte-exact cases:
+  - `checklist_block`, `move_text` and `state_comment_body`;
+  - `state_record`, `diff_record` and `admit`;
+  - `admission_conflicts`, `receipt_print` and `diff_print`;
+  - `telemetry.head_state`.
+- Add one `python_exception_text` case, plus a Python test for `nudge`,
+  which has none today.
+- The recorder logs each `clock()` read with its call site and the ordinal
+  of the call before it. The Rust `Clock` logs a site label, and replay
+  compares the two. Python's dead read at `main.py:630` is removed.
+- Record `sync --pr N`, the one-author path the service runs, alongside the
+  batch syncs.
+- **Records edited by someone other than the engine are ignored**, the same
+  rule the diff record already follows.
+  - Today any collaborator with write access can edit a record and change
+    `admitted_at`, which moves their place in the queue, or `state`. Setting
+    `state` to `ready-for-human` latches "was ready" and skips the green
+    build gate.
+  - `_set_aside_record` first moves to the GraphQL route that carries the
+    editor; REST has none, and ignoring every edited record there would
+    re-queue every PR.
+  - The rule then lands as a TDD bug fix in Python, before the port copies
+    it.
 
-Everything else is copied, including quirks: review-thread authors without
-`[bot]`, and timestamps compared as strings. Fixes come after cut-over, made
-once, in Rust.
+**Increments.** Each is its own PR, or a series of PRs. Each must be green
+against `conformance/pending.txt`, which lists the cases known not to match
+yet. The list may only shrink: a listed case that passes fails the test, and
+so does an unlisted case that fails. This means a Python hotfix can land
+with its case listed, and the port catches up afterwards.
+- **1b-2 `pycompat` + `policy`.** Gate:
+  - the 274 evaluate cases, the pure-function cases and the goldens;
+  - the pure-helper tests ported from `test_policy.py` and
+    `test_bot_timeouts.py`.
+
+  Blockers marked `python_exception_text` are compared by state; every
+  other field is compared exactly.
+- **1b-3 `evidence`**, plus the HTTP transport and App authentication in
+  `service`. Gate:
+  - for every recording, each snapshot equals the `pr` that Python's
+    `evaluate` saw;
+  - every snapshot is served from recorded reads only.
+
+  `test_github.py` becomes tests built on a response queue.
+- **1b-4 `reconcile`.** Gate: the same verdicts, the same ordered writes
+  (method, path and body), the same canonical outputs, and the JSON report
+  compared as values. In addition, a **stateful fake** shows what the corpus
+  cannot:
+  - replaying the state after the writes produces no writes;
+  - failing writes take Python's failure paths;
+  - a first admission completes.
+
+  `test_main.py`, `test_checklist.py`, `test_multi_repo_main.py` and
+  `test_configuration_isolation.py` are rewritten as scenarios on the fake.
+  The fake is anchored by **sandbox recordings**:
+  - The sandbox is a repository outside dashpay with two or three test
+    accounts. Creating it is an owner action and a prerequisite for 1b-4's
+    exit.
+  - There, a sandbox-only recording mode lets Python `sync --apply`. It is
+    allowlisted to that one repository name and refuses every other. The
+    recording keeps GitHub's real answers to the writes and the reads that
+    follow them. It is committed, since it holds nothing private.
+  - The fake must reproduce every one of those post-write reads.
+  - The same sandbox proves rollback in both directions. After Rust has
+    written, a Python dry sync makes no writes, and the reverse holds too.
+- **1b-5 differential job**, the engine's shadow. A scheduled job in this
+  repository runs every few hours with the read-only App token the export
+  already uses. For each repository:
+  - (a) Python records a dry `sync`, both the sweep and `--pr N` per
+    author. Rust replays it, and it must match exactly, with no categories.
+  - (b) Rust then reads the same PRs live through its HTTP transport. Its
+    snapshots are compared with Python's recorded ones.
+  - (c) A PR whose evidence print equals the one in Python's last real
+    record must produce zero would-be writes against GitHub's actual state.
+  - (d) Any difference is re-run with Python's `now`, its status-page
+    payload and its `admitted_at` substituted. Only a difference that then
+    vanishes is categorised (clock, telemetry or admission). Admission
+    qualifies only when both sides have it set and the admitted PRs match in
+    set and order. Every other difference is a port bug.
+
+  The job outputs counts and categories only. Recordings never leave it:
+  no artifacts, no logs of their contents. A red run blocks the next
+  increment.
+- **1b-6 the service loop, read-only.** The worker runs the Rust engine on
+  events, per (repo, author).
+  - It runs as a separate process, with no inbound port and its own uid, and
+    it is the only process with the key mounted.
+  - It uses a **dedicated read-only App**:
+    - read access to Metadata, Pull requests, Issues, Commit statuses,
+      Checks and Contents;
+    - Actions read only if `workflowRun` needs it;
+    - no organisation permissions;
+    - its own rate budget.
+
+    The write App is created and installed only at step 2, and its
+    repository selection is the real per-repo switch.
+  - A transport that refuses writes stays as a second layer, below
+    pagination. It allows:
+    - method plus host `api.github.com`;
+    - GraphQL only with the exact text of a ported query.
+
+    It also follows no redirects and accepts pagination links only on the
+    same origin. Telemetry goes through a client that carries no token.
+  - Would-be writes go into private tables outside the public router. They
+    hold no permission levels, and hold checklist hashes rather than
+    descriptions. They are compared with GitHub's state once the PR is
+    quiet, and deleted, with their backups, when the repository cuts over.
+- **Entry to step 2, per repository:**
+  - `pending.txt` is empty;
+  - three to four weeks of 1b-5 and 1b-6 have passed with no uncategorised
+    difference;
+  - every state and every write kind has been seen live or covered by a
+    sandbox scenario.
+
+  Today's live corpus has no `configuration-error`, no `too-many-open-prs`
+  and no nudge.
+
+**Trust model through cut-over** (corrects §3):
+- Any collaborator with write access can edit any comment, and any workflow
+  posts as `github-actions[bot]`.
+- Before cut-over, both engines ignore edited records, as above.
+- At cut-over each repository gets a cut-over instant. After it, a
+  `github-actions[bot]` status or record is trusted only if it was created
+  and last updated at or before that instant.
+- The App rewrites every record at cut-over, and is recognised by its
+  numeric bot id as well as its login.
+
+**Deliberate divergences.** Each has a rule saying which fields the
+comparison ignores, and each is a category in 1b-5 and 1b-6:
+- The access race is not reproduced. Reads are sequential, and any later
+  concurrency fills each cache once.
+- A lone surrogate in JSON read from a bot's comment cannot be held in a
+  Rust `String`. That read takes its function's unreadable path, the same
+  path invalid JSON takes in Python.
+- Over HTTP, `502`/`503`/`504` appearing in the text of a non-5xx failure
+  does not trigger a retry. Replay keeps Python's rule.
+- A status's `target_url` is the running commit (§3), where Python uses the
+  run URL. Comparisons ignore it, and the first Rust run re-posts each
+  status once.
+- Nudges are limited per time window rather than per run, batches are
+  chosen by events and sweeps, and reconciles are per author, with
+  periodic sweeps still calling `clear_marks`.
+
+Everything else is copied, including quirks that fail closed: review-thread
+authors read without `[bot]`, and timestamps compared as strings. Fixes come
+after cut-over, made once, in Rust.
+
+**Live recordings.**
+- Recordings are made with a read-only token: the job's installation
+  token, or locally a read-only fine-grained token.
+- Raw recordings stay outside every repository and worktree, in a mode-700
+  directory, and are deleted once they have been redacted.
+- `conformance/live/` holds redacted copies only, and the `live` test
+  refuses one whose `meta.redacted` is `null`.
+- Recordings never go into CI artifacts, issues, PR text or agent prompts;
+  a PR reports counts only.
+- `conformance/` stays out of `engine/`, which the service's Docker context
+  includes.
 
 **Failure modes.**
-- The corpus can't tell when the clock is read. The port mirrors Python's
-  read points, and a reviewer checks them against `utc_now`'s call sites.
-- A read the port needs but Python never made fails replay loudly, so the
-  port can't quietly read more than the engine did.
-- A Python change that skips re-harvesting fails CI. A Python change that
-  alters the boundary is caught by the next local live replay, and in shadow
-  by its category.
-- An HTTP transport that renders errors differently from `gh` would change
-  only the retry decision. The transport's tests pin the rendered line for
-  502/503/504, timeout and truncation.
+- **A read the port needs that Python never made** fails replay loudly.
+- **A clock read in the wrong place** shows up in the logged sequence.
+- **A Python change without re-harvesting** fails CI. A Python change that
+  alters the boundary turns 1b-5 red within hours.
+- **The fake and the port sharing one misunderstanding** is caught by the
+  sandbox recordings, which hold GitHub's real answers.
+- **A forged `github-actions[bot]` status** feeds both engines alike in 1b-5,
+  which compares engine with engine, not engine with posted status.
 
 **Verification.**
-- `cargo test --workspace` runs:
-  - the evaluate corpus;
-  - the goldens;
-  - the ported tests;
-  - the fake's post-write, failed-write and first-admission scenarios.
-- Each increment runs the local live replay and reports it in its PR.
-- 1b-5 is judged on the shadow diff.
+- `cargo test --workspace` runs the evaluate and pure-function cases, the
+  goldens, the regex tables, the ported tests, the fake's scenarios, the
+  sandbox replays and the `pending.txt` check.
+- The scheduled differential job runs on live repositories.
+- 1b-6 is judged on its comparison with GitHub's state.
 
 ## 7. Open PRs
 
