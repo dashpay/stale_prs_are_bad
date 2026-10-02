@@ -2,6 +2,8 @@
 //! for the test run stands in for GitHub's, and tokens are signed with it.
 #![allow(dead_code)]
 
+pub mod signin;
+
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
 use axum::response::Response;

@@ -105,8 +105,10 @@ limit, and nothing else. The reverse proxy that terminates TLS must also:
 - pass `POST /ingest` through unbuffered or with a body limit no larger
   than the service's, and never log its `Authorization` header;
 - never log `Cookie` or `Set-Cookie` headers, nor the query string of
-  `/auth/callback` (it carries GitHub's one-time code); rate-limit
-  `/auth/login` per client;
+  `/auth/callback` (it carries GitHub's one-time code);
+- rate-limit `/auth/*` and `/api/v1/me*` per client, tighter than the
+  public reads: starting a sign-in needs no account and writes to the
+  database, and a flood of them would push out real sign-ins under way;
 - pass the `Origin` header through unchanged.
 
 ### Health
@@ -196,14 +198,16 @@ secret (best as a file: `PR_HYGIENE_SIGNIN_CLIENT_SECRET_FILE`) and
    the id and login; the token is revoked (`DELETE
    /applications/{client_id}/token`; if that fails it is logged and the
    sign-in goes on — the token reads only public data and expires); the
-   session is created.
+   session is created, ending the session this browser held before, if
+   any.
 3. Success redirects to `/#/me` with the `__Host-prh_session` cookie
    (`Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, 30 days). Any failure
    redirects to `/#/me?signin=failed`: GitHub's error text is never shown,
    and no request can choose where a sign-in goes or ends.
 
-Calls to GitHub time out after 8 s, follow no redirects and read at most
-64 KB.
+Calls to GitHub time out after 6 s, follow no redirects and read at most
+64 KB. They run as a task of their own, so the token is revoked even if
+the browser goes away mid-sign-in.
 
 ### Routes
 

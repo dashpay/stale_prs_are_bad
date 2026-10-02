@@ -79,6 +79,9 @@ CREATE TABLE IF NOT EXISTS prelogins (
     verifier      TEXT NOT NULL,
     created_at    TEXT NOT NULL
 );
+-- Starting a sign-in needs no account: clearing old rows on each start
+-- must not scan the whole table.
+CREATE INDEX IF NOT EXISTS prelogins_by_age ON prelogins (created_at);
 -- Signed-in browsers, keyed by the SHA-256 of the random id in their
 -- cookie: whoever reads this table cannot use what is in it.
 CREATE TABLE IF NOT EXISTS sessions (
@@ -338,17 +341,26 @@ impl Store {
     }
 
     /// Start a session under the random id its cookie carries, ending the
-    /// person's oldest sessions past the cap.
+    /// person's oldest sessions past the cap. `replacing` is the session
+    /// the same browser held before, if any: its cookie is about to be
+    /// overwritten, so nothing could end it later.
     pub fn create_session(
         &mut self,
         id: &str,
         user_id: i64,
         login: &str,
+        replacing: Option<&str>,
         now: DateTime<Utc>,
     ) -> anyhow::Result<()> {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(old) = replacing {
+            tx.execute(
+                "DELETE FROM sessions WHERE id_hash = ?1",
+                [secret_hash(old)],
+            )?;
+        }
         tx.execute(
             "INSERT INTO sessions (id_hash, user_id, login, created_at, expires_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -460,7 +472,6 @@ pub struct Session {
     pub user_id: i64,
     /// The login at sign-in.
     pub login: String,
-    pub expires_at: DateTime<Utc>,
 }
 
 /// What a purge deleted.
@@ -592,23 +603,33 @@ impl Reader {
 
     /// The unexpired session that `id` names, if any.
     pub fn session(&self, id: &str, now: DateTime<Utc>) -> anyhow::Result<Option<Session>> {
-        let row: Option<(i64, String, String)> = self
+        Ok(self
             .conn
             .query_row(
-                "SELECT user_id, login, expires_at FROM sessions
-                 WHERE id_hash = ?1 AND expires_at > ?2",
+                "SELECT user_id, login FROM sessions WHERE id_hash = ?1 AND expires_at > ?2",
                 params![secret_hash(id), ts(now)],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| {
+                    Ok(Session {
+                        user_id: row.get(0)?,
+                        login: row.get(1)?,
+                    })
+                },
             )
-            .optional()?;
-        row.map(|(user_id, login, expires_at)| {
-            Ok(Session {
-                user_id,
-                login,
-                expires_at: parse_ts(&expires_at)?,
-            })
-        })
-        .transpose()
+            .optional()?)
+    }
+
+    /// Whether a sign-in under way goes by `id`: checked before taking it,
+    /// so a made-up cookie costs a read, never a write.
+    pub fn has_signin(&self, id: &str) -> anyhow::Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM prelogins WHERE id_hash = ?1",
+                [secret_hash(id)],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
     }
 
     /// The version of the view stored, if any.
@@ -978,7 +999,9 @@ mod tests {
         let mut db = db();
         let now = Utc::now();
         let id = session_id(1);
-        db.store.create_session(&id, 42, "alice", now).unwrap();
+        db.store
+            .create_session(&id, 42, "alice", None, now)
+            .unwrap();
         let stored: String = db
             .reader
             .conn
@@ -1012,7 +1035,9 @@ mod tests {
         let mut db = db();
         let start = Utc::now();
         let id = session_id(1);
-        db.store.create_session(&id, 42, "alice", start).unwrap();
+        db.store
+            .create_session(&id, 42, "alice", None, start)
+            .unwrap();
         let almost = start + SESSION_LIFETIME - minutes(1);
         assert!(db.reader.session(&id, almost).unwrap().is_some());
         let over = start + SESSION_LIFETIME;
@@ -1032,12 +1057,12 @@ mod tests {
         let mut db = db();
         let start = Utc::now();
         db.store
-            .create_session(&session_id(99), 7, "bob", start)
+            .create_session(&session_id(99), 7, "bob", None, start)
             .unwrap();
         let n = u8::try_from(MAX_SESSIONS_PER_USER).unwrap() + 2;
         for i in 1..=n {
             db.store
-                .create_session(&session_id(i), 42, "alice", start + minutes(i.into()))
+                .create_session(&session_id(i), 42, "alice", None, start + minutes(i.into()))
                 .unwrap();
         }
         let at = start + minutes(60);
@@ -1118,13 +1143,13 @@ mod tests {
         let mut db = db();
         let now = Utc::now();
         db.store
-            .create_session(&session_id(1), 42, "alice", now)
+            .create_session(&session_id(1), 42, "alice", None, now)
             .unwrap();
         db.store
-            .create_session(&session_id(2), 42, "alice", now)
+            .create_session(&session_id(2), 42, "alice", None, now)
             .unwrap();
         db.store
-            .create_session(&session_id(3), 7, "bob", now)
+            .create_session(&session_id(3), 7, "bob", None, now)
             .unwrap();
         db.store.opt_out(42, now).unwrap();
         db.store.opt_out(42, now + minutes(1)).unwrap();
@@ -1159,8 +1184,29 @@ mod tests {
         }
         let mut store = Store::open(&path).unwrap();
         store
-            .create_session(&session_id(1), 42, "alice", Utc::now())
+            .create_session(&session_id(1), 42, "alice", None, Utc::now())
             .unwrap();
+        let version: i64 = store
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    /// Signing in again in the same browser overwrites its cookie; the
+    /// session that cookie named goes with it rather than lingering.
+    #[test]
+    fn a_new_session_in_the_same_browser_replaces_the_old_one() {
+        let mut db = db();
+        let now = Utc::now();
+        db.store
+            .create_session(&session_id(1), 42, "alice", None, now)
+            .unwrap();
+        db.store
+            .create_session(&session_id(2), 7, "bob", Some(&session_id(1)), now)
+            .unwrap();
+        assert!(db.reader.session(&session_id(1), now).unwrap().is_none());
+        assert!(db.reader.session(&session_id(2), now).unwrap().is_some());
     }
 
     #[test]

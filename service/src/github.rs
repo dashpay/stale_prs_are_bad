@@ -25,9 +25,9 @@ const API_VERSION: &str = "2026-03-10";
 /// is not GitHub's, and is not read.
 pub const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 
-/// Per call. A sign-in makes three in a row, inside the service's 30 s
-/// limit on a request.
-const CALL_TIMEOUT: Duration = Duration::from_secs(8);
+/// Per call. A sign-in makes three in a row and two database writes, all
+/// inside the service's 30 s limit on a request.
+const CALL_TIMEOUT: Duration = Duration::from_secs(6);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Who signed in, as GitHub says.

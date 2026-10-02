@@ -229,10 +229,13 @@ impl SignInArgs {
     }
 }
 
-/// GitHub's client ids are short and alphanumeric (`Iv23li…`); anything else
-/// would need escaping in the revocation URL's path.
+/// GitHub's client ids are short and alphanumeric, older ones with a dot
+/// (`Iv23li…`, `Iv1.8a61…`); anything else would need escaping in the
+/// revocation URL's path. Starting alphanumeric, it can never be a `.` or
+/// `..` path segment either.
 fn is_client_id(s: &str) -> bool {
-    (1..=100).contains(&s.len())
+    s.len() <= 100
+        && s.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric())
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_' || b == b'-')
 }
@@ -301,6 +304,17 @@ mod tests {
         );
         a.signin_client_secret = Some(Secret::new("from-env"));
         assert!(a.resolve().is_err(), "two sources: which one is meant?");
+    }
+
+    /// The client id goes into the revocation URL's path unescaped.
+    #[test]
+    fn a_client_id_cannot_change_the_revocation_path() {
+        for good in ["Iv23liABC123", "Iv1.8a61f9b3a7aba766"] {
+            assert!(is_client_id(good), "{good}");
+        }
+        for bad in ["", "..", ".", "a/b", "a?b", "a%2fb", &"x".repeat(101)] {
+            assert!(!is_client_id(bad), "{bad}");
+        }
     }
 
     /// The configured origin is compared byte for byte with the browser's

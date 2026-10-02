@@ -7,7 +7,7 @@
 
 use crate::app::{ApiError, AppState};
 use crate::config::SignInConfig;
-use crate::github::{SignInApi, AUTHORIZE_URL};
+use crate::github::{GithubUser, SignInApi, AUTHORIZE_URL};
 use crate::snapshot::is_login;
 use crate::store::{Prelogin, Session, PRELOGIN_LIFETIME, SESSION_LIFETIME};
 use axum::extract::{Query, State};
@@ -51,6 +51,8 @@ pub async fn private_headers(mut res: Response) -> Response {
     h.insert(header::VARY, HeaderValue::from_static("Cookie"));
     h.remove(header::ETAG);
     h.remove(header::ACCESS_CONTROL_ALLOW_ORIGIN);
+    // A 401 here means "no session cookie", not "send a bearer token".
+    h.remove(header::WWW_AUTHENTICATE);
     h.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
@@ -231,8 +233,14 @@ async fn complete(
     let id = cookie(headers, PRELOGIN_COOKIE)
         .ok_or("no pre-login cookie")?
         .to_string();
-    // Taken before anything is checked, so each pre-login is tried once,
-    // whatever this callback carries.
+    // Looked up on the reader first: a made-up cookie must not cost a
+    // write, which would queue behind (and ahead of) ingest.
+    let lookup = id.clone();
+    if !state.read(move |reader| reader.has_signin(&lookup)).await? {
+        return Err("the pre-login is unknown, used or expired".into());
+    }
+    // Taken before anything else is checked, so each pre-login is tried
+    // once, whatever this callback carries.
     let prelogin = state
         .write(move |store| store.take_signin(&id, Utc::now()))
         .await?
@@ -248,9 +256,42 @@ async fn complete(
         .filter(|c| is_code(c))
         .ok_or("no code, or not one GitHub would send")?;
 
-    let github = &signin.github;
+    // A task of its own, so the token is revoked even if this request is
+    // dropped meanwhile: the browser leaving, or the request timing out.
+    let github = signin.github.clone();
+    let user = tokio::spawn(async move { identify(&*github, &code, &prelogin.verifier).await })
+        .await
+        .map_err(|e| Failed(format!("the GitHub task failed: {e}")))??;
+    if user.id <= 0 || !is_login(&user.login) {
+        return Err("GitHub's user has no usable id or login".into());
+    }
+
+    let session_id = random_id()?;
+    let cookie_id = session_id.clone();
+    let replacing = cookie(headers, SESSION_COOKIE).map(String::from);
+    state
+        .write(move |store| {
+            store.create_session(
+                &cookie_id,
+                user.id,
+                &user.login,
+                replacing.as_deref(),
+                Utc::now(),
+            )
+        })
+        .await?;
+    tracing::info!("signed in");
+    Ok(session_id)
+}
+
+/// Exchange the code, read whose token it is, and revoke the token.
+async fn identify(
+    github: &dyn SignInApi,
+    code: &str,
+    verifier: &str,
+) -> Result<GithubUser, Failed> {
     let token = github
-        .exchange(&code, &prelogin.verifier)
+        .exchange(code, verifier)
         .await
         .map_err(|e| Failed(format!("exchanging the code: {e}")))?;
     let user = github.user(&token).await;
@@ -258,19 +299,7 @@ async fn complete(
     if let Err(e) = github.revoke(&token).await {
         tracing::warn!("revoking the sign-in token failed: {e}");
     }
-    drop(token);
-    let user = user.map_err(|e| Failed(format!("reading the user: {e}")))?;
-    if user.id <= 0 || !is_login(&user.login) {
-        return Err("GitHub's user has no usable id or login".into());
-    }
-
-    let session_id = random_id()?;
-    let cookie_id = session_id.clone();
-    state
-        .write(move |store| store.create_session(&cookie_id, user.id, &user.login, Utc::now()))
-        .await?;
-    tracing::info!("signed in");
-    Ok(session_id)
+    user.map_err(|e| Failed(format!("reading the user: {e}")))
 }
 
 /// GitHub's codes are short and URL-safe; anything else is not sent on.
@@ -281,7 +310,9 @@ fn is_code(s: &str) -> bool {
 }
 
 /// `GET /api/v1/me`: who is signed in, with their public People entry
-/// (null when the data does not name them, or holds no snapshot yet).
+/// (null when the data does not name them, or holds no snapshot yet). The
+/// entry is found by the login at sign-in: after a rename on GitHub it is
+/// null until the person signs in again.
 pub async fn me(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,

@@ -5,239 +5,14 @@ mod common;
 
 use axum::body::Body;
 use axum::http::{header, Method, Request, StatusCode};
-use axum::response::Response;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use common::signin::*;
 use common::*;
 use pr_hygiene_service::auth::{PRELOGIN_COOKIE, SESSION_COOKIE, SIGNED_IN, SIGNIN_FAILED};
-use pr_hygiene_service::config::Secret;
-use pr_hygiene_service::github::{GithubError, GithubUser, SignInApi};
-use pr_hygiene_service::oidc::BoxFuture;
-use reqwest::Url;
+use pr_hygiene_service::github::GithubError;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
-
-const TOKEN: &str = "ghu_faketoken_0123456789abcdef";
-const CODE: &str = "c0de1234567890abcdef";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Call {
-    Exchange { code: String, verifier: String },
-    User(String),
-    Revoke(String),
-}
-
-/// GitHub as the tests need it: each call answers as set, and is recorded.
-struct FakeGithub {
-    exchange: Mutex<Result<(), GithubError>>,
-    user: Mutex<Result<GithubUser, GithubError>>,
-    revoke: Mutex<Result<(), GithubError>>,
-    calls: Mutex<Vec<Call>>,
-}
-
-impl FakeGithub {
-    fn new() -> Arc<Self> {
-        Self::as_user(4242, "alice")
-    }
-
-    fn as_user(id: i64, login: &str) -> Arc<Self> {
-        Arc::new(Self {
-            exchange: Mutex::new(Ok(())),
-            user: Mutex::new(Ok(GithubUser {
-                id,
-                login: login.into(),
-            })),
-            revoke: Mutex::new(Ok(())),
-            calls: Mutex::new(vec![]),
-        })
-    }
-
-    fn calls(&self) -> Vec<Call> {
-        self.calls.lock().unwrap().clone()
-    }
-}
-
-impl SignInApi for FakeGithub {
-    fn exchange<'a>(
-        &'a self,
-        code: &'a str,
-        verifier: &'a str,
-    ) -> BoxFuture<'a, Result<Secret, GithubError>> {
-        Box::pin(async move {
-            self.calls.lock().unwrap().push(Call::Exchange {
-                code: code.into(),
-                verifier: verifier.into(),
-            });
-            self.exchange
-                .lock()
-                .unwrap()
-                .clone()
-                .map(|()| Secret::new(TOKEN))
-        })
-    }
-
-    fn user<'a>(&'a self, token: &'a Secret) -> BoxFuture<'a, Result<GithubUser, GithubError>> {
-        Box::pin(async move {
-            self.calls
-                .lock()
-                .unwrap()
-                .push(Call::User(token.expose().into()));
-            self.user.lock().unwrap().clone()
-        })
-    }
-
-    fn revoke<'a>(&'a self, token: &'a Secret) -> BoxFuture<'a, Result<(), GithubError>> {
-        Box::pin(async move {
-            self.calls
-                .lock()
-                .unwrap()
-                .push(Call::Revoke(token.expose().into()));
-            self.revoke.lock().unwrap().clone()
-        })
-    }
-}
-
-fn app_for(github: &Arc<FakeGithub>) -> TestApp {
-    signin_app(github.clone())
-}
-
-/// The full `Set-Cookie` line for cookie `name`, if the response sets it.
-fn set_cookie(res: &Response, name: &str) -> Option<String> {
-    res.headers()
-        .get_all(header::SET_COOKIE)
-        .iter()
-        .map(|v| v.to_str().unwrap().to_string())
-        .find(|c| c.starts_with(&format!("{name}=")))
-}
-
-fn cookie_value(line: &str) -> String {
-    line.split(';')
-        .next()
-        .unwrap()
-        .split_once('=')
-        .unwrap()
-        .1
-        .to_string()
-}
-
-fn cookie_attributes(line: &str) -> Vec<String> {
-    let mut attrs: Vec<String> = line
-        .split(';')
-        .skip(1)
-        .map(|a| a.trim().to_ascii_lowercase())
-        .collect();
-    attrs.sort();
-    attrs
-}
-
-fn location(res: &Response) -> String {
-    res.headers()[header::LOCATION]
-        .to_str()
-        .unwrap()
-        .to_string()
-}
-
-/// A sign-in started: what the browser holds and what GitHub was sent.
-struct Started {
-    prelogin: String,
-    state: String,
-    challenge: String,
-    params: BTreeMap<String, String>,
-}
-
-async fn start(app: &TestApp) -> Started {
-    start_at(app, "/auth/login").await
-}
-
-async fn start_at(app: &TestApp, uri: &str) -> Started {
-    let res = get(app, uri).await;
-    assert_eq!(res.status(), StatusCode::SEE_OTHER);
-    let to = Url::parse(&location(&res)).unwrap();
-    assert_eq!(
-        to.as_str().split('?').next().unwrap(),
-        "https://github.com/login/oauth/authorize"
-    );
-    let params: BTreeMap<String, String> = to.query_pairs().into_owned().collect();
-    let line = set_cookie(&res, PRELOGIN_COOKIE).expect("a pre-login cookie");
-    Started {
-        prelogin: cookie_value(&line),
-        state: params["state"].clone(),
-        challenge: params["code_challenge"].clone(),
-        params,
-    }
-}
-
-async fn callback(app: &TestApp, prelogin: Option<&str>, query: &str) -> Response {
-    let mut req = Request::get(format!("/auth/callback?{query}"));
-    if let Some(id) = prelogin {
-        req = req.header(header::COOKIE, format!("{PRELOGIN_COOKIE}={id}"));
-    }
-    send(app, req.body(Body::empty()).unwrap()).await
-}
-
-/// Sign in all the way; the session cookie's id.
-async fn sign_in(app: &TestApp) -> String {
-    let s = start(app).await;
-    let res = callback(
-        app,
-        Some(&s.prelogin),
-        &format!("code={CODE}&state={}", s.state),
-    )
-    .await;
-    assert_eq!(location(&res), SIGNED_IN);
-    cookie_value(&set_cookie(&res, SESSION_COOKIE).expect("a session cookie"))
-}
-
-async fn call(
-    app: &TestApp,
-    method: Method,
-    uri: &str,
-    session: Option<&str>,
-    origin: Option<&str>,
-) -> Response {
-    let mut req = Request::builder().method(method).uri(uri);
-    if let Some(id) = session {
-        req = req.header(header::COOKIE, format!("{SESSION_COOKIE}={id}"));
-    }
-    if let Some(origin) = origin {
-        req = req.header(header::ORIGIN, origin);
-    }
-    send(app, req.body(Body::empty()).unwrap()).await
-}
-
-async fn me(app: &TestApp, session: Option<&str>) -> (StatusCode, Value) {
-    let res = call(app, Method::GET, "/api/v1/me", session, None).await;
-    let status = res.status();
-    (status, json_body(res).await)
-}
-
-fn db(app: &TestApp) -> rusqlite::Connection {
-    rusqlite::Connection::open(&app.db).unwrap()
-}
-
-fn count(app: &TestApp, sql: &str) -> i64 {
-    db(app).query_row(sql, [], |row| row.get(0)).unwrap()
-}
-
-fn sha256_hex(s: &str) -> String {
-    Sha256::digest(s.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
-fn assert_private(res: &Response) {
-    let h = res.headers();
-    assert_eq!(h[header::CACHE_CONTROL], "private, no-store");
-    assert_eq!(h[header::VARY], "Cookie");
-    assert!(h.get(header::ETAG).is_none(), "nothing to revalidate");
-    assert!(
-        h.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none(),
-        "no other origin may read it"
-    );
-}
 
 // --- login ---
 
@@ -364,8 +139,58 @@ async fn a_state_that_does_not_match_is_refused_before_github_is_asked() {
     // No pre-login cookie at all: the browser never started a sign-in.
     let res = callback(&app, None, &format!("code={CODE}&state={}", theirs.state)).await;
     assert_eq!(location(&res), SIGNIN_FAILED);
+    // A made-up one, shaped like ours.
+    let made_up = "A".repeat(43);
+    let res = callback(
+        &app,
+        Some(&made_up),
+        &format!("code={CODE}&state={}", theirs.state),
+    )
+    .await;
+    assert_eq!(location(&res), SIGNIN_FAILED);
     assert_eq!(github.calls(), []);
     assert_eq!(count(&app, "SELECT count(*) FROM sessions"), 0);
+}
+
+/// The pre-login is used up by any callback naming it, not only by one
+/// that gets as far as comparing `state`: a callback cut short (here, with
+/// no code) leaves nothing to try again.
+#[tokio::test]
+async fn a_callback_without_a_code_still_uses_up_the_prelogin() {
+    let github = FakeGithub::new();
+    let app = app_for(&github);
+    let s = start(&app).await;
+    let res = callback(&app, Some(&s.prelogin), &format!("state={}", s.state)).await;
+    assert_eq!(location(&res), SIGNIN_FAILED);
+    let res = callback(
+        &app,
+        Some(&s.prelogin),
+        &format!("code={CODE}&state={}", s.state),
+    )
+    .await;
+    assert_eq!(location(&res), SIGNIN_FAILED);
+    assert_eq!(github.calls(), []);
+}
+
+/// Whatever GitHub's answer, a session is keyed on a real numeric id and a
+/// login of GitHub's shape, and the token is revoked all the same.
+#[tokio::test]
+async fn a_user_without_a_usable_id_or_login_is_not_signed_in() {
+    for (id, login) in [(0, "alice"), (-1, "alice"), (42, "<!channel>"), (42, "")] {
+        let github = FakeGithub::as_user(id, login);
+        let app = app_for(&github);
+        let s = start(&app).await;
+        let res = callback(
+            &app,
+            Some(&s.prelogin),
+            &format!("code={CODE}&state={}", s.state),
+        )
+        .await;
+        assert_eq!(location(&res), SIGNIN_FAILED, "{id} {login:?}");
+        assert!(set_cookie(&res, SESSION_COOKIE).is_none());
+        assert!(github.calls().contains(&Call::Revoke(TOKEN.into())));
+        assert_eq!(count(&app, "SELECT count(*) FROM sessions"), 0);
+    }
 }
 
 #[tokio::test]
@@ -573,6 +398,28 @@ async fn signing_in_again_and_again_keeps_only_the_newest_few_sessions() {
     assert_eq!(me(&app, Some(&latest)).await.0, StatusCode::OK);
 }
 
+/// Signing in again in a browser that holds a session (as someone else,
+/// say) overwrites its cookie; the session it named must end with it, or
+/// it would stay valid for a month with nothing left to end it.
+#[tokio::test]
+async fn signing_in_again_in_the_same_browser_ends_its_old_session() {
+    let app = app_for(&FakeGithub::new());
+    let old = sign_in(&app).await;
+    let s = start(&app).await;
+    let req = Request::get(format!("/auth/callback?code={CODE}&state={}", s.state))
+        .header(
+            header::COOKIE,
+            format!("{PRELOGIN_COOKIE}={}; {SESSION_COOKIE}={old}", s.prelogin),
+        )
+        .body(Body::empty())
+        .unwrap();
+    let res = send(&app, req).await;
+    assert_eq!(location(&res), SIGNED_IN);
+    let new = cookie_value(&set_cookie(&res, SESSION_COOKIE).unwrap());
+    assert_eq!(me(&app, Some(&old)).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(me(&app, Some(&new)).await.0, StatusCode::OK);
+}
+
 // --- /me ---
 
 #[tokio::test]
@@ -589,8 +436,18 @@ async fn me_is_401_signed_out_and_private_either_way() {
     .await;
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     assert_private(&res);
+    assert!(
+        res.headers().get(header::WWW_AUTHENTICATE).is_none(),
+        "a cookie is missing, not a bearer token"
+    );
     let (status, _) = me(&app, Some("not-a-session-id")).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+    // A method the route lacks is answered privately too.
+    for method in [Method::PUT, Method::OPTIONS] {
+        let res = call(&app, method.clone(), "/api/v1/me", None, Some(ORIGIN)).await;
+        assert_eq!(res.status(), StatusCode::METHOD_NOT_ALLOWED, "{method}");
+        assert_private(&res);
+    }
 
     let session = sign_in(&app).await;
     let req = Request::get("/api/v1/me")
@@ -789,94 +646,4 @@ async fn with_sign_in_unconfigured_its_routes_are_404_and_the_rest_works() {
     ingest(&app, &snapshot(5)).await;
     let (status, _) = get_json(&app, "/api/v1/prs").await;
     assert_eq!(status, StatusCode::OK);
-}
-
-// --- logs ---
-
-#[derive(Clone, Default)]
-struct Captured(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for Captured {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-/// Codes, tokens, cookies, session ids, the client secret, the state and
-/// the verifier: none of them is ever written to the log, on any path.
-#[tokio::test]
-async fn the_log_holds_no_code_token_cookie_or_secret() {
-    let log = Captured::default();
-    let writer = log.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_writer(move || writer.clone())
-        .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
-
-    let github = FakeGithub::new();
-    let app = app_for(&github);
-    let mut secrets = vec![
-        CODE.to_string(),
-        TOKEN.to_string(),
-        CLIENT_SECRET.to_string(),
-    ];
-    let mut try_once = |s: &Started| {
-        secrets.extend([s.prelogin.clone(), s.state.clone()]);
-    };
-
-    let s = start(&app).await;
-    try_once(&s);
-    let res = callback(
-        &app,
-        Some(&s.prelogin),
-        &format!("code={CODE}&state={}", s.state),
-    )
-    .await;
-    let session = cookie_value(&set_cookie(&res, SESSION_COOKIE).unwrap());
-    me(&app, Some(&session)).await;
-
-    let s = start(&app).await;
-    try_once(&s);
-    callback(&app, Some(&s.prelogin), &format!("code={CODE}&state=wrong")).await;
-
-    *github.revoke.lock().unwrap() = Err(GithubError::Status(500));
-    *github.user.lock().unwrap() = Err(GithubError::Status(502));
-    let s = start(&app).await;
-    try_once(&s);
-    callback(
-        &app,
-        Some(&s.prelogin),
-        &format!("code={CODE}&state={}", s.state),
-    )
-    .await;
-
-    call(
-        &app,
-        Method::POST,
-        "/auth/logout",
-        Some(&session),
-        Some(ORIGIN),
-    )
-    .await;
-    for c in github.calls() {
-        if let Call::Exchange { verifier, .. } = c {
-            secrets.push(verifier);
-        }
-    }
-    secrets.push(session);
-
-    let text = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
-    assert!(
-        text.contains("sign-in failed"),
-        "the log was captured: {text}"
-    );
-    for secret in &secrets {
-        assert!(!text.contains(secret.as_str()), "{secret} logged:\n{text}");
-    }
 }
