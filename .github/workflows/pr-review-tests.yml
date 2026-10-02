@@ -44,7 +44,7 @@ jobs:
           diff -r conformance/evaluate "$RUNNER_TEMP/evaluate" || stale=1
           diff -r conformance/functions "$RUNNER_TEMP/functions" || stale=1
           if [ "$stale" = 1 ]; then
-            echo '::error::The committed corpus is stale. Run `python -m pr_review.conformance harvest` on Python 3.12 and commit the result.'
+            echo '::error::The committed corpus is stale. Run "python -m pr_review.conformance harvest" on Python 3.12 and commit the result.'
             exit 1
           fi
       - name: Clone the default branch of every governed repository
