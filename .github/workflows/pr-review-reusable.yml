@@ -60,9 +60,13 @@ jobs:
           repo = os.environ['TARGET_REPOSITORY']
           engine = os.environ.get('WORKFLOW_REVISION', '')
           reference, _, pin = os.environ.get('WORKFLOW_REFERENCE', '').partition('@')
+          # A caller names the engine by a full commit SHA, or by master: the
+          # protected branch its policies are already read from live. Either
+          # way `engine` is the commit GitHub is running, and the check below
+          # holds it to that branch.
           if (not re.fullmatch(r'[0-9a-f]{40}', engine)
-                  or reference.casefold() != REUSABLE or pin != engine):
-              raise SystemExit('The running reusable workflow must identify its full pinned commit SHA')
+                  or reference.casefold() != REUSABLE or pin not in {engine, 'refs/heads/master'}):
+              raise SystemExit('The running reusable workflow must be named by its full commit SHA or by master')
           caller, _, _ = os.environ.get('CALLER_REFERENCE', '').partition('@')
           if caller.casefold() != f'{repo}/{CALLER}'.casefold():
               raise SystemExit('Unexpected caller workflow path')
@@ -71,7 +75,7 @@ jobs:
           if not REF.fullmatch(default_branch):
               raise SystemExit('Unsupported branch name')
 
-          # Never infer executable code from the PR's base or a moving branch.
+          # Never infer executable code from the PR's base or any branch name.
           # A stacked PR can target an old feature branch with a stale caller;
           # the engine must still be the revision of the job GitHub is running.
 

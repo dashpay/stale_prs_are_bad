@@ -147,9 +147,16 @@ class RolloutTests(unittest.TestCase):
             self.assertEqual((path / 'existing').read_text(),'preserve')
 
     def test_bundle_rejects_unpinned_engine(self):
+        for revision in ('main', 'v1', 'a' * 7):
+            with self.subTest(revision=revision), tempfile.TemporaryDirectory() as folder:
+                with self.assertRaises(ValueError):
+                    write_bundle('dashpay/tenderdash', revision, Path(folder) / 'packet')
+
+    def test_bundle_can_track_master(self):
         with tempfile.TemporaryDirectory() as folder:
-            with self.assertRaises(ValueError):
-                write_bundle('dashpay/tenderdash','main',Path(folder)/'packet')
+            write_bundle('dashpay/tenderdash', 'master', Path(folder) / 'packet')
+            caller = (Path(folder) / 'packet/.github/workflows/pr-review-policy.yml').read_text()
+            self.assertIn('pr-review-reusable.yml@master', caller)
 
 
 if __name__ == '__main__':

@@ -53,7 +53,7 @@ def bot_problems(policies_root, trees_root):
 
 
 def caller_pin(workflow_text):
-    """The engine commit a caller pins, read the way the reusable workflow reads it."""
+    """The engine a caller runs — a full commit SHA, or `master` — read the way the reusable workflow reads it."""
     jobs = yaml.safe_load(workflow_text) or {}
     pins = []
     for job in (jobs.get('jobs') or {}).values():
@@ -62,8 +62,8 @@ def caller_pin(workflow_text):
             pins.append(uses.partition('@')[2])
     if len(pins) != 1:
         raise ValueError(f'expected exactly one job calling the shared workflow, found {len(pins)}')
-    if not re.fullmatch(r'[0-9a-f]{40}', pins[0]):
-        raise ValueError('the caller must pin the shared workflow to a full commit SHA')
+    if pins[0] != 'master' and not re.fullmatch(r'[0-9a-f]{40}', pins[0]):
+        raise ValueError('the caller must name the shared workflow by a full commit SHA or master')
     return pins[0]
 
 

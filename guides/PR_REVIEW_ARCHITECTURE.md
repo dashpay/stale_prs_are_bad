@@ -22,7 +22,7 @@ Contributor and QA sheet roles are not automatically promoted to owner or review
 
 ## Local enforcement
 
-Every governed repository, Platform included, calls the reusable workflow and pins both it and the engine to the same full commit SHA of this repository; the policy is read from this repository's protected default branch. Pull request code is not executed by the privileged controller.
+Every governed repository, Platform included, calls the reusable workflow by a full commit SHA of this repository or by `master`, and runs the engine of that same commit; either way the commit must be merged to this repository's protected default branch, which is also where the policy is read from. Naming `master` gives every repository the same engine as soon as a change merges, with no re-pin in each. Pull request code is not executed by the privileged controller.
 
 The engine SHA is the identity of the **executing reusable job**, supplied by `job.workflow_sha/ref`, not a pin looked up in the PR's base branch. Missing identity is an error, never a reason to skip verification. Live schema changes must remain compatible with deployed engines; the central compatibility gate validates proposed policies against discovered caller pins before merge.
 

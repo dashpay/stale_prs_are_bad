@@ -80,9 +80,13 @@ class RepoCheckTests(unittest.TestCase):
                 CALLER.format(reference=checks.REUSABLE, pin='c' * 40))
             self.assertEqual(list(checks.caller_pins(policies, trees)), [('dashpay/example', 'c' * 40)])
 
-    def test_policy_compatibility_cannot_accept_a_mutable_or_malformed_engine_pin(self):
-        for pin in ('master', 'a' * 7, '', 'a' * 40 + ';command'):
-            with self.subTest(pin=pin), self.assertRaisesRegex(ValueError, 'full commit SHA'):
+    def test_policy_compatibility_accepts_a_full_sha_or_master_and_nothing_else(self):
+        # `master` is the protected branch the policies are read from; a caller
+        # tracking it runs whatever the proposed change merges, so that is the
+        # engine its policies are checked against.
+        self.assertEqual(checks.caller_pin(CALLER.format(reference=checks.REUSABLE, pin='master')), 'master')
+        for pin in ('main', 'refs/heads/master', 'v1', 'a' * 7, '', 'a' * 40 + ';command'):
+            with self.subTest(pin=pin), self.assertRaisesRegex(ValueError, 'full commit SHA or master'):
                 checks.caller_pin(CALLER.format(reference=checks.REUSABLE, pin=pin))
 
 
