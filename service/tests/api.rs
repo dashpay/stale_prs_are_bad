@@ -54,6 +54,20 @@ async fn prs_are_filtered_by_every_filter_given() {
             &["dashpay/platform#3000", "dashpay/platform#7000"],
         ),
         ("late=true&stage=bots", &["dashpay/platform#7000"]),
+        (
+            "area=fallback",
+            &[
+                "dashpay/platform#3000",
+                "dashpay/platform#3001",
+                "dashpay/platform#9100",
+                "dashpay/rust-dashcore#102",
+            ],
+        ),
+        ("area=dash-spv", &["dashpay/rust-dashcore#101"]),
+        (
+            "area=fallback&repo=dashpay/rust-dashcore",
+            &["dashpay/rust-dashcore#102"],
+        ),
         ("area=validation", &[]),
     ];
     for (query, expected) in cases {
@@ -165,6 +179,29 @@ async fn one_person_is_found_in_any_case_and_their_owed_reviews_carry_the_pr() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
+/// Oldest first means the longest recorded wait first, not the PR number.
+#[tokio::test]
+async fn owed_reviews_come_longest_waiting_first() {
+    let app = app();
+    let mut d = snapshot(5);
+    let pr = d.prs.iter_mut().find(|p| p.number == 9100).unwrap();
+    pr.since_basis = Some(pr_hygiene::dashboard::SinceBasis::Engine);
+    pr.since = Some("2026-05-10T00:00:00Z".parse().unwrap());
+    ingest(&app, &d).await;
+    let (_, body) = get_json(&app, "/api/v1/people/QuantumExplorer").await;
+    let order: Vec<&str> = body["owes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["pr"]["key"].as_str().unwrap())
+        .collect();
+    assert_eq!(order, ["dashpay/platform#9100", "dashpay/platform#3000"]);
+    let text = text_body(get(&app, "/api/v1/people/QuantumExplorer?format=text").await).await;
+    let first = text.find("1. dashpay/platform#9100").expect(&text);
+    let second = text.find("2. dashpay/platform#3000").expect(&text);
+    assert!(first < second);
+}
+
 #[tokio::test]
 async fn one_pr_comes_with_its_recorded_stage_changes() {
     let app = ingested().await;
@@ -270,7 +307,9 @@ async fn a_repository_that_failed_keeps_its_prs_and_what_people_owe_there() {
 
 #[tokio::test]
 async fn the_digest_says_what_is_owed_in_the_engines_words() {
-    let app = ingested().await;
+    let app = app();
+    let d = snapshot(5);
+    ingest(&app, &d).await;
     let res = get(&app, "/api/v1/people/Alice?format=text").await;
     assert_eq!(res.status(), StatusCode::OK);
     assert!(res.headers()[header::CONTENT_TYPE]
@@ -281,7 +320,11 @@ async fn the_digest_says_what_is_owed_in_the_engines_words() {
     let text = text_body(res).await;
     let expected_lines = [
         "PR Hygiene digest v1 for alice",
-        &format!("Generated {} from commit {SHA}", snapshot_time(5)),
+        &format!(
+            "Generated {} from commit {SHA}",
+            d.generated_at
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        ),
         "- dashpay/platform (shadow): data from ",
         "Stale: none",
         "Reviews you owe: 1, oldest first",
@@ -359,8 +402,4 @@ async fn health_and_readiness() {
     ingest(&app, &snapshot(5)).await;
     let (status, ready) = get_json(&app, "/readyz").await;
     assert_eq!(status, StatusCode::OK, "{ready}");
-}
-
-fn snapshot_time(minutes_ago: i64) -> String {
-    generated(minutes_ago).to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }

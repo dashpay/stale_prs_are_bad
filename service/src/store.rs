@@ -63,11 +63,22 @@ CREATE TABLE IF NOT EXISTS view (
     version       INTEGER NOT NULL,
     body          TEXT NOT NULL
 );
+-- The id (`jti`) of every token that has posted, so none posts twice.
+CREATE TABLE IF NOT EXISTS used_tokens (
+    jti           TEXT PRIMARY KEY,
+    used_at       TEXT NOT NULL
+);
 ";
 
-/// Fixed-width UTC, so the text sorts as the time does.
+/// Long after any token has expired, its id is forgotten.
+const USED_TOKEN_RETENTION: TimeDelta = TimeDelta::days(1);
+
+/// Fixed-width UTC to the nanosecond, so the text sorts as the time does
+/// and reads back as exactly the time written: the analyzer's clock has
+/// nanoseconds, and a rounded copy of a snapshot's time would make the
+/// same snapshot look newer than itself.
 fn ts(t: DateTime<Utc>) -> String {
-    t.to_rfc3339_opts(SecondsFormat::Micros, true)
+    t.to_rfc3339_opts(SecondsFormat::Nanos, true)
 }
 
 fn parse_ts(s: &str) -> anyhow::Result<DateTime<Utc>> {
@@ -86,6 +97,8 @@ pub enum Outcome {
     /// Not generated after the latest snapshot stored: a replay, or an
     /// older run arriving late. Nothing was written.
     NotNewer { latest: DateTime<Utc> },
+    /// The token already posted once. Nothing was written.
+    TokenUsed,
 }
 
 pub struct Store {
@@ -119,16 +132,31 @@ impl Store {
 
     /// Store a checked snapshot and the view it makes: repositories it read
     /// replace their kept data and record their stage changes; those it
-    /// could not read keep theirs, untouched.
+    /// could not read keep theirs, untouched. `token_id` is the posting
+    /// token's `jti`, spent whatever the outcome; `None` for a local import.
     pub fn ingest(
         &mut self,
         d: &Dashboard,
         raw: &str,
+        token_id: Option<&str>,
         received_at: DateTime<Utc>,
     ) -> anyhow::Result<Outcome> {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(jti) = token_id {
+            let fresh = tx.execute(
+                "INSERT OR IGNORE INTO used_tokens (jti, used_at) VALUES (?1, ?2)",
+                params![jti, ts(received_at)],
+            )? == 1;
+            if !fresh {
+                return Ok(Outcome::TokenUsed);
+            }
+            tx.execute(
+                "DELETE FROM used_tokens WHERE used_at < ?1",
+                [ts(received_at - USED_TOKEN_RETENTION)],
+            )?;
+        }
         let latest: Option<String> = tx
             .query_row(
                 "SELECT generated_at FROM snapshots ORDER BY id DESC LIMIT 1",
@@ -138,6 +166,9 @@ impl Store {
             .optional()?;
         let latest = latest.as_deref().map(parse_ts).transpose()?;
         if let Some(latest) = latest.filter(|latest| d.generated_at <= *latest) {
+            // Committed so the token is spent: it cannot be tried again
+            // with a body dated later.
+            tx.commit()?;
             return Ok(Outcome::NotNewer { latest });
         }
         tx.execute(
@@ -151,7 +182,9 @@ impl Store {
         let mut stage_changes = 0;
         for status in d.repos.iter().filter(|r| view::is_good(r)) {
             let data = view::repo_part(d, status);
-            stage_changes += record_stage_changes(&tx, id, d.generated_at, &data.prs)?;
+            let entries_read = status.stage_times_error.is_none();
+            stage_changes +=
+                record_stage_changes(&tx, id, d.generated_at, &data.prs, entries_read)?;
             tx.execute(
                 "INSERT INTO repos (repo, snapshot_id, good_at, data) VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT (repo) DO UPDATE SET
@@ -235,11 +268,16 @@ fn load_kept(tx: &Transaction<'_>) -> anyhow::Result<HashMap<String, Kept>> {
 /// and re-entered between two snapshots, or its entry has only now been
 /// read). An entry time that could not be read this time is no change: the
 /// PR has not moved, and recording it would make rows of read failures.
+/// For the same reason, while some of a repository's stage records could
+/// not be read (`entries_read` false) a new entry time alone is no change
+/// either: the analyzer then falls back to other start times, such as the
+/// engine's own start of a review, which may differ from the recorded one.
 fn record_stage_changes(
     tx: &Transaction<'_>,
     snapshot_id: i64,
     observed_at: DateTime<Utc>,
     prs: &[PrOut],
+    entries_read: bool,
 ) -> anyhow::Result<usize> {
     let mut last = tx.prepare_cached(
         "SELECT stage, engine_state, since FROM stage_changes
@@ -267,7 +305,7 @@ fn record_stage_changes(
             Some((was_stage, was_state, was_since)) => {
                 was_stage != stage
                     || was_state != pr.engine_state
-                    || (since.is_some() && since != was_since)
+                    || (entries_read && since.is_some() && since != was_since)
             }
         };
         if changed {
@@ -339,15 +377,22 @@ impl Reader {
             .transpose()
     }
 
-    pub fn stage_changes(&self, repo: &str, number: u64) -> anyhow::Result<Vec<StageChange>> {
+    /// A PR's stage changes as of snapshot `as_of`: the rows a later ingest
+    /// adds meanwhile are not part of that snapshot's answer.
+    pub fn stage_changes(
+        &self,
+        repo: &str,
+        number: u64,
+        as_of: i64,
+    ) -> anyhow::Result<Vec<StageChange>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT stage, engine_state, since, observed_at FROM stage_changes
-             WHERE repo = ?1 AND number = ?2 ORDER BY id",
+             WHERE repo = ?1 AND number = ?2 AND snapshot_id <= ?3 ORDER BY id",
         )?;
         let Ok(number) = i64::try_from(number) else {
             return Ok(vec![]);
         };
-        let rows = stmt.query_map(params![repo, number], |row| {
+        let rows = stmt.query_map(params![repo, number, as_of], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, Option<String>>(1)?,
@@ -409,7 +454,7 @@ mod tests {
 
     fn ingest(db: &mut Db, d: &Dashboard) -> Outcome {
         let raw = serde_json::to_string(d).unwrap();
-        db.store.ingest(d, &raw, d.generated_at).unwrap()
+        db.store.ingest(d, &raw, None, d.generated_at).unwrap()
     }
 
     fn stored(o: &Outcome) -> (Vec<String>, usize) {
@@ -419,8 +464,42 @@ mod tests {
                 stage_changes,
                 ..
             } => (stale.clone(), *stage_changes),
-            Outcome::NotNewer { .. } => panic!("not stored: {o:?}"),
+            _ => panic!("not stored: {o:?}"),
         }
+    }
+
+    #[test]
+    fn a_token_is_spent_by_its_first_post_whatever_came_of_it() {
+        let mut db = db();
+        let posted = |db: &mut Db, d: &Dashboard, jti: &str| {
+            let raw = serde_json::to_string(d).unwrap();
+            db.store.ingest(d, &raw, Some(jti), d.generated_at).unwrap()
+        };
+        stored(&posted(&mut db, &snapshot(0), "a"));
+        assert_eq!(posted(&mut db, &snapshot(15), "a"), Outcome::TokenUsed);
+        // Not newer: ignored, and the token is spent all the same.
+        assert!(matches!(
+            posted(&mut db, &snapshot(-15), "b"),
+            Outcome::NotNewer { .. }
+        ));
+        assert_eq!(posted(&mut db, &snapshot(30), "b"), Outcome::TokenUsed);
+        stored(&posted(&mut db, &snapshot(30), "c"));
+        assert_eq!(count(&db, "SELECT count(*) FROM snapshots"), 2);
+    }
+
+    /// A PR's history is answered as of the view being served, so the same
+    /// snapshot (and ETag) never gains rows from a later ingest.
+    #[test]
+    fn stage_changes_are_read_as_of_a_snapshot() {
+        let mut db = db();
+        ingest(&mut db, &snapshot(0));
+        let mut moved = snapshot(15);
+        let pr = moved.prs.iter_mut().find(|p| p.number == 3000).unwrap();
+        pr.stage = Stage::Mergeable;
+        pr.engine_state = Some("ready-to-merge".into());
+        ingest(&mut db, &moved);
+        assert_eq!(db.reader.stage_changes(PLATFORM, 3000, 1).unwrap().len(), 1);
+        assert_eq!(db.reader.stage_changes(PLATFORM, 3000, 2).unwrap().len(), 2);
     }
 
     fn count(db: &Db, sql: &str) -> i64 {
@@ -456,7 +535,7 @@ mod tests {
         let (_, written) = stored(&ingest(&mut db, &unread));
         assert_eq!(written, 0, "a lost entry time is not a move");
 
-        let history = db.reader.stage_changes(PLATFORM, number).unwrap();
+        let history = db.reader.stage_changes(PLATFORM, number, i64::MAX).unwrap();
         assert_eq!(history.len(), 2);
         assert_eq!(history[1].stage, Stage::Mergeable);
         assert_eq!(history[1].since, Some(moved.generated_at - minutes(5)));
@@ -515,6 +594,91 @@ mod tests {
             }
         );
         assert_eq!(count(&db, "SELECT count(*) FROM snapshots"), 1);
+    }
+
+    /// The analyzer stamps `generated_at` from a clock with nanoseconds; a
+    /// retried post of that very snapshot must still read as not newer.
+    #[test]
+    fn a_replay_of_a_snapshot_stamped_in_nanoseconds_is_ignored() {
+        let mut db = db();
+        let mut d = snapshot(0);
+        d.generated_at += chrono::TimeDelta::nanoseconds(123_456_789);
+        stored(&ingest(&mut db, &d));
+        assert_eq!(
+            ingest(&mut db, &d),
+            Outcome::NotNewer {
+                latest: d.generated_at
+            }
+        );
+        assert_eq!(count(&db, "SELECT count(*) FROM snapshots"), 1);
+    }
+
+    /// Left and re-entered its stage between two snapshots: same stage, a
+    /// new recorded entry.
+    #[test]
+    fn a_new_recorded_entry_alone_is_a_row() {
+        let mut db = db();
+        let first = snapshot(0);
+        ingest(&mut db, &first);
+        let pr = first.prs.iter().find(|p| p.number == 3000).unwrap();
+        let mut reentered = snapshot(15);
+        reentered
+            .prs
+            .iter_mut()
+            .find(|p| p.number == 3000)
+            .unwrap()
+            .since = Some(pr.since.unwrap() + minutes(60 * 24));
+        let (_, written) = stored(&ingest(&mut db, &reentered));
+        assert_eq!(written, 1);
+    }
+
+    /// While some stage records cannot be read, the analyzer falls back to
+    /// other start times; those flipping back and forth are not moves.
+    #[test]
+    fn entry_times_from_a_partial_read_record_no_change() {
+        let mut db = db();
+        ingest(&mut db, &snapshot(0));
+        let mut partial = snapshot(15);
+        partial.repos[0].stage_times_error = Some("1 of 9 PRs could not be read".into());
+        let pr = partial.prs.iter_mut().find(|p| p.number == 3000).unwrap();
+        pr.since = pr.since.map(|t| t + minutes(3));
+        let (_, written) = stored(&ingest(&mut db, &partial));
+        assert_eq!(written, 0, "the fallback start is not a re-entry");
+        // A real move during a partial read is still recorded.
+        let mut moved = snapshot(30);
+        moved.repos[0].stage_times_error = Some("1 of 9 PRs could not be read".into());
+        let pr = moved.prs.iter_mut().find(|p| p.number == 3000).unwrap();
+        pr.stage = Stage::Mergeable;
+        pr.engine_state = Some("ready-to-merge".into());
+        let (_, written) = stored(&ingest(&mut db, &moved));
+        assert_eq!(written, 1);
+    }
+
+    #[test]
+    fn a_repository_dropped_from_the_registry_is_dropped() {
+        let mut db = db();
+        ingest(&mut db, &snapshot(0));
+        let mut d = snapshot(15);
+        d.repos.retain(|r| r.repo != DASHCORE);
+        d.prs.retain(|p| p.repo != DASHCORE);
+        for p in &mut d.people {
+            p.owes
+                .retain(|o| !o.pr.starts_with("dashpay/rust-dashcore#"));
+            p.authored
+                .retain(|k| !k.starts_with("dashpay/rust-dashcore#"));
+            p.wip.remove(DASHCORE);
+            p.areas.remove(DASHCORE);
+        }
+        d.people.retain(|p| {
+            !(p.owes.is_empty() && p.authored.is_empty() && p.wip.is_empty() && p.areas.is_empty())
+        });
+        let (stale, _) = stored(&ingest(&mut db, &d));
+        assert!(stale.is_empty());
+        let view = db.reader.view().unwrap().unwrap();
+        assert!(view.repo(DASHCORE).is_none());
+        assert!(view.prs.iter().all(|p| p.repo != DASHCORE));
+        assert_eq!(view.people, d.people, "nobody keeps a part in it");
+        assert_eq!(count(&db, "SELECT count(*) FROM repos"), 1);
     }
 
     #[test]

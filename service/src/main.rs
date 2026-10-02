@@ -114,7 +114,7 @@ fn import(db: &Path, file: &Path) -> anyhow::Result<()> {
     let d =
         snapshot::parse(raw.as_bytes()).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
     let mut store = Store::open(db)?;
-    match store.ingest(&d, &raw, Utc::now())? {
+    match store.ingest(&d, &raw, None, Utc::now())? {
         Outcome::Stored {
             snapshot,
             stale,
@@ -128,6 +128,8 @@ fn import(db: &Path, file: &Path) -> anyhow::Result<()> {
         Outcome::NotNewer { latest } => {
             println!("not stored: generated at {}, not after the latest ({latest})", d.generated_at)
         }
+        // An import carries no token to have been used.
+        Outcome::TokenUsed => println!("not stored: token already used"),
     }
     Ok(())
 }

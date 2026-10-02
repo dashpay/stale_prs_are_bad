@@ -5,9 +5,11 @@
 //! (`your_part` and `asks` in `pr_review/main.py`), so the digest, the PR's
 //! checklist and the engine's reports say the same thing the same way.
 //!
-//! Everything taken from GitHub (titles, logins, errors) has its control
-//! characters replaced and Slack's mrkdwn control characters escaped: a
-//! title cannot start a new line, mention a channel or forge a link.
+//! Everything taken from GitHub (titles, logins, errors) has its control,
+//! line-separator and invisible format characters replaced and Slack's
+//! mrkdwn control characters escaped: a title cannot start a new line,
+//! mention a channel or forge a link. Bare URLs and `@here` in a title are
+//! left as text: the Slack poster must send with `parse: none`.
 
 use crate::view::{RepoView, View};
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -19,8 +21,9 @@ use std::fmt::Write;
 pub const VERSION: u32 = 1;
 
 /// Make untrusted text safe on one line of a Slack message or a terminal:
-/// control and bidirectional-override characters become spaces, and `&`,
-/// `<` and `>` are escaped as Slack requires.
+/// control characters, line and paragraph separators and invisible format
+/// characters become spaces, and `&`, `<` and `>` are escaped as Slack
+/// requires.
 pub fn clean(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -28,15 +31,41 @@ pub fn clean(s: &str) -> String {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
-            c if c.is_control() || is_bidi_control(c) => out.push(' '),
+            c if c.is_control() || is_separator_or_format(c) => out.push(' '),
             c => out.push(c),
         }
     }
     out
 }
 
-fn is_bidi_control(c: char) -> bool {
-    matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+/// Unicode's line and paragraph separators (Zl, Zp), which Python,
+/// JavaScript and language models all read as line breaks, and its format
+/// characters (Cf): invisible marks that hide, join or reorder text.
+fn is_separator_or_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00ad}'
+            | '\u{0600}'..='\u{0605}'
+            | '\u{061c}'
+            | '\u{06dd}'
+            | '\u{070f}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08e2}'
+            | '\u{180e}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{2028}'..='\u{202e}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206f}'
+            | '\u{feff}'
+            | '\u{fff9}'..='\u{fffb}'
+            | '\u{110bd}'
+            | '\u{110cd}'
+            | '\u{13430}'..='\u{1343f}'
+            | '\u{1bca0}'..='\u{1bca3}'
+            | '\u{1d173}'..='\u{1d17a}'
+            | '\u{e0001}'
+            | '\u{e0020}'..='\u{e007f}'
+    )
 }
 
 /// The engine's `area_name`: the fallback area by what it is, others as code.
@@ -372,6 +401,44 @@ mod tests {
         );
         assert_eq!(clean("a\u{202e}b\r\tc"), "a b  c");
         assert_eq!(clean("ünïcode stays"), "ünïcode stays");
+        // Line and paragraph separators break lines for Python, JavaScript
+        // and any model reading the digest; invisible format characters
+        // hide or reorder text.
+        assert_eq!(
+            clean("a\u{2028}b\u{2029}c\u{061c}d\u{200b}e\u{feff}f\u{00ad}g\u{2060}h"),
+            "a b c d e f g h"
+        );
+    }
+
+    /// Ages are measured to the snapshot's time, never the clock: the same
+    /// snapshot gives the same text under the same ETag.
+    #[test]
+    fn the_digest_is_as_of_its_snapshot() {
+        use crate::view::{assemble, is_good, repo_part, Kept};
+        let d = crate::testdata::fixture();
+        let kept = d
+            .repos
+            .iter()
+            .filter(|r| is_good(r))
+            .map(|r| {
+                let k = Kept {
+                    good_at: d.generated_at,
+                    data: repo_part(&d, r),
+                };
+                (r.repo.clone(), k)
+            })
+            .collect();
+        let view = assemble(&d, 1, d.generated_at, &kept);
+        let alice = view.person("alice").unwrap();
+        let text = person(&view, alice);
+        // #3000 entered review on 2026-05-17T06:00Z; the snapshot is from
+        // 2026-05-19T06:00Z.
+        assert!(
+            text.contains("   Author: carol. Waiting: 2d 0h.\n"),
+            "{text}"
+        );
+        assert!(text.contains("Generated 2026-05-19T06:00:00Z from commit abc1234\n"));
+        assert_eq!(text, person(&view, alice), "deterministic");
     }
 
     #[test]

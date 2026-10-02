@@ -67,11 +67,16 @@ pub fn bind(d: &Dashboard, token: &Verified, job_timeout: Duration) -> Result<()
         Some(_) => return invalid("snapshot commit is not the commit of the posting run"),
         None => return invalid("snapshot names no commit"),
     }
-    let delta = |d: Duration| TimeDelta::from_std(d).unwrap_or(TimeDelta::MAX);
-    if d.generated_at < token.issued_at - delta(job_timeout) {
+    // Checked: a configured timeout too long to subtract leaves no lower
+    // bound rather than overflowing.
+    let earliest = TimeDelta::from_std(job_timeout)
+        .ok()
+        .and_then(|timeout| token.issued_at.checked_sub_signed(timeout));
+    if earliest.is_some_and(|earliest| d.generated_at < earliest) {
         return invalid("snapshot was generated before the posting run's job could have started");
     }
-    if d.generated_at > token.issued_at + delta(CLOCK_SKEW) {
+    let skew = TimeDelta::from_std(CLOCK_SKEW).expect("a minute fits");
+    if d.generated_at > token.issued_at + skew {
         return invalid("snapshot is dated after its token was minted");
     }
     Ok(())
@@ -97,16 +102,19 @@ pub fn validate(d: &Dashboard) -> Result<(), Invalid> {
     if d.repos.is_empty() || d.repos.len() > MAX_REPOS {
         return invalid("repos: expected 1 to 64");
     }
-    let mut repos = HashSet::new();
+    let mut spellings = HashSet::new();
     for r in &d.repos {
         if !is_repo(&r.repo) {
             return invalid(format!("repos: {:?} is not owner/name", r.repo));
         }
-        if !repos.insert(r.repo.to_ascii_lowercase()) {
+        if !spellings.insert(r.repo.to_ascii_lowercase()) {
             return invalid(format!("repos: {} listed twice", r.repo));
         }
     }
-    let known = |repo: &str| repos.contains(&repo.to_ascii_lowercase());
+    // Exactly as listed: each repository's data is filed under that
+    // spelling, and anything under another would silently fall out.
+    let repos: HashSet<&str> = d.repos.iter().map(|r| r.repo.as_str()).collect();
+    let known = |repo: &str| repos.contains(repo);
     bounded("prs", d.prs.len(), MAX_PRS)?;
     let mut keys = HashSet::new();
     for p in &d.prs {
@@ -312,5 +320,32 @@ mod tests {
         let error = d.repos[0].fetch_error.as_deref().unwrap();
         assert_eq!(error.chars().count(), MAX_DIAGNOSTIC + 1);
         assert!(validate(&d).is_ok());
+    }
+
+    /// The service files a repository's data under the spelling the
+    /// snapshot lists it by; a PR listed under another spelling would pass
+    /// here and then vanish from the view.
+    #[test]
+    fn a_pr_under_another_spelling_of_its_repository_is_refused() {
+        let mut d = crate::testdata::fixture();
+        assert!(validate(&d).is_ok());
+        let pr = &mut d.prs[0];
+        pr.repo = "Dashpay/Platform".into();
+        pr.key = format!("Dashpay/Platform#{}", pr.number);
+        assert!(validate(&d).is_err());
+    }
+
+    /// However long the configured job timeout, binding a snapshot to its
+    /// token must not overflow.
+    #[test]
+    fn an_absurd_job_timeout_does_not_overflow() {
+        let mut d = crate::testdata::fixture();
+        d.commit = Some("0123456789abcdef0123456789abcdef01234567".into());
+        let token = Verified {
+            sha: "0123456789abcdef0123456789abcdef01234567".into(),
+            issued_at: d.generated_at,
+            token_id: "id".into(),
+        };
+        assert!(bind(&d, &token, Duration::from_secs(u64::MAX)).is_ok());
     }
 }

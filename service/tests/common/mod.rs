@@ -123,6 +123,9 @@ pub fn now() -> i64 {
     Utc::now().timestamp()
 }
 
+/// GitHub gives every token its own `jti`.
+static NEXT_JTI: AtomicUsize = AtomicUsize::new(1);
+
 /// The claims GitHub puts in a token for the scheduled run on master.
 pub fn claims() -> Value {
     let now = now();
@@ -133,7 +136,7 @@ pub fn claims() -> Value {
         "iat": now,
         "nbf": now - 5,
         "exp": now + 300,
-        "jti": "a-unique-id",
+        "jti": format!("token-{}", NEXT_JTI.fetch_add(1, Ordering::SeqCst)),
         "sha": SHA,
         "repository": "dashpay/stale_prs_are_bad",
         "repository_id": "1242761300",

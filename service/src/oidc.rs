@@ -210,6 +210,7 @@ struct Claims {
     iss: String,
     aud: String,
     iat: i64,
+    jti: String,
     sha: String,
     repository_id: String,
     repository_owner_id: String,
@@ -229,6 +230,8 @@ pub struct Verified {
     /// The commit the posting run executed.
     pub sha: String,
     pub issued_at: DateTime<Utc>,
+    /// The token's own id (`jti`): a token posts once.
+    pub token_id: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -312,9 +315,13 @@ impl Verifier {
         if !is_commit_sha(&claims.sha) {
             return Err(unauthenticated("`sha` is not a commit id"));
         }
+        if claims.jti.is_empty() || claims.jti.len() > 128 {
+            return Err(unauthenticated("`jti` is missing or too long"));
+        }
         Ok(Verified {
             sha: claims.sha,
             issued_at,
+            token_id: claims.jti,
         })
     }
 

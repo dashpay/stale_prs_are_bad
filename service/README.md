@@ -41,8 +41,18 @@ GitHub's public token-signing keys from
 | `PR_HYGIENE_REF` | `refs/heads/master` | The only branch a posting run may run on. |
 | `PR_HYGIENE_WORKFLOW_REF` | `dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene.yml@refs/heads/master` | The only workflow (and job workflow) allowed to post. |
 | `PR_HYGIENE_BODY_LIMIT` | `1048576` | Largest snapshot accepted, in bytes. Five repositories with 139 open PRs measured 109 KB. |
-| `PR_HYGIENE_JOB_TIMEOUT_SECS` | `1800` | How long before the token was minted the snapshot may have been generated: the analyze job's `timeout-minutes` (20) plus the post job's start-up. |
+| `PR_HYGIENE_JOB_TIMEOUT_SECS` | `1800` | How long before the token was minted the snapshot may have been generated: the analyze job's `timeout-minutes` (20) plus the post job's start-up. 60 to 86400. |
 | `RUST_LOG` | `info` | Log filter. |
+
+### In front of it
+
+The service limits each request to 30 seconds and each snapshot to the body
+limit, and nothing else. The reverse proxy that terminates TLS must also:
+
+- time out slow and idle connections (request headers within about 10 s);
+- cap connections, and rate-limit `/api/v1/*` per client;
+- pass `POST /ingest` through unbuffered or with a body limit no larger
+  than the service's, and never log its `Authorization` header.
 
 ### Health
 
@@ -78,6 +88,7 @@ restore, stop the service and put the copy in place as
 Raw snapshots are kept 30 days, then cleared at the next ingest (their
 metadata stays). Each repository's last good data and the view are kept
 until replaced. Stage changes are kept; they name PRs and stages, no person.
+The ids of tokens that have posted are kept a day, long after any expires.
 
 ## Ingest
 
@@ -97,13 +108,16 @@ analyzer's `dashboard.json`. Checked in this order:
 3. The binding to the run: the snapshot's `commit` is the token's `sha`, and
    its `generated_at` lies between the token's `iat` minus the job timeout
    and `iat` plus the skew.
-4. Newer than the latest stored, or ignored (`200 {"stored": false}`): a
+4. One post per token: the token's `jti` is spent by its first post that
+   gets this far, whatever came of it, so a captured token cannot carry a
+   second body. A post job that retries must mint a new token.
+5. Newer than the latest stored, or ignored (`200 {"stored": false}`): a
    replay changes nothing.
 
 | Status | Meaning |
 |---|---|
 | 200 `{"stored": true, "snapshot", "stale_repos", "stage_changes"}` | Stored. |
-| 200 `{"stored": false, "reason"}` | Not newer than the latest; ignored. |
+| 200 `{"stored": false, "reason"}` | Not newer than the latest, or the token already posted; ignored. |
 | 400 | The body is missing, malformed, out of bounds or not from this run. |
 | 401 | No token, or not a valid GitHub token for this service. |
 | 403 | A valid token from a run that may not post; the error names the claim. |
@@ -126,6 +140,17 @@ lacks is needed and none of the engine's rules is re-derived: when every
 repository is read, the people served are exactly the analyzer's. Whether
 someone is a bot, and how their login is spelled, come from the latest
 snapshot.
+
+### Stage changes
+
+One row per PR when it is first seen, when its stage or engine state
+changes, or when its recorded entry into the stage changes (it left and
+came back between two runs). An entry time that could not be read is not a
+change, and while some of a repository's stage records could not be read
+(`stage_times_error`) a new entry time alone is not one either: the
+analyzer then falls back to other start times. `since` is exact where the
+analyzer's `since_basis` is `engine`; otherwise only `observed_at`, the
+generation time of the snapshot that first showed the row, bounds it.
 
 ## Public API
 

@@ -368,6 +368,33 @@ async fn a_replay_or_an_older_run_is_ignored() {
     );
 }
 
+/// A token is good for one post. Whoever captured one could otherwise post
+/// a body of their own naming the same commit, dated just after the real
+/// one, for as long as the token lives.
+#[tokio::test]
+async fn a_token_is_good_for_one_post() {
+    let app = app();
+    let token = token();
+    let (status, body) = post(&app, Some(&token), common::body(&snapshot(6))).await;
+    assert_eq!(
+        (status, &body["stored"]),
+        (StatusCode::OK, &json!(true)),
+        "{body}"
+    );
+    let (_, before) = get_json(&app, "/api/v1/prs").await;
+
+    let mut forged = snapshot(5);
+    forged.prs.retain(|p| p.repo != PLATFORM);
+    let (status, body) = post(&app, Some(&token), common::body(&forged)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["stored"], false, "{body}");
+    assert!(
+        body["reason"].as_str().unwrap().contains("already used"),
+        "{body}"
+    );
+    assert_eq!(get_json(&app, "/api/v1/prs").await.1, before);
+}
+
 #[tokio::test]
 async fn a_snapshot_outside_the_schema_or_bounds_is_refused() {
     let app = app();

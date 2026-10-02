@@ -224,9 +224,10 @@ async fn ingest_checked(
         .map_err(|_| ApiError::bad_request("body is not UTF-8"))?;
 
     let writer = state.clone();
+    let token_id = verified.token_id.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         let mut store = writer.writer.lock().unwrap_or_else(PoisonError::into_inner);
-        store.ingest(&d, &raw, Utc::now())
+        store.ingest(&d, &raw, Some(&token_id), Utc::now())
     })
     .await
     .map_err(|e| ApiError::internal(anyhow::anyhow!("ingest task: {e}")))?
@@ -253,6 +254,14 @@ async fn ingest_checked(
                 "stored": false,
                 "reason": "not newer than the latest snapshot",
                 "latest_generated_at": latest,
+            }))
+            .into_response()
+        }
+        Outcome::TokenUsed => {
+            tracing::warn!("a token posted a second time; ignored");
+            Json(json!({
+                "stored": false,
+                "reason": "token already used: each token posts once; mint a new one",
             }))
             .into_response()
         }

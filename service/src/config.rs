@@ -77,7 +77,13 @@ pub struct IngestConfig {
 
     /// How long before the token was minted the snapshot may have been
     /// generated: the analyze job's timeout plus the post job's start-up.
-    #[arg(long, env = "PR_HYGIENE_JOB_TIMEOUT_SECS", default_value_t = 1800)]
+    /// One minute to one day.
+    #[arg(
+        long,
+        env = "PR_HYGIENE_JOB_TIMEOUT_SECS",
+        default_value_t = 1800,
+        value_parser = clap::value_parser!(u64).range(60..=86_400)
+    )]
     pub job_timeout_secs: u64,
 }
 

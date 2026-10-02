@@ -198,8 +198,9 @@ pub async fn pr(
         return Ok(res);
     }
     let stored_repo = pr.repo.clone();
+    let as_of = view.version;
     let changes = state
-        .read(move |reader| reader.stage_changes(&stored_repo, number))
+        .read(move |reader| reader.stage_changes(&stored_repo, number, as_of))
         .await?;
     Ok(json_response(
         &view,
