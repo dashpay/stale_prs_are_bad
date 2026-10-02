@@ -23,6 +23,7 @@
  },
  "tests": [
   "test_checklist.StaleMarkTests.test_a_record_already_set_aside_is_not_written_again",
+  "test_checklist.StaleMarkTests.test_a_record_this_controller_refreshed_is_set_aside",
   "test_checklist.StaleMarkTests.test_only_the_current_record_is_rewritten",
   "test_checklist.StaleMarkTests.test_the_diff_history_is_kept_and_the_slot_given_up",
   "test_checklist.StaleMarkTests.test_the_record_is_set_aside_before_the_marks_go"

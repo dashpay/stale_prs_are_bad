@@ -1,0 +1,23 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "version": 1,
+   "number": 7,
+   "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "admitted_at": "2026-09-11T10:00:00Z",
+   "ready_since": null,
+   "state": "ready-for-human",
+   "evidence": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "context": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "body": "text",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T10:00:00Z\",\"context\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"evidence\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"head\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"number\":7,\"ready_since\":null,\"state\":\"ready-for-human\",\"version\":1} -->\n\ntext",
+ "tests": [
+  "test_github.BuildVerdictTests.test_a_record_nobody_edited_is_read_though_its_update_time_moved",
+  "test_github.BuildVerdictTests.test_a_record_this_controller_refreshed_is_still_read"
+ ],
+ "python": "3.12"
+}

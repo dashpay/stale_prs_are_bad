@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "version": 1,
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": "2026-01-01T00:00:00Z",
+   "ready_since": null,
+   "state": "ready-for-human",
+   "evidence": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "context": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "body": "text",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-01-01T00:00:00Z\",\"context\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"evidence\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"ready-for-human\",\"version\":1} -->\n\ntext",
+ "tests": [
+  "test_github.GitHubTests.test_comments_read_without_their_editors_are_refused_by_the_record_reader"
+ ],
+ "python": "3.12"
+}

@@ -347,10 +347,19 @@
   "comments": [
    {
     "id": 1,
-    "user": "llbartekll",
-    "body": "/skip-bots",
-    "created_at": "2026-09-11T10:00:00Z",
-    "updated_at": "2026-09-11T10:00:00Z"
+    "user": "github-actions[bot]",
+    "created_at": "2026-09-10T00:00:00Z",
+    "updated_at": "2026-09-11T11:00:00Z",
+    "edited_at": "2026-09-11T11:00:00Z",
+    "edited_by": "github-actions[bot]",
+    "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-self-review\",\"version\":1} -->\n\nold text"
+   },
+   {
+    "id": 2,
+    "user": "github-actions[bot]",
+    "created_at": "2026-09-10T12:00:00Z",
+    "updated_at": "2026-09-10T12:00:00Z",
+    "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":\"2026-09-10T12:00:00Z\",\"state\":\"waiting-self-review\",\"version\":1} -->\n\nother text"
    }
   ],
   "threads": [],
@@ -362,12 +371,22 @@
    "shumkov": "admin",
    "ktechmidas": "admin"
   },
-  "controller_state": null,
+  "controller_state": {
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "evidence": "f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "number": 1,
+   "ready_since": null,
+   "state": "waiting-self-review",
+   "version": 1
+  },
   "labels": [],
   "complete": true,
   "build": "green",
   "head_seen_at": "2026-09-11T09:00:00Z",
-  "body": ""
+  "body": "",
+  "controller_comment_id": 1
  },
  "admitted_at": "2026-09-11T12:00:00Z",
  "now": "2026-09-11T14:00:00Z",
@@ -378,12 +397,11 @@
   "author": "llbartekll",
   "title": "title",
   "url": "url",
-  "state": "waiting-self-review",
+  "state": "waiting-bots",
   "status": "pending",
   "blockers": [
-   "Author must post /self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-   "Proceeded without coderabbitai: skipped by @llbartekll",
-   "Proceeded without thepastaclaw: skipped by @llbartekll"
+   "coderabbitai has not reported for the current head",
+   "thepastaclaw has not reported for the current head"
   ],
   "reviewers": [],
   "objectors": [],
@@ -394,24 +412,21 @@
   ],
   "ready_since": null,
   "admitted_at": "2026-09-11T12:00:00Z",
-  "bot_completed_at": "2026-09-11T10:00:00Z",
+  "bot_completed_at": null,
   "self_reviewed_at": null,
   "nudge": [],
-  "waived": [
-   "coderabbitai",
-   "thepastaclaw"
-  ],
+  "waived": [],
   "approvals": [],
   "objections": [],
   "checklist": [
    {
     "item": "bots",
-    "done": true,
+    "done": false,
     "lines": [
-     "coderabbitai skipped by llbartekll",
-     "thepastaclaw skipped by llbartekll"
+     "coderabbitai not yet",
+     "thepastaclaw not yet"
     ],
-    "skippable": false
+    "skippable": true
    },
    {
     "item": "self_review",
@@ -478,30 +493,10 @@
    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   ],
   "reviewed_since": "2026-09-11T09:00:00Z",
-  "receipts": {},
-  "skipped_by": "llbartekll"
+  "receipts": {}
  },
  "tests": [
-  "test_checklist.ChecklistTests.test_every_requirement_is_shown_and_the_first_unchecked_is_the_state",
-  "test_checklist.PublishTests.test_a_bot_reporting_with_nothing_to_answer_is_not_announced_again",
-  "test_checklist.PublishTests.test_a_description_too_long_is_a_warning_not_an_error",
-  "test_checklist.PublishTests.test_a_hand_ticked_box_or_a_wiped_block_is_repaired",
-  "test_checklist.PublishTests.test_a_move_is_announced_once_with_the_record_and_the_block_written",
-  "test_checklist.PublishTests.test_a_new_head_is_announced_afresh_so_the_author_is_told_again",
-  "test_checklist.PublishTests.test_a_record_line_somebody_truncated_does_not_wedge_the_pull_request",
-  "test_checklist.PublishTests.test_nothing_is_rewritten_when_description_labels_and_comment_already_agree",
-  "test_checklist.PublishTests.test_the_old_standing_comment_points_at_the_description_then_goes",
-  "test_checklist.PublishTests.test_the_same_move_on_the_same_head_is_kept_current_in_place",
-  "test_checklist.PublishTests.test_words_that_cannot_be_written_back_are_replaced_not_refused",
-  "test_checklist.RecordTests.test_a_description_with_no_room_is_left_alone_on_the_fast_path",
-  "test_checklist.RecordTests.test_a_forged_newest_record_is_written_over_once_and_then_read",
-  "test_checklist.RecordTests.test_a_state_change_that_is_not_a_move_refreshes_the_record_silently",
-  "test_checklist.RecordTests.test_an_evidence_only_change_refreshes_the_record_in_place_and_posts_nothing",
-  "test_checklist.RecordTests.test_ready_since_does_not_drift_between_announcements",
-  "test_checklist.SecondReviewTests.test_a_foreign_bot_comment_quoting_the_marker_is_left_alone",
-  "test_checklist.SecondReviewTests.test_a_pull_request_back_in_draft_loses_the_stale_block",
-  "test_checklist.SecondReviewTests.test_the_holder_is_the_comment_the_record_was_read_from",
-  "test_checklist.SecondReviewTests.test_the_move_coming_back_to_the_author_is_announced_again"
+  "test_checklist.SecondReviewTests.test_the_holder_is_the_comment_the_record_was_read_from"
  ],
  "python_exception_text": false,
  "python": "3.12"
