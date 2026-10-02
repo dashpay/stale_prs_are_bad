@@ -70,12 +70,7 @@ impl Default for Config {
             weights: Weights::default(),
             age_multiplier: AgeMultiplier::Ln,
             history_retention_days: 90,
-            author_aliases: {
-                let mut m = std::collections::HashMap::new();
-                m.insert("Claudius-Maginificent".into(), "lklimek".into());
-                m.insert("thepastaclaw".into(), "PastaPastaPasta".into());
-                m
-            },
+            author_aliases: std::collections::HashMap::new(),
         }
     }
 }
@@ -169,6 +164,24 @@ weights:
         assert!(repo_parts("no-slash").is_err());
         assert!(repo_parts("/empty").is_err());
         assert!(repo_parts("empty/").is_err());
+    }
+
+    /// thepastaclaw is a bot and PastaPastaPasta a person; Claudius-Maginificent
+    /// is a bot the policy names under `bot_authors`. Folding a bot's PRs into a
+    /// person's row credited and blamed the person for the bot's work.
+    #[test]
+    fn no_account_is_merged_into_another() {
+        assert!(Config::default().author_aliases.is_empty());
+        let shipped = Config::load_or_default(Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/.pr-hygiene.yml"
+        )))
+        .unwrap();
+        assert!(
+            shipped.author_aliases.is_empty(),
+            "{:?}",
+            shipped.author_aliases
+        );
     }
 
     #[test]
