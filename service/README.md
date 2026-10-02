@@ -149,8 +149,10 @@ The ids of tokens that have posted are kept a day, long after any expires.
 
 Sign-in keeps (see [what is stored](#what-is-stored)): sessions until they
 expire, 30 days after sign-in; sign-ins under way 10 minutes; opt-outs
-until further notice. Expired sessions and abandoned sign-ins are deleted
-at start-up and daily after. Backups hold them too, for the backups' own
+until further notice; speed inputs 13 months after the time that dates
+each (an ask or turn still open is kept: it is current). Expired sessions,
+abandoned sign-ins and speed inputs past their 13 months are deleted at
+start-up and daily after. Backups hold them too, for the backups' own
 retention.
 
 ## Sign in with GitHub
@@ -218,7 +220,8 @@ no-store`, `Vary: Cookie`, no ETag. With sign-in off, each answers 404.
 |---|---|
 | `GET /auth/login` | Start a sign-in (above). |
 | `GET /auth/callback` | Finish it (above). |
-| `GET /api/v1/me` | `{"id", "login", "person"}` — `person` is the `/api/v1/people/{login}` entry, or `null` when the data does not name you; 401 signed out. |
+| `GET /api/v1/me` | `{"id", "login", "person", "opted_out"}` — `person` is the `/api/v1/people/{login}` entry, or `null` when the data does not name you; 401 signed out. |
+| `GET /api/v1/me/speed` | Your own speed (below), computed on request from your speed inputs alone; `{"opted_out": true}` once you opted out; 401 signed out. |
 | `POST /auth/logout` | End this browser's session, on the server too. 204. |
 | `POST /api/v1/me/opt-out` | Opt out: no speed is computed for you and its inputs are deleted; the public queue, a mirror of GitHub, is unchanged. You stay signed in. 204; 401 signed out. |
 | `DELETE /api/v1/me` | Delete your account: every session of yours, in every browser, and your speed inputs. An opt-out is kept, so it is still honoured. 204; 401 signed out. |
@@ -227,6 +230,39 @@ The three that change something require an `Origin` header exactly equal to
 `PR_HYGIENE_PUBLIC_ORIGIN`; a missing or different one is a 403. The page
 calls them with `fetch` (its CSP has `form-action 'none'`).
 
+### Your speed
+
+```json
+{"since": "2025-10-14T12:00:00Z",
+ "months": [{"month": "2026-09",
+   "review_wait": {"asked": 7, "answered": 5, "open": 1, "median_hours": 18.5, "n": 5},
+   "your_turn":   {"median_hours": 30.0, "n": 4},
+   "cycle_time":  {"median_hours": 96.0, "n": 3}}]}
+```
+
+Months run oldest first, from the first with data to the current one, the
+last 12 at most. Each median rolls over the month and the two before it,
+in hours to one decimal, and is `null` when that window holds fewer than
+three values; `n` is the window's count either way. `since` is the
+earliest time the listed months rest on (`null` with no data).
+
+- **Review wait**: the asks made of you in the window — a PR waiting on
+  review with you among the approvers of an area still unapproved, or
+  with your objection standing — and how many you answered and how many
+  are still open. Timed from when you were asked to your first decisive
+  review, for answered asks only: one covered by a co-approver, or ended by
+  the PR leaving review, is counted, never timed.
+- **Your turn**: on your PRs, the time per turn in the author's stage
+  (self-review, answering an objection, a failed build). A run broken only
+  by bots or a build is one turn; only its stretches in the author's stage
+  count. By the month a turn ended.
+- **Cycle time**: first ready for review to merge, on your merged PRs, by
+  the month merged. It includes other people's review time.
+
+An interval is counted but not timed when its start is not known (already
+running when its repository was first read, with no recorded start) or
+when its repository could not be read while it was open.
+
 ### What is stored
 
 | Table | Holds | Kept |
@@ -234,9 +270,21 @@ calls them with `fetch` (its CSP has `form-action 'none'`).
 | `prelogins` | SHA-256 of the pre-login cookie's id; the `state` and PKCE verifier; when | until used, at most 10 minutes; at most 10 000 at once, oldest dropped first |
 | `sessions` | SHA-256 of the session cookie's id (never the id); GitHub user id and login; created and expiry | 30 days; at most 5 per person, oldest dropped first |
 | `opt_outs` | GitHub user id; when | until further notice, through account deletion |
+| `asks` | PR; the GitHub user id asked (while an ask is open, the login asked instead until an event ties it to an id); when asked and when it ended; answered, covered or left; whether timed | 13 months after it ended |
+| `turns` | PR; author id; start, end and time in the author's stage; whether timed | 13 months after it ended |
+| `merges` | PR; author id; first ready for review; merged | 13 months after the merge |
+| `reviews` | PR; reviewer id; approved, changes requested or dismissed; when | 13 months after the review |
+| `pr_authors` | PR; author id; last seen | 13 months after last seen |
 
-No GitHub token, email or name is stored. Speed inputs are not recorded
-yet; opting out and deleting your account will delete them once they are.
+No GitHub token, email or name is stored. The speed inputs come from
+public GitHub activity in the snapshots, only from repositories a snapshot
+read, and are never recorded for anyone who opted out. A login is tied to
+an account id only by an event GitHub reports in the same snapshot — that
+person's own decisive review on the PR, or a PR they authored — never by
+looking a login up, so someone who registers a login another person gave up
+inherits nothing. An ask that ends before anything ties its login to an id
+is deleted. Opting out or deleting your account deletes every row with your
+id and the open asks known only by the login you signed in with.
 
 ## Ingest
 
@@ -338,7 +386,11 @@ channel or forge a link in Slack.
 
 `import` stores a snapshot from a file with no token. It needs write access
 to the database file, so it opens nothing to an HTTP client; the schema and
-bounds are checked as on ingest, the binding to a run is not.
+bounds are checked as on ingest, the binding to a run is not. A snapshot no
+newer than the latest is not stored, but its closed PRs' merges and
+reviews are: that is how a year of cycle time gets in, from a one-time
+`pr-hygiene --json-out backfill.json --closed-days 365` run, too large to
+post.
 
 ```sh
 cargo run -p pr-hygiene-service -- import --db /tmp/prh.sqlite3 /tmp/b2-dashboard.json
