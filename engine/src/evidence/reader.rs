@@ -608,6 +608,7 @@ impl<T: Transport> GitHub<T> {
     fn comment_pages(&mut self, number: &PyInt) -> Read<Option<Vec<PyValue>>> {
         let mut nodes = Vec::new();
         let mut after = PyValue::None;
+        let mut seen: HashSet<String> = HashSet::new();
         let mut total;
         loop {
             let variables = self.variables(vec![
@@ -645,11 +646,11 @@ impl<T: Transport> GitHub<T> {
                 return Err(incomplete());
             };
             // More to read must come with somewhere new to read it from, or
-            // the same page could be asked for again for ever.
+            // the same pages could be asked for again for ever: a cursor seen
+            // before leads back to them.
             if more
                 && (page.is_empty()
-                    || !matches!(&cursor, PyValue::Str(c) if !c.is_empty())
-                    || py_eq(&cursor, &after))
+                    || !matches!(&cursor, PyValue::Str(c) if !c.is_empty() && !seen.contains(c)))
             {
                 return Err(incomplete());
             }
@@ -657,6 +658,9 @@ impl<T: Transport> GitHub<T> {
             nodes.extend(page);
             if !more {
                 break;
+            }
+            if let PyValue::Str(c) = &cursor {
+                seen.insert(c.clone());
             }
             after = cursor;
         }
@@ -715,6 +719,9 @@ impl<T: Transport> GitHub<T> {
         }
         let mut nodes = Vec::new();
         let mut cursor = PyValue::None;
+        // Python's set of cursors: hashed on the way in, and matched as a
+        // set matches, the same object or an equal one.
+        let mut seen: Vec<PyValue> = Vec::new();
         loop {
             let variables = self.variables(vec![
                 ("number", PyValue::Int(number.clone())),
@@ -759,9 +766,14 @@ impl<T: Transport> GitHub<T> {
                 break;
             }
             cursor = get(info, "endCursor")?.cloned().unwrap_or(PyValue::None);
-            if !cursor.truthy() {
+            // A cursor seen before leads back to pages already read.
+            if !cursor.truthy() || {
+                py_hashable(&cursor)?;
+                seen.iter().any(|old| py_same_element(old, &cursor))
+            } {
                 return Err(ReadError::github("Check pagination did not advance"));
             }
+            seen.push(cursor.clone());
         }
         let verdict = build_verdict(&nodes)?;
         self.builds.insert(head.to_owned(), verdict);
