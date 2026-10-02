@@ -259,7 +259,7 @@ fn run(options: Options) -> Result<bool, String> {
 
 fn main() -> ExitCode {
     std::panic::set_hook(Box::new(|info| {
-        eprintln!("{}", panic_line(info.location()))
+        eprintln!("{}", panic_line("differential", info.location()))
     }));
     let options = match options() {
         Ok(Some(options)) => options,

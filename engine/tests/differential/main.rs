@@ -545,6 +545,23 @@ fn the_check_catches_one_word_of_a_value_not_only_the_whole_of_it() {
 }
 
 #[test]
+fn the_check_catches_a_whole_value_made_of_the_reports_own_words() {
+    // A route and a body built only of words the report also uses are
+    // still what the recording holds, printed whole: the check refuses
+    // them. A recorded login that is only a part of a field's name — the
+    // login `reviewer` inside `verdict.reviewers` — is the report's own.
+    let recording = synthetic().join("sync-pr-2");
+    let (_, clean) = run(&[&recording]);
+    let field = format!("{clean}\n| verdict | `verdict.reviewers` | length | 1 | x |\n");
+    assert_no_contents(&field, &recording);
+    for leak in ["`repos/dashpay/platform/pulls/2`", "Some text."] {
+        let leaked = format!("{clean}\n| write | {leak} | value | 1 | x |\n");
+        let caught = std::panic::catch_unwind(|| assert_no_contents(&leaked, &recording));
+        assert!(caught.is_err(), "{leak} went unnoticed");
+    }
+}
+
+#[test]
 fn a_run_whose_output_cannot_be_read_keeps_its_snapshot_results() {
     let dir = scratch("no-printed");
     let partial = copy("report", &dir);

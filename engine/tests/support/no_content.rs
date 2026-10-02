@@ -144,44 +144,48 @@ fn contents(sources: &[PathBuf], recording: &Path) -> Vec<String> {
     out
 }
 
-/// `said` with every word of it that is one of `own` blanked out: what is
-/// left is what the report says beyond its own vocabulary. A recorded value
-/// found only inside the report's own words — `reviewer` inside the field
-/// `reviewers` — is that vocabulary, not the value.
-fn beyond(said: &str, own: &BTreeSet<String>) -> String {
-    let mut out = String::with_capacity(said.len());
-    let mut word = String::new();
-    let flush = |word: &mut String, out: &mut String| {
-        if own.contains(&word.to_lowercase()) {
-            out.extend(word.chars().map(|_| ' '));
-        } else {
-            out.push_str(word);
-        }
-        word.clear();
-    };
-    for c in said.chars() {
-        if c.is_alphanumeric() {
-            word.push(c);
-        } else {
-            flush(&mut word, &mut out);
-            out.push(c);
-        }
+/// Whether the occurrence of a recorded value at `at..end` of `said` is
+/// only a part of the report's own words: it starts or ends inside a longer
+/// word, and every word it touches is one of `own`. `reviewer` inside the
+/// field `reviewers` is the report's vocabulary. A value standing alone, or
+/// inside a word that is not the report's, is the value.
+fn inside_own_words(said: &str, at: usize, end: usize, own: &BTreeSet<String>) -> bool {
+    let word = |c: &char| c.is_alphanumeric();
+    let before = said[..at].chars().next_back().filter(word);
+    let after = said[end..].chars().next().filter(word);
+    if before.is_none() && after.is_none() {
+        return false;
     }
-    flush(&mut word, &mut out);
-    out
+    let start = at
+        - said[..at]
+            .chars()
+            .rev()
+            .take_while(word)
+            .map(char::len_utf8)
+            .sum::<usize>();
+    let stop = end
+        + said[end..]
+            .chars()
+            .take_while(word)
+            .map(char::len_utf8)
+            .sum::<usize>();
+    words(&said[start..stop]).iter().all(|w| own.contains(w))
 }
 
-/// Nothing a recording holds appears in what the tool said: no whole value
-/// beyond the report's own words, and no word of one that is not also one
-/// of the report's own.
+/// Nothing a recording holds appears in what the tool said: no whole value,
+/// except as a part of the report's own words, and no word of one that is
+/// not also one of the report's own.
 #[track_caller]
 pub fn assert_no_contents(said: &str, recording: &Path, sources: &[PathBuf]) {
     let seen = contents(sources, recording);
     assert!(seen.len() > 20, "the recording holds text to look for");
-    let beyond = beyond(said, &own_words(sources, recording));
+    let own = own_words(sources, recording);
     let leaked: Vec<&String> = seen
         .iter()
-        .filter(|s| beyond.contains(s.as_str()))
+        .filter(|s| {
+            said.match_indices(s.as_str())
+                .any(|(at, found)| !inside_own_words(said, at, at + found.len(), &own))
+        })
         .collect();
     assert!(
         leaked.is_empty(),
@@ -191,7 +195,6 @@ pub fn assert_no_contents(said: &str, recording: &Path, sources: &[PathBuf]) {
         .iter()
         .flat_map(|s| words(s))
         .collect();
-    let own = own_words(sources, recording);
     let shared: Vec<String> = words(said)
         .into_iter()
         .filter(|w| held.contains(w) && !own.contains(w))

@@ -184,17 +184,39 @@ async fn live(github: &Mock, recording: &Path, instant: &str, budget: usize) -> 
     .await
 }
 
-/// Every request GitHub saw was a read: a `GET`, or a GraphQL query. The
-/// stand-in itself answers anything else with a 405, so nothing else may
-/// appear at all.
+/// Whether a request to GitHub is one of the engine's reads: a `GET`, or a
+/// GraphQL document that is exactly one of the engine's own queries about
+/// the repository, as the read-only layer judges one.
+fn is_engine_read(request: &Seen) -> bool {
+    if request.method == "GET" {
+        return true;
+    }
+    if (request.method.as_str(), request.path()) != ("POST", "/graphql") {
+        return false;
+    }
+    let Ok(PyValue::Dict(document)) = py_loads(&request.body) else {
+        return false;
+    };
+    let (Some(PyValue::Str(query)), Some(variables)) =
+        (document.get("query"), document.get("variables"))
+    else {
+        return false;
+    };
+    let call = pr_hygiene_engine::evidence::Call::Graphql {
+        query: query.clone(),
+        variables: variables.clone(),
+    };
+    ReadOnly::new((), [REPO]).unwrap().check(&call).is_ok()
+}
+
+/// Every request GitHub saw was a read: a `GET`, or one of the engine's
+/// GraphQL queries — never a mutation.
 #[track_caller]
 fn only_reads(github: &Mock) {
     let seen = github.seen();
     let writes: Vec<String> = seen
         .iter()
-        .filter(|request| {
-            !(request.method == "GET" || (request.method == "POST" && request.path() == "/graphql"))
-        })
+        .filter(|request| request.path() != "/status.json" && !is_engine_read(request))
         .map(|request| format!("{} {}", request.method, request.path_and_query))
         .collect();
     assert!(writes.is_empty(), "sent: {writes:?}");
@@ -442,6 +464,43 @@ async fn a_would_be_write_where_nothing_changed_is_reported_and_never_sent() {
     );
     only_reads(&github);
     no_content::assert_no_contents(&said, &recording, &sources());
+}
+
+#[test]
+fn a_panic_anywhere_in_a_recordings_reads_is_one_unreadable_row_and_never_said() {
+    // Outside the live comparison itself: here, making the transport.
+    let mut transport = || -> anyhow::Result<ReadOnly<HttpTransport>> {
+        panic!("mallory has admin on dashpay/secret")
+    };
+    let mut clock = Stopped(PyDateTime::fromisoformat(RECORDED).unwrap());
+    let outcome = compare(
+        &[synthetic().join("sync-pr-2"), synthetic().join("report")],
+        &own(),
+        Settings {
+            budget: 1000,
+            report_prs: 2,
+            slot: 0,
+        },
+        Reads {
+            transport: &mut transport,
+            clock: &mut clock,
+            status_page: &mut || PyValue::None,
+        },
+    );
+    let said = outcome.printed();
+    assert!(!outcome.clean(), "{said}");
+    assert!(
+        said.contains("- unreadable (sync-pr-2): the tool panicked here"),
+        "{said}"
+    );
+    assert!(!said.contains("mallory"), "{said}");
+    // What the panicked reads spent is not known: all that was left is
+    // charged, and nothing more is read.
+    assert_eq!(outcome.spent, 1000);
+    assert!(
+        said.contains("| dashpay/platform · report | 0/0 | 0/0 | 0/0 | 0 | 0 | 0 | 1 | 0 | 0 |"),
+        "{said}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

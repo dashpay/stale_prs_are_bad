@@ -35,13 +35,14 @@ pub fn plain(text: &str) -> String {
         .collect()
 }
 
-/// The line a panic leaves on stderr: where it happened, and nothing it was
-/// handed. A panic's own message can quote what it was looking at — a slice
-/// of a body, an error naming a login — and stderr is the job's public log.
-pub fn panic_line(location: Option<&std::panic::Location<'_>>) -> String {
+/// The line a panic leaves on stderr: which tool, where it happened, and
+/// nothing it was handed. A panic's own message can quote what it was
+/// looking at — a slice of a body, an error naming a login — and stderr is
+/// the job's public log.
+pub fn panic_line(tool: &str, location: Option<&std::panic::Location<'_>>) -> String {
     match location {
-        Some(at) => format!("differential: panicked at {}:{}", at.file(), at.line()),
-        None => "differential: panicked".to_owned(),
+        Some(at) => format!("{tool}: panicked at {}:{}", at.file(), at.line()),
+        None => format!("{tool}: panicked"),
     }
 }
 
@@ -343,10 +344,13 @@ mod tests {
         let caught = guarded(|| -> usize { panic!("mallory has admin on dashpay/secret") });
         let problem = caught.unwrap_err();
         assert!(!problem.contains("mallory"), "{problem}");
-        let line = panic_line(Some(std::panic::Location::caller()));
+        let line = panic_line("differential", Some(std::panic::Location::caller()));
         assert!(line.starts_with("differential: panicked at "), "{line}");
         assert!(line.contains("report.rs:"), "{line}");
-        assert_eq!(panic_line(None), "differential: panicked");
+        assert_eq!(
+            panic_line("differential-live", None),
+            "differential-live: panicked"
+        );
     }
 
     #[test]

@@ -244,8 +244,12 @@ jobs:
               return 0
             fi
             rm -f "$live/spent"
+            # Its stderr is its own one-line errors and panic locations; only
+            # lines in that form are shown, whatever else might be said there.
             "$live_tool" --budget "$left" --report-prs "$LIVE_REPORT_PRS" --slot "$slot" \
-              --spent "$live/spent" --summary "$live/summary.md" "$1" || status=$?
+              --spent "$live/spent" --summary "$live/summary.md" "$1" 2> "$live/stderr" || status=$?
+            grep -E '^differential-live: ' "$live/stderr" >&2 || true
+            rm -f "$live/stderr"
             made=$(cat "$live/spent" 2>/dev/null) || made=$left
             [[ "$made" =~ ^[0-9]+$ ]] || made=$left
             live_spent=$(( live_spent + made ))
@@ -295,10 +299,14 @@ jobs:
             spent=$(( spent + 2 ))
             read -r core graphql <<<"$limits"
             # The live reads of this repository, at most: its report's pull
-            # requests and every sample, within what is left of their budget.
+            # requests and every sample, within what is left of their budget,
+            # which the last of them may have overrun.
             live_planned=$(( LIVE_REPORT_PRS * PER_OPEN_PR + 2 + AUTHORS_PER_REPOSITORY * PER_SAMPLE ))
             if (( live_planned > LIVE_BUDGET - live_spent )); then
               live_planned=$(( LIVE_BUDGET - live_spent ))
+            fi
+            if (( live_planned < 0 )); then
+              live_planned=0
             fi
             planned=$(( planned + live_planned ))
             if (( core < RATE_RESERVE + planned || graphql < RATE_RESERVE + planned )); then

@@ -154,21 +154,26 @@ fn run(options: Options) -> anyhow::Result<bool> {
         .build()?;
     let handle = runtime.handle().clone();
     let settings = options.settings;
-    let outcome = runtime.block_on(tokio::task::spawn_blocking(move || {
-        let page = StatusPage::new(handle.clone())?;
-        let mut transport = || read_only_transport(handle.clone(), tokens.clone(), &repositories);
-        let mut status_page = || page.fetch();
-        anyhow::Ok(compare(
-            &dirs,
-            &own,
-            settings,
-            Reads {
-                transport: &mut transport,
-                clock: &mut SystemClock,
-                status_page: &mut status_page,
-            },
-        ))
-    }))??;
+    let outcome = runtime
+        .block_on(tokio::task::spawn_blocking(move || {
+            let page = StatusPage::new(handle.clone())?;
+            let mut transport =
+                || read_only_transport(handle.clone(), tokens.clone(), &repositories);
+            let mut status_page = || page.fetch();
+            anyhow::Ok(compare(
+                &dirs,
+                &own,
+                settings,
+                Reads {
+                    transport: &mut transport,
+                    clock: &mut SystemClock,
+                    status_page: &mut status_page,
+                },
+            ))
+        }))
+        // A task that panicked carries the panic's message, which can quote
+        // what it was looking at: only that it panicked is said.
+        .map_err(|_| anyhow::anyhow!("the live reads panicked; the message is not printed"))??;
     print!("{}", outcome.printed());
     if let Some(summary) = &options.summary {
         let mut file = std::fs::OpenOptions::new()
@@ -188,7 +193,7 @@ fn run(options: Options) -> anyhow::Result<bool> {
 
 fn main() -> ExitCode {
     std::panic::set_hook(Box::new(|info| {
-        eprintln!("{}", panic_line(info.location()))
+        eprintln!("{}", panic_line("differential-live", info.location()))
     }));
     let options = match options() {
         Ok(Some(options)) => options,

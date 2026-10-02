@@ -194,6 +194,11 @@ fn counts(live: &Live, skipped: bool) -> Vec<usize> {
 /// Read live what each recording under `dirs` read, while the budget
 /// lasts, and compare. Blocks on every request: run it on a blocking
 /// thread, as the engine always runs.
+///
+/// Everything done with one recording — reading it, naming it, weighing
+/// it, reading it live — runs under [`guarded`]: a panic anywhere in it is
+/// one unreadable row, its message never printed, and is charged whatever
+/// was left of the budget, since what it spent is not known.
 pub fn compare(dirs: &[PathBuf], own: &OwnWords, settings: Settings, reads: Reads<'_>) -> Outcome {
     let Reads {
         transport,
@@ -204,79 +209,104 @@ pub fn compare(dirs: &[PathBuf], own: &OwnWords, settings: Settings, reads: Read
     let mut spent = 0;
     for dir in dirs {
         let directory = plain(&dir.file_name().unwrap_or_default().to_string_lossy());
-        let loaded = Recording::load_with(|name| std::fs::read_to_string(dir.join(name)))
-            .map_err(|e| e.to_string());
-        let recording = match loaded {
-            Ok(recording) => recording,
+        let left = settings.budget.saturating_sub(spent);
+        let read = guarded(|| {
+            let mut reads = Reads {
+                transport: &mut *transport,
+                clock: &mut *clock,
+                status_page: &mut *status_page,
+            };
+            one(dir, &directory, own, settings, left, &mut reads)
+        });
+        match read {
+            Ok(None) => {}
+            Ok(Some((row, cost))) => {
+                spent += cost;
+                rows.push(row);
+            }
             Err(problem) => {
+                spent += left;
                 rows.push(Row {
                     repository: "?".into(),
                     label: format!("unreadable ({directory})"),
                     directory,
                     found: Err(problem),
                 });
-                continue;
             }
-        };
-        let Some(work) = work(&recording) else {
-            continue;
-        };
-        let repository = plain(recording.repository().unwrap_or("?"));
-        let label = format!("{repository} · {}", plain(&recording.command()));
-        // Python's own run of the same command made these requests minutes
-        // ago; the live run makes the same reads.
-        let estimate = match work {
-            Work::Report => {
-                let picks = settings.report_prs.min(recording.verdicts.len());
-                PER_REPORT + PER_PULL_REQUEST * picks
-            }
-            Work::Run => recording.requests().unwrap_or(settings.budget),
-        };
-        if spent + estimate > settings.budget {
-            rows.push(Row {
-                repository,
-                label,
-                directory,
-                found: Ok(Found {
-                    counts: counts(&Live::default(), true),
-                    ..Found::default()
-                }),
-            });
-            continue;
         }
-        let found = match transport() {
-            Ok(transport) => guarded(|| match work {
-                Work::Report => {
-                    live_snapshots(&recording, settings.report_prs, settings.slot, transport)
-                }
-                Work::Run => live_run(&recording, transport, &mut *clock, &mut *status_page, own),
-            }),
-            Err(_) => Err("the read-only transport could not be made".to_owned()),
-        };
-        let found = match found {
-            Ok(live) => {
-                spent += live.requests;
-                Ok(Found {
-                    counts: counts(&live, false),
-                    comparison: live.comparison,
-                })
-            }
-            // What a run that panicked spent is not known: its estimate is
-            // charged.
-            Err(problem) => {
-                spent += estimate;
-                Err(problem)
-            }
-        };
-        rows.push(Row {
-            repository,
-            label,
-            directory,
-            found,
-        });
     }
     label_rows(&mut rows);
     Outcome { rows, spent }
+}
+
+/// One recording's row, and the requests its live reads made; `None` for a
+/// recording that is not read live. `left` is what is left of the budget.
+fn one(
+    dir: &Path,
+    directory: &str,
+    own: &OwnWords,
+    settings: Settings,
+    left: usize,
+    reads: &mut Reads<'_>,
+) -> Option<(Row, usize)> {
+    let loaded = Recording::load_with(|name| std::fs::read_to_string(dir.join(name)))
+        .map_err(|e| e.to_string());
+    let recording = match loaded {
+        Ok(recording) => recording,
+        Err(problem) => {
+            let row = Row {
+                repository: "?".into(),
+                label: format!("unreadable ({directory})"),
+                directory: directory.to_owned(),
+                found: Err(problem),
+            };
+            return Some((row, 0));
+        }
+    };
+    let work = work(&recording)?;
+    let repository = plain(recording.repository().unwrap_or("?"));
+    let label = format!("{repository} · {}", plain(&recording.command()));
+    let row = |found| Row {
+        repository: repository.clone(),
+        label: label.clone(),
+        directory: directory.to_owned(),
+        found,
+    };
+    // Python's own run of the same command made these requests minutes
+    // ago; the live run makes the same reads.
+    let estimate = match work {
+        Work::Report => {
+            let picks = settings.report_prs.min(recording.verdicts.len());
+            PER_REPORT + PER_PULL_REQUEST * picks
+        }
+        Work::Run => recording.requests().unwrap_or(settings.budget),
+    };
+    if estimate > left {
+        let skipped = Found {
+            counts: counts(&Live::default(), true),
+            ..Found::default()
+        };
+        return Some((row(Ok(skipped)), 0));
+    }
+    let Ok(transport) = (reads.transport)() else {
+        let problem = "the read-only transport could not be made".to_owned();
+        return Some((row(Err(problem)), 0));
+    };
+    let live = match work {
+        Work::Report => live_snapshots(&recording, settings.report_prs, settings.slot, transport),
+        Work::Run => live_run(
+            &recording,
+            transport,
+            &mut *reads.clock,
+            &mut *reads.status_page,
+            own,
+        ),
+    };
+    let found = Found {
+        counts: counts(&live, false),
+        comparison: live.comparison,
+    };
+    Some((row(Ok(found)), live.requests))
 }
 
 #[cfg(test)]
