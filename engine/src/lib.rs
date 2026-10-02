@@ -8,4 +8,5 @@
 //! expression classes, its `datetime` and the ties of `max` and `min`.
 
 pub mod evidence;
+pub mod policy;
 pub mod pycompat;
