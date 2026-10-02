@@ -403,7 +403,7 @@ pub fn build(inp: &Inputs<'_>) -> Dashboard {
                 slot_limit: inp
                     .policies
                     .get(&r.repo)
-                    .map_or(DEFAULT_SLOT_LIMIT, |p| p.max_active_prs),
+                    .map_or(DEFAULT_SLOT_LIMIT, |p| p.max_active_prs()),
                 closed_error: inp
                     .closed
                     .get(&r.repo)
@@ -708,7 +708,7 @@ pub fn part(state: &PolicyState, login: &str) -> Option<(Vec<AreaPart>, bool)> {
 pub fn kind(login: &str, policies: &HashMap<String, Policy>) -> Kind {
     let named = policies
         .values()
-        .flat_map(|p| &p.bot_authors)
+        .flat_map(|p| p.bot_authors())
         .any(|b| b.eq_ignore_ascii_case(login));
     if login.ends_with("[bot]") || named || is_review_bot(login) {
         Kind::Bot
@@ -745,12 +745,12 @@ fn people(prs: &[PrOut], inp: &Inputs<'_>) -> Vec<PersonOut> {
     for (repo, policy) in inp.policies {
         let rosters = std::iter::once((
             "fallback",
-            &policy.fallback.owners,
-            &policy.fallback.reviewers,
+            &policy.fallback().owners,
+            &policy.fallback().reviewers,
         ))
         .chain(
             policy
-                .areas
+                .areas()
                 .iter()
                 .map(|a| (a.id.as_str(), &a.owners, &a.reviewers)),
         );
@@ -835,15 +835,23 @@ mod tests {
         Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap()
     }
 
+    /// A policy governing the `v*-dev` branches, with one bot account, the
+    /// fallback owned by `fallback_owner`, and `areas`.
+    fn policy(fallback_owner: &str, areas: serde_json::Value) -> Policy {
+        let policy = serde_json::json!({
+            "version": 1, "repository": REPO, "max_active_prs": 5,
+            "target_branches": ["v*-dev"],
+            "bot_authors": ["Claudius-Maginificent"],
+            "fallback": {"owners": [fallback_owner], "reviewers": []},
+            "areas": areas
+        });
+        Policy::parse(&policy.to_string()).unwrap()
+    }
+
     fn policies() -> HashMap<String, Policy> {
         HashMap::from([(
             REPO.to_string(),
-            Policy {
-                repository: REPO.into(),
-                target_branches: vec!["v*-dev".into()],
-                bot_authors: vec!["Claudius-Maginificent".into()],
-                ..Policy::default()
-            },
+            policy("fallback-owner", serde_json::json!([])),
         )])
     }
 
@@ -1263,15 +1271,14 @@ mod tests {
 
     #[test]
     fn everyone_a_policy_names_is_on_the_board_with_their_areas() {
-        let mut policies = policies();
-        let p = policies.get_mut(REPO).unwrap();
-        p.fallback.owners = vec!["QuantumExplorer".into()];
-        p.areas = vec![crate::policy::Area {
-            id: "dpp".into(),
-            owners: vec!["quantumexplorer".into()],
-            reviewers: vec!["shumkov".into()],
-            ..Default::default()
-        }];
+        let policies = HashMap::from([(
+            REPO.to_string(),
+            policy(
+                "QuantumExplorer",
+                serde_json::json!([{"id": "dpp", "paths": ["packages/rs-dpp/"],
+                                    "owners": ["quantumexplorer"], "reviewers": ["shumkov"]}]),
+            ),
+        )]);
         let cfg = Config::default();
         let d = build(&Inputs {
             scored: &[],
