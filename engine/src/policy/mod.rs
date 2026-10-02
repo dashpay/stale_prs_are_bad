@@ -40,10 +40,11 @@ pub use prints::{carried_heads, diff_print, fingerprint};
 pub use receipts::{finding_blocks, finding_severities, receipt_instant, receipt_print};
 pub use validate::{governs, validate_policy};
 
-use crate::pycompat::object::{get, get_or, getitem, in_str_set, iterate, or};
+use crate::pycompat::object::{get, get_or, getitem, iterate, or, EMPTY_LIST, EMPTY_STR};
+use crate::pycompat::ops::py_in_str_set;
 use crate::pycompat::{PyDict, PyErr, PyValue};
 use std::collections::BTreeSet;
-use values::{lower, EMPTY_LIST, EMPTY_STR};
+use values::lower;
 
 /// The marker of this controller's record comment.
 pub const STATE_MARKER: &str = "platform-pr-review-state-v1";
@@ -212,5 +213,5 @@ pub fn machine_author(policy: &PyValue, pr: &PyValue) -> Result<bool, PyErr> {
 /// uncertainty let something through.
 fn may_object(permissions: &PyDict, user: &str) -> Result<bool, PyErr> {
     let level = permissions.get(user).unwrap_or(&PyValue::None);
-    Ok(in_str_set(level, &WRITE)? || matches!(level, PyValue::None))
+    Ok(py_in_str_set(level, &WRITE)? || matches!(level, PyValue::None))
 }

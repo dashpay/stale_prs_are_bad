@@ -1,4 +1,5 @@
-//! Python's `==`, `<` and friends, `in` and hashing, over [`PyValue`].
+//! Python's `==`, `<` and friends, `in`, hashing and `sorted()`, over
+//! [`PyValue`].
 //!
 //! The engine compares values whose types come from an answer it read, so
 //! the comparison has to be Python's for every pair of types, not only the
@@ -225,6 +226,54 @@ pub fn py_contains(container: &PyValue, needle: &PyValue) -> Result<bool, PyErr>
             py_type_name(other)
         ))),
     }
+}
+
+/// `sorted(...)` where comparing two items can raise: CPython 3.12's
+/// `list.sort` for a list of fewer than 64 items, which asks `<` of the same
+/// pairs in the same order, so it raises where Python raises and, failing
+/// that, leaves the same order. It finds the run at the start (reversing
+/// one that strictly descends), then inserts each later item by binary
+/// search. A longer list is sorted the same way; CPython would merge runs
+/// instead, which leaves the same order but asks `<` of other pairs, so on
+/// values it cannot compare the two may differ in whether they raise.
+///
+/// `less(a, b)` is Python's `a < b` on the sort keys: [`py_compare`] with
+/// [`Compare::Lt`] for values, [`py_compare_sequences`] for tuples.
+pub fn py_sort_by<T>(
+    items: &mut [T],
+    mut less: impl FnMut(&T, &T) -> Result<bool, PyErr>,
+) -> Result<(), PyErr> {
+    let n = items.len();
+    if n < 2 {
+        return Ok(());
+    }
+    // `count_run`: the longest run at the start, ascending or strictly
+    // descending.
+    let mut run = 2;
+    if less(&items[1], &items[0])? {
+        while run < n && less(&items[run], &items[run - 1])? {
+            run += 1;
+        }
+        items[..run].reverse();
+    } else {
+        while run < n && !less(&items[run], &items[run - 1])? {
+            run += 1;
+        }
+    }
+    // `binarysort`: each later item goes after every equal one before it.
+    for start in run..n {
+        let (mut low, mut high) = (0, start);
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if less(&items[start], &items[middle])? {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        items[low..=start].rotate_right(1);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

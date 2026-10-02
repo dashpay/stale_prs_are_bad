@@ -1,27 +1,12 @@
 //! The small operations the policy repeats on its dynamic inputs: Python's
 //! `x.lower()`, `x.upper() == 'WORD'`, `re` on a value that may not be
-//! text, `_time`, and the digests.
+//! text, `_time`, and building the values a verdict holds.
 
-use crate::pycompat::object::{str_method, type_name};
+use crate::pycompat::object::str_method;
+use crate::pycompat::ops::py_type_name;
 use crate::pycompat::text::{py_lower, py_upper_ascii};
-use crate::pycompat::{PyDateTime, PyDict, PyErr, PyList, PyValue};
-use sha2::{Digest, Sha256};
+use crate::pycompat::{PyDateTime, PyErr, PyValue};
 use std::cmp::Ordering;
-use std::sync::LazyLock;
-
-/// `{}`, for `x or {}` and `.get(key, {})`.
-pub(crate) static EMPTY_DICT: LazyLock<PyValue> = LazyLock::new(|| PyValue::Dict(PyDict::new()));
-
-/// `[]`, for `x or []` and `.get(key, [])`.
-pub(crate) static EMPTY_LIST: LazyLock<PyValue> = LazyLock::new(|| PyValue::List(PyList::new()));
-
-/// `''`, for `x or ''`.
-pub(crate) static EMPTY_STR: PyValue = PyValue::Str(String::new());
-
-/// `value or {}`.
-pub(crate) fn or_empty_dict(value: &PyValue) -> &PyValue {
-    crate::pycompat::object::or(value, &EMPTY_DICT)
-}
 
 /// `value.lower()`.
 pub(crate) fn lower(value: &PyValue) -> Result<String, PyErr> {
@@ -72,17 +57,9 @@ pub(crate) fn re_text(value: &PyValue) -> Result<&str, PyErr> {
         PyValue::Str(s) => Ok(s),
         other => Err(PyErr::type_error(format!(
             "expected string or bytes-like object, got '{}'",
-            type_name(other)
+            py_type_name(other)
         ))),
     }
-}
-
-/// `hashlib.sha256(text.encode()).hexdigest()`.
-pub(crate) fn sha256_hex(text: &str) -> String {
-    Sha256::digest(text.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 /// An aware instant, as `_time` returns one. Only [`time_text`] makes one,

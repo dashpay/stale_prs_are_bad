@@ -17,13 +17,14 @@ use super::prints::carried_heads;
 use super::receipts::{rabbit_receipt, receipt_instant, receipt_print};
 use super::validate::{governs, required_bots, validate_policy};
 use super::values::{
-    dict, earliest, latest, lower, or_empty_dict, re_text, s, string, strings, strs, time, upper,
-    upper_in, EMPTY_DICT, EMPTY_STR,
+    dict, earliest, latest, lower, re_text, s, string, strings, strs, time, upper, upper_in,
 };
 use super::{holders, machine_author, may_object, BOTS, WRITE};
 use crate::pycompat::object::{
-    get, get_or, getitem, hashable, in_str_set, is_str, iterate, no_attribute, or, py_eq,
-    py_item_order, py_sort_by, py_str, str_method,
+    get, get_or, getitem, iterate, no_attribute, or, py_str, str_method, EMPTY_DICT, EMPTY_STR,
+};
+use crate::pycompat::ops::{
+    py_compare, py_eq, py_eq_str, py_hashable, py_in_str_set, py_same_element, py_sort_by, Compare,
 };
 use crate::pycompat::text::{py_lower, py_strip};
 use crate::pycompat::{PyDict, PyErr, PyList, PyValue};
@@ -132,7 +133,7 @@ pub fn evaluate(
     };
     let reviewed_since = get(pr, "head_seen_at")?.clone();
     let receipts = or(
-        get(or_empty_dict(get(pr, "controller_diff")?), "receipts")?,
+        get(or(get(pr, "controller_diff")?, &EMPTY_DICT), "receipts")?,
         &EMPTY_DICT,
     )
     .clone();
@@ -241,7 +242,7 @@ fn decide(
     if !HEAD_SHA.is_match(re_text(head)?) {
         return Ok(Stop::error("Invalid head SHA"));
     }
-    if !is_str(getitem(pr, "state")?, "open") || !governs(policy, getitem(pr, "base")?)? {
+    if !py_eq_str(getitem(pr, "state")?, "open") || !governs(policy, getitem(pr, "base")?)? {
         return Ok(Stop::pending(
             "configuration-error",
             vec!["PR is outside the active policy scope".into()],
@@ -277,8 +278,8 @@ fn decide(
         let filename = getitem(&file, "filename")?;
         let previous = get_or(&file, "previous_filename", filename)?;
         // `dict.fromkeys((filename, previous))`: each once, in that order.
-        hashable(filename)?;
-        hashable(previous)?;
+        py_hashable(filename)?;
+        py_hashable(previous)?;
         let mut paths = vec![filename];
         if !py_eq(filename, previous) {
             paths.push(previous);
@@ -348,7 +349,7 @@ fn decide(
         )));
     }
     for login in people.keys() {
-        if !in_str_set(level(login), &WRITE)? {
+        if !py_in_str_set(level(login), &WRITE)? {
             return Ok(Stop::error(
                 "An assigned owner/reviewer lacks verified write access",
             ));
@@ -873,16 +874,16 @@ fn decide(
         }
     }
     let human = !needed.is_empty() || !objectors.is_empty() || !stranded.is_empty();
-    let previous = or_empty_dict(get(pr, "controller_state")?);
+    let previous = or(get(pr, "controller_state")?, &EMPTY_DICT);
     // Latched on the recorded state, and on ever having been ready for this
     // head, not on still being ready: a pull request that passed through
     // another state would otherwise need a green build again.
     let was_ready = get(pr, "ready_published")?.truthy()
-        || (is_str(get(previous, "state")?, "ready-for-human")
+        || (py_eq_str(get(previous, "state")?, "ready-for-human")
             && py_eq(get(previous, "head")?, head));
     let build = getitem(pr, "build")?;
-    let green = is_str(build, "green");
-    let failed = is_str(build, "failed");
+    let green = py_eq_str(build, "green");
+    let failed = py_eq_str(build, "failed");
     if human {
         if !admitted_at.truthy() && !machine_author(policy, pr)? {
             // Five at a time is a limit on human attention, so it applies
@@ -1057,9 +1058,10 @@ fn latest_reviews<'a>(
         let id = getitem(review, "id")?;
         keyed.push((at, id, review.as_ref()));
     }
+    // `(instant, id) < (instant, id)`: by the first items that differ.
     py_sort_by(&mut keyed, |a, b| match a.0.cmp(&b.0) {
-        Ordering::Equal => py_item_order(a.1, b.1),
-        other => Ok(other),
+        Ordering::Equal => Ok(!py_same_element(a.1, b.1) && py_compare(a.1, Compare::Lt, b.1)?),
+        other => Ok(other == Ordering::Less),
     })?;
     let mut latest = IndexMap::new();
     for (_, _, review) in keyed {

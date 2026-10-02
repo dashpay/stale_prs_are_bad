@@ -4,13 +4,13 @@
 //! same review. Each digest is SHA-256 over the bytes Python's `json.dumps`
 //! writes, so the two engines' prints are the same strings.
 
-use super::values::{or_empty_dict, sha256_hex, EMPTY_LIST, EMPTY_STR};
 use super::{is_engine, NUDGE_MARKER, STATE_MARKER};
+use crate::pycompat::hashlib::sha256_hexdigest;
 use crate::pycompat::object::{
-    get, get_or, getitem, iterate, no_attribute, or, py_eq, py_item_order, py_sort_by, str_method,
+    get, get_or, getitem, iterate, no_attribute, or, str_method, EMPTY_DICT, EMPTY_LIST, EMPTY_STR,
 };
+use crate::pycompat::ops::{py_compare_sequences, py_eq, py_sort_by, Compare};
 use crate::pycompat::{py_dumps, PyErr, PyList, PyValue};
-use std::cmp::Ordering;
 
 /// `diff_print(pr)`: what a reviewer read, this pull request's own changes
 /// whatever commit carries them. Each changed file's name, status, content
@@ -37,24 +37,13 @@ pub fn diff_print(pr: &PyValue) -> Result<Option<String>, PyErr> {
             Ok(item)
         })
         .collect::<Result<Vec<_>, PyErr>>()?;
-    py_sort_by(&mut items, |a, b| tuple_order(a, b))?;
+    py_sort_by(&mut items, |a, b| py_compare_sequences(a, Compare::Lt, b))?;
     let items: PyList = items
         .into_iter()
         .map(|item| PyValue::List(item.into_iter().collect()))
         .collect();
     let written = py_dumps(&PyValue::List(items), false, Some((",", ":")), None)?;
-    Ok(Some(sha256_hex(&written)))
-}
-
-/// Two tuples as Python orders them: by the first items that differ.
-fn tuple_order(a: &[PyValue], b: &[PyValue]) -> Result<Ordering, PyErr> {
-    for (x, y) in a.iter().zip(b) {
-        match py_item_order(x, y)? {
-            Ordering::Equal => continue,
-            other => return Ok(other),
-        }
-    }
-    Ok(a.len().cmp(&b.len()))
+    Ok(Some(sha256_hexdigest(written.as_bytes())))
 }
 
 /// `carried_heads(pr)`: the commits whose review still applies here, newest
@@ -62,7 +51,7 @@ fn tuple_order(a: &[PyValue], b: &[PyValue]) -> Result<Ordering, PyErr> {
 /// print as the record has it carries the commits recorded with it (the
 /// last twenty); anything that changes the diff starts over with this head.
 pub fn carried_heads(pr: &PyValue) -> Result<(Vec<PyValue>, PyValue), PyErr> {
-    let record = or_empty_dict(get(pr, "controller_diff")?);
+    let record = or(get(pr, "controller_diff")?, &EMPTY_DICT);
     let print_now = diff_print(pr)?;
     let unchanged = match &print_now {
         Some(print_now) => matches!(get(record, "diff")?, PyValue::Str(d) if d == print_now),
@@ -187,5 +176,5 @@ pub fn fingerprint(pr: &PyValue) -> Result<String, PyErr> {
         entries.insert(name.into(), PyValue::List(sorted));
     }
     let written = py_dumps(&relevant, true, Some((",", ":")), None)?;
-    Ok(sha256_hex(&written))
+    Ok(sha256_hexdigest(written.as_bytes()))
 }

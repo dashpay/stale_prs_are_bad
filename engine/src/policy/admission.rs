@@ -2,8 +2,9 @@
 //! once, the ones admitted longest ago first.
 
 use super::validate::{governs, validate_policy};
-use super::values::{lower, or_empty_dict, time, Instant};
-use crate::pycompat::object::{get, getitem, is_str, iterate, py_item_order, py_sort_by};
+use super::values::{lower, time, Instant};
+use crate::pycompat::object::{get, getitem, iterate, or, EMPTY_DICT};
+use crate::pycompat::ops::{py_compare, py_eq_str, py_same_element, py_sort_by, Compare};
 use crate::pycompat::{PyErr, PyInt, PyValue};
 use indexmap::IndexMap;
 use std::cmp::Ordering;
@@ -12,7 +13,7 @@ use std::cmp::Ordering;
 /// request took its slot, unless it went inactive (closed, drafted,
 /// retargeted) at or after that, which gave the slot up.
 pub fn effective_admission(pr: &PyValue) -> Result<&PyValue, PyErr> {
-    let recorded = get(or_empty_dict(get(pr, "controller_state")?), "admitted_at")?;
+    let recorded = get(or(get(pr, "controller_state")?, &EMPTY_DICT), "admitted_at")?;
     let inactive = get(pr, "lifecycle_at")?;
     if recorded.truthy() && inactive.truthy() && time(recorded)? <= time(inactive)? {
         return Ok(&PyValue::None);
@@ -37,7 +38,7 @@ pub fn admit(
     let prs = iterate(prs)?;
     let mut grouped: IndexMap<String, Vec<&PyValue>> = IndexMap::new();
     for pr in &prs {
-        if is_str(getitem(pr, "state")?, "open")
+        if py_eq_str(getitem(pr, "state")?, "open")
             && !getitem(pr, "draft")?.truthy()
             && governs(policy, getitem(pr, "base")?)?
         {
@@ -66,7 +67,7 @@ pub fn admit(
             };
             keyed.push((key, *pr));
         }
-        py_sort_by(&mut keyed, |(a, _), (b, _)| order(a, b))?;
+        py_sort_by(&mut keyed, |(a, _), (b, _)| less(a, b))?;
         for (_, pr) in keyed.into_iter().take(slots) {
             let number = match getitem(pr, "number")? {
                 PyValue::Int(number) => number.clone(),
@@ -84,10 +85,11 @@ pub fn admit(
     Ok(result)
 }
 
-/// `(group, instant, number)` tuples, as Python orders them.
-fn order(a: &(u8, Instant, &PyValue), b: &(u8, Instant, &PyValue)) -> Result<Ordering, PyErr> {
+/// `a < b` for `(group, instant, number)` tuples, as Python decides it: by
+/// the first items that differ.
+fn less(a: &(u8, Instant, &PyValue), b: &(u8, Instant, &PyValue)) -> Result<bool, PyErr> {
     match a.0.cmp(&b.0).then(a.1.cmp(&b.1)) {
-        Ordering::Equal => py_item_order(a.2, b.2),
-        other => Ok(other),
+        Ordering::Equal => Ok(!py_same_element(a.2, b.2) && py_compare(a.2, Compare::Lt, b.2)?),
+        other => Ok(other == Ordering::Less),
     }
 }

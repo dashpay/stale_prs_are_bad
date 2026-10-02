@@ -7,9 +7,10 @@
 //! check stays with the command that has a checkout to look at.
 
 use super::patterns::{branch_target, AREA_ID, BRANCH_SYNTAX, HANDLE, PREFIX, REPOSITORY};
-use super::values::{lower, re_text, strings, EMPTY_LIST};
+use super::values::{lower, re_text, strings};
 use super::{BOTS, REVIEW_BOTS};
-use crate::pycompat::object::{get_or, getitem, hashable, iterate, py_eq, str_method};
+use crate::pycompat::object::{get_or, getitem, iterate, str_method, EMPTY_LIST};
+use crate::pycompat::ops::{py_eq, py_hashable};
 use crate::pycompat::text::{py_lower, py_strip};
 use crate::pycompat::{PyErr, PyValue};
 use std::collections::BTreeSet;
@@ -128,7 +129,7 @@ pub fn validate_policy(policy: &PyValue) -> Result<(), PyErr> {
         };
         // `set(bots)` hashes every item before anything is compared.
         for item in items.iter() {
-            hashable(item)?;
+            py_hashable(item)?;
         }
         let duplicated = items
             .iter()

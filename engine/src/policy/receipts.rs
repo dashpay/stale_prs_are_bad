@@ -6,9 +6,11 @@ use super::patterns::{
     BOOKKEEPING, CHECKBOX, CHECKBOX_ITEM, HIDDEN_MARKUP, PASSED, PASTA_HEADING, RABBIT_HEADING,
     RECEIPT_COVERAGE, RECEIPT_TAIL, RISK_BLOCK, SECTIONS, SEPARATOR, SPACES, TABLE, TABLE_ROW,
 };
-use super::values::{lower, or_empty_dict, re_text, sha256_hex, EMPTY_DICT, EMPTY_STR};
+use super::values::{lower, re_text};
 use super::{FINDING_BLOCKS, NOTICES, VOLATILE};
-use crate::pycompat::object::{get, getitem, hashable, is_str, iterate, or, py_eq, py_str};
+use crate::pycompat::hashlib::sha256_hexdigest;
+use crate::pycompat::object::{get, getitem, iterate, or, py_str, EMPTY_DICT, EMPTY_STR};
+use crate::pycompat::ops::{py_eq, py_eq_str, py_hashable};
 use crate::pycompat::text::{py_splitlines, py_strip};
 use crate::pycompat::{py_raw_decode, PyErr, PyValue};
 
@@ -78,7 +80,8 @@ pub fn receipt_print(comment: &PyValue) -> Result<Option<String>, PyErr> {
         .into_owned();
     let said = SPACES.replace_all(&said, " ");
     let id = py_str(get(comment, "id")?);
-    Ok(Some(sha256_hex(&format!("{id}\n{}", py_strip(&said)))))
+    let printed = format!("{id}\n{}", py_strip(&said));
+    Ok(Some(sha256_hexdigest(printed.as_bytes())))
 }
 
 /// `receipt_instant(pr, comment)`: when this producer first said what the
@@ -87,7 +90,7 @@ pub fn receipt_print(comment: &PyValue) -> Result<Option<String>, PyErr> {
 pub fn receipt_instant(pr: &PyValue, comment: &PyValue) -> Result<PyValue, PyErr> {
     let said = receipt_print(comment)?;
     let known = or(
-        get(or_empty_dict(get(pr, "controller_diff")?), "receipts")?,
+        get(or(get(pr, "controller_diff")?, &EMPTY_DICT), "receipts")?,
         &EMPTY_DICT,
     );
     if let Some(said) = said {
@@ -119,7 +122,7 @@ pub(crate) fn rabbit_receipt(body: &PyValue, head: &PyValue) -> Result<bool, PyE
         if let PyValue::Dict(value) = &decoded.value {
             let kind = value.get("kind").unwrap_or(&PyValue::None);
             let covered = value.get("coveredCommitId").unwrap_or(&PyValue::None);
-            if is_str(kind, "reviewed") && py_eq(covered, head) {
+            if py_eq_str(kind, "reviewed") && py_eq(covered, head) {
                 return Ok(true);
             }
         }
@@ -197,7 +200,7 @@ pub fn finding_blocks(thread: &PyValue) -> Result<bool, PyErr> {
         return Ok(true);
     }
     for label in iterate(labels)? {
-        hashable(&label)?;
+        py_hashable(&label)?;
         let blocks = match label.as_ref() {
             PyValue::Str(label) => table
                 .iter()

@@ -6,17 +6,16 @@
 //! waiver, so a stale or hostile status page can cost one extra nudge but
 //! can never hold a pull request back.
 
-use super::values::{earliest, latest, lower, time, time_text, EMPTY_STR};
+use super::values::{earliest, latest, lower, s, time, time_text};
 use super::{is_engine, NUDGE_MARKER, RATE_LIMITED, RATE_LIMITED_END, WRITE};
-use crate::pycompat::object::{
-    contains_str, get, getitem, in_str_set, is_str, iterate, or, py_eq, py_order, py_str,
-    str_method, type_name,
+use crate::pycompat::object::{get, getitem, iterate, or, py_str, str_method, EMPTY_STR};
+use crate::pycompat::ops::{
+    py_compare, py_contains, py_eq, py_eq_str, py_in_str_set, py_type_name, Compare,
 };
 use crate::pycompat::text::py_strip;
 use crate::pycompat::{
     py_max_by_key, py_min_by_key, PyDateTime, PyDict, PyErr, PyList, PyTimeDelta, PyValue,
 };
-use std::cmp::Ordering;
 
 /// CodeRabbit's logins.
 const RABBIT: [&str; 2] = ["coderabbitai", "coderabbitai[bot]"];
@@ -76,18 +75,7 @@ fn hours(stamp: &PyValue, now: &PyValue) -> Result<f64, PyErr> {
 
 /// `hours >= bound`, a float against whatever the policy holds.
 fn at_least(hours: f64, bound: &PyValue) -> Result<bool, PyErr> {
-    // Nothing is at least NaN; `py_order` refuses to place one.
-    if matches!(bound, PyValue::Float(f) if f.is_nan()) {
-        return Ok(false);
-    }
-    match py_order(&PyValue::Float(hours), bound) {
-        Ok(order) => Ok(order != Ordering::Less),
-        Err(PyErr::Type(_)) => Err(PyErr::type_error(format!(
-            "'>=' not supported between instances of 'float' and '{}'",
-            type_name(bound)
-        ))),
-        Err(other) => Err(other),
-    }
+    py_compare(&PyValue::Float(hours), Compare::Ge, bound)
 }
 
 /// `timedelta(hours=hours)` for the whole hours a policy holds.
@@ -100,7 +88,7 @@ fn whole_hours(hours: &PyValue) -> Result<PyTimeDelta, PyErr> {
         other => {
             return Err(PyErr::type_error(format!(
                 "unsupported type for timedelta hours component: {}",
-                type_name(other)
+                py_type_name(other)
             )))
         }
     };
@@ -144,7 +132,7 @@ pub fn skipped_by(
         }
         let user = getitem(&c, "user")?;
         let level = permissions.get(&lower(user)?).unwrap_or(&PyValue::None);
-        if !in_str_set(level, &WRITE)? {
+        if !py_in_str_set(level, &WRITE)? {
             continue;
         }
         if time(created)? <= time(head_seen_at)? {
@@ -182,7 +170,7 @@ pub fn nudged_at(comments: &PyValue, bot: &str, heads: &PyValue) -> Result<Optio
         }
         let mut asked = false;
         for marker in &markers {
-            if contains_str(getitem(c, "body")?, marker)? {
+            if py_contains(getitem(c, "body")?, &s(marker.as_str()))? {
                 asked = true;
                 break;
             }
@@ -226,7 +214,7 @@ pub fn rate_limited_at(
     let mut stamps: Vec<PyValue> = Vec::new();
     for c in iterate(comments)? {
         if !RABBIT.contains(&lower(getitem(&c, "user")?)?.as_str())
-            || !contains_str(getitem(&c, "body")?, RATE_LIMITED)?
+            || !py_contains(getitem(&c, "body")?, &s(RATE_LIMITED))?
         {
             continue;
         }
@@ -243,7 +231,7 @@ pub fn rate_limited_at(
                 other => {
                     return Err(PyErr::type_error(format!(
                         "must be str, not {}",
-                        type_name(other)
+                        py_type_name(other)
                     )))
                 }
             }
@@ -335,9 +323,9 @@ pub(crate) fn schedule(
         // CodeRabbit announced its own limit and documents this retry.
         Some(limited) => hours(limited, now)? >= 1.0,
         // No receipt is ever coming for this head.
-        None if is_str(telemetry_state, "failed") => true,
+        None if py_eq_str(telemetry_state, "failed") => true,
         // In flight: nudging would only add load.
-        None if in_str_set(telemetry_state, &["running", "queued"])? => false,
+        None if py_in_str_set(telemetry_state, &["running", "queued"])? => false,
         None => at_least(waited, nudge_after)?,
     };
 
