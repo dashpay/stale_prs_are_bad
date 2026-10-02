@@ -332,6 +332,19 @@ def _graphql_login(author):
     return login
 
 
+def _graphql_comment(comment):
+    """A comment as GraphQL answers it, in the shape every comment reader shares.
+
+    Who last wrote it, not only when: a comment edited by somebody other than
+    its author is that person speaking.
+    """
+    return {"id": comment["databaseId"], "user": _graphql_login(comment["author"]),
+            "body": comment["body"],
+            "created_at": _text(comment["createdAt"], "comment creation time"),
+            "updated_at": _text(comment["updatedAt"], "comment update time"),
+            "edited_by": _graphql_login(comment["editor"]) if comment.get("editor") else None}
+
+
 def _login(user):
     if not isinstance(user, dict):
         raise GitHubError("Missing account identity")
@@ -538,21 +551,17 @@ class GitHub:
                 if type(total) is not int or not isinstance(nodes, list):
                     raise GitHubError("Incomplete comment connection")
                 if total > len(nodes):
-                    # Older than the window we asked for: read it the slow way
-                    # rather than miss this controller's own record.
-                    comments = self.comments(number)
-                else:
-                    # Who last wrote it, not only when: a comment edited by
-                    # somebody other than its author is that person speaking.
-                    comments = [{"id": comment["databaseId"], "user": _graphql_login(comment["author"]),
-                                 "body": comment["body"],
-                                 "created_at": _text(comment["createdAt"], "comment creation time"),
-                                 "updated_at": _text(comment["updatedAt"], "comment update time"),
-                                 "edited_by": _graphql_login(comment["editor"]) if comment.get("editor") else None}
-                                for comment in nodes]
-                    if any(not isinstance(item["body"], str) or type(item["id"]) is not int for item in comments):
-                        raise GitHubError("Invalid comment identity or body")
-                    comments = _unique(comments, "id", "comment")
+                    # Older than the window we asked for: read all of it rather
+                    # than miss this controller's own record, and still with
+                    # who last edited each comment, or a record it refreshed
+                    # would not be believed.
+                    nodes = self._comment_pages(number)
+                    if nodes is None:
+                        continue
+                comments = [_graphql_comment(comment) for comment in nodes]
+                if any(not isinstance(item["body"], str) or type(item["id"]) is not int for item in comments):
+                    raise GitHubError("Invalid comment identity or body")
+                comments = _unique(comments, "id", "comment")
                 events = node["timelineItems"]["nodes"]
                 if not isinstance(events, list):
                     raise GitHubError("Incomplete pull request timeline")
@@ -561,6 +570,61 @@ class GitHub:
                 raise GitHubError("Incomplete pull request history") from error
             histories[number] = {"comments": comments, "lifecycle_at": lifecycle}
         return histories
+
+    def _comment_pages(self, number):
+        """Every comment on one pull request, a page at a time, each with its editor.
+
+        None when the pull request no longer resolves, as the batched query
+        treats one. The pages must add up: a comment posted during the read
+        lands on the last page and is counted by that page's total, so the
+        last total is what they are held to. One deleted from a page already
+        read leaves more comments than that, and the read is refused rather
+        than decided from.
+        """
+        query = """query($owner:String!, $repo:String!, $number:Int!, $after:String) {
+          repository(owner:$owner, name:$repo) {
+            pullRequest(number:$number) {
+              comments(first:100, after:$after) {
+                totalCount
+                pageInfo { hasNextPage endCursor }
+                nodes { databaseId body createdAt updatedAt author { login __typename }
+                        editor { login __typename } }
+              }
+            }
+          }
+        }"""
+        owner, repo = self.repo.split("/")
+        nodes, after = [], None
+        while True:
+            response = self.request("POST", "graphql", {"query": query, "variables": {
+                "owner": owner, "repo": repo, "number": number, "after": after}})
+            if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
+                raise GitHubError("GraphQL comment query failed")
+            errors = response.get("errors") or []
+            if not isinstance(errors, list) or any(not isinstance(error, dict)
+                                                   or error.get("type") != "NOT_FOUND" for error in errors):
+                raise GitHubError("GraphQL comment query failed")
+            try:
+                pull = response["data"]["repository"]["pullRequest"]
+                if pull is None:
+                    return None
+                connection = pull["comments"]
+                total, page = connection["totalCount"], connection["nodes"]
+                more, cursor = connection["pageInfo"]["hasNextPage"], connection["pageInfo"]["endCursor"]
+            except (KeyError, TypeError) as error:
+                raise GitHubError("Incomplete comment page") from error
+            # More to read must come with somewhere new to read it from, or
+            # the same page could be asked for again for ever.
+            if (type(total) is not int or not isinstance(page, list) or type(more) is not bool
+                    or (more and (not page or not isinstance(cursor, str) or not cursor or cursor == after))):
+                raise GitHubError("Incomplete comment page")
+            nodes.extend(page)
+            if not more:
+                break
+            after = cursor
+        if len(nodes) != total:
+            raise GitHubError("Comment pages do not add up to the conversation")
+        return nodes
 
     def threads(self, number):
         query = """query($owner:String!, $repo:String!, $number:Int!, $cursor:String) {

@@ -744,15 +744,85 @@ class GitHubTests(unittest.TestCase):
         with patch.object(self.api, "request", return_value=response), self.assertRaises(GitHubError):
             self.api.histories([1])
 
-    def test_batched_history_reads_a_long_conversation_the_slow_way(self):
-        # The controller's own record can be older than the window we ask for.
-        truncated = self.history_response(comments={"totalCount": 250, "nodes": []})
-        with patch.object(self.api, "request", return_value=truncated):
-            with patch.object(self.api, "comments", return_value=[{"id": 1, "user": "u", "body": "b",
-                                                                   "created_at": "x", "updated_at": "x"}]) as rest:
-                history = self.api.histories([1])
-        rest.assert_called_once_with(1)
-        self.assertEqual(history[1]["comments"][0]["id"], 1)
+    @staticmethod
+    def long_comment(number):
+        # The first comment is this controller's record, since refreshed by it.
+        if number == 1:
+            body = GitHub.state_comment_body(
+                {"version": 1, "number": 1, "head": "a" * 40, "admitted_at": "2026-09-01T10:00:00Z",
+                 "ready_since": None, "state": "waiting-bots", "evidence": "c" * 64, "context": "d" * 64}, "text")
+            bot = {"login": "github-actions", "__typename": "Bot"}
+            return {"databaseId": 1, "body": body, "createdAt": "2026-09-01T10:00:00Z",
+                    "updatedAt": "2026-09-11T10:00:00Z", "author": bot, "editor": bot}
+        return {"databaseId": number, "body": f"comment {number}", "createdAt": "2026-09-02T00:00:00Z",
+                "updatedAt": "2026-09-02T00:00:00Z", "author": {"login": "someone", "__typename": "User"},
+                "editor": None}
+
+    @staticmethod
+    def comment_page(nodes, total, cursor=None):
+        return {"data": {"repository": {"pullRequest": {"comments": {
+            "totalCount": total, "pageInfo": {"hasNextPage": cursor is not None, "endCursor": cursor},
+            "nodes": nodes}}}}}
+
+    def read_long(self, pages, total=150):
+        """The history of a pull request whose comments outgrow the batched window.
+
+        `pages` answers each cursor; the comments listing answers the same
+        comments as GitHub's REST route does, naming no editor.
+        """
+        everything = [self.long_comment(n) for n in range(1, total + 1)]
+        window = self.history_response(comments={"totalCount": total, "nodes": everything[-100:]})
+        listing = [{"id": c["databaseId"], "body": c["body"], "created_at": c["createdAt"], "updated_at": c["updatedAt"],
+                    "user": {"login": c["author"]["login"] + ("[bot]" if c["author"]["__typename"] == "Bot" else "")}}
+                   for c in everything]
+
+        def answer(method, path, payload=None):
+            return window if "fragment history" in payload["query"] else pages[payload["variables"]["after"]]
+        with patch.object(self.api, "request", side_effect=answer), \
+                patch.object(self.api, "pages", return_value=listing):
+            return self.api.histories([1])
+
+    def test_a_long_conversation_is_read_page_by_page_with_its_editors(self):
+        # The controller's own record can be older than the window the batched
+        # query asks for, and it is rewritten in place, so it is believed only
+        # once its editor is known. The comments listing names no editor:
+        # read from there, a record this controller refreshed is ignored and
+        # the pull request loses its slot, and a hundred comments would hide
+        # anybody's edit of it.
+        everything = [self.long_comment(n) for n in range(1, 151)]
+        history = self.read_long({None: self.comment_page(everything[:100], 150, "c1"),
+                                  "c1": self.comment_page(everything[100:], 150)})
+        comments = history[1]["comments"]
+        self.assertEqual([c["id"] for c in comments], list(range(1, 151)))
+        self.assertEqual(comments[0]["edited_by"], "github-actions[bot]")
+        state, comment_id = parse_controller_state(comments)
+        self.assertEqual((comment_id, state["admitted_at"]), (1, "2026-09-01T10:00:00Z"))
+
+    def test_a_long_conversation_read_in_pieces_that_do_not_add_up_is_refused(self):
+        # Pages short of what they must carry, or holding more comments than
+        # the conversation has (one deleted from a page already read), are
+        # not the whole conversation, and the record may be the part missing.
+        everything = [self.long_comment(n) for n in range(1, 152)]
+        first = self.comment_page(everything[:100], 150, "c1")
+        # A comment posted during the read lands on the last page and is
+        # counted by its total: that read is whole.
+        added = self.read_long({None: first, "c1": self.comment_page(everything[100:], 151)})
+        self.assertEqual(len(added[1]["comments"]), 151)
+        # Deleted during the read: gone, as the batched query treats it.
+        gone = {"data": {"repository": {"pullRequest": None}}, "errors": [{"type": "NOT_FOUND"}]}
+        self.assertEqual(self.read_long({None: first, "c1": gone}), {})
+        no_page_info = self.comment_page(everything[100:150], 150)
+        del no_page_info["data"]["repository"]["pullRequest"]["comments"]["pageInfo"]
+        no_cursor = self.comment_page(everything[:100], 150, "c1")
+        no_cursor["data"]["repository"]["pullRequest"]["comments"]["pageInfo"]["endCursor"] = None
+        for pages, label in [
+                ({None: first, "c1": no_page_info}, 'a page without its page information'),
+                ({None: no_cursor}, 'more to read and no cursor to read it from'),
+                ({None: first, "c1": self.comment_page(everything[100:150], 149)}, 'more comments than there are'),
+                ({None: first, "c1": dict(self.comment_page(everything[100:150], 150),
+                                          errors=[{"type": "RATE_LIMITED"}])}, 'an error that is not a deletion')]:
+            with self.assertRaises(GitHubError, msg=label):
+                self.read_long(pages)
 
     def test_batched_history_of_nothing_asks_nothing(self):
         with patch.object(self.api, "request") as request:
