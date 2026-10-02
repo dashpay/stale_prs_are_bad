@@ -80,6 +80,38 @@ fn nesting_and_integer_limits_are_pythons() {
 }
 
 #[test]
+fn errors_and_named_floats_near_the_limit_are_recursion_errors_as_in_python() {
+    // A commenter controls how deep these sit. Where Python has no stack
+    // left to build the exception or call the constant's parser, it raises
+    // RecursionError, which fails the run instead of being caught as a
+    // ValueError; one level shallower, it answers normally.
+    let meta = golden("meta.json");
+    let calling = text(&meta["json"]["recursion_messages"]["calling"]);
+    let thresholds = &meta["json"]["depth_before_recursion_error"];
+    let long_int = "1".repeat(INT_MAX_STR_DIGITS + 1);
+    let docs: [(&str, &str, &str); 5] = [
+        ("expecting_value", "", ""),
+        ("decode_error", "\"\\x\"", "]"),
+        ("decode_error_in_object", "{1}", "]"),
+        ("named_float", "NaN", "]"),
+        ("int_too_long", &long_int, "]"),
+    ];
+    for (name, inner, close) in docs {
+        let depth = thresholds[name].as_u64().expect(name) as usize;
+        let doc = |n: usize| format!("{}{inner}{}", "[".repeat(n), close.repeat(n));
+        match py_loads(&doc(depth)) {
+            Err(PyErr::Recursion(m)) => panic!("{name} at {depth}: {m}"),
+            Ok(_) | Err(PyErr::Value(_)) => {}
+            Err(other) => panic!("{name} at {depth}: {other:?}"),
+        }
+        match py_loads(&doc(depth + 1)) {
+            Err(PyErr::Recursion(m)) => assert_eq!(m, calling, "{name}"),
+            other => panic!("{name} one level deeper: {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn a_duplicate_key_keeps_its_first_place_and_last_value() {
     let value = py_loads(r#"{"a": 1, "b": 2, "a": 3}"#).unwrap();
     let PyValue::Dict(entries) = value else {

@@ -6,6 +6,7 @@
 //! `char::is_whitespace` does not, and `str.lower` follows Unicode 15.0.
 
 use super::tables;
+use std::fmt::Write as _;
 
 fn in_ranges(table: &[(u32, u32)], c: char) -> bool {
     let c = c as u32;
@@ -179,21 +180,20 @@ pub fn py_repr_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push(quote);
     for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\t' => out.push_str("\\t"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            _ if c == quote => {
-                out.push('\\');
-                out.push(c);
-            }
-            _ if c < ' ' || c == '\u{7f}' => out.push_str(&format!("\\x{:02x}", c as u32)),
-            _ if c.is_ascii() || py_isprintable_char(c) => out.push(c),
-            _ if (c as u32) < 0x100 => out.push_str(&format!("\\x{:02x}", c as u32)),
-            _ if (c as u32) < 0x10000 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            _ => out.push_str(&format!("\\U{:08x}", c as u32)),
-        }
+        let code = u32::from(c);
+        // Writing to a String cannot fail.
+        let _ = match c {
+            '\\' => out.write_str("\\\\"),
+            '\t' => out.write_str("\\t"),
+            '\n' => out.write_str("\\n"),
+            '\r' => out.write_str("\\r"),
+            _ if c == quote => write!(out, "\\{c}"),
+            _ if c < ' ' || c == '\u{7f}' => write!(out, "\\x{code:02x}"),
+            _ if c.is_ascii() || py_isprintable_char(c) => out.write_char(c),
+            _ if code < 0x100 => write!(out, "\\x{code:02x}"),
+            _ if code < 0x10000 => write!(out, "\\u{code:04x}"),
+            _ => write!(out, "\\U{code:08x}"),
+        };
     }
     out.push(quote);
     out

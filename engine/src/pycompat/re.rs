@@ -22,10 +22,16 @@
 //! - **`$` without `(?m)`** also matches before a final `\n` in Python, which
 //!   the regex crate has no way to say. Where only the very end is meant,
 //!   write Python's `\Z` (translated to `\z`); otherwise port the line by
-//!   hand. [`translate`] refuses a bare `$` outside `(?m)`.
+//!   hand. [`translate`] refuses a bare `$` outside a leading `(?m)`.
 //! - **Flags passed as arguments** (`re.S`, `re.M`) go inline, `(?s)`, `(?m)`.
 //! - **`fullmatch`** is [`fullmatch_pattern`], `\A(?:…)\z`; **`match`** is
 //!   [`match_pattern`], `\A(?:…)`; **`search`** is `find`.
+//! - **Patterns that can match the empty string** differ in the regex crate
+//!   itself: a repeated group with an alternative that matches empty
+//!   (`(?:a*|b)*`) goes on where Python's stops, and `find_iter` skips the
+//!   empty match Python's `finditer` and `sub` report right after a
+//!   non-empty one (`a*` over `"a"`). Port such a pattern so that it cannot
+//!   match empty, or by hand.
 
 use super::tables;
 
@@ -38,14 +44,18 @@ pub enum TranslateError {
     UnterminatedClass,
     #[error("\\b and \\B depend on Python's \\w, which the regex crate cannot be given")]
     WordBoundary,
-    #[error("(?{0}) cannot be translated: port case-insensitive patterns with explicit sets")]
-    UnsupportedFlag(char),
+    #[error("(?{0}) is not translated: port this pattern by hand, a case-insensitive one with explicit sets")]
+    UnsupportedFlag(String),
     #[error("Python's $ also matches before a final newline: write \\Z for the very end, or port by hand")]
     Dollar,
     #[error(
         "{0:?} in a character class is a set operation in the regex crate and a literal in Python"
     )]
     SetOperation(String),
+    #[error("a class escape at the end of a range is an error in Python")]
+    ClassRange,
+    #[error("a quantifier after a quantifier is possessive or an error in Python")]
+    StackedQuantifier,
     #[error("{0:?} has no case-insensitive set: only ASCII letters have one")]
     NoFoldSet(char),
 }
@@ -58,46 +68,126 @@ fn class_body(escape: char) -> &'static str {
     }
 }
 
+/// What the last thing written outside a class was, as far as a following
+/// quantifier cares.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum After {
+    Other,
+    Quantifier,
+    /// A quantifier made lazy by `?`.
+    Lazy,
+}
+
+/// Inside a character class: how many members so far, and whether a `-`
+/// is waiting to join the last one to the next into a range.
+struct Class {
+    members: usize,
+    range_open: bool,
+}
+
 /// A Python `str` pattern as a `regex` pattern that matches the same text:
 /// `\s`, `\w`, `\d` and their negations, inside character classes or out,
 /// become the classes Python uses; `\Z` becomes `\z`; a `]` that opens a
-/// class and a `[` inside one are escaped. Everything else is passed
-/// through, so a construct the regex crate lacks (a backreference, a
-/// lookaround) fails when it is compiled.
+/// class, a `[` inside one and a `{` that Python reads as a literal are
+/// escaped, and `{,n}` becomes `{0,n}`. Everything else is passed through,
+/// so a construct the regex crate lacks (a backreference, a lookaround)
+/// fails when it is compiled.
 pub fn translate(pattern: &str) -> Result<String, TranslateError> {
     let multiline = global_flags(pattern).contains('m');
     let mut out = String::with_capacity(pattern.len());
     let mut chars = pattern.chars().peekable();
-    let mut in_class = false;
+    let mut class: Option<Class> = None;
+    let mut after = After::Other;
     while let Some(c) = chars.next() {
+        if let Some(state) = class.as_mut() {
+            let was_range = std::mem::take(&mut state.range_open);
+            match c {
+                '\\' => {
+                    let escape = chars.next().ok_or(TranslateError::TrailingBackslash)?;
+                    match escape {
+                        's' | 'w' | 'd' | 'S' | 'W' | 'D' => {
+                            // Python refuses a class escape at either end
+                            // of a range; the regex crate would read the
+                            // `-` as a literal and match more.
+                            let mut ahead = chars.clone();
+                            let starts_range =
+                                ahead.next() == Some('-') && ahead.next().is_some_and(|n| n != ']');
+                            if was_range || starts_range {
+                                return Err(TranslateError::ClassRange);
+                            }
+                            if escape.is_ascii_lowercase() {
+                                out.push_str(class_body(escape));
+                            } else {
+                                // A nested class is a union member.
+                                out.push_str("[^");
+                                out.push_str(class_body(escape.to_ascii_lowercase()));
+                                out.push(']');
+                            }
+                        }
+                        'b' => out.push_str(r"\x08"),
+                        _ => {
+                            out.push('\\');
+                            out.push(escape);
+                        }
+                    }
+                    state.members += 1;
+                }
+                ']' => {
+                    class = None;
+                    out.push(']');
+                }
+                '&' | '-' | '~' if chars.peek() == Some(&c) => {
+                    return Err(TranslateError::SetOperation(format!("{c}{c}")));
+                }
+                '-' => {
+                    // First or last it is a literal; between two members it
+                    // makes a range of them.
+                    if state.members > 0 && chars.peek() != Some(&']') {
+                        state.range_open = true;
+                    } else {
+                        state.members += 1;
+                    }
+                    out.push('-');
+                }
+                '[' => {
+                    out.push_str(r"\[");
+                    state.members += 1;
+                }
+                _ => {
+                    out.push(c);
+                    state.members += 1;
+                }
+            }
+            continue;
+        }
+        let before = std::mem::replace(&mut after, After::Other);
         match c {
             '\\' => {
                 let escape = chars.next().ok_or(TranslateError::TrailingBackslash)?;
                 match escape {
-                    's' | 'w' | 'd' if in_class => out.push_str(class_body(escape)),
                     's' | 'w' | 'd' => {
                         out.push('[');
                         out.push_str(class_body(escape));
                         out.push(']');
                     }
                     'S' | 'W' | 'D' => {
-                        // Nested inside a class, this is a union member.
                         out.push_str("[^");
                         out.push_str(class_body(escape.to_ascii_lowercase()));
                         out.push(']');
                     }
-                    'b' if in_class => out.push_str(r"\x08"),
                     'b' | 'B' => return Err(TranslateError::WordBoundary),
-                    'Z' if !in_class => out.push_str(r"\z"),
+                    'Z' => out.push_str(r"\z"),
                     _ => {
                         out.push('\\');
                         out.push(escape);
                     }
                 }
             }
-            '[' if in_class => out.push_str(r"\["),
             '[' => {
-                in_class = true;
+                let mut state = Class {
+                    members: 0,
+                    range_open: false,
+                };
                 out.push('[');
                 if chars.peek() == Some(&'^') {
                     chars.next();
@@ -106,27 +196,75 @@ pub fn translate(pattern: &str) -> Result<String, TranslateError> {
                 if chars.peek() == Some(&']') {
                     chars.next();
                     out.push_str(r"\]");
+                    state.members = 1;
                 }
+                class = Some(state);
             }
-            ']' if in_class => {
-                in_class = false;
-                out.push(']');
+            '*' | '+' | '?' => {
+                after = quantify(before, c == '?')?;
+                out.push(c);
             }
-            '&' | '-' | '~' if in_class && chars.peek() == Some(&c) => {
-                return Err(TranslateError::SetOperation(format!("{c}{c}")));
-            }
-            '$' if !in_class && !multiline => return Err(TranslateError::Dollar),
-            '(' if !in_class && chars.peek() == Some(&'?') => {
-                out.push('(');
-                check_group_flags(chars.clone().skip(1))?;
+            '{' => match python_repetition(&mut chars) {
+                Some(repetition) => {
+                    after = quantify(before, false)?;
+                    out.push_str(&repetition);
+                }
+                None => out.push_str(r"\{"),
+            },
+            '}' => out.push_str(r"\}"),
+            '$' if !multiline => return Err(TranslateError::Dollar),
+            '(' if chars.peek() == Some(&'?') => {
+                chars.next();
+                out.push_str("(?");
+                check_group_flags(chars.clone())?;
             }
             _ => out.push(c),
         }
     }
-    if in_class {
+    if class.is_some() {
         return Err(TranslateError::UnterminatedClass);
     }
     Ok(out)
+}
+
+/// What a quantifier makes of the thing before it: one `?` after a
+/// quantifier makes it lazy; anything else after one is possessive (`*+`)
+/// or an error in Python.
+fn quantify(before: After, question: bool) -> Result<After, TranslateError> {
+    match before {
+        After::Other => Ok(After::Quantifier),
+        After::Quantifier if question => Ok(After::Lazy),
+        _ => Err(TranslateError::StackedQuantifier),
+    }
+}
+
+/// After a `{`: Python's repetition `{m}`, `{m,}`, `{,n}` or `{m,n}`, with
+/// ASCII digits and nothing else, consumed and written as the regex crate
+/// spells it; `None`, consuming nothing, where Python reads the `{` as a
+/// literal (`{}`, `{1, 3}`, `{x}`).
+fn python_repetition(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    let mut ahead = chars.clone();
+    let mut low = String::new();
+    let mut high: Option<String> = None;
+    loop {
+        match ahead.next()? {
+            d @ '0'..='9' => match high.as_mut() {
+                None => low.push(d),
+                Some(digits) => digits.push(d),
+            },
+            ',' if high.is_none() => high = Some(String::new()),
+            '}' => break,
+            _ => return None,
+        }
+    }
+    let repetition = match high {
+        None if low.is_empty() => return None,
+        None => format!("{{{low}}}"),
+        Some(high) if low.is_empty() => format!("{{0,{high}}}"),
+        Some(high) => format!("{{{low},{high}}}"),
+    };
+    *chars = ahead;
+    Some(repetition)
 }
 
 /// The flags of a leading `(?flags)` group, where Python takes global flags.
@@ -145,14 +283,21 @@ fn global_flags(pattern: &str) -> &str {
     }
 }
 
-/// Refuses inline flags whose meaning the translation would change:
-/// `i` (case-insensitive sets come from Python), `a` (ASCII classes), `x`
-/// (verbose mode treats whitespace in classes differently) and `L`.
+/// Refuses inline flags whose meaning the translation would change: `i`
+/// (case-insensitive sets come from Python), `a` (ASCII classes), `x`
+/// (verbose mode treats whitespace in classes differently), `L`, and `-m`
+/// (`$` is translated on the strength of a leading `(?m)`). `after` starts
+/// just past `(?`.
 fn check_group_flags(after: impl Iterator<Item = char>) -> Result<(), TranslateError> {
+    let mut off = false;
     for c in after {
         match c {
-            'i' | 'a' | 'x' | 'L' => return Err(TranslateError::UnsupportedFlag(c)),
-            's' | 'm' | 'u' => {}
+            '-' if !off => off = true,
+            'm' if off => return Err(TranslateError::UnsupportedFlag("-m".into())),
+            'i' | 'a' | 'x' | 'L' if !off => {
+                return Err(TranslateError::UnsupportedFlag(c.into()));
+            }
+            'a' | 'i' | 'L' | 'm' | 's' | 'u' | 'x' => {}
             _ => return Ok(()),
         }
     }
@@ -213,19 +358,17 @@ mod tests {
 
     #[test]
     fn constructs_that_would_match_differently_are_refused() {
+        let flag = |f: &str| Err(TranslateError::UnsupportedFlag(f.into()));
         assert_eq!(translate(r"\bword"), Err(TranslateError::WordBoundary));
-        assert_eq!(
-            translate("(?i)self"),
-            Err(TranslateError::UnsupportedFlag('i'))
-        );
-        assert_eq!(
-            translate("(?si)x"),
-            Err(TranslateError::UnsupportedFlag('i'))
-        );
-        assert_eq!(
-            translate("a(?i:b)"),
-            Err(TranslateError::UnsupportedFlag('i'))
-        );
+        assert_eq!(translate("(?i)self"), flag("i"));
+        assert_eq!(translate("(?si)x"), flag("i"));
+        assert_eq!(translate("a(?i:b)"), flag("i"));
+        assert_eq!(translate("(?x)a b"), flag("x"));
+        // Under a leading (?m), a group that turns it off would bring back
+        // Python's `$` before a final newline.
+        assert_eq!(translate("(?m)x(?-m:a$)"), flag("-m"));
+        assert!(translate("(?s)a(?-s:.)").is_ok());
+        assert!(translate("(?-i:a)").is_ok());
         assert_eq!(translate("a$"), Err(TranslateError::Dollar));
         assert!(translate("(?m)^a$").is_ok());
         assert_eq!(
@@ -236,6 +379,54 @@ mod tests {
         assert_eq!(translate(r"a\"), Err(TranslateError::TrailingBackslash));
         // `$` inside a class is a literal dollar in both.
         assert!(translate("[$]").is_ok());
+    }
+
+    #[test]
+    fn a_class_escape_cannot_end_a_range() {
+        // Python refuses these patterns; the regex crate would read the
+        // `-` as one more member and accept them.
+        for pattern in [r"[\w-x]", r"[\d-z]", r"[a-\d]", r"[\W-a]", r"[a-\S]"] {
+            assert_eq!(
+                translate(pattern),
+                Err(TranslateError::ClassRange),
+                "{pattern}"
+            );
+        }
+        // A `-` at either end of the class is a literal beside an escape.
+        for pattern in [r"[\s-]", r"[-\s]", r"[^-\w]", r"[\w.-]", r"[a-z\d]"] {
+            assert!(translate(pattern).is_ok(), "{pattern}");
+        }
+    }
+
+    #[test]
+    fn quantifiers_stack_only_as_python_allows() {
+        // Python 3.11 reads `*+` as possessive, which the regex crate would
+        // read as a repetition of a repetition.
+        for pattern in ["a*+", "a++", "a?+", "a{2}+", "a**", "a*??", "a{2}{3}"] {
+            assert_eq!(
+                translate(pattern),
+                Err(TranslateError::StackedQuantifier),
+                "{pattern}"
+            );
+        }
+        for pattern in ["a*?", "a+?", "a??", "a{2,3}?", r"a\++", "(?:a)+", "[+]+"] {
+            assert!(translate(pattern).is_ok(), "{pattern}");
+        }
+    }
+
+    #[test]
+    fn braces_follow_pythons_repetition_grammar() {
+        // Only digits and one comma make a repetition; anything else,
+        // whitespace included, leaves the brace a literal in Python.
+        assert_eq!(translate("a{2}").unwrap(), "a{2}");
+        assert_eq!(translate("a{2,}").unwrap(), "a{2,}");
+        assert_eq!(translate("a{,3}").unwrap(), "a{0,3}");
+        assert_eq!(translate("a{,}").unwrap(), "a{0,}");
+        assert_eq!(translate("a{1, 3}").unwrap(), r"a\{1, 3\}");
+        assert_eq!(translate("a{}").unwrap(), r"a\{\}");
+        assert_eq!(translate("a{").unwrap(), r"a\{");
+        assert_eq!(translate("x{ 0 }y").unwrap(), r"x\{ 0 \}y");
+        assert_eq!(translate(r"\{[^\r\n]*\}").unwrap(), r"\{[^\r\n]*\}");
     }
 
     #[test]

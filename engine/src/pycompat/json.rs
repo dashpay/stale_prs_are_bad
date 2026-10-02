@@ -8,20 +8,39 @@
 //! first position and its last value; only space, tab, newline and carriage
 //! return as whitespace; no raw control characters inside strings.
 //!
-//! Two departures, both errors where Python returns a value: a `\u` escape
-//! naming a lone surrogate, which a Rust `String` cannot hold
-//! ([`ValueError::LoneSurrogate`]), and nesting deeper than Python's C stack
-//! allows ([`PyErr::Recursion`], which Python raises too, at a depth that
-//! moves by a few levels with the caller's own C stack).
+//! Python's C stack runs out near ten thousand levels of nesting, and the
+//! reader follows it from a call made by ordinary Python code: past
+//! [`MAX_DEPTH`] containers it raises `RecursionError`
+//! ([`PyErr::Recursion`]), and so it does for an error, a named float or an
+//! over-long integer met within the last few levels, where Python has no
+//! stack left to build the exception or call the constant's parser. Where
+//! Python's caller is itself deep in C calls, Python reaches these limits a
+//! few levels sooner.
+//!
+//! One departure: a document holding a `\u` escape that names a lone
+//! surrogate is refused ([`ValueError::LoneSurrogate`]), because a Rust
+//! `String` cannot hold one, even where a later duplicate key discards the
+//! string. Anyone who can write the text can cause it; it is a `ValueError`
+//! so that every caller treats it as Python treats invalid JSON.
 
 use super::error::{JsonDecodeError, PyErr, ValueError};
 use super::value::{PyDict, PyInt, PyList, PyValue};
 use indexmap::IndexMap;
+use std::fmt::Write as _;
 
-/// The deepest nesting `json.loads` reads when called from Python code that
-/// is not itself deep in C calls (`Py_C_RECURSION_LIMIT` is 10000 on Linux
-/// and macOS; the call into the scanner uses three of it).
+/// How many containers deep `json.loads` reads when called from Python code
+/// that is not itself deep in C calls (`Py_C_RECURSION_LIMIT` is 10000 on
+/// Linux and macOS; the call into the scanner uses three of it).
 pub const MAX_DEPTH: usize = 9997;
+
+/// Levels of that stack the scanner needs to create `StopIteration` or a
+/// `ValueError`, or to call `parse_constant` for a named float.
+const CALL_LEVELS: usize = 1;
+
+/// Levels `raise_errmsg` needs: `JSONDecodeError.__init__` is Python code.
+const DECODE_ERROR_LEVELS: usize = 4;
+
+const CALLING: &str = "maximum recursion depth exceeded while calling a Python object";
 
 /// `sys.get_int_max_str_digits()`: Python refuses to read a longer integer.
 pub const INT_MAX_STR_DIGITS: usize = 4300;
@@ -30,13 +49,13 @@ pub const INT_MAX_STR_DIGITS: usize = 4300;
 pub fn py_loads(text: &str) -> Result<PyValue, PyErr> {
     let mut scanner = Scanner::new(text);
     if text.starts_with('\u{feff}') {
-        return Err(scanner.error("Unexpected UTF-8 BOM (decode using utf-8-sig)", 0));
+        return Err(scanner.decode_error("Unexpected UTF-8 BOM (decode using utf-8-sig)", 0));
     }
     let start = scanner.skip_whitespace(0);
     let (value, end) = scanner.scan(start)?;
     let end = scanner.skip_whitespace(end);
     if end != text.len() {
-        return Err(scanner.error("Extra data", end));
+        return Err(scanner.decode_error("Extra data", end));
     }
     scanner.finish(value)
 }
@@ -96,6 +115,8 @@ enum Frame {
 struct Scanner<'a> {
     text: &'a str,
     bytes: &'a [u8],
+    /// Containers entered and not yet closed: the C stack Python has spent.
+    depth: usize,
     /// The first escape that named a lone surrogate, as a byte offset.
     lone_surrogate: Option<usize>,
 }
@@ -105,12 +126,13 @@ impl<'a> Scanner<'a> {
         Scanner {
             text,
             bytes: text.as_bytes(),
+            depth: 0,
             lone_surrogate: None,
         }
     }
 
     /// `JSONDecodeError(msg, doc, pos)`, with `pos` given in bytes.
-    fn error(&self, msg: &'static str, byte: usize) -> PyErr {
+    fn decode_error(&self, msg: &'static str, byte: usize) -> PyErr {
         let prefix = &self.bytes[..byte.min(self.bytes.len())];
         let pos = char_offset(self.text, byte);
         let lineno = prefix.iter().filter(|&&b| b == b'\n').count() + 1;
@@ -124,6 +146,28 @@ impl<'a> Scanner<'a> {
             lineno,
             colno,
         }))
+    }
+
+    /// `RecursionError` if fewer than `levels` of Python's stack are left
+    /// at the current depth.
+    fn short_of(&self, levels: usize) -> Option<PyErr> {
+        (self.depth + levels > MAX_DEPTH).then(|| PyErr::Recursion(CALLING.into()))
+    }
+
+    /// `raise_errmsg`: a `JSONDecodeError` raised from inside the scanner.
+    fn raise_errmsg(&self, msg: &'static str, byte: usize) -> Fail {
+        Fail::Error(
+            self.short_of(DECODE_ERROR_LEVELS)
+                .unwrap_or_else(|| self.decode_error(msg, byte)),
+        )
+    }
+
+    /// `raise_stop_iteration`: no term starts at `byte`.
+    fn stop(&self, byte: usize) -> Fail {
+        match self.short_of(CALL_LEVELS) {
+            Some(error) => Fail::Error(error),
+            None => Fail::Stop(byte),
+        }
     }
 
     /// A finished document, unless Python's would hold a lone surrogate.
@@ -151,7 +195,9 @@ impl<'a> Scanner<'a> {
     fn scan(&mut self, start: usize) -> Result<(PyValue, usize), PyErr> {
         match self.scan_terms(start) {
             Ok(done) => Ok(done),
-            Err(Fail::Stop(at)) => Err(self.error("Expecting value", at)),
+            // Raised by `raw_decode` once the scanner has returned, with the
+            // whole stack to spare.
+            Err(Fail::Stop(at)) => Err(self.decode_error("Expecting value", at)),
             Err(Fail::Error(error)) => Err(error),
         }
     }
@@ -160,15 +206,16 @@ impl<'a> Scanner<'a> {
         let mut open: Vec<Frame> = Vec::new();
         'term: loop {
             let (mut value, mut next) = match self.at(idx) {
-                None => return Err(Fail::Stop(idx)),
+                None => return Err(self.stop(idx)),
                 Some(b'"') => {
                     let (s, next) = self.scan_string(idx)?;
                     (PyValue::Str(s), next)
                 }
                 Some(b'{') => {
-                    Self::enter(open.len(), "object")?;
+                    self.enter("object")?;
                     let i = self.skip_whitespace(idx + 1);
                     if self.at(i) == Some(b'}') {
+                        self.depth -= 1;
                         (PyValue::Dict(PyDict::new()), i + 1)
                     } else {
                         let (key, i) = self.scan_key(i)?;
@@ -178,9 +225,10 @@ impl<'a> Scanner<'a> {
                     }
                 }
                 Some(b'[') => {
-                    Self::enter(open.len(), "array")?;
+                    self.enter("array")?;
                     let i = self.skip_whitespace(idx + 1);
                     if self.at(i) == Some(b']') {
+                        self.depth -= 1;
                         (PyValue::List(PyList::new()), i + 1)
                     } else {
                         open.push(Frame::List(Vec::new()));
@@ -202,6 +250,7 @@ impl<'a> Scanner<'a> {
                         items.push(value);
                         match self.at(i) {
                             Some(b']') => {
+                                self.depth -= 1;
                                 value = PyValue::List(items.into());
                                 next = i + 1;
                             }
@@ -210,7 +259,7 @@ impl<'a> Scanner<'a> {
                                 idx = self.skip_whitespace(i + 1);
                                 continue 'term;
                             }
-                            _ => return Err(self.error("Expecting ',' delimiter", i).into()),
+                            _ => return Err(self.raise_errmsg("Expecting ',' delimiter", i)),
                         }
                     }
                     Frame::Dict(mut entries, key) => {
@@ -219,6 +268,7 @@ impl<'a> Scanner<'a> {
                         entries.insert(key, value);
                         match self.at(i) {
                             Some(b'}') => {
+                                self.depth -= 1;
                                 value = PyValue::Dict(entries.into());
                                 next = i + 1;
                             }
@@ -228,7 +278,7 @@ impl<'a> Scanner<'a> {
                                 idx = i;
                                 continue 'term;
                             }
-                            _ => return Err(self.error("Expecting ',' delimiter", i).into()),
+                            _ => return Err(self.raise_errmsg("Expecting ',' delimiter", i)),
                         }
                     }
                 }
@@ -236,27 +286,26 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    /// Entering a container `depth` containers deep.
-    fn enter(depth: usize, kind: &str) -> Result<(), Fail> {
-        if depth >= MAX_DEPTH {
+    /// `_Py_EnterRecursiveCall` on opening a container.
+    fn enter(&mut self, kind: &str) -> Result<(), Fail> {
+        if self.depth >= MAX_DEPTH {
             return Err(Fail::Error(PyErr::Recursion(format!(
                 "maximum recursion depth exceeded while decoding a JSON {kind} from a unicode string"
             ))));
         }
+        self.depth += 1;
         Ok(())
     }
 
     /// An object's key and its colon; returns the offset of its value.
     fn scan_key(&mut self, i: usize) -> Result<(String, usize), Fail> {
         if self.at(i) != Some(b'"') {
-            return Err(self
-                .error("Expecting property name enclosed in double quotes", i)
-                .into());
+            return Err(self.raise_errmsg("Expecting property name enclosed in double quotes", i));
         }
         let (key, next) = self.scan_string(i)?;
         let colon = self.skip_whitespace(next);
         if self.at(colon) != Some(b':') {
-            return Err(self.error("Expecting ':' delimiter", colon).into());
+            return Err(self.raise_errmsg("Expecting ':' delimiter", colon));
         }
         Ok((key, self.skip_whitespace(colon + 1)))
     }
@@ -264,18 +313,27 @@ impl<'a> Scanner<'a> {
     /// `null`, `true`, `false`, the three named floats, or a number.
     fn scan_scalar(&mut self, idx: usize) -> Result<(PyValue, usize), Fail> {
         let rest = &self.bytes[idx..];
-        let constant = [
-            (&b"null"[..], PyValue::None),
+        let constants: [(&[u8], PyValue); 6] = [
+            (b"null", PyValue::None),
             (b"true", PyValue::Bool(true)),
             (b"false", PyValue::Bool(false)),
             (b"NaN", PyValue::Float(f64::NAN)),
             (b"Infinity", PyValue::Float(f64::INFINITY)),
             (b"-Infinity", PyValue::Float(f64::NEG_INFINITY)),
-        ]
-        .into_iter()
-        .find(|(word, _)| rest.starts_with(word));
+        ];
+        let constant = constants
+            .into_iter()
+            .find(|(word, _)| rest.starts_with(word));
         match constant {
-            Some((word, value)) => Ok((value, idx + word.len())),
+            Some((word, value)) => {
+                // The named floats come from calling `parse_constant`.
+                if matches!(value, PyValue::Float(_)) {
+                    if let Some(error) = self.short_of(CALL_LEVELS) {
+                        return Err(Fail::Error(error));
+                    }
+                }
+                Ok((value, idx + word.len()))
+            }
             None => self.scan_number(idx),
         }
     }
@@ -297,7 +355,7 @@ impl<'a> Scanner<'a> {
                 }
             }
             Some(b'0') => i += 1,
-            _ => return Err(Fail::Stop(start)),
+            _ => return Err(self.stop(start)),
         }
         let mut is_float = false;
         if self.at(i) == Some(b'.') && digit(i + 1) {
@@ -332,11 +390,14 @@ impl<'a> Scanner<'a> {
         } else {
             let digits = number.trim_start_matches('-').len();
             if digits > INT_MAX_STR_DIGITS {
-                return Err(PyErr::value(format!(
-                    "Exceeds the limit ({INT_MAX_STR_DIGITS} digits) for integer string conversion: \
-                     value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit"
-                ))
-                .into());
+                let error = self.short_of(CALL_LEVELS).unwrap_or_else(|| {
+                    PyErr::value(format!(
+                        "Exceeds the limit ({INT_MAX_STR_DIGITS} digits) for integer string \
+                         conversion: value has {digits} digits; use sys.set_int_max_str_digits() \
+                         to increase the limit"
+                    ))
+                });
+                return Err(Fail::Error(error));
             }
             PyValue::Int(PyInt::from_decimal(number).ok_or_else(|| {
                 PyErr::value(format!(
@@ -349,7 +410,7 @@ impl<'a> Scanner<'a> {
 
     /// `scanstring_unicode` for the string whose opening quote is at
     /// `quote`; returns it and the offset after its closing quote.
-    fn scan_string(&mut self, quote: usize) -> Result<(String, usize), PyErr> {
+    fn scan_string(&mut self, quote: usize) -> Result<(String, usize), Fail> {
         let unterminated = "Unterminated string starting at";
         let invalid_unicode = "Invalid \\uXXXX escape";
         let len = self.bytes.len();
@@ -365,12 +426,12 @@ impl<'a> Scanner<'a> {
                     break;
                 }
                 if b <= 0x1f {
-                    return Err(self.error("Invalid control character at", next));
+                    return Err(self.raise_errmsg("Invalid control character at", next));
                 }
                 next += 1;
             }
             let Some(stop) = stop else {
-                return Err(self.error(unterminated, quote));
+                return Err(self.raise_errmsg(unterminated, quote));
             };
             out.push_str(&self.text[end..next]);
             next += 1;
@@ -378,7 +439,7 @@ impl<'a> Scanner<'a> {
                 return Ok((out, next));
             }
             let Some(escape) = self.at(next) else {
-                return Err(self.error(unterminated, quote));
+                return Err(self.raise_errmsg(unterminated, quote));
             };
             if escape != b'u' {
                 end = next + 1;
@@ -391,7 +452,7 @@ impl<'a> Scanner<'a> {
                     b'n' => '\n',
                     b'r' => '\r',
                     b't' => '\t',
-                    _ => return Err(self.error("Invalid \\escape", end - 2)),
+                    _ => return Err(self.raise_errmsg("Invalid \\escape", end - 2)),
                 });
                 continue;
             }
@@ -399,11 +460,11 @@ impl<'a> Scanner<'a> {
             next += 1;
             end = next + 4;
             if end >= len {
-                return Err(self.error(invalid_unicode, next - 1));
+                return Err(self.raise_errmsg(invalid_unicode, next - 1));
             }
             let mut code = self
                 .hex4(next)
-                .ok_or_else(|| self.error(invalid_unicode, end - 5))?;
+                .ok_or_else(|| self.raise_errmsg(invalid_unicode, end - 5))?;
             if (0xD800..=0xDBFF).contains(&code)
                 && end + 6 < len
                 && self.bytes[end] == b'\\'
@@ -411,7 +472,7 @@ impl<'a> Scanner<'a> {
             {
                 let low = self
                     .hex4(end + 2)
-                    .ok_or_else(|| self.error(invalid_unicode, end + 1))?;
+                    .ok_or_else(|| self.raise_errmsg(invalid_unicode, end + 1))?;
                 if (0xDC00..=0xDFFF).contains(&low) {
                     code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
                     end += 6;
@@ -451,7 +512,8 @@ pub struct FloatNotWritten;
 /// byte. `separators=None` means Python's default: `(', ', ': ')`, or
 /// `(',', ': ')` when indenting. Keys sort by code point. The value is
 /// walked with an explicit stack, so its depth is not bounded by the
-/// thread's.
+/// thread's. Indented output grows with depth times width, as Python's
+/// does: keep it to values the engine built.
 pub fn py_dumps(
     value: &PyValue,
     sort_keys: bool,
@@ -465,7 +527,7 @@ pub fn py_dumps(
     let newline = |level: usize, out: &mut String| {
         if let Some(width) = indent {
             out.push('\n');
-            out.extend(std::iter::repeat_n(' ', width * level));
+            out.extend(std::iter::repeat_n(' ', width.saturating_mul(level)));
         }
     };
     let mut out = String::new();
@@ -490,7 +552,9 @@ pub fn py_dumps(
                 PyValue::None => out.push_str("null"),
                 PyValue::Bool(true) => out.push_str("true"),
                 PyValue::Bool(false) => out.push_str("false"),
-                PyValue::Int(i) => out.push_str(&i.to_string()),
+                PyValue::Int(i) => {
+                    let _ = write!(out, "{i}");
+                }
                 PyValue::Float(_) => return Err(FloatNotWritten),
                 PyValue::Str(s) => write_ascii_string(s, &mut out),
                 PyValue::List(items) if items.is_empty() => out.push_str("[]"),
@@ -569,7 +633,8 @@ fn write_ascii_string(s: &str, out: &mut String) {
             _ => {
                 let mut units = [0u16; 2];
                 for unit in c.encode_utf16(&mut units) {
-                    out.push_str(&format!("\\u{unit:04x}"));
+                    // Writing to a String cannot fail.
+                    let _ = write!(out, "\\u{unit:04x}");
                 }
             }
         }
@@ -582,24 +647,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deepest_document_python_reads_is_read_and_one_more_is_refused() {
-        let ok = format!("{}{}", "[".repeat(MAX_DEPTH), "]".repeat(MAX_DEPTH));
-        let too_deep = format!("{}{}", "[".repeat(MAX_DEPTH + 1), "]".repeat(MAX_DEPTH + 1));
-        assert!(py_loads(&ok).is_ok());
-        assert!(matches!(py_loads(&too_deep), Err(PyErr::Recursion(_))));
-    }
-
-    #[test]
     fn deepest_value_drops_within_a_blocking_threads_stack() {
         // The service runs the engine on tokio's blocking threads, whose
-        // stacks are 2 MiB. A value nested as deep as Python reads is
-        // dropped recursively; that must fit there, debug build included.
+        // stacks are 2 MiB. A value nested as deep as Python reads must be
+        // dropped, cloned and printed there, debug build included.
         let pairs = MAX_DEPTH / 2;
         let doc = format!("[{}1{}]", "[{\"a\":".repeat(pairs), "}]".repeat(pairs));
         assert_eq!(2 * pairs + 1, MAX_DEPTH);
         std::thread::Builder::new()
             .stack_size(2 << 20)
-            .spawn(move || drop(py_loads(&doc).unwrap()))
+            .spawn(move || {
+                let value = py_loads(&doc).unwrap();
+                let copy = value.clone();
+                assert!(format!("{copy:?}").len() < 10_000);
+                drop(value);
+                drop(copy);
+            })
             .unwrap()
             .join()
             .unwrap();

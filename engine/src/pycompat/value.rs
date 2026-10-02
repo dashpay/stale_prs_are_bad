@@ -11,10 +11,11 @@
 //! written where the engine first needs one.
 //!
 //! A document Python reads may nest about ten thousand containers deep, and
-//! anyone who can post a comment can write one. [`PyList`] and [`PyDict`]
-//! therefore drop their contents without recursing, so such a value cannot
-//! overflow a thread's stack when it goes away. `Clone` and `Debug` still
-//! recurse: keep them to values the engine built or has validated.
+//! anyone who can post a comment can write one. So that such a value cannot
+//! overflow a thread's stack, nothing here recurses with its depth: [`PyList`]
+//! and [`PyDict`] drop their contents one level at a time, `Clone` copies
+//! with an explicit stack, and `Debug` prints the first levels and `…` for
+//! the rest. Code walking a value it did not build should do the same.
 
 use indexmap::IndexMap;
 use std::cmp::Ordering;
@@ -23,7 +24,6 @@ use std::ops::{Deref, DerefMut};
 
 /// A Python `None`, `bool`, `int`, `float`, `str`, `list` or `dict` (with
 /// string keys, as JSON objects have).
-#[derive(Debug, Clone)]
 pub enum PyValue {
     None,
     Bool(bool),
@@ -35,13 +35,156 @@ pub enum PyValue {
 }
 
 /// A Python `list`: a `Vec` that drops without recursing.
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct PyList(Vec<PyValue>);
 
 /// A Python `dict` with string keys, in insertion order: an `IndexMap` that
 /// drops without recursing.
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct PyDict(IndexMap<String, PyValue>);
+
+impl Clone for PyValue {
+    fn clone(&self) -> Self {
+        deep_clone(self)
+    }
+}
+
+impl Clone for PyList {
+    fn clone(&self) -> Self {
+        PyList(self.0.iter().map(deep_clone).collect())
+    }
+}
+
+impl Clone for PyDict {
+    fn clone(&self) -> Self {
+        PyDict(
+            self.0
+                .iter()
+                .map(|(k, v)| (k.clone(), deep_clone(v)))
+                .collect(),
+        )
+    }
+}
+
+/// A container being copied: what is left of the original, and the copy so far.
+enum Copying<'a> {
+    List(std::slice::Iter<'a, PyValue>, Vec<PyValue>),
+    /// The key is the one whose value is being copied.
+    Dict(
+        indexmap::map::Iter<'a, String, PyValue>,
+        IndexMap<String, PyValue>,
+        String,
+    ),
+}
+
+/// A copy of `root`, made with an explicit stack.
+fn deep_clone(root: &PyValue) -> PyValue {
+    let mut open: Vec<Copying<'_>> = Vec::new();
+    let mut next = root;
+    loop {
+        // Copy a value without contents, or open a container that has some.
+        let mut copied = match next {
+            PyValue::List(items) if !items.is_empty() => {
+                open.push(Copying::List(items.iter(), Vec::with_capacity(items.len())));
+                None
+            }
+            PyValue::Dict(entries) if !entries.is_empty() => {
+                let copy = IndexMap::with_capacity(entries.len());
+                open.push(Copying::Dict(entries.iter(), copy, String::new()));
+                None
+            }
+            PyValue::None => Some(PyValue::None),
+            PyValue::Bool(b) => Some(PyValue::Bool(*b)),
+            PyValue::Int(i) => Some(PyValue::Int(i.clone())),
+            PyValue::Float(f) => Some(PyValue::Float(*f)),
+            PyValue::Str(s) => Some(PyValue::Str(s.clone())),
+            PyValue::List(_) => Some(PyValue::List(PyList::new())),
+            PyValue::Dict(_) => Some(PyValue::Dict(PyDict::new())),
+        };
+        // Put each finished copy into its container, closing containers
+        // that are complete, until one has another value to copy.
+        loop {
+            let Some(top) = open.last_mut() else {
+                // The stack empties only after a copy finished: the root's.
+                return copied.expect("the root's copy is finished when nothing is open");
+            };
+            match top {
+                Copying::List(rest, copy) => {
+                    copy.extend(copied.take());
+                    if let Some(item) = rest.next() {
+                        next = item;
+                        break;
+                    }
+                }
+                Copying::Dict(rest, copy, key) => {
+                    if let Some(value) = copied.take() {
+                        copy.insert(std::mem::take(key), value);
+                    }
+                    if let Some((k, value)) = rest.next() {
+                        key.clone_from(k);
+                        next = value;
+                        break;
+                    }
+                }
+            }
+            copied = match open.pop() {
+                Some(Copying::List(_, copy)) => Some(PyValue::List(PyList(copy))),
+                Some(Copying::Dict(_, copy, _)) => Some(PyValue::Dict(PyDict(copy))),
+                None => None,
+            };
+        }
+    }
+}
+
+/// How many levels `Debug` prints before writing `…`.
+const DEBUG_DEPTH: usize = 16;
+
+/// A value printed `depth` levels down.
+struct Shown<'a>(&'a PyValue, usize);
+
+impl fmt::Debug for Shown<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Shown(value, depth) = *self;
+        match value {
+            PyValue::None => f.write_str("None"),
+            PyValue::Bool(b) => f.debug_tuple("Bool").field(b).finish(),
+            PyValue::Int(i) => f.debug_tuple("Int").field(i).finish(),
+            PyValue::Float(x) => f.debug_tuple("Float").field(x).finish(),
+            PyValue::Str(s) => f.debug_tuple("Str").field(s).finish(),
+            PyValue::List(_) | PyValue::Dict(_) if depth >= DEBUG_DEPTH => f.write_str("…"),
+            PyValue::List(items) => f
+                .debug_list()
+                .entries(items.iter().map(|v| Shown(v, depth + 1)))
+                .finish(),
+            PyValue::Dict(entries) => f
+                .debug_map()
+                .entries(entries.iter().map(|(k, v)| (k, Shown(v, depth + 1))))
+                .finish(),
+        }
+    }
+}
+
+impl fmt::Debug for PyValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Shown(self, 0).fmt(f)
+    }
+}
+
+impl fmt::Debug for PyList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list()
+            .entries(self.0.iter().map(|v| Shown(v, 1)))
+            .finish()
+    }
+}
+
+impl fmt::Debug for PyDict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map()
+            .entries(self.0.iter().map(|(k, v)| (k, Shown(v, 1))))
+            .finish()
+    }
+}
 
 impl PyList {
     pub fn new() -> Self {
@@ -159,6 +302,41 @@ impl<'a> IntoIterator for &'a PyDict {
     type IntoIter = indexmap::map::Iter<'a, String, PyValue>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut PyList {
+    type Item = &'a mut PyValue;
+    type IntoIter = std::slice::IterMut<'a, PyValue>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut PyDict {
+    type Item = (&'a String, &'a mut PyValue);
+    type IntoIter = indexmap::map::IterMut<'a, String, PyValue>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
+    }
+}
+
+/// The items, each of which still drops without recursing.
+impl IntoIterator for PyList {
+    type Item = PyValue;
+    type IntoIter = std::vec::IntoIter<PyValue>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_vec().into_iter()
+    }
+}
+
+/// The entries in insertion order, each value still dropping without
+/// recursing.
+impl IntoIterator for PyDict {
+    type Item = (String, PyValue);
+    type IntoIter = indexmap::map::IntoIter<String, PyValue>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_map().into_iter()
     }
 }
 

@@ -466,7 +466,37 @@ def json_limits():
             json.loads(opening * (depth + 1) + closing * (depth + 1))
         except RecursionError as error:
             messages[kind] = str(error)
+
+    # Near the limit, Python has no C stack left to create an exception or
+    # call parse_constant, and raises RecursionError instead. For each such
+    # operation: the most arrays that may be open around it before it does.
+    def last_normal(inner, closing):
+        def recursion(n):
+            try:
+                json.loads('[' * n + inner + closing * n)
+            except RecursionError as error:
+                messages.setdefault('calling', str(error))
+                return True
+            except ValueError:
+                pass
+            return False
+
+        lo, hi = 0, depth
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            lo, hi = (lo, mid - 1) if recursion(mid) else (mid, hi)
+        return lo
+
+    near_limit = {
+        'expecting_value': ('', ''),
+        'decode_error': ('"\\x"', ']'),
+        'decode_error_in_object': ('{1}', ']'),
+        'named_float': ('NaN', ']'),
+        'int_too_long': ('1' * 4301, ']'),
+    }
+    thresholds = {name: last_normal(*doc) for name, doc in near_limit.items()}
     return {'max_depth': depth, 'recursion_messages': messages,
+            'depth_before_recursion_error': thresholds,
             'int_max_str_digits': sys.get_int_max_str_digits()}
 
 
@@ -494,6 +524,10 @@ PATTERNS = [
     ('non_word_or_digit', r'[\W\d]+', 'finditer', []),
     ('not_non_digit', r'[^\D]+', 'finditer', []),
     ('bracket_first', r'[]\s]+', 'finditer', ['a] b]]\x1c]']),
+    ('space_or_dash', r'[\s-]+', 'finditer', ['a - b', '\x1c-\x1f', '-　-']),
+    ('brace_literal', r'a{1, 3}', 'search', ['a{1, 3}', 'a', 'aaa', 'a{1,3}']),
+    ('brace_lower_omitted', r'a{,2}b', 'search', ['b', 'ab', 'aab', 'aaab', 'a{,2}b']),
+    ('brace_empty', r'x{}', 'search', ['x{}', 'x', 'xx']),
     ('checkbox', r'<!--\s*\{"checkboxId"[^>]*-->', 'search', [
         '<!-- {"checkboxId": "x"} -->', '<!--　{"checkboxId"-->', '<!--\x1c{"checkboxId"}-->',
         '<!--᠎{"checkboxId"-->', 'x <!--\n\t{"checkboxId" > -->', '<!--{"checkboxId"--']),

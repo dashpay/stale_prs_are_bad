@@ -5,11 +5,10 @@
 //! `datetime_fromisoformat`, which is what the engine runs. It works on the
 //! string's UTF-8 bytes as if they ended in a NUL, and differs from the
 //! pure-Python `_pydatetime` in places: it reads `T12.5` as 12:00:00.5,
-//! accepts `12:30:45:123` and a trailing NUL,
-//! refuses a trailing separator with no time, and drops the fraction of a
-//! zero offset (`+00:00:00.5` is UTC). Offsets keep seconds and
-//! microseconds, which is why this is not built on chrono's whole-second
-//! `FixedOffset`.
+//! accepts `12:30:45:123` and a trailing NUL, refuses a trailing separator
+//! with no time, and drops the fraction of a zero offset (`+00:00:00.5` is
+//! UTC). Offsets keep seconds and microseconds, which is why this is not
+//! built on chrono's whole-second `FixedOffset`.
 //!
 //! The engine replaces every `Z` with `+00:00` before parsing; this parser
 //! takes the text it is given, and accepts a lone `Z` as Python does.
@@ -17,6 +16,7 @@
 use super::error::PyErr;
 use super::text::py_repr_str;
 use std::cmp::Ordering;
+use std::fmt::Write as _;
 
 const MICROS_PER_SECOND: i64 = 1_000_000;
 const MICROS_PER_DAY: i64 = 86_400 * MICROS_PER_SECOND;
@@ -214,23 +214,20 @@ impl PyDateTime {
             "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
             self.year, self.month, self.day, self.hour, self.minute, self.second
         );
+        // Writing to a String cannot fail.
         if with_micros {
-            out.push_str(&format!(".{:06}", self.microsecond));
+            let _ = write!(out, ".{:06}", self.microsecond);
         }
         if let Some(offset) = self.offset {
             let sign = if offset.micros < 0 { '-' } else { '+' };
             let magnitude = offset.micros.abs();
             let micros = magnitude % MICROS_PER_SECOND;
             let seconds = magnitude / MICROS_PER_SECOND;
-            out.push_str(&format!(
-                "{sign}{:02}:{:02}",
-                seconds / 3600,
-                seconds / 60 % 60
-            ));
+            let _ = write!(out, "{sign}{:02}:{:02}", seconds / 3600, seconds / 60 % 60);
             if micros != 0 {
-                out.push_str(&format!(":{:02}.{micros:06}", seconds % 60));
+                let _ = write!(out, ":{:02}.{micros:06}", seconds % 60);
             } else if seconds % 60 != 0 {
-                out.push_str(&format!(":{:02}", seconds % 60));
+                let _ = write!(out, ":{:02}", seconds % 60);
             }
         }
         out
@@ -321,13 +318,13 @@ fn find_separator(b: &[u8]) -> Option<usize> {
     if len == 7 {
         return Some(7);
     }
-    if b[4] == b'-' {
-        if b[5] == b'W' {
-            if len > 8 && b[8] == b'-' {
+    if at(b, 4) == b'-' {
+        if at(b, 5) == b'W' {
+            if len > 8 && at(b, 8) == b'-' {
                 if len == 9 {
                     return None;
                 }
-                if len > 10 && is_digit(b[10]) {
+                if len > 10 && is_digit(at(b, 10)) {
                     // YYYY-Www-HH: as likely a separator `-` at 8 as a
                     // weekday at 9; Python takes the hyphen.
                     return Some(8);
@@ -338,9 +335,9 @@ fn find_separator(b: &[u8]) -> Option<usize> {
         }
         return Some(10);
     }
-    if b[4] == b'W' {
+    if at(b, 4) == b'W' {
         let mut idx = 7;
-        while idx < len && is_digit(b[idx]) {
+        while idx < len && is_digit(at(b, idx)) {
             idx += 1;
         }
         if idx < 9 {
