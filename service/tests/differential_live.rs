@@ -52,3 +52,35 @@ fn a_command_that_cannot_run_never_says_the_token() {
     assert!(said.contains("absent.json"), "{said}");
     assert!(!said.contains(TOKEN) && !said.contains("Quokka"), "{said}");
 }
+
+#[test]
+fn the_tool_reaches_its_live_reads_without_panicking() {
+    // Every request goes to a proxy that refuses the connection, so nothing
+    // leaves this machine and each live read fails fast. What is under test is
+    // that the tool gets that far: the engine's blocking thread has to be
+    // started from inside the runtime, and a tool that panicked before reading
+    // anything spent its whole live budget on the first repository.
+    let synthetic = Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance/synthetic/report");
+    let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("../policies/repositories.json");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_differential-live"));
+    command
+        .args([
+            "--repositories",
+            registry.to_str().unwrap(),
+            synthetic.to_str().unwrap(),
+        ])
+        .env("GH_TOKEN", TOKEN)
+        .env("HTTPS_PROXY", "http://127.0.0.1:1")
+        .env("https_proxy", "http://127.0.0.1:1")
+        .env_remove("NO_PROXY")
+        .env_remove("no_proxy");
+    let output = command.output().expect("the tool runs");
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!said.contains("panicked"), "{said}");
+    assert!(matches!(output.status.code(), Some(0 | 1)), "{said}");
+    assert!(!said.contains(TOKEN) && !said.contains("Quokka"), "{said}");
+}

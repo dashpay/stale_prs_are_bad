@@ -154,8 +154,11 @@ fn run(options: Options) -> anyhow::Result<bool> {
         .build()?;
     let handle = runtime.handle().clone();
     let settings = options.settings;
+    // Started through the runtime, not `tokio::task::spawn_blocking`: an
+    // argument is evaluated before `block_on` enters the runtime, and the
+    // free function panics outside one.
     let outcome = runtime
-        .block_on(tokio::task::spawn_blocking(move || {
+        .block_on(runtime.spawn_blocking(move || {
             let page = StatusPage::new(handle.clone())?;
             let mut transport =
                 || read_only_transport(handle.clone(), tokens.clone(), &repositories);
