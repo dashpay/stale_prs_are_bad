@@ -47,9 +47,9 @@ async function checkSession(rerender) {
     if (res.status === 200) next = readMe(await res.json());
     else if (res.status === 401) next = { state: "out" };
     else if (res.status === 404) next = { state: "none" };
-    else next = { state: "none", why: `Sign-in could not be checked (the server answered ${res.status}), so this is the picker kept in this browser.` };
+    else next = { state: "none", why: `Sign-in could not be checked (the server answered ${res.status}), so Me uses a login you pick in this browser.` };
   } catch {
-    next = { state: "none", why: "Sign-in could not be checked (no answer, or not one this page understands), so this is the picker kept in this browser." };
+    next = { state: "none", why: "Sign-in could not be checked (no answer, or not one this page understands), so Me uses a login you pick in this browser." };
   }
   if (ticket !== asked) return;
   account = next;
@@ -60,7 +60,7 @@ async function checkSession(rerender) {
 function readMe(raw) {
   const o = raw && typeof raw === "object" ? raw : {};
   if (typeof o.login !== "string" || !LOGIN_RE.test(o.login) || !Number.isSafeInteger(o.id) || o.id < 1) {
-    return { state: "none", why: "Sign-in answered in a form this page does not know, so this is the picker kept in this browser." };
+    return { state: "none", why: "Sign-in answered in a form this page does not know, so Me uses a login you pick in this browser." };
   }
   return { state: "in", me: { login: o.login, optedOut: o.opted_out === true } };
 }
@@ -83,11 +83,45 @@ async function loadSpeed(rerender) {
   if (ticket !== asked || account.state !== "in") return;
   if (next.state === "ended") {
     signedOutBy("Your sign-in has ended. Sign in again to see your speed.");
-  } else {
-    speed = next;
-    if (next.state === "ok" && next.speed.optedOut) account.me.optedOut = true;
+    rerender();
+    return;
   }
-  rerender();
+  speed = next;
+  if (next.state === "ok" && next.speed.optedOut) {
+    account.me.optedOut = true;
+    rerender();
+    return;
+  }
+  paintSpeed(rerender);
+}
+
+/**
+ * Redraw only the speed panel's body, so focus, and a confirm step open
+ * elsewhere on the page, stay where they are when speed arrives. When Me
+ * is not showing, its next render shows the answer.
+ */
+function paintSpeed(rerender) {
+  const slot = document.getElementById("speed-body");
+  if (!slot) return;
+  const hadFocus = slot.contains(document.activeElement);
+  slot.replaceChildren(...speedContent(rerender));
+  if (hadFocus) document.getElementById("speed-heading")?.focus();
+}
+
+function retrySpeed(rerender) {
+  loadSpeed(rerender);
+  paintSpeed(rerender);
+}
+
+/** The speed panel's body for someone not opted out. */
+function speedContent(rerender) {
+  if (speed.state === "ok") return speedBody(speed.speed);
+  if (speed.state === "absent") return [h("p", { class: "muted" }, "This server does not compute speed yet.")];
+  if (speed.state === "error") {
+    return [h("p", {}, speed.why, " ",
+      h("button", { type: "button", class: "linkish", on: { click: () => retrySpeed(rerender) } }, "Try again"))];
+  }
+  return [h("p", { class: "muted", role: "status" }, "Loading your speed…")];
 }
 
 function signedOutBy(message) {
@@ -114,7 +148,11 @@ const ACTIONS = {
   },
   remove: {
     request: () => fetch("api/v1/me", { method: "DELETE", ...SAME_ORIGIN }),
-    done: () => signedOutBy("Your data is deleted and you are signed out, in every browser."),
+    // Speed inputs are recorded for everyone in the public activity, so
+    // deleting them stops nothing for good; only an opt-out does.
+    done: () => signedOutBy(account.state === "in" && account.me.optedOut
+      ? "Your data is deleted and you are signed out, in every browser. Your opt-out is kept."
+      : "Your data is deleted and you are signed out, in every browser. Your speed inputs are recorded again from your next activity unless you opt out."),
   },
 };
 
@@ -144,8 +182,10 @@ async function run(key, rerender) {
 
 /**
  * A button that asks before it acts: a click shows what will happen with
- * a confirm and a cancel button, and Escape or Cancel goes back. While the
- * request runs the buttons are gone; a failure is said where the button was.
+ * a confirm and a cancel button, and Escape or Cancel goes back. Focus goes
+ * to the confirm button, or for a destructive action to Cancel, so a held
+ * Enter cannot carry it out. While the request runs the buttons are gone; a
+ * failure is said where the button was.
  */
 function confirmButton({ id, label, question, yes, working, action, rerender, danger = false }) {
   const box = h("span", { class: "confirm" });
@@ -157,11 +197,9 @@ function confirmButton({ id, label, question, yes, working, action, rerender, da
   };
   const ask = () => {
     const confirm = h("button", { type: "button", class: cls, id: `${id}-yes`, "aria-describedby": `${id}-q`, on: { click: go } }, yes);
-    box.replaceChildren(
-      h("span", { class: "confirm-q", id: `${id}-q` }, question),
-      confirm,
-      h("button", { type: "button", class: "action", on: { click: () => idle().focus() } }, "Cancel"));
-    confirm.focus();
+    const cancel = h("button", { type: "button", class: "action", id: `${id}-no`, on: { click: () => idle().focus() } }, "Cancel");
+    box.replaceChildren(h("span", { class: "confirm-q", id: `${id}-q` }, question), confirm, cancel);
+    (danger ? cancel : confirm).focus();
   };
   const go = async () => {
     // Focus stays in the box while the request runs.
@@ -235,38 +273,38 @@ function speedSection(me, rerender) {
   let body;
   if (me.optedOut) {
     body = [h("p", {}, "You have opted out: no speed is computed for you, and what it was built from is deleted. ",
-      "The public queue, a mirror of GitHub, is unchanged.")];
+      "The public queue (your PRs and reviews on Team and People, a mirror of GitHub) is unchanged.")];
   } else {
     if (speed.state === "unknown") loadSpeed(rerender);
-    if (speed.state === "ok" && !speed.speed.optedOut) body = speedBody(speed.speed);
-    else if (speed.state === "absent") body = [h("p", { class: "muted" }, "This server does not compute speed yet.")];
-    else if (speed.state === "error") {
-      body = [h("p", {}, speed.why, " ",
-        h("button", { type: "button", class: "linkish", on: { click: () => { speed = { state: "unknown" }; rerender(); } } }, "Try again"))];
-    } else body = [h("p", { class: "muted", role: "status" }, "Loading your speed…")];
+    body = speedContent(rerender);
   }
   const actions = [];
   if (!me.optedOut) {
     actions.push(confirmButton({
       id: "act-optout", label: "Opt out",
-      question: "Opt out? Your speed inputs are deleted and no longer recorded; there is no button to undo it. The public queue is unchanged.",
+      question: "Opt out? Your speed inputs are deleted and no longer recorded. The opt-out is kept even if you delete your data, "
+        + "and this page has no way to undo it. Your PRs and reviews still show on Team and People, as on GitHub.",
       yes: "Opt out", working: "Opting out…", action: "optOut", rerender,
     }));
   }
   actions.push(confirmButton({
     id: "act-delete", label: "Delete my data", danger: true,
-    question: "Delete your data? This signs you out in every browser and deletes your speed inputs. An opt-out is kept, so it is still honoured.",
-    yes: "Delete", working: "Deleting…", action: "remove", rerender,
+    question: me.optedOut
+      ? "Delete your data? This signs you out in every browser. Your opt-out is kept, so nothing is recorded for you."
+      : "Delete your data? This signs you out in every browser and deletes your speed inputs. They are recorded again "
+        + "from your next activity on GitHub; to stop that, opt out instead.",
+    yes: "Delete my data", working: "Deleting…", action: "remove", rerender,
   }));
   return h("section", { class: "card speed" },
-    h("h2", {}, "Your speed"),
-    h("p", { class: "sub" }, SPEED_WORDS),
-    body,
+    h("h2", { id: "speed-heading", tabindex: "-1" }, "Your speed"),
+    me.optedOut ? null : h("p", { class: "sub" }, SPEED_WORDS),
+    h("div", { id: "speed-body" }, body),
     h("div", { class: "account" },
       h("h3", {}, "Your data"),
       h("p", { class: "sub" }, me.optedOut
-        ? "Deleting your data also signs you out, in every browser. "
-        : "Opting out stops your speed for good and keeps you signed in; deleting your data also signs you out. ",
+        ? "Deleting your data signs you out, in every browser. "
+        : "Opting out stops your speed for good; you stay signed in. Deleting your data signs you out everywhere and "
+          + "deletes your speed inputs, which are recorded again unless you opt out. ",
       h("a", { href: "#/privacy" }, "What is kept, and for how long")),
       h("div", { class: "actions" }, actions)));
 }

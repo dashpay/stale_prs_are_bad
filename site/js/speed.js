@@ -16,16 +16,19 @@ const MEASURES = [
   {
     key: "review_wait",
     title: "Review wait you gave",
+    counts: ["answered ask", "answered asks"],
     about: "From when you were first asked to review a PR to your first decisive review. Only answered asks are timed.",
   },
   {
     key: "your_turn",
     title: "Your turn",
+    counts: ["turn", "turns"],
     about: "On your PRs, the time each turn spent in your own stages: self-review, answering an objection, a failed build.",
   },
   {
     key: "cycle_time",
     title: "Cycle time",
+    counts: ["merged PR", "merged PRs"],
     about: "First ready for review to merge, on your merged PRs. Includes other people's review time.",
   },
 ];
@@ -60,21 +63,50 @@ export function readSpeed(raw) {
   return { optedOut: false, since: Number.isFinite(since) ? new Date(since) : null, months };
 }
 
+// Hours up to 72, days beyond, in the table, the tiles and the chart axes alike.
+const DAYS_FROM_HOURS = 72;
+
 /** "45m", "7.5h", "36h", "4.2d": a median, to one decimal while it is small. */
 function formatMedian(h) {
   if (h < 1) return `${Math.round(h * 60)}m`;
-  if (h < 48) return `${h < 10 ? +h.toFixed(1) : Math.round(h)}h`;
+  if (h < DAYS_FROM_HOURS) return `${h < 10 ? +h.toFixed(1) : Math.round(h)}h`;
   const d = h / 24;
   return `${d < 10 ? +d.toFixed(1) : Math.round(d)}d`;
 }
 
-function monthLabel(month) {
+function monthParts(month) {
   const [, y, m] = MONTH_RE.exec(month);
-  return `${MONTH_NAMES[Number(m) - 1]} ${y}`;
+  return [Number(y), Number(m)];
+}
+
+function monthLabel(month) {
+  const [y, m] = monthParts(month);
+  return `${MONTH_NAMES[m - 1]} ${y}`;
+}
+
+/** The three months a rolling median covers: "Aug–Oct 2026", or "Nov 2025–Jan 2026". */
+function windowLabel(month) {
+  const [y, m] = monthParts(month);
+  const startY = m > 2 ? y : y - 1;
+  const startM = ((m + 9) % 12) + 1;
+  return startY === y ? `${MONTH_NAMES[startM - 1]}–${MONTH_NAMES[m - 1]} ${y}` : `${MONTH_NAMES[startM - 1]} ${startY}–${MONTH_NAMES[m - 1]} ${y}`;
 }
 
 function dateLabel(d) {
   return `${d.getUTCDate()} ${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+function plural(measure, n) {
+  return `${n} ${measure.counts[n === 1 ? 0 : 1]}`;
+}
+
+function anything(key, s) {
+  return s.n > 0 || (key === "review_wait" && (s.asked > 0 || s.answered > 0 || s.open > 0));
+}
+
+/** The index of the first month with anything recorded for a measure, or -1. */
+function firstRecorded(months, key) {
+  return months.findIndex((m) => anything(key, m[key]));
 }
 
 /** A measure for one month in words: "18h · n 12", or the count alone. */
@@ -100,6 +132,7 @@ export function speedBody(speed) {
     h("div", { class: "speed-tiles" }, MEASURES.map((m) => tile(m, months))),
     h("details", { class: "speed-table" },
       h("summary", {}, "Every month as a table, newest first"),
+      h("p", { class: "sub" }, "— : nothing recorded for you yet in that measure."),
       monthTable(months)),
   ];
 }
@@ -107,15 +140,18 @@ export function speedBody(speed) {
 function tile(measure, months) {
   const latest = months[months.length - 1];
   const s = latest[measure.key];
-  const value = s.median !== null ? formatMedian(s.median) : s.n ? `n ${s.n}` : "—";
-  const of = s.median !== null ? `median of ${s.n}`
-    : s.n ? "too few for a median" : "none recorded";
+  const recorded = firstRecorded(months, measure.key) >= 0;
+  const value = s.median !== null ? formatMedian(s.median) : "—";
+  let of;
+  if (s.median !== null) of = `median of ${plural(measure, s.n)}`;
+  else if (s.n) of = `${plural(measure, s.n)}, too few for a median`;
+  else of = recorded ? `no ${measure.counts[1]}` : "nothing recorded yet";
   const holder = h("div", { class: "plot-holder speed-plot" });
-  const out = h("section", { class: "speed-tile", "aria-label": measure.title },
+  const out = h("div", { class: "speed-tile" },
     h("h3", {}, measure.title),
     h("p", { class: "speed-value" }, value),
-    h("p", { class: "speed-of" }, `${monthLabel(latest.month)} · ${of}`),
-    measure.key === "review_wait" ? h("p", { class: "speed-of" }, asksText(s)) : null,
+    h("p", { class: "speed-of" }, `${windowLabel(latest.month)} · ${of}`),
+    measure.key === "review_wait" && recorded ? h("p", { class: "speed-of" }, asksText(s)) : null,
     holder,
     h("p", { class: "speed-about" }, measure.about));
   if (!months.some((m) => m[measure.key].median !== null)) {
@@ -126,28 +162,30 @@ function tile(measure, months) {
   return out;
 }
 
-function waitCell(w) {
-  if (!w.n && !w.asked && !w.answered && !w.open) return "none";
-  return [h("div", {}, statText(w)), h("div", { class: "muted" }, asksText(w))];
-}
-
 function monthTable(months) {
+  const first = Object.fromEntries(MEASURES.map((m) => [m.key, firstRecorded(months, m.key)]));
+  // Newest first; a month before a measure's first record shows "—", not "none".
+  const rows = months.map((m, i) => ({ m, i })).reverse();
+  const cell = (key, { m, i }) => {
+    if (first[key] < 0 || i < first[key]) return h("span", { class: "muted" }, "—");
+    const s = m[key];
+    if (key !== "review_wait" || !anything(key, s)) return statText(s);
+    return [h("div", {}, statText(s)), h("div", { class: "muted" }, asksText(s))];
+  };
   return sortableTable({
     columns: [
-      { key: "month", label: "Month", cell: (m) => monthLabel(m.month) },
-      ...MEASURES.map((measure) => ({
-        key: measure.key,
-        label: measure.title,
-        cell: (m) => (measure.key === "review_wait" ? waitCell(m.review_wait) : statText(m[measure.key])),
-      })),
+      { key: "month", label: "Month", cell: ({ m }) => monthLabel(m.month) },
+      ...MEASURES.map((measure) => ({ key: measure.key, label: measure.title, cell: (r) => cell(measure.key, r) })),
     ],
-    rows: [...months].reverse(),
+    rows,
   });
 }
 
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
+
+const CHART_HEIGHT = 128;
 
 /** Draw once laid out and again when the width changes; a colour-scheme change re-renders the page. */
 function drawWhenSized(holder, draw) {
@@ -172,14 +210,16 @@ function drawWhenSized(holder, draw) {
   ro.observe(holder);
 }
 
-const CHART_HEIGHT = 120;
-
-/** The unit a chart's axis counts in, picked so its ticks read as whole numbers. */
+/** The unit a chart's axis counts in, the same as formatMedian picks for its largest value. */
 function axisUnit(maxHours) {
-  if (maxHours < 2) return { per: 1 / 60, suffix: "m" };
-  if (maxHours < 72) return { per: 1, suffix: "h" };
+  if (maxHours < 1) return { per: 1 / 60, suffix: "m" };
+  if (maxHours < DAYS_FROM_HOURS) return { per: 1, suffix: "h" };
   return { per: 24, suffix: "d" };
 }
+
+// Month-label steps that divide a year, so January (labelled with its year)
+// is always one of the labelled months.
+const TICK_STEPS = [1, 2, 3, 4, 6, 12];
 
 function chart(measure, months, width) {
   const Plot = globalThis.Plot;
@@ -190,16 +230,16 @@ function chart(measure, months, width) {
     const s = m[measure.key];
     return { month: m.month, s, y: s.median === null ? NaN : s.median / unit.per };
   });
-  // Label every month that fits, counting back from the newest so it always has one.
   const marginLeft = 36;
   const marginRight = 10;
-  const step = Math.max(1, Math.ceil((domain.length * 30) / Math.max(1, width - marginLeft - marginRight)));
-  const ticks = domain.filter((_, i) => (domain.length - 1 - i) % step === 0);
+  const need = Math.ceil((domain.length * 30) / Math.max(1, width - marginLeft - marginRight));
+  const step = TICK_STEPS.find((s) => s >= need) ?? 12;
+  const ticks = domain.filter((m) => (monthParts(m)[1] - 1) % step === 0);
   const series = cssVar("--series");
   const surface = cssVar("--surface");
   const ink2 = cssVar("--ink-2");
   const tipText = (d) => {
-    const lines = [`${monthLabel(d.month)}: ${statText(d.s)}`];
+    const lines = [`${windowLabel(d.month)}: ${statText(d.s)}`];
     if (measure.key === "review_wait") lines.push(asksText(d.s));
     return lines.join("\n");
   };
@@ -208,13 +248,16 @@ function chart(measure, months, width) {
     height: CHART_HEIGHT,
     marginLeft,
     marginRight,
-    marginTop: 10,
+    marginTop: 18,
     marginBottom: 22,
     style: { background: "transparent", color: ink2, fontFamily: "inherit", fontSize: "11px" },
     x: {
       type: "point", domain, ticks, padding: 0.4, label: null, tickSize: 0,
       // A month's name, and the year at January.
-      tickFormat: (m) => (m.endsWith("-01") ? m.slice(0, 4) : MONTH_NAMES[Number(m.slice(5)) - 1]),
+      tickFormat: (m) => {
+        const [y, mo] = monthParts(m);
+        return mo === 1 ? String(y) : MONTH_NAMES[mo - 1];
+      },
     },
     y: {
       domain: [0, (maxHours / unit.per) * 1.15 || 1], ticks: 3, label: null, tickSize: 0,
@@ -226,8 +269,9 @@ function chart(measure, months, width) {
       // A month with no median breaks the line rather than dropping to zero.
       Plot.lineY(points, { x: "month", y: "y", stroke: series, strokeWidth: 2, strokeLinejoin: "round", strokeLinecap: "round" }),
       Plot.dot(points.filter((d) => d.s.median !== null), { x: "month", y: "y", r: 4, fill: series, stroke: surface, strokeWidth: 2 }),
+      // Counts too small for a median sit above the plot, away from the values.
       Plot.text(points.filter((d) => d.s.median === null && d.s.n > 0), {
-        x: "month", y: () => 0, text: (d) => `n ${d.s.n}`, dy: -7, fill: ink2, fontSize: 10,
+        x: "month", frameAnchor: "top", lineAnchor: "bottom", dy: -4, text: (d) => `n ${d.s.n}`, fill: ink2, fontSize: 10,
       }),
       // The pointer snaps to the nearest month, so it need not land on a dot.
       Plot.ruleX(points, Plot.pointerX({ x: "month", stroke: cssVar("--axis") })),
