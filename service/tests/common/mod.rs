@@ -12,7 +12,8 @@ use chrono::{DateTime, TimeDelta, Utc};
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use pr_hygiene::dashboard::Dashboard;
 use pr_hygiene_service::app::{self, AppState};
-use pr_hygiene_service::config::IngestConfig;
+use pr_hygiene_service::config::{IngestConfig, Secret, SignInConfig};
+use pr_hygiene_service::github::SignInApi;
 use pr_hygiene_service::oidc::{BoxFuture, KeyCache, KeySource, KEY_REFRESH_INTERVAL};
 use pr_hygiene_service::store::{Reader, Store};
 use rsa::pkcs1::EncodeRsaPrivateKey;
@@ -102,6 +103,38 @@ pub fn app() -> TestApp {
 /// `keys_down`: GitHub's key set cannot be fetched from the start.
 /// `refresh`: the floor between key set fetches.
 pub fn app_with(cfg: IngestConfig, keys_down: bool, refresh: Duration) -> TestApp {
+    build(cfg, keys_down, refresh, None)
+}
+
+/// The origin the test service is configured to be served from.
+pub const ORIGIN: &str = "https://hygiene.example.org";
+pub const CLIENT_ID: &str = "Iv23liTESTCLIENT";
+pub const CLIENT_SECRET: &str = "test-client-secret-value";
+
+pub fn signin_config() -> SignInConfig {
+    SignInConfig {
+        client_id: CLIENT_ID.into(),
+        client_secret: Secret::new(CLIENT_SECRET),
+        origin: ORIGIN.into(),
+    }
+}
+
+/// The service with sign-in on, against `github`.
+pub fn signin_app(github: Arc<dyn SignInApi>) -> TestApp {
+    build(
+        config(),
+        false,
+        KEY_REFRESH_INTERVAL,
+        Some((signin_config(), github)),
+    )
+}
+
+fn build(
+    cfg: IngestConfig,
+    keys_down: bool,
+    refresh: Duration,
+    signin: Option<(SignInConfig, Arc<dyn SignInApi>)>,
+) -> TestApp {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("service.sqlite3");
     let store = Store::open(&db).unwrap();
@@ -114,7 +147,11 @@ pub fn app_with(cfg: IngestConfig, keys_down: bool, refresh: Duration) -> TestAp
         Box::new(Source(keys.clone())),
         refresh,
     ));
-    let state = Arc::new(AppState::new(cfg, cache, store, reader));
+    let mut state = AppState::new(cfg, cache, store, reader);
+    if let Some((signin, github)) = signin {
+        state = state.with_signin(signin, github);
+    }
+    let state = Arc::new(state);
     TestApp {
         router: app::router(state),
         keys,

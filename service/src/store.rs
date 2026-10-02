@@ -13,7 +13,9 @@ use rusqlite::{
     params, Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior,
 };
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::path::Path;
 use std::time::Duration;
 
@@ -23,7 +25,7 @@ pub const RAW_RETENTION: TimeDelta = TimeDelta::days(30);
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Bumped with every change to the tables below.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -68,7 +70,46 @@ CREATE TABLE IF NOT EXISTS used_tokens (
     jti           TEXT PRIMARY KEY,
     used_at       TEXT NOT NULL
 );
+-- Sign-ins under way: the `state` and PKCE verifier each was sent to
+-- GitHub with, keyed by the SHA-256 of the random id in its cookie. A row
+-- is taken (deleted) by the first callback that names it.
+CREATE TABLE IF NOT EXISTS prelogins (
+    id_hash       TEXT PRIMARY KEY,
+    state         TEXT NOT NULL,
+    verifier      TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+);
+-- Signed-in browsers, keyed by the SHA-256 of the random id in their
+-- cookie: whoever reads this table cannot use what is in it.
+CREATE TABLE IF NOT EXISTS sessions (
+    id_hash       TEXT PRIMARY KEY,
+    user_id       INTEGER NOT NULL,
+    login         TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions (user_id, created_at);
+-- GitHub user ids of the people who opted out. Kept when they delete
+-- their account, so the opt-out goes on being honoured.
+CREATE TABLE IF NOT EXISTS opt_outs (
+    user_id       INTEGER PRIMARY KEY,
+    opted_out_at  TEXT NOT NULL
+);
 ";
+
+/// How long a sign-in may take between leaving for GitHub and coming back.
+pub const PRELOGIN_LIFETIME: TimeDelta = TimeDelta::minutes(10);
+
+/// The most sign-ins under way at once. Starting one needs no account, so
+/// without a cap anyone could fill the disk; past it, the oldest go first.
+const MAX_PRELOGINS: i64 = 10_000;
+
+/// How long a session lasts from sign-in.
+pub const SESSION_LIFETIME: TimeDelta = TimeDelta::days(30);
+
+/// Sessions kept per person: one per browser they use, give or take. A new
+/// sign-in past this ends their oldest session.
+pub const MAX_SESSIONS_PER_USER: i64 = 5;
 
 /// Long after any token has expired, its id is forgotten.
 const USED_TOKEN_RETENTION: TimeDelta = TimeDelta::days(1);
@@ -236,6 +277,197 @@ impl Store {
             stage_changes,
         })
     }
+
+    /// Remember a sign-in under way under the random id its cookie carries,
+    /// clearing those past their lifetime and, past the cap, the oldest.
+    pub fn begin_signin(
+        &mut self,
+        id: &str,
+        prelogin: &Prelogin,
+        now: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
+            "DELETE FROM prelogins WHERE created_at <= ?1",
+            [ts(now - PRELOGIN_LIFETIME)],
+        )?;
+        tx.execute(
+            "DELETE FROM prelogins WHERE id_hash IN (
+                 SELECT id_hash FROM prelogins
+                 ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?1)",
+            [MAX_PRELOGINS - 1],
+        )?;
+        tx.execute(
+            "INSERT INTO prelogins (id_hash, state, verifier, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![secret_hash(id), prelogin.state, prelogin.verifier, ts(now)],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The sign-in under way that `id` names, deleted whatever comes of it:
+    /// each can be completed, or failed, once. `None` when there is none or
+    /// it outlived its lifetime.
+    pub fn take_signin(
+        &mut self,
+        id: &str,
+        now: DateTime<Utc>,
+    ) -> anyhow::Result<Option<Prelogin>> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let hash = secret_hash(id);
+        let row: Option<(String, String, String)> = tx
+            .query_row(
+                "SELECT state, verifier, created_at FROM prelogins WHERE id_hash = ?1",
+                [&hash],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        tx.execute("DELETE FROM prelogins WHERE id_hash = ?1", [&hash])?;
+        tx.commit()?;
+        let Some((state, verifier, created_at)) = row else {
+            return Ok(None);
+        };
+        if parse_ts(&created_at)? + PRELOGIN_LIFETIME <= now {
+            return Ok(None);
+        }
+        Ok(Some(Prelogin { state, verifier }))
+    }
+
+    /// Start a session under the random id its cookie carries, ending the
+    /// person's oldest sessions past the cap.
+    pub fn create_session(
+        &mut self,
+        id: &str,
+        user_id: i64,
+        login: &str,
+        now: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
+            "INSERT INTO sessions (id_hash, user_id, login, created_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                secret_hash(id),
+                user_id,
+                login,
+                ts(now),
+                ts(now + SESSION_LIFETIME)
+            ],
+        )?;
+        tx.execute(
+            "DELETE FROM sessions WHERE user_id = ?1 AND id_hash NOT IN (
+                 SELECT id_hash FROM sessions WHERE user_id = ?1
+                 ORDER BY created_at DESC, rowid DESC LIMIT ?2)",
+            params![user_id, MAX_SESSIONS_PER_USER],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// End the session `id` names, if there is one.
+    pub fn end_session(&mut self, id: &str) -> anyhow::Result<()> {
+        self.conn
+            .execute("DELETE FROM sessions WHERE id_hash = ?1", [secret_hash(id)])?;
+        Ok(())
+    }
+
+    /// Record that `user_id` opted out, and forget their speed inputs. The
+    /// public queue is a mirror of GitHub and is not touched.
+    pub fn opt_out(&mut self, user_id: i64, now: DateTime<Utc>) -> anyhow::Result<()> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
+            "INSERT OR IGNORE INTO opt_outs (user_id, opted_out_at) VALUES (?1, ?2)",
+            params![user_id, ts(now)],
+        )?;
+        forget_speed_inputs(&tx, user_id)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// "Delete my account": every session of `user_id` and their speed
+    /// inputs. An opt-out is kept, or the next ingest would start recording
+    /// them again.
+    pub fn delete_user(&mut self, user_id: i64) -> anyhow::Result<()> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute("DELETE FROM sessions WHERE user_id = ?1", [user_id])?;
+        forget_speed_inputs(&tx, user_id)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Delete expired sessions and abandoned sign-ins.
+    pub fn purge_expired(&mut self, now: DateTime<Utc>) -> anyhow::Result<Purged> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let sessions = tx.execute("DELETE FROM sessions WHERE expires_at <= ?1", [ts(now)])?;
+        let prelogins = tx.execute(
+            "DELETE FROM prelogins WHERE created_at <= ?1",
+            [ts(now - PRELOGIN_LIFETIME)],
+        )?;
+        tx.commit()?;
+        Ok(Purged {
+            sessions,
+            prelogins,
+        })
+    }
+}
+
+/// Delete what is stored about `user_id` for computing their speed, in the
+/// transaction of the opt-out or deletion that asks for it. No speed inputs
+/// are stored yet, so there is nothing to delete; every table that comes to
+/// hold them must be cleared of the person here.
+fn forget_speed_inputs(_tx: &Transaction<'_>, _user_id: i64) -> anyhow::Result<()> {
+    Ok(())
+}
+
+/// The SHA-256, in hex, of a random id handed to a browser: the database
+/// keeps this in the id's place, so a copy of it (a backup, say) holds no
+/// usable session. The ids carry 256 random bits, so no salt or slow hash
+/// is needed.
+pub fn secret_hash(id: &str) -> String {
+    let mut hex = String::with_capacity(64);
+    for byte in Sha256::digest(id.as_bytes()) {
+        // Writing to a String cannot fail.
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+/// A sign-in under way: what was sent to GitHub, to check what comes back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prelogin {
+    /// The `state` GitHub must hand back unchanged.
+    pub state: String,
+    /// The PKCE verifier whose hash went to GitHub as the challenge.
+    pub verifier: String,
+}
+
+/// Who a session belongs to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Session {
+    /// The GitHub user id: unlike the login, never reassigned.
+    pub user_id: i64,
+    /// The login at sign-in.
+    pub login: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// What a purge deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Purged {
+    pub sessions: usize,
+    pub prelogins: usize,
 }
 
 fn load_kept(tx: &Transaction<'_>) -> anyhow::Result<HashMap<String, Kept>> {
@@ -356,6 +588,27 @@ impl Reader {
         self.conn
             .query_row("SELECT count(*) FROM view", [], |row| row.get::<_, i64>(0))?;
         Ok(())
+    }
+
+    /// The unexpired session that `id` names, if any.
+    pub fn session(&self, id: &str, now: DateTime<Utc>) -> anyhow::Result<Option<Session>> {
+        let row: Option<(i64, String, String)> = self
+            .conn
+            .query_row(
+                "SELECT user_id, login, expires_at FROM sessions
+                 WHERE id_hash = ?1 AND expires_at > ?2",
+                params![secret_hash(id), ts(now)],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        row.map(|(user_id, login, expires_at)| {
+            Ok(Session {
+                user_id,
+                login,
+                expires_at: parse_ts(&expires_at)?,
+            })
+        })
+        .transpose()
     }
 
     /// The version of the view stored, if any.
@@ -712,6 +965,202 @@ mod tests {
         let view = db.reader.view().unwrap().unwrap();
         assert!(view.prs.iter().all(|p| p.repo != DASHCORE));
         assert_eq!(view.repo(DASHCORE).unwrap().data_as_of, None);
+    }
+
+    fn session_id(n: u8) -> String {
+        format!("{:0>43}", n)
+    }
+
+    /// Whoever gets a copy of the database (a backup, say) must not be
+    /// able to sign in as anyone with what is in it.
+    #[test]
+    fn a_session_is_stored_under_a_hash_of_its_id_never_the_id() {
+        let mut db = db();
+        let now = Utc::now();
+        let id = session_id(1);
+        db.store.create_session(&id, 42, "alice", now).unwrap();
+        let stored: String = db
+            .reader
+            .conn
+            .query_row("SELECT id_hash FROM sessions", [], |row| row.get(0))
+            .unwrap();
+        let expected: String = Sha256::digest(id.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(stored, expected);
+        let dump: String = db
+            .reader
+            .conn
+            .query_row(
+                "SELECT id_hash || user_id || login || created_at || expires_at FROM sessions",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!dump.contains(&id));
+        let s = db.reader.session(&id, now).unwrap().unwrap();
+        assert_eq!((s.user_id, s.login.as_str()), (42, "alice"));
+        assert!(
+            db.reader.session(&expected, now).unwrap().is_none(),
+            "the hash is no key"
+        );
+    }
+
+    #[test]
+    fn a_session_lasts_thirty_days_and_is_then_purged() {
+        let mut db = db();
+        let start = Utc::now();
+        let id = session_id(1);
+        db.store.create_session(&id, 42, "alice", start).unwrap();
+        let almost = start + SESSION_LIFETIME - minutes(1);
+        assert!(db.reader.session(&id, almost).unwrap().is_some());
+        let over = start + SESSION_LIFETIME;
+        assert!(
+            db.reader.session(&id, over).unwrap().is_none(),
+            "an expired session lets no one in, purged or not"
+        );
+        assert_eq!(db.store.purge_expired(almost).unwrap().sessions, 0);
+        assert_eq!(db.store.purge_expired(over).unwrap().sessions, 1);
+        assert_eq!(count(&db, "SELECT count(*) FROM sessions"), 0);
+    }
+
+    /// A person signing in again and again keeps a few sessions, not one
+    /// per sign-in for a month; the newest are the ones in use.
+    #[test]
+    fn a_person_keeps_at_most_a_few_sessions_the_newest() {
+        let mut db = db();
+        let start = Utc::now();
+        db.store
+            .create_session(&session_id(99), 7, "bob", start)
+            .unwrap();
+        let n = u8::try_from(MAX_SESSIONS_PER_USER).unwrap() + 2;
+        for i in 1..=n {
+            db.store
+                .create_session(&session_id(i), 42, "alice", start + minutes(i.into()))
+                .unwrap();
+        }
+        let at = start + minutes(60);
+        assert!(db.reader.session(&session_id(1), at).unwrap().is_none());
+        assert!(db.reader.session(&session_id(2), at).unwrap().is_none());
+        for i in 3..=n {
+            assert!(
+                db.reader.session(&session_id(i), at).unwrap().is_some(),
+                "{i}"
+            );
+        }
+        assert_eq!(
+            count(&db, "SELECT count(*) FROM sessions WHERE user_id = 42"),
+            MAX_SESSIONS_PER_USER
+        );
+        assert!(
+            db.reader.session(&session_id(99), at).unwrap().is_some(),
+            "someone else's sessions are untouched"
+        );
+    }
+
+    #[test]
+    fn a_prelogin_is_taken_once_and_not_after_its_lifetime() {
+        let mut db = db();
+        let start = Utc::now();
+        let p = Prelogin {
+            state: "s".into(),
+            verifier: "v".into(),
+        };
+        db.store.begin_signin("one", &p, start).unwrap();
+        assert_eq!(db.store.take_signin("one", start).unwrap(), Some(p.clone()));
+        assert_eq!(db.store.take_signin("one", start).unwrap(), None, "used");
+
+        db.store.begin_signin("two", &p, start).unwrap();
+        let late = start + PRELOGIN_LIFETIME;
+        assert_eq!(db.store.take_signin("two", late).unwrap(), None, "expired");
+        assert_eq!(
+            count(&db, "SELECT count(*) FROM prelogins"),
+            0,
+            "an expired one is deleted when it is tried"
+        );
+
+        db.store.begin_signin("three", &p, start).unwrap();
+        assert_eq!(db.store.purge_expired(late).unwrap().prelogins, 1);
+    }
+
+    /// Starting a sign-in needs no account; a flood of them must not grow
+    /// the table without bound.
+    #[test]
+    fn sign_ins_under_way_are_capped_oldest_first() {
+        let mut db = db();
+        let start = Utc::now();
+        let p = Prelogin {
+            state: "s".into(),
+            verifier: "v".into(),
+        };
+        db.store
+            .conn
+            .execute(
+                "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1)
+                 INSERT INTO prelogins (id_hash, state, verifier, created_at)
+                 SELECT 'old' || i, 's', 'v', ?2 FROM n",
+                params![MAX_PRELOGINS, ts(start)],
+            )
+            .unwrap();
+        db.store
+            .begin_signin("newest", &p, start + minutes(1))
+            .unwrap();
+        assert_eq!(count(&db, "SELECT count(*) FROM prelogins"), MAX_PRELOGINS);
+        assert_eq!(
+            db.store.take_signin("newest", start + minutes(1)).unwrap(),
+            Some(p)
+        );
+    }
+
+    #[test]
+    fn an_opt_out_outlasts_deleting_the_account() {
+        let mut db = db();
+        let now = Utc::now();
+        db.store
+            .create_session(&session_id(1), 42, "alice", now)
+            .unwrap();
+        db.store
+            .create_session(&session_id(2), 42, "alice", now)
+            .unwrap();
+        db.store
+            .create_session(&session_id(3), 7, "bob", now)
+            .unwrap();
+        db.store.opt_out(42, now).unwrap();
+        db.store.opt_out(42, now + minutes(1)).unwrap();
+        db.store.delete_user(42).unwrap();
+        assert_eq!(
+            count(&db, "SELECT count(*) FROM sessions WHERE user_id = 42"),
+            0
+        );
+        assert_eq!(
+            count(&db, "SELECT count(*) FROM sessions WHERE user_id = 7"),
+            1
+        );
+        assert_eq!(
+            count(&db, "SELECT count(*) FROM opt_outs WHERE user_id = 42"),
+            1
+        );
+    }
+
+    /// A database written before sign-in existed opens, and gains the
+    /// sign-in tables.
+    #[test]
+    fn a_database_from_before_sign_in_is_upgraded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.sqlite3");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE used_tokens (jti TEXT PRIMARY KEY, used_at TEXT NOT NULL);
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        }
+        let mut store = Store::open(&path).unwrap();
+        store
+            .create_session(&session_id(1), 42, "alice", Utc::now())
+            .unwrap();
     }
 
     #[test]
