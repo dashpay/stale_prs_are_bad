@@ -1,5 +1,6 @@
 //! Python's `str` methods where they read Unicode: whitespace, line
-//! breaks, lowercase, `repr`, and lengths and slices counted in code points.
+//! breaks, lowercase, uppercase compared with ASCII, `repr`, and lengths and
+//! slices counted in code points.
 //!
 //! Each reads the tables Python 3.12 gave ([`super::tables`]), never Rust's
 //! own Unicode data: `str.isspace` counts `\x1c`–`\x1f` as whitespace where
@@ -140,6 +141,39 @@ fn final_sigma(chars: &[char], i: usize) -> bool {
     }
     let after = chars[i + 1..].iter().find(|&&c| !ignorable(c));
     !after.is_some_and(|&c| cased(c))
+}
+
+/// The characters outside ASCII whose `str.upper()` is ASCII, and what it
+/// is; `conformance/pycompat/object.json` lists them from every code point.
+const UPPER_INTO_ASCII: [(char, &str); 10] = [
+    ('\u{df}', "SS"),
+    ('\u{131}', "I"),
+    ('\u{17f}', "S"),
+    ('\u{fb00}', "FF"),
+    ('\u{fb01}', "FI"),
+    ('\u{fb02}', "FL"),
+    ('\u{fb03}', "FFI"),
+    ('\u{fb04}', "FFL"),
+    ('\u{fb05}', "ST"),
+    ('\u{fb06}', "ST"),
+];
+
+/// `s.upper()` when that is pure ASCII, `None` when it is not. The engine
+/// uppercases only to compare with ASCII words (a review's `APPROVED`),
+/// which an uppercase holding anything else cannot equal; `upper` maps each
+/// character on its own, so one character outside the table above is
+/// enough to say so.
+pub fn py_upper_ascii(s: &str) -> Option<String> {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c.is_ascii() {
+            out.push(c.to_ascii_uppercase());
+        } else {
+            let (_, upper) = UPPER_INTO_ASCII.iter().find(|(from, _)| *from == c)?;
+            out.push_str(upper);
+        }
+    }
+    Some(out)
 }
 
 /// `len(s)`: code points, not bytes.

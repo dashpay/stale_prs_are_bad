@@ -6,6 +6,7 @@
 
 mod datetime;
 mod json;
+mod object;
 mod re;
 mod tables;
 mod text;
