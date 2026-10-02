@@ -441,6 +441,156 @@ State changes are fetch POSTs (the page's CSP has `form-action 'none'`).
 1a-5b sign-in, sessions, the `/me` routes and the speed-input tables;
 1a-5c speed; 1a-5d the page's Me and the privacy page.
 
+## 6c. Step 1b in detail — the engine port
+
+Goal: a Rust engine that, given the same reads, reaches the same verdicts and
+makes the same writes as the Python engine. It must prove this on the corpus
+and then live in shadow, before it writes anything. 1b-1 (the recorder,
+#82) is merged: `conformance/README.md` is the contract this section relies
+on.
+
+**Where it lives.** A new workspace member `engine/` (crate
+`pr-hygiene-engine`), a library with four layers. Each layer depends only on
+the ones above it:
+
+1. `pycompat`: the Python behaviours the README lists, as small functions
+   with golden tests.
+   - `splitlines`, and `strip`/`split()` over Python's `isspace` set. That set
+     includes `\x1c`–`\x1f`, which Rust's `char::is_whitespace` and regex
+     `\s` do not.
+   - Code-point slicing.
+   - A `PyDateTime` that parses what Python 3.12's `fromisoformat` accepts
+     (after `Z` → `+00:00`) and re-renders the way `isoformat()` does, keeping
+     the offset and microseconds.
+   - One JSON writer, `py_dumps(value, sort_keys, separators)`, covering the
+     four shapes the engine hashes or writes: the marker writer, `diff_print`,
+     the admission context and the sort key in `fingerprint`. It always uses
+     `ensure_ascii`, lowercase `\uXXXX` and surrogate pairs.
+   - A regex rule: every pattern is ported with `\s` replaced by Python's
+     whitespace class. A non-multiline `$` is replaced by an explicit
+     `\n?\z` only where the match span is not used. Each pattern gets a
+     table test of inputs, with Python's matches recorded.
+   - Production Python is 3.12 (the `ubuntu-latest` runner's `python3`), so
+     3.12 is the reference.
+2. `policy`: the policy types and `evaluate`, a pure function.
+   - Policy types: serde, with `IndexMap` wherever Python iterates or
+     serialises a dict.
+   - `validate_policy`, `governs`, `evaluate` and its helpers: receipts,
+     attestations, bot schedules, fingerprints.
+   - No I/O and no clock: `now` is an argument.
+3. `evidence`: what `github.py` reads, behind a transport.
+   - `Transport::attempt(call) -> Attempt { exit_ok, stdout, stderr }`, where
+     `call` is the same argument shape `gh api` receives: method, path,
+     `--paginate --slurp`, stdin.
+   - Above it, a `Client` keeps `_run`'s rules: one retry for idempotent
+     calls on the same failure substrings, a partial GraphQL answer being an
+     answer, empty output being `None`, invalid JSON being an error.
+   - The snapshot builder, the access/status/build caches and the batch
+     history reader sit on top.
+   - Production uses an HTTP transport (an App installation token). It
+     renders what `gh` would have printed: the slurped page array, and
+     `gh`'s error line with `(HTTP <code>)`. One `Client` then serves HTTP,
+     replay and the fake.
+4. `reconcile`: what `main.py` does.
+   - `collect`, `publish`, `clear_marks`, `nudge`, the checklist, the move
+     comment, labels and statuses, and the report.
+   - The clock is a `Clock` the caller passes in. It is read at the same
+     points `utc_now` is read in Python.
+
+The analyzer's `src/policy.rs` (registry, routing) overlaps layer 2. The
+engine's types become the one definition, and the analyzer moves onto them
+after 1b-2 in its own PR. Until then the two are not merged.
+
+**Increments.** Each is its own PR and green before the next starts.
+- **1b-2 `pycompat` + `policy`.**
+  - All 274 committed evaluate cases must match, field for field. Blockers
+    marked `python_exception_text` are compared by state only.
+  - `pycompat` golden files are produced by Python into
+    `conformance/pycompat/`, from an input list that includes every edge
+    character above.
+  - The Python tests of the pure helpers (`test_policy.py`'s non-evaluate
+    tests, `test_bot_timeouts.py`) are ported as Rust tests.
+- **1b-3 `evidence`.**
+  - For every boundary recording, each snapshot the Rust reader builds
+    equals the `pr` Python's `evaluate` saw (`evaluations.jsonl`). It is
+    served only from recorded reads; a read the recording lacks is a failure.
+  - The `test_github.py` tests are ported against a stateful **fake
+    transport** in Rust. It answers from a scenario and applies writes to it.
+- **1b-4 `reconcile`.**
+  - Every recording gives the same verdicts, the same ordered writes (method,
+    path, body), the same canonical outputs and the same printed report.
+  - The fake is used to show three things the corpus cannot: replaying the
+    state after the writes yields no writes, failing writes take the Python
+    failure paths, and a first admission completes.
+  - `test_main.py` and `test_checklist.py` are ported.
+- **1b-5 shadow.**
+  - The service's worker runs the Rust engine on GitHub through a transport
+    that refuses every write: the recorder's default-deny classifier, ported.
+  - It stores, per (repo, PR, head), the verdict and the writes it would
+    have made, and compares them with the Python engine's posted status and
+    record.
+  - Differences fall into categories defined in advance: clock-dependent
+    timeouts, telemetry, admission time, and the deliberate divergences
+    below. Any other difference is a bug in the port.
+  - Step 2's entry criterion: three to four weeks with no uncategorised
+    difference, per repo.
+
+**Corpus in CI.**
+- **Committed:**
+  - the evaluate cases;
+  - the `pycompat` goldens.
+- **CI keeps the corpus fresh.** The Python test job re-harvests both and
+  fails on any difference. A change to `pr_review/` therefore arrives with its
+  new corpus, and the Rust tests fail until the port follows.
+- **Live recordings stay local.**
+  - They are 85 MB, and the collaborator listing in them names collaborators
+    and private organisation members.
+  - `cargo test -p pr-hygiene-engine --test live -- --ignored` replays
+    whatever `conformance/live/` holds and skips when it is absent.
+  - A port PR states that it ran against a fresh recording.
+- **Rejected:**
+  - Committing redacted recordings: size, churn, and the collaborator list.
+  - Pseudonymising them: logins are threaded through free text, and
+    timestamps re-identify people anyway.
+  - A Python fake GitHub to produce synthetic recordings: the fake has to
+    live on after Python is retired, so it is written once, in Rust.
+
+**Concurrency.** Python reads four snapshots at once, and its shared caches
+race (README, "Not to be copied"). The port reads sequentially in 1b. Any
+later concurrency fills each cache once before snapshots read it. The service
+reconciles per (repo, author), not as whole sweeps, so sequential reads cost
+nothing on its normal path.
+
+**Deliberate divergences** are listed here, and each is a shadow category:
+- The access race is not reproduced.
+- A record comment containing `NaN`/`Infinity` (only an admin edit can put
+  one there) is unreadable to the port; Python reads it.
+
+Everything else is copied, including quirks: review-thread authors without
+`[bot]`, and timestamps compared as strings. Fixes come after cut-over, made
+once, in Rust.
+
+**Failure modes.**
+- The corpus can't tell when the clock is read. The port mirrors Python's
+  read points, and a reviewer checks them against `utc_now`'s call sites.
+- A read the port needs but Python never made fails replay loudly, so the
+  port can't quietly read more than the engine did.
+- A Python change that skips re-harvesting fails CI. A Python change that
+  alters the boundary is caught by the next local live replay, and in shadow
+  by its category.
+- An HTTP transport that renders errors differently from `gh` would change
+  only the retry decision. The transport's tests pin the rendered line for
+  502/503/504, timeout and truncation.
+
+**Verification.**
+- `cargo test --workspace` runs:
+  - the evaluate corpus;
+  - the goldens;
+  - the ported tests;
+  - the fake's post-write, failed-write and first-admission scenarios.
+- Each increment runs the local live replay and reports it in its PR.
+- 1b-5 is judged on the shadow diff.
+
 ## 7. Open PRs
 
 - #65: merge (step 0).
