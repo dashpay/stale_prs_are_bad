@@ -33,6 +33,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write       # push the regenerated report to the data branch
+    outputs:
+      # Whether dashboard data was handed on, even when the run then fails.
+      snapshot: ${{ steps.handoff.outcome }}
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -116,8 +119,13 @@ jobs:
         # committed, so a run that changes no history adds no commit for it.
         run: ../target/release/pr-hygiene --config ../.pr-hygiene.yml --policies-root ../policies --policy-state ../policy-state --out index.md --json-out ../dashboard.json
 
+      # The analyzer writes the data and then fails when a repository could
+      # not be fetched. The data still goes on: the service keeps that
+      # repository's last good data and marks it stale, while the others stay
+      # current. The run itself stays red.
       - name: Hand the dashboard data to the publish job
-        if: ${{ !inputs.dry_run }}
+        id: handoff
+        if: ${{ !inputs.dry_run && !cancelled() && hashFiles('dashboard.json') != '' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dashboard-data
@@ -219,7 +227,7 @@ jobs:
   post:
     name: Post to the service
     needs: analyze
-    if: ${{ !inputs.dry_run && vars.PR_HYGIENE_SERVICE_URL != '' }}
+    if: ${{ !cancelled() && !inputs.dry_run && vars.PR_HYGIENE_SERVICE_URL != '' && needs.analyze.outputs.snapshot == 'success' }}
     permissions:
       contents: read
       id-token: write
