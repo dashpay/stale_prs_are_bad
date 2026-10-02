@@ -252,8 +252,10 @@ point among the calls), the outcome and, for `--format json`, the report must
 all come out the same, and every recorded call must be made once, in the
 order recorded. The hourly batch of `--batch-size` is chosen by the test from
 the recorded clock, as `periodic_batch` chooses it; the engine itself takes
-whichever batch its caller chooses. The same test runs over `conformance/live`
-when asked (`--test reconcile -- --ignored`).
+whichever batch its caller chooses. Its driver is `replay_run`, in the same
+`conformance` module as the snapshot driver, and it says what differs by
+layer, field path and kind, never by what a recording holds. The same test
+runs over `conformance/live` when asked (`--test reconcile -- --ignored`).
 
 ## Evaluate cases
 

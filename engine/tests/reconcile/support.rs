@@ -16,12 +16,6 @@ pub fn dump(value: &PyValue) -> String {
     py_dumps(value, false, Some((",", ":")), None).expect("no floats in a compared value")
 }
 
-/// A value as compact JSON with its keys sorted: two maps holding the same
-/// entries are the same value.
-pub fn same_form(value: &PyValue) -> String {
-    py_dumps(value, true, Some((",", ":")), None).expect("no floats in a compared value")
-}
-
 /// A field of a dict.
 #[track_caller]
 pub fn field<'a>(value: &'a PyValue, key: &str) -> &'a PyValue {
@@ -51,49 +45,9 @@ pub fn text(value: &PyValue) -> &str {
     }
 }
 
-/// Where two values first differ, in reading order.
-pub fn first_difference(ours: &PyValue, python: &PyValue, at: &str) -> Option<String> {
-    match (ours, python) {
-        (PyValue::Dict(a), PyValue::Dict(b)) => {
-            let (keys_a, keys_b): (Vec<_>, Vec<_>) = (a.keys().collect(), b.keys().collect());
-            if keys_a != keys_b {
-                return Some(format!("{at}: keys {keys_a:?}, Python's {keys_b:?}"));
-            }
-            a.iter()
-                .find_map(|(key, value)| first_difference(value, &b[key], &format!("{at}.{key}")))
-        }
-        (PyValue::List(a), PyValue::List(b)) => {
-            if a.len() != b.len() {
-                return Some(format!("{at}: {} items, Python's {}", a.len(), b.len()));
-            }
-            a.iter()
-                .zip(b.iter())
-                .enumerate()
-                .find_map(|(i, (x, y))| first_difference(x, y, &format!("{at}[{i}]")))
-        }
-        _ => {
-            let (x, y) = (dump(ours), dump(python));
-            (x != y).then(|| format!("{at}: {x}, Python's {y}"))
-        }
-    }
-}
-
 /// How many calls have crossed a transport, shared with whoever needs to
 /// know: the clock logs a read against it.
 pub type Calls = Rc<Cell<usize>>;
-
-/// A transport that counts the calls made through it.
-pub struct Counted<T> {
-    pub inner: T,
-    pub calls: Calls,
-}
-
-impl<T: Transport> Transport for Counted<T> {
-    fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
-        self.calls.set(self.calls.get() + 1);
-        self.inner.call(call)
-    }
-}
 
 /// Every read of a clock: where, and how many calls had been made by then.
 pub type Reads = Rc<RefCell<Vec<(String, usize)>>>;
