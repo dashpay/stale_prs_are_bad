@@ -261,7 +261,10 @@ fn a_diff_timestamp_that_is_not_one_is_refused() {
     // and it handed whoever wrote it the instant an attestation is measured
     // against.
     let empty = json!({"number": 1, "diff": "a".repeat(64), "diff_heads": [], "diff_seen": null});
-    assert!(validate_diff(&py(empty)).is_err());
+    assert_eq!(
+        github_error(validate_diff(&py(empty))),
+        "Invalid controller diff heads"
+    );
     // A key that is not there is simply not read, so a marker written by a
     // newer engine does not make an older one refuse everything it knows.
     validate_diff(&py(json!({"number": 1}))).unwrap();
@@ -288,10 +291,10 @@ fn comments_read_without_their_editors_are_refused_by_the_record_reader() {
                           "created_at": "2026-09-11T10:00:00Z", "updated_at": "2026-09-11T12:00:00Z"}]);
     let mut api = api(move |_| page(listing.clone()));
     let rest = api.comments(&int(1)).unwrap();
-    assert!(matches!(
-        parse_controller_state(&rest),
-        Err(ReadError::GitHub(_))
-    ));
+    assert_eq!(
+        github_error(parse_controller_state(&rest)),
+        "Controller state read without who last edited it"
+    );
 }
 
 #[test]
@@ -335,10 +338,72 @@ fn the_newest_state_comment_wins_however_the_page_is_ordered() {
 fn should_reject_unknown_controller_schema() {
     let comments = [py(json!({"id": 1, "user": "github-actions[bot]",
                               "body": "<!-- platform-pr-review-state-v1 {\"version\":99} -->"}))];
-    assert!(matches!(
-        parse_controller_state(&comments),
-        Err(ReadError::GitHub(_))
-    ));
+    assert_eq!(
+        github_error(parse_controller_state(&comments)),
+        "Unknown or incomplete controller state schema"
+    );
+}
+
+#[test]
+fn a_record_is_held_to_its_schema_field_by_field() {
+    // Each field is read back and decided from, so each is checked as what
+    // it is; the first that fails names itself.
+    use pr_hygiene_engine::evidence::records::validate_state;
+    let check = |overrides: Value| validate_state(&py(state(overrides)));
+    check(json!({})).unwrap();
+    for (overrides, message) in [
+        (
+            json!({"version": true}),
+            "Unknown or incomplete controller state schema",
+        ),
+        (json!({"number": 0}), "Invalid controller PR number"),
+        (json!({"number": true}), "Invalid controller PR number"),
+        (json!({"head": "B".repeat(40)}), "Invalid controller head"),
+        (
+            json!({"evidence": "c".repeat(63)}),
+            "Invalid controller evidence",
+        ),
+        (json!({"state": ""}), "Missing controller lifecycle state"),
+        // A timestamp without a zone cannot be ordered against one with.
+        (
+            json!({"admitted_at": "2026-09-11T10:00:00"}),
+            "Invalid controller admitted_at",
+        ),
+        (
+            json!({"ready_since": "soon"}),
+            "Invalid controller ready_since",
+        ),
+        (json!({"ready_since": 5}), "Invalid controller ready_since"),
+    ] {
+        assert_eq!(
+            github_error(check(overrides.clone())),
+            message,
+            "{overrides}"
+        );
+    }
+    // Python's fromisoformat, with every `Z` read as UTC: an offset other
+    // than zero is a zone too.
+    check(json!({"admitted_at": "2026-09-11T10:00:00+03:00"})).unwrap();
+    let mut extra = state(json!({}));
+    extra["note"] = json!("x");
+    assert_eq!(
+        github_error(validate_state(&py(extra))),
+        "Unknown or incomplete controller state schema"
+    );
+}
+
+#[test]
+fn a_diff_line_somebody_truncated_leaves_the_record_readable() {
+    // The diff is never fatal: a marker line cut short beside an intact
+    // record reads as no diff, and the record still reads.
+    let body = record_body(state(json!({"number": 1})), "text", None);
+    let broken = body.replacen("\n\n", "\n<!-- pr-hygiene-diff-v1 {\"number\":1} \n\n", 1);
+    let comments = [
+        json!({"id": 50, "user": "github-actions[bot]", "body": broken,
+                           "created_at": "2026-09-11T10:00:00Z", "updated_at": "2026-09-11T10:00:00Z"}),
+    ];
+    assert_eq!(comment_id(&parsed(&comments)), Some(50));
+    assert!(diff_of(&comments, 1).is_none());
 }
 
 /// `EngineIdentityTests`: the engine's memory is recognised by who wrote it.
@@ -382,8 +447,22 @@ fn only_the_bot_spelling_counts_in_any_case() {
 }
 
 #[test]
+fn every_listed_identity_continues_the_record() {
+    // Repositories move to the App one at a time, and either writer must
+    // continue the other's records, or a rollback starts every pull request
+    // over. Listing an identity is the one change that needs; this holds
+    // every listed one to it, the bare name of each to nothing.
+    for login in ENGINE_LOGINS {
+        assert_eq!(comment_id(&parsed(&written_by(login))), Some(1), "{login}");
+        assert!(diff_of(&written_by(login), 7).is_some(), "{login}");
+        let bare = login.trim_end_matches("[bot]");
+        assert_eq!(comment_id(&parsed(&written_by(bare))), None, "{bare}");
+    }
+}
+
+#[test]
 fn an_older_engine_still_reads_the_record_beside_the_diff() {
-    // test_checklist: the diff rides in its own marker because the record's
+    // The diff rides in its own marker because the record's
     // schema is an exact set of keys; the record next to it still reads.
     let record = state(json!({"number": 1}));
     let diff = json!({"number": 1, "diff": "a".repeat(64), "diff_heads": ["b".repeat(40)]});
@@ -396,7 +475,7 @@ fn an_older_engine_still_reads_the_record_beside_the_diff() {
 
 #[test]
 fn the_holder_is_the_comment_the_record_was_read_from() {
-    // test_checklist: two record comments; the older one was written last.
+    // Two record comments; the older one was written last.
     // The record is read from it, and it is the one kept.
     let older_written_last = json!({"id": 1, "user": "github-actions[bot]",
         "created_at": "2026-09-10T00:00:00Z", "updated_at": "2026-09-11T11:00:00Z",
@@ -410,7 +489,7 @@ fn the_holder_is_the_comment_the_record_was_read_from() {
 
 #[test]
 fn the_last_marker_pair_is_the_engines() {
-    // test_checklist: a quoted example in a fence is not the block.
+    // A quoted example in a fence is not the block.
     let quoted = format!("```\n{CHECKLIST_START}\nexample\n{CHECKLIST_END}\n```");
     let real = format!("{CHECKLIST_START}\nreal\n{CHECKLIST_END}");
     let body = py(json!(format!("{quoted}\n\n{real}")));

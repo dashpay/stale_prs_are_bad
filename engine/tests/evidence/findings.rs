@@ -90,21 +90,99 @@ fn a_label_outside_a_heading_is_not_a_severity() {
 #[test]
 fn a_blocker_this_cannot_parse_still_holds_the_thread() {
     // One heading parsed is not every heading parsed: a blocking label in a
-    // shape the parser does not know is still read, wherever it appears.
-    for second in [
-        " _🎯 Functional Correctness_ | _🟠 Major_",
-        "_⚠️ Potential issue_ | **🟠 Major**",
-        "> _🎯 Functional Correctness_ | _🟠 Major_",
+    // shape the parser does not know is still read, wherever it appears in
+    // the opening as written — even where a stray `<!--` in the text hides
+    // the heading from the parser. Each answer is Python 3.12's.
+    for (second, expected) in [
+        (
+            " _🎯 Functional Correctness_ | _🟠 Major_",
+            vec!["🟡 Minor", "🟠 Major"],
+        ),
+        (
+            "_⚠️ Potential issue_ | **🟠 Major**",
+            vec!["🟡 Minor", "🟠 Major"],
+        ),
+        (
+            "> _🎯 Functional Correctness_ | _🟠 Major_",
+            vec!["🟡 Minor", "🟠 Major"],
+        ),
+        (
+            "_🟡 Minor_ | _🟠 Major_",
+            vec!["🟡 Minor", "🟡 Minor", "🟠 Major"],
+        ),
+        (
+            "`<!--` opens a comment in the sample.\n\n_🎯 Functional Correctness_ | _🟠 Major_",
+            vec!["🟡 Minor", "🟠 Major"],
+        ),
     ] {
         let body = format!(
             "{RABBIT_MINOR}\n\n---\n\n{second}\n\n**Fix the decoder.**\n<!-- cr-comment:v1:2 -->"
         );
-        let labels = finding_severities("coderabbitai", &body);
-        assert!(
-            labels.iter().any(|l| l == "🟠 Major"),
-            "{second}: {labels:?}"
+        assert_eq!(
+            finding_severities("coderabbitai", &body),
+            expected,
+            "{second}"
         );
     }
-    // Anyone else's thread carries no labels at all.
+    let fenced = format!("{PASTA_SUGGESTION}\n\n### 🔴 Blocking: the fence hides the heading");
+    assert_eq!(
+        finding_severities("thepastaclaw", &fenced),
+        ["🟡 Suggestion", "🔴 Blocking"]
+    );
+}
+
+#[test]
+fn the_severity_is_read_not_the_kind_of_finding() {
+    // 🧹 Nitpick is the kind of finding in CodeRabbit's heading, beside its
+    // severity. Taking it for the severity made a Major read as optional.
+    for (heading, expected) in [
+        ("_🧹 Nitpick_ | _🔵 Trivial_", "🔵 Trivial"),
+        ("_🧹 Nitpick_ | _🟠 Major_", "🟠 Major"),
+        // No severity CodeRabbit uses: the heading is kept as written.
+        (
+            "_🧹 Nitpick_ | _🟣 Something new_",
+            "_🧹 Nitpick_ | _🟣 Something new_",
+        ),
+    ] {
+        let body = format!("{heading}\n\n**Rename it.**");
+        assert_eq!(
+            finding_severities("coderabbitai", &body),
+            [expected],
+            "{heading}"
+        );
+    }
+}
+
+#[test]
+fn each_bot_is_held_to_its_own_labels() {
+    // A label one bot uses is unknown in the other's heading shape, and an
+    // unknown label is kept as written, which holds the thread.
+    let pasta = "<!-- thepastaclaw-review v1 -->\n**🟡 Minor: Rename it**";
+    assert_eq!(finding_severities("thepastaclaw", pasta), ["🟡 Minor"]);
+    let rabbit = "_🎯 Functional Correctness_ | _🟡 Suggestion_\n\n**Rename it.**";
+    assert_eq!(
+        finding_severities("coderabbitai", rabbit),
+        ["_🎯 Functional Correctness_ | _🟡 Suggestion_"]
+    );
+}
+
+#[test]
+fn a_heading_with_windows_line_endings_is_still_a_heading() {
+    let crlf = RABBIT_MINOR.replace('\n', "\r\n");
+    assert_eq!(finding_severities("coderabbitai", &crlf), ["🟡 Minor"]);
+}
+
+#[test]
+fn a_heading_without_a_known_severity_is_kept_so_it_blocks() {
+    let body = "_🎯 Functional Correctness_ | _⚡ Quick win_\n\n**Fix it.**";
+    assert_eq!(
+        finding_severities("coderabbitai", body),
+        ["_🎯 Functional Correctness_ | _⚡ Quick win_"]
+    );
+}
+
+#[test]
+fn a_person_has_no_severity() {
+    assert!(finding_severities("reviewer", PASTA_SUGGESTION).is_empty());
     assert!(finding_severities("reviewer", RABBIT_MAJOR).is_empty());
 }

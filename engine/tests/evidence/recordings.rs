@@ -242,6 +242,33 @@ fn a_changed_answer_from_github_changes_the_rebuilt_snapshot() {
 }
 
 #[test]
+fn the_same_entries_in_another_order_are_another_snapshot() {
+    // The snapshot is held to Python's key order, not only its entries:
+    // move one key of one comment to the end and the gate must notice.
+    let dir = conformance().join("synthetic/report");
+    let mut recording = load(&dir);
+    let PyValue::Dict(evaluation) = &mut recording.evaluations[0] else {
+        panic!("an evaluation is a dict")
+    };
+    let Some(PyValue::Dict(pr)) = evaluation.get_mut("pr") else {
+        panic!("an evaluation holds its pr")
+    };
+    let Some(PyValue::List(comments)) = pr.get_mut("comments") else {
+        panic!("a pr holds its comments")
+    };
+    let Some(PyValue::Dict(comment)) = comments.first_mut() else {
+        panic!("a comment")
+    };
+    let user = comment.shift_remove("user").expect("a comment's user");
+    comment.insert("user".into(), user);
+    let failure = rebuild(&dir, &recording).unwrap_err();
+    assert!(
+        failure.contains("differs at pr.comments[0]: keys"),
+        "{failure}"
+    );
+}
+
+#[test]
 fn a_read_the_recording_lacks_is_refused_by_name() {
     let dir = conformance().join("synthetic/report");
     let mut recording = load(&dir);

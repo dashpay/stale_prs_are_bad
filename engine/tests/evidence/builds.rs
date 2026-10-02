@@ -247,7 +247,7 @@ fn a_check_list_python_could_not_read_is_not_read_here_either() {
 
 #[test]
 fn more_than_one_page_of_checks_is_read_not_refused() {
-    // Live precedent: platform #2974 carries 113 contexts. Refusing would
+    // A pull request can carry more than a hundred contexts. Refusing would
     // error every pull request of that author.
     let head = "a".repeat(40);
     let pages = vec![
@@ -314,5 +314,34 @@ fn a_pull_request_with_no_checks_at_all_is_green() {
     assert_eq!(
         api.build_state(&int(1), &"a".repeat(40)).unwrap(),
         Build::Green
+    );
+}
+
+#[test]
+fn the_check_before_a_write_reads_the_build_afresh() {
+    // A head's build is read once per reconciliation, but the re-read made
+    // immediately before writing must not trust a green read minutes ago:
+    // a check that failed since would be posted over.
+    let head = "a".repeat(40);
+    let green = rollup(json!([ci("tests", "SUCCESS", "1")]), &head, false, None);
+    let mut api = api(move |_| ok(green.clone()));
+    assert_eq!(api.build_state(&int(1), &head).unwrap(), Build::Green);
+    api.forget_cached_access();
+    let red = rollup(json!([ci("tests", "FAILURE", "2")]), &head, false, None);
+    reroute(&mut api, move |_| ok(red.clone()));
+    assert_eq!(api.build_state(&int(1), &head).unwrap(), Build::Failed);
+    assert_eq!(calls(&api).len(), 1);
+}
+
+#[test]
+fn more_checks_with_nowhere_to_read_them_from_is_refused() {
+    // Asking for the next page without a cursor would ask for the first page
+    // again, for ever.
+    let head = "a".repeat(40);
+    let stuck = rollup(json!([ci("tests", "SUCCESS", "1")]), &head, true, None);
+    let mut api = api(move |_| ok(stuck.clone()));
+    assert_eq!(
+        github_error(api.build_state(&int(1), &head)),
+        "Check pagination did not advance"
     );
 }

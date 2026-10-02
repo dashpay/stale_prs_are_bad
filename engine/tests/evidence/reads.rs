@@ -87,6 +87,9 @@ struct Fixture {
     files: Option<Value>,
     threads: Option<Value>,
     checks: Option<Value>,
+    /// Fields over `pr()`.
+    pr: Option<Value>,
+    reviews: Option<Value>,
 }
 
 impl Fixture {
@@ -116,6 +119,8 @@ impl Fixture {
                     page(Value::Array(self.comments.clone()))
                 } else if path.contains("/collaborators") {
                     page(listing())
+                } else if path.contains("/reviews") {
+                    page(self.reviews.clone().unwrap_or_else(|| json!([])))
                 } else {
                     page(json!([]))
                 }
@@ -123,7 +128,7 @@ impl Fixture {
             Call::Rest { path, .. } if path.ends_with("/permission") => {
                 ok(json!({"permission": "write"}))
             }
-            Call::Rest { .. } => ok(pr()),
+            Call::Rest { .. } => ok(merged(&pr(), self.pr.clone().unwrap_or_else(|| json!({})))),
         }
     }
 }
@@ -579,12 +584,95 @@ fn a_real_graphql_failure_is_still_a_failure() {
         ("not json", "unparseable"),
         ("", "empty"),
     ] {
+        // Without a `data` object the failure is gh's, whatever the body.
         let mut api = api(move |_| failed(1, body, "failed"));
-        assert!(
-            matches!(api.histories(&[int(1)]), Err(ReadError::GitHub(_))),
+        assert_eq!(
+            github_error(api.histories(&[int(1)])),
+            "GitHub API command failed (exit 1): failed",
             "{label}"
         );
     }
+}
+
+#[test]
+fn a_thread_count_that_changes_between_pages_is_refused() {
+    // The pages were read from two different conversations, and the
+    // threads between them may be the ones missed.
+    let first = thread(
+        "T1",
+        "Rename this.",
+        json!([{"author": {"login": "reviewer"}, "createdAt": "2026-09-01T00:00:00Z"}]),
+    );
+    let mut pages = vec![
+        ok(graph(json!([first]), true, Some("c1"), Some(2))),
+        ok(graph(json!([]), false, None, Some(3))),
+    ]
+    .into_iter();
+    let mut api = api(move |_| pages.next().expect("two pages"));
+    assert_eq!(
+        github_error(api.threads(&int(1))),
+        "Review thread count unavailable or changed during collection"
+    );
+}
+
+#[test]
+fn a_record_for_another_pull_request_is_refused_in_the_snapshot() {
+    let state = json!({"version": 1, "number": 2, "head": head(), "admitted_at": null,
+                       "ready_since": null, "state": "waiting-bots", "evidence": "b".repeat(64),
+                       "context": "c".repeat(64)});
+    let comment = json!({"id": 1, "user": "github-actions[bot]", "body": record_body(state, "text", None),
+                         "created_at": "2026-09-01T00:00:00Z", "updated_at": "2026-09-01T00:00:00Z"});
+    let result = snapshot(Fixture {
+        comments: vec![comment],
+        ..Fixture::default()
+    });
+    assert_eq!(
+        github_error(result),
+        "Controller state belongs to another PR"
+    );
+}
+
+#[test]
+fn a_snapshot_refuses_what_it_cannot_vouch_for() {
+    // Each is evidence the verdict would be decided from, read short or
+    // unrecognised; each names itself.
+    for (fixture, message) in [
+        (
+            Fixture {
+                files: Some(json!([{"filename": "new/a.rs", "status": "renamed"}])),
+                ..Fixture::default()
+            },
+            "Renamed file is missing its source path",
+        ),
+        (
+            Fixture {
+                pr: Some(json!({"changed_files": 3001})),
+                ..Fixture::default()
+            },
+            "Changed-file count unavailable or above GitHub's 3000-file limit",
+        ),
+        (
+            Fixture {
+                reviews: Some(
+                    json!([{"id": 1, "user": {"login": "x"}, "state": "WITHDRAWN",
+                                       "commit_id": head(), "submitted_at": "2026-09-01T00:00:00Z", "body": ""}]),
+                ),
+                ..Fixture::default()
+            },
+            "Unknown review state",
+        ),
+    ] {
+        assert_eq!(github_error(snapshot(fixture)), message);
+    }
+}
+
+#[test]
+fn a_collaborator_listed_without_permissions_is_refused() {
+    let mut api = api(|_| page(json!([{"login": "someone"}])));
+    assert_eq!(
+        github_error(api.access()),
+        "Collaborator listing is missing its permissions"
+    );
 }
 
 fn thread(id: &str, opening: &str, voices: Value) -> Value {
@@ -791,6 +879,7 @@ fn a_status_by_a_listed_identity_is_the_engines_own() {
     let app = status("pr-hygiene[bot]");
     let mut api = crate::support::api(move |_| page(app.clone()));
     assert!(!api.ready_published(&head()).unwrap());
+    assert_eq!(api.head_seen_at(&head()).unwrap(), None);
     assert_py(&api.latest_state_from_status(&head()).unwrap(), json!(null));
 }
 
@@ -807,6 +896,44 @@ fn the_latest_status_is_the_newest_the_engine_wrote_its_id_breaking_a_tie() {
     assert_py(
         &api.latest_state_from_status(&head()).unwrap(),
         json!("waiting-build"),
+    );
+}
+
+#[test]
+fn every_status_is_checked_before_the_newest_is_chosen() {
+    // Python lists the engine's statuses first and then takes the newest, so
+    // a status it cannot read fails the call as an AttributeError, before
+    // two of the engine's own that cannot be ordered could fail it as a
+    // TypeError. The caller runs it outside any handler, so the class is
+    // what the run ends with.
+    let statuses = json!([
+        {"id": 1, "context": "PR Hygiene", "created_at": "x", "creator": {"login": "github-actions[bot]"}},
+        {"id": "b", "context": "PR Hygiene", "created_at": "x", "creator": {"login": "github-actions[bot]"}},
+        5]);
+    let mut api = api(move |_| page(statuses.clone()));
+    assert!(matches!(
+        api.latest_state_from_status(&head()),
+        Err(ReadError::Exception {
+            class: pr_hygiene_engine::evidence::PyClass::AttributeError,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn every_nan_json_reads_is_one_object_so_a_tie_on_it_falls_to_the_id() {
+    // `json.loads` hands back one shared NaN, and Python compares the
+    // elements of a tuple by identity before value: two statuses written
+    // at a NaN tie on it, and the larger id is the newer. From Python 3.12.
+    let text = r#"[[
+        {"id": 1, "context": "PR Hygiene", "description": "first", "created_at": NaN,
+         "creator": {"login": "github-actions[bot]"}},
+        {"id": 2, "context": "PR Hygiene", "description": "second", "created_at": NaN,
+         "creator": {"login": "github-actions[bot]"}}]]"#;
+    let mut api = api(move |_| Ok(Reply::Text(text.into())));
+    assert_py(
+        &api.latest_state_from_status(&head()).unwrap(),
+        json!("second"),
     );
 }
 

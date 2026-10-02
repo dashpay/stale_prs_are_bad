@@ -22,11 +22,11 @@ use super::rules::{finding_severities, BOT_LOGINS};
 use super::transport::{Method, Transport};
 use crate::pycompat::hashlib::sha256_hexdigest;
 use crate::pycompat::ops::{
-    py_compare_sequences, py_eq, py_eq_str, py_hashable, py_in_str_set, Compare,
+    py_compare_sequences, py_eq, py_eq_str, py_hashable, py_in_str_set, py_same_element, Compare,
 };
 use crate::pycompat::text::{py_lower, py_strip};
 use crate::pycompat::urllib::py_quote;
-use crate::pycompat::{PyDateTime, PyDict, PyErr, PyInt, PyList, PyValue};
+use crate::pycompat::{py_min_by, PyDateTime, PyDict, PyErr, PyInt, PyList, PyValue};
 use indexmap::IndexMap;
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -307,7 +307,7 @@ fn identity(raw: &PyValue) -> Read<PyDict> {
 fn add_users(users: &mut Vec<PyValue>, values: &PyValue) -> Read<()> {
     for value in iterate(values)? {
         py_hashable(&value)?;
-        if !users.iter().any(|known| py_eq(known, &value)) {
+        if !users.iter().any(|known| py_same_element(known, &value)) {
             users.push(value.into_owned());
         }
     }
@@ -1058,16 +1058,7 @@ impl<T: Transport> GitHub<T> {
     /// for this head. Statuses cannot be edited or deleted, so this is a
     /// time no author can move.
     pub fn head_seen_at(&mut self, head: &str) -> Result<Option<String>, ReadError> {
-        let statuses = self.head_statuses(head)?;
-        let mut ours = Vec::new();
-        for status in statuses {
-            if engine_status(status)? {
-                ours.push(status);
-            }
-        }
-        if ours.is_empty() {
-            return Ok(None);
-        }
+        let ours = engine_statuses(self.head_statuses(head)?)?;
         let mut stamps = Vec::with_capacity(ours.len());
         for status in ours {
             stamps.push(text(
@@ -1078,13 +1069,7 @@ impl<T: Transport> GitHub<T> {
         if stamps.iter().any(|stamp| !utc_timestamp(stamp)) {
             return Err(ReadError::github("Unexpected status timestamp format"));
         }
-        let mut earliest = stamps[0];
-        for stamp in &stamps[1..] {
-            if *stamp < earliest {
-                earliest = stamp;
-            }
-        }
-        Ok(Some(earliest.to_owned()))
+        Ok(py_min_by(stamps, |a, b| a.cmp(b)).map(str::to_owned))
     }
 
     /// `GitHub.ready_published(head)`: whether a human has ever been asked
@@ -1106,11 +1091,11 @@ impl<T: Transport> GitHub<T> {
     /// pull request with no record comment yet, the status is the only
     /// trace of its state.
     pub fn latest_state_from_status(&mut self, head: &str) -> Result<PyValue, ReadError> {
+        // Every status is checked before any two are compared, as Python
+        // lists the engine's own before taking the newest.
+        let mine = engine_statuses(self.head_statuses(head)?)?;
         let mut kept: Option<(&PyValue, [PyValue; 2])> = None;
-        for status in self.head_statuses(head)? {
-            if !engine_status(status)? {
-                continue;
-            }
+        for status in mine {
             let created = or_default(get(status, "created_at")?)
                 .cloned()
                 .unwrap_or_else(|| str_value(""));
@@ -1148,6 +1133,17 @@ fn first(commits: &PyValue) -> Read<&PyValue> {
             "commits is not a list",
         )),
     }
+}
+
+/// The statuses the engine posted, every one checked, in the order listed.
+fn engine_statuses(statuses: &[PyValue]) -> Read<Vec<&PyValue>> {
+    let mut ours = Vec::new();
+    for status in statuses {
+        if engine_status(status)? {
+            ours.push(status);
+        }
+    }
+    Ok(ours)
 }
 
 /// A status the engine posted under one of its identities.

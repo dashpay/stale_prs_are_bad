@@ -89,7 +89,8 @@ fn int_float_cmp(i: &PyInt, f: f64) -> Option<Ordering> {
     }))
 }
 
-/// `a == b`.
+/// `a == b`. A NaN is not equal to itself here; inside a container it is
+/// (see [`py_same_element`]).
 pub fn py_eq(a: &PyValue, b: &PyValue) -> bool {
     if let (Some(x), Some(y)) = (number(a), number(b)) {
         return number_cmp(&x, &y) == Some(Ordering::Equal);
@@ -98,15 +99,25 @@ pub fn py_eq(a: &PyValue, b: &PyValue) -> bool {
         (PyValue::None, PyValue::None) => true,
         (PyValue::Str(x), PyValue::Str(y)) => x == y,
         (PyValue::List(x), PyValue::List(y)) => {
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| py_eq(p, q))
+            x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| py_same_element(p, q))
         }
         (PyValue::Dict(x), PyValue::Dict(y)) => {
             x.len() == y.len()
                 && x.iter()
-                    .all(|(k, v)| y.get(k).is_some_and(|other| py_eq(v, other)))
+                    .all(|(k, v)| y.get(k).is_some_and(|other| py_same_element(v, other)))
         }
         _ => false,
     }
+}
+
+/// Whether two elements of containers are the same, as Python's list,
+/// tuple and dict comparisons, `in` and dict and set lookups decide it: the
+/// same object first, then `==`. Every NaN a value read by `json.loads`
+/// holds is one shared object, so two of them are the same element though
+/// a NaN is not `==` to itself; every other pair is decided by `==`.
+pub fn py_same_element(a: &PyValue, b: &PyValue) -> bool {
+    matches!((a, b), (PyValue::Float(x), PyValue::Float(y)) if x.is_nan() && y.is_nan())
+        || py_eq(a, b)
 }
 
 /// `a == "text"`.
@@ -164,10 +175,11 @@ pub fn py_compare(a: &PyValue, op: Compare, b: &PyValue) -> Result<bool, PyErr> 
 }
 
 /// Two sequences compared as Python compares lists and tuples: the first
-/// position where the elements are not `==` decides, by comparing those
-/// two; if there is none, the shorter sequence is the smaller.
+/// position where the elements are not the same ([`py_same_element`])
+/// decides, by comparing those two; if there is none, the shorter sequence
+/// is the smaller.
 pub fn py_compare_sequences(a: &[PyValue], op: Compare, b: &[PyValue]) -> Result<bool, PyErr> {
-    match a.iter().zip(b.iter()).find(|(x, y)| !py_eq(x, y)) {
+    match a.iter().zip(b.iter()).find(|(x, y)| !py_same_element(x, y)) {
         Some((x, y)) => py_compare(x, op, y),
         None => Ok(op.holds(a.len().cmp(&b.len()))),
     }
@@ -203,7 +215,7 @@ pub fn py_contains(container: &PyValue, needle: &PyValue) -> Result<bool, PyErr>
                 py_type_name(other)
             ))),
         },
-        PyValue::List(items) => Ok(items.iter().any(|item| py_eq(item, needle))),
+        PyValue::List(items) => Ok(items.iter().any(|item| py_same_element(item, needle))),
         PyValue::Dict(entries) => {
             py_hashable(needle)?;
             Ok(matches!(needle, PyValue::Str(key) if entries.contains_key(key.as_str())))
@@ -253,6 +265,20 @@ mod tests {
         .unwrap());
         assert!(py_compare(&PyValue::Float(0.5), Compare::Gt, &int("0")).unwrap());
         assert!(!py_compare(&PyValue::Float(f64::NAN), Compare::Ge, &int("0")).unwrap());
+    }
+
+    #[test]
+    fn a_nan_read_from_json_is_the_same_element_wherever_it_appears() {
+        // From Python 3.12: `json.loads` hands back one shared NaN, and
+        // containers compare their elements by identity before value.
+        let nan = || PyValue::Float(f64::NAN);
+        let list = |items: Vec<PyValue>| PyValue::List(items.into());
+        assert!(!py_eq(&nan(), &nan()), "NaN == NaN is False");
+        assert!(py_eq(&list(vec![nan()]), &list(vec![nan()])));
+        assert!(py_contains(&list(vec![int("1"), nan()]), &nan()).unwrap());
+        assert!(py_compare_sequences(&[nan(), int("1")], Compare::Lt, &[nan(), int("2")]).unwrap());
+        assert!(py_same_element(&nan(), &nan()));
+        assert!(!py_same_element(&nan(), &PyValue::Float(f64::INFINITY)));
     }
 
     #[test]

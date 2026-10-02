@@ -276,7 +276,10 @@ fn pages_a_transport_fetched_one_by_one_read_as_gh_slurps_them() {
 #[test]
 fn should_fail_on_transport_and_non_list_pages() {
     let (mut api, _) = client(vec![failed(1, "", "API denied")]);
-    assert!(api.pages("repos/dashpay/platform/issues").is_err());
+    assert_eq!(
+        github_error(api.pages("repos/dashpay/platform/issues")),
+        "GitHub API command failed (exit 1): API denied"
+    );
     let (mut api, _) = client(vec![ok(json!([{"message": "not a list"}]))]);
     assert_eq!(
         github_error(api.pages("repos/dashpay/platform/issues")),
@@ -295,8 +298,9 @@ fn empty_collection_is_valid_but_missing_evidence_is_not() {
     }
     for output in ["null", ""] {
         let (mut api, _) = client(vec![Ok(Reply::Text(output.into()))]);
-        assert!(
-            api.pages("repos/dashpay/platform/issues").is_err(),
+        assert_eq!(
+            github_error(api.pages("repos/dashpay/platform/issues")),
+            "Expected paginated GitHub list",
             "{output:?}"
         );
     }

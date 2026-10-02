@@ -3,7 +3,7 @@
 use super::error::ReadError;
 use super::py::{get, get_or_empty, item, or_default, str_method, text, Read};
 use crate::pycompat::ops::{
-    py_compare, py_contains, py_eq, py_eq_str, py_hashable, py_in_str_set, Compare,
+    py_compare, py_contains, py_eq_str, py_hashable, py_in_str_set, py_same_element, Compare,
 };
 use crate::pycompat::PyValue;
 
@@ -133,7 +133,9 @@ pub fn build_verdict(nodes: &[PyValue]) -> Result<Build, ReadError> {
         // Looking the key up hashes it.
         py_hashable(&workflow_path)?;
         let existing = latest.iter_mut().find(|entry| {
-            entry.kind == kind && entry.name == name && py_eq(&entry.workflow, &workflow_path)
+            entry.kind == kind
+                && entry.name == name
+                && py_same_element(&entry.workflow, &workflow_path)
         });
         match existing {
             None => latest.push(Latest {
