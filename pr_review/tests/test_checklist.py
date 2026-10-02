@@ -1068,7 +1068,7 @@ class SecondReviewTests(unittest.TestCase):
 
 
 class StaleMarkTests(unittest.TestCase):
-    """A pull request that left the governed set keeps nothing of ours."""
+    """A pull request that left the governed set keeps no verdict of ours — but keeps its record."""
 
     def setUp(self):
         self.policy, _ = bartek()
@@ -1092,8 +1092,37 @@ class StaleMarkTests(unittest.TestCase):
         self.assertTrue(all(c.args[2] is False for c in api.set_label.call_args_list), 'removed, never added')
         api.remove_checklist.assert_called_once_with(4660)
         self.assertIn('no longer governed', err.getvalue())
-        # Its words point at a checklist that is no longer there.
-        api.delete_comment.assert_called_once_with(7)
+        # The record is the pull request's memory — its admission, what was
+        # said about each diff — and stays; only its words, which pointed at
+        # the checklist just removed, change.
+        api.delete_comment.assert_not_called()
+        api.edit_comment.assert_called_once()
+        comment_id, body = api.edit_comment.call_args.args
+        self.assertEqual(comment_id, 7)
+        self.assertIn('keep-history-lifecycle', body)
+        self.assertNotIn(main.POINTER, body)
+
+    def test_the_record_survives_byte_for_byte(self):
+        # 58 platform pull requests lost their place in the review queue when
+        # their branch left the policy and came back: the record holding their
+        # admission had been deleted, and they returned behind everyone who
+        # arrived while they were away.
+        record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'ready-for-human',
+                                        'admitted_at': '2026-09-01T10:00:00Z', 'ready_since': '2026-09-02T10:00:00Z'},
+                                   'c' * 64)
+        diff = {'number': 4660, 'diff': 'd' * 64, 'diff_heads': ['a' * 40],
+                'receipts': {'e' * 64: '2026-09-02T09:00:00Z'}}
+        original = GitHub.state_comment_body(record, 'Ready for review — `dpp`: shumkov.\nFull checklist in the description.', diff)
+        api = Mock()
+        api.comments.return_value = [dict(id=7, user='github-actions[bot]', created_at=NOW, updated_at=NOW, body=original)]
+        with patch('sys.stderr', new_callable=io.StringIO):
+            main.clear_marks(api, self.policy, [self.pr('feature', ['ready-for-human'], 'x')], apply=True)
+        body = api.edit_comment.call_args.args[1]
+        markers = original.split('\n\n', 1)[0]
+        self.assertTrue(body.startswith(markers + '\n\n'), 'state and diff records unchanged')
+        state, comment_id = main.parse_controller_state([dict(id=7, user='github-actions[bot]', created_at=NOW,
+                                                              updated_at=NOW, body=body)])
+        self.assertEqual((state['admitted_at'], comment_id), ('2026-09-01T10:00:00Z', 7))
 
     def test_the_record_comment_of_another_pull_request_is_not_touched(self):
         record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots', 'admitted_at': None, 'ready_since': None}, 'c' * 64)
@@ -1150,19 +1179,21 @@ class StaleMarkTests(unittest.TestCase):
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['ready-to-merge'], 'x')], apply=True)
         self.assertEqual([c.args[1] for c in api.set_label.call_args_list], ['ready-to-merge'])
-        api.delete_comment.assert_called_once_with(7)
+        api.delete_comment.assert_not_called()
+        self.assertEqual(api.edit_comment.call_args.args[0], 7)
 
-    def test_one_record_comment_that_will_not_go_does_not_keep_the_others(self):
+    def test_one_record_comment_that_cannot_be_rewritten_does_not_stop_the_others(self):
         record = main.state_record({}, {'number': 4660, 'head': 'a' * 40, 'state': 'waiting-bots',
                                         'admitted_at': None, 'ready_since': None}, 'c' * 64)
         body = GitHub.state_comment_body(record, main.POINTER)
         api = Mock()
         api.comments.return_value = [dict(id=i, user='github-actions[bot]', created_at=NOW, updated_at=NOW, body=body)
                                      for i in (7, 8)]
-        api.delete_comment.side_effect = [main.GitHubError('gone'), None]
+        api.edit_comment.side_effect = [main.GitHubError('gone'), None]
         with patch('sys.stderr', new_callable=io.StringIO):
             main.clear_marks(api, self.policy, [self.pr('feature', ['waiting-bots'], 'x')], apply=True)
-        self.assertEqual([c.args[0] for c in api.delete_comment.call_args_list], [7, 8])
+        self.assertEqual([c.args[0] for c in api.edit_comment.call_args_list], [7, 8])
+        api.delete_comment.assert_not_called()
 
     def test_a_preview_run_says_what_it_would_clear_and_writes_nothing(self):
         api = Mock()

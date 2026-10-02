@@ -237,9 +237,11 @@ def clear_marks(api, policy, prs, apply=False):
     again, so its labels and its checklist stayed exactly as they were the day
     it left — a pull request wearing `waiting-bots` and `bot-review-skipped`
     two days after this controller stopped looking at it, which reads as a
-    verdict and is not one. The record comment goes with them: its words point
-    at a checklist that is no longer there, and a pull request outside the
-    policy holds no review slot, so the admission it records decides nothing.
+    verdict and is not one. The record comment stays, saying why nothing is
+    checked: it is the pull request's memory — when it was admitted to a
+    review slot, what was said about each diff — and a pull request rebased
+    away and back again would otherwise return as a stranger, behind everyone
+    who arrived while it was gone.
 
     A name this controller has retired goes too, but only where it left a
     mark of its own: `ready-to-merge` is ordinary English, and a pull request
@@ -276,21 +278,25 @@ def clear_marks(api, policy, prs, apply=False):
                 api.remove_checklist(pr['number'])
             except GitHubError as error:
                 print(f"PR #{pr['number']}: could not remove the checklist: {error}", file=sys.stderr)
-        # The record comment goes with them. Its words point at a checklist
-        # that is no longer there, and the record itself is inert: a pull
-        # request outside the policy holds no review slot, so the admission it
-        # carries decides nothing.
+        # The record stays; only its words change, since they pointed at the
+        # checklist just removed. The records themselves are kept byte for
+        # byte, so the pull request returns with its admission and its diff
+        # history intact.
         try:
             records = bot_comments(dict(pr, comments=api.comments(pr['number'])), STATE_MARKER)
         except GitHubError as error:
             records = []
             print(f"PR #{pr['number']}: could not read the record comment: {error}", file=sys.stderr)
-        # One that will not go does not keep the others.
+        base = pr['base'].replace('`', '')
+        note = (f"PR Hygiene is not checking this pull request: it targets `{base}`, outside the policy. "
+                "Its record is kept for when it returns.")
+        # One that will not change does not keep the others.
         for comment in records:
+            markers, _, _ = comment['body'].partition('\n\n')
             try:
-                api.delete_comment(comment['id'])
+                api.edit_comment(comment['id'], markers + '\n\n' + note)
             except GitHubError as error:
-                print(f"PR #{pr['number']}: could not remove the record comment: {error}", file=sys.stderr)
+                print(f"PR #{pr['number']}: could not update the record comment: {error}", file=sys.stderr)
 
 
 def state_record(pr, result, context):
