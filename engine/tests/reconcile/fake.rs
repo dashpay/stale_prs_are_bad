@@ -12,8 +12,27 @@
 //! What it answers is modelled on GitHub's documented answers and on the
 //! shapes the recordings hold. Where it could share one misunderstanding
 //! with the port — what a write returns, how an edit moves a comment's
-//! times, which login GraphQL spells — sandbox recordings of real writes
-//! are what will hold it to GitHub (see `sandbox_anchor` in `scenarios`).
+//! times, which login GraphQL spells, whether removing an absent label is
+//! a 404 — sandbox recordings of real writes are what will hold it to
+//! GitHub. A sandbox recording (`sync --apply` against the sandbox
+//! repository) keeps the reads before the first write, every write with
+//! GitHub's real answer, and every read after. The anchor that replays one:
+//!
+//! 1. builds the [`State`] from the reads before the first write — the
+//!    listing and each pull request's route, files, reviews, comment nodes,
+//!    threads, checks, statuses and collaborators are exactly the fields
+//!    [`Pr`], [`Comment`] and [`State`] hold;
+//! 2. makes each recorded write through [`Fake`]'s transport, with
+//!    [`State::now`] set to the time GitHub stamped on it and the id GitHub
+//!    gave taken in place of the fake's own, and compares the fake's answer
+//!    with GitHub's on every field the fake answers;
+//! 3. asks each later read of the fake and compares the two answers the same
+//!    way: every field the fake answers must be GitHub's, and every field
+//!    the engine reads must be one the fake answers.
+//!
+//! Every answer is made from the state by one function per route
+//! (`Fake::rest`, `Fake::graphql`), and ids and times come from one counter
+//! and one clock, so each of those steps has one place to hook into.
 
 use crate::support::*;
 use pr_hygiene_engine::evidence::replay::transient;

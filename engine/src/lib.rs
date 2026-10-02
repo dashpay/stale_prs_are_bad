@@ -6,6 +6,9 @@
 //! the Python behaviours the engine's answers depend on: insertion-ordered
 //! values, Python's JSON reader and writer, its string methods, its regular
 //! expression classes, its `datetime` and the ties of `max` and `min`.
+//! `policy` decides a verdict, `evidence` reads what it is decided from,
+//! and `reconcile` publishes it: the statuses, labels, descriptions and
+//! comments a run writes, through the same transport its reads go through.
 
 pub mod conformance;
 pub mod evidence;
