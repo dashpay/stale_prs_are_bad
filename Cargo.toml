@@ -8,8 +8,9 @@ publish = false
 
 [workspace]
 # The analyzer (this package) produces dashboard.json; the service ingests
-# it and serves the public API, reusing the analyzer's types.
-members = [".", "service"]
+# it and serves the public API, reusing the analyzer's types. The engine is
+# the review engine of pr_review/, ported to Rust.
+members = [".", "service", "engine"]
 
 [[bin]]
 name = "pr-hygiene"

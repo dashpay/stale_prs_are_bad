@@ -15,6 +15,8 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY service ./service
+# A workspace member: Cargo reads its manifest to load the workspace.
+COPY engine ./engine
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
     cargo build --release --locked -p pr-hygiene-service \

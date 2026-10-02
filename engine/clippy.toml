@@ -1,0 +1,12 @@
+# Python's max() and min() keep the first of equal elements; the engine's
+# answers depend on which one is kept. Iterator::max and its forms keep the
+# last; the min forms keep the first, but go through the same functions so
+# that there is one way to write either.
+disallowed-methods = [
+    { path = "std::iter::Iterator::max", reason = "keeps the last of equals; use pycompat::py_max_by" },
+    { path = "std::iter::Iterator::max_by", reason = "keeps the last of equals; use pycompat::py_max_by" },
+    { path = "std::iter::Iterator::max_by_key", reason = "keeps the last of equals; use pycompat::py_max_by_key" },
+    { path = "std::iter::Iterator::min", reason = "use pycompat::py_min_by, as Python's min is ported everywhere" },
+    { path = "std::iter::Iterator::min_by", reason = "use pycompat::py_min_by, as Python's min is ported everywhere" },
+    { path = "std::iter::Iterator::min_by_key", reason = "use pycompat::py_min_by_key, as Python's min is ported everywhere" },
+]
