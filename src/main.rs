@@ -1,4 +1,4 @@
-use pr_hygiene::{analyzer, config, fetcher, history, policy, renderer, scorer};
+use pr_hygiene::{analyzer, config, dashboard, fetcher, history, policy, renderer, scorer};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -44,6 +44,10 @@ struct Args {
     /// Optional commit SHA to display in the header (else read from $GITHUB_SHA).
     #[arg(long, env = "GITHUB_SHA")]
     commit_sha: Option<String>,
+    /// Also write the interactive dashboard's data (JSON) here. Written even
+    /// with --dry-run: it is an output asked for by name, not history.
+    #[arg(long)]
+    json_out: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -60,6 +64,14 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let cfg = config::Config::load_or_default(&args.config)?;
+    dashboard::validate_lateness(&cfg)?;
+    // Bots are not people: no account is folded into another's rows.
+    if !cfg.author_aliases.is_empty() {
+        anyhow::bail!(
+            "{}: author_aliases is no longer supported — bots keep their own rows",
+            args.config.display()
+        );
+    }
     let mut registry = policy::load_registry(&args.policies_root)?;
     if let Some(only) = &args.repo {
         registry.retain(|(repo, _)| repo == only);
@@ -140,6 +152,26 @@ async fn main() -> Result<()> {
         repos: &repos,
     };
     let markdown = renderer::render(&scored, &authors, &render_ctx);
+
+    if let Some(path) = &args.json_out {
+        let board = dashboard::build(&dashboard::Inputs {
+            scored: &scored,
+            engine: &engine_states,
+            policies: &policies,
+            repos: &repos,
+            cfg: &cfg,
+            now,
+            commit: args.commit_sha.as_deref(),
+        });
+        let json = serde_json::to_string(&board).context("serializing dashboard data")?;
+        write_if_changed(path, &json)?;
+        tracing::info!(
+            "dashboard data: {} PRs, {} people → {}",
+            board.prs.len(),
+            board.people.len(),
+            path.display()
+        );
+    }
 
     if args.dry_run {
         tracing::info!(

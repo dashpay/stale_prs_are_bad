@@ -51,3 +51,19 @@ age_multiplier: ln
 
 # Daily snapshots older than this are pruned each run.
 history_retention_days: 90
+
+# Days without any update after which a draft, or a PR off the governed
+# branches, is listed on the dashboard to close or revive.
+idle_days: 14
+
+# Hours a PR may sit in a stage before the dashboard marks it late, then
+# very late. Stages not listed (draft, queued, not governed) are never late,
+# and a stage can only be late where the time a PR entered it is recorded
+# (the review stage today); elsewhere the dashboard shows the PR's age.
+lateness_hours:
+  review: [24, 72]
+  self-review: [72, 168]
+  bots: [24, 48]
+  mergeable: [24, 72]
+  ci: [6, 24]
+  blocked: [24, 72]

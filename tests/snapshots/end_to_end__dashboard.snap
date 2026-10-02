@@ -1,0 +1,718 @@
+---
+source: tests/end_to_end.rs
+expression: board
+---
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-19T06:00:00Z",
+  "commit": "abc1234",
+  "repos": [
+    {
+      "repo": "dashpay/platform",
+      "engine_state_available": true,
+      "fetch_error": null,
+      "slot_limit": 5
+    },
+    {
+      "repo": "dashpay/rust-dashcore",
+      "engine_state_available": false,
+      "fetch_error": null,
+      "slot_limit": 5
+    }
+  ],
+  "idle_days": 14,
+  "stages": [
+    {
+      "stage": "draft",
+      "owner": "author",
+      "late_hours": null,
+      "entry_recorded": false,
+      "in_flow": false
+    },
+    {
+      "stage": "bots",
+      "owner": "bots",
+      "late_hours": [
+        24.0,
+        48.0
+      ],
+      "entry_recorded": false,
+      "in_flow": true
+    },
+    {
+      "stage": "self-review",
+      "owner": "author",
+      "late_hours": [
+        72.0,
+        168.0
+      ],
+      "entry_recorded": false,
+      "in_flow": true
+    },
+    {
+      "stage": "ci",
+      "owner": "nobody",
+      "late_hours": [
+        6.0,
+        24.0
+      ],
+      "entry_recorded": false,
+      "in_flow": true
+    },
+    {
+      "stage": "queued",
+      "owner": "nobody",
+      "late_hours": null,
+      "entry_recorded": false,
+      "in_flow": true
+    },
+    {
+      "stage": "review",
+      "owner": "reviewers",
+      "late_hours": [
+        24.0,
+        72.0
+      ],
+      "entry_recorded": true,
+      "in_flow": true
+    },
+    {
+      "stage": "mergeable",
+      "owner": "author",
+      "late_hours": [
+        24.0,
+        72.0
+      ],
+      "entry_recorded": false,
+      "in_flow": true
+    },
+    {
+      "stage": "blocked",
+      "owner": "maintainers",
+      "late_hours": [
+        24.0,
+        72.0
+      ],
+      "entry_recorded": false,
+      "in_flow": true
+    },
+    {
+      "stage": "not-governed",
+      "owner": "author",
+      "late_hours": null,
+      "entry_recorded": false,
+      "in_flow": false
+    },
+    {
+      "stage": "unknown",
+      "owner": "nobody",
+      "late_hours": null,
+      "entry_recorded": false,
+      "in_flow": false
+    }
+  ],
+  "prs": [
+    {
+      "key": "dashpay/platform#1234",
+      "repo": "dashpay/platform",
+      "number": 1234,
+      "title": "Add foo support",
+      "author": "alice",
+      "author_kind": "human",
+      "draft": false,
+      "base": "master",
+      "created_at": "2026-04-01T10:00:00Z",
+      "updated_at": "2026-05-18T20:00:00Z",
+      "idle": false,
+      "stage": "self-review",
+      "engine_state": "waiting-author",
+      "next_action": "CI failing",
+      "blockers": [
+        "CI failing",
+        "Changes requested by bob-reviewer",
+        "2 unresolved review threads",
+        "Branch behind master"
+      ],
+      "since": "2026-04-01T10:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [],
+      "unresolved_comments": 2,
+      "ci_failing": true,
+      "merge_conflict": false,
+      "changes_requested": true,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/platform#1240",
+      "repo": "dashpay/platform",
+      "number": 1240,
+      "title": "Refactor scheduler",
+      "author": "alice",
+      "author_kind": "human",
+      "draft": false,
+      "base": "master",
+      "created_at": "2026-03-15T00:00:00Z",
+      "updated_at": "2026-05-10T00:00:00Z",
+      "idle": false,
+      "stage": "unknown",
+      "engine_state": null,
+      "next_action": null,
+      "blockers": [],
+      "since": "2026-03-15T00:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [],
+      "unresolved_comments": 1,
+      "ci_failing": false,
+      "merge_conflict": true,
+      "changes_requested": false,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/platform#2001",
+      "repo": "dashpay/platform",
+      "number": 2001,
+      "title": "Bump grpc-tonic to 0.12",
+      "author": "bob",
+      "author_kind": "human",
+      "draft": false,
+      "base": "master",
+      "created_at": "2026-05-01T00:00:00Z",
+      "updated_at": "2026-05-17T00:00:00Z",
+      "idle": false,
+      "stage": "unknown",
+      "engine_state": null,
+      "next_action": null,
+      "blockers": [],
+      "since": "2026-05-01T00:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [],
+      "unresolved_comments": 1,
+      "ci_failing": false,
+      "merge_conflict": false,
+      "changes_requested": false,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/platform#2988",
+      "repo": "dashpay/platform",
+      "number": 2988,
+      "title": "WASM SDK: feature work targeting 3.0",
+      "author": "PastaPastaPasta",
+      "author_kind": "human",
+      "draft": false,
+      "base": "v3.0",
+      "created_at": "2026-03-20T00:00:00Z",
+      "updated_at": "2026-05-15T00:00:00Z",
+      "idle": false,
+      "stage": "not-governed",
+      "engine_state": null,
+      "next_action": null,
+      "blockers": [],
+      "since": "2026-03-20T00:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [
+        "wasm-sdk"
+      ],
+      "unresolved_comments": 0,
+      "ci_failing": false,
+      "merge_conflict": false,
+      "changes_requested": false,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/platform#3000",
+      "repo": "dashpay/platform",
+      "number": 3000,
+      "title": "Docs: clarify mempool ordering",
+      "author": "carol",
+      "author_kind": "human",
+      "draft": false,
+      "base": "master",
+      "created_at": "2026-04-15T00:00:00Z",
+      "updated_at": "2026-04-15T00:00:00Z",
+      "idle": true,
+      "stage": "review",
+      "engine_state": "ready-for-human",
+      "next_action": "Human approval or objection resolution is required",
+      "blockers": [
+        "Human approval or objection resolution is required"
+      ],
+      "since": "2026-05-17T06:00:00Z",
+      "since_basis": "engine",
+      "lateness": "late",
+      "asks": [
+        {
+          "area": "drive",
+          "approvers": []
+        },
+        {
+          "area": "fallback",
+          "approvers": [
+            "QuantumExplorer",
+            "alice"
+          ]
+        }
+      ],
+      "objectors": [
+        "alice"
+      ],
+      "areas": [
+        "fallback"
+      ],
+      "unresolved_comments": 0,
+      "ci_failing": false,
+      "merge_conflict": false,
+      "changes_requested": false,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/platform#3001",
+      "repo": "dashpay/platform",
+      "number": 3001,
+      "title": "ci: tolerate book preview comment errors",
+      "author": "thepastaclaw",
+      "author_kind": "bot",
+      "draft": false,
+      "base": "master",
+      "created_at": "2026-04-01T00:00:00Z",
+      "updated_at": "2026-05-18T00:00:00Z",
+      "idle": false,
+      "stage": "mergeable",
+      "engine_state": "ready-to-merge",
+      "next_action": null,
+      "blockers": [],
+      "since": "2026-04-01T00:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [
+        "fallback"
+      ],
+      "unresolved_comments": 0,
+      "ci_failing": false,
+      "merge_conflict": false,
+      "changes_requested": false,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/platform#5000",
+      "repo": "dashpay/platform",
+      "number": 5000,
+      "title": "Postpone wallet migration",
+      "author": "alice",
+      "author_kind": "human",
+      "draft": false,
+      "base": "master",
+      "created_at": "2026-03-01T00:00:00Z",
+      "updated_at": "2026-04-01T00:00:00Z",
+      "idle": true,
+      "stage": "unknown",
+      "engine_state": null,
+      "next_action": null,
+      "blockers": [],
+      "since": "2026-03-01T00:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [],
+      "unresolved_comments": 0,
+      "ci_failing": false,
+      "merge_conflict": false,
+      "changes_requested": false,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/platform#6000",
+      "repo": "dashpay/platform",
+      "number": 6000,
+      "title": "Draft: rework cache layer",
+      "author": "bob",
+      "author_kind": "human",
+      "draft": true,
+      "base": "master",
+      "created_at": "2026-04-20T00:00:00Z",
+      "updated_at": "2026-05-01T00:00:00Z",
+      "idle": true,
+      "stage": "draft",
+      "engine_state": null,
+      "next_action": null,
+      "blockers": [],
+      "since": "2026-04-20T00:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [],
+      "unresolved_comments": 0,
+      "ci_failing": false,
+      "merge_conflict": false,
+      "changes_requested": false,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/platform#7000",
+      "repo": "dashpay/platform",
+      "number": 7000,
+      "title": "fix: handle empty payload gracefully",
+      "author": "carol",
+      "author_kind": "human",
+      "draft": false,
+      "base": "master",
+      "created_at": "2026-05-10T00:00:00Z",
+      "updated_at": "2026-05-18T00:00:00Z",
+      "idle": false,
+      "stage": "bots",
+      "engine_state": "waiting-bots",
+      "next_action": "CodeRabbit review pending",
+      "blockers": [
+        "CodeRabbit review pending"
+      ],
+      "since": "2026-05-10T00:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [],
+      "unresolved_comments": 0,
+      "ci_failing": true,
+      "merge_conflict": false,
+      "changes_requested": false,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/platform#8000",
+      "repo": "dashpay/platform",
+      "number": 8000,
+      "title": "refactor: extract validation helpers",
+      "author": "carol",
+      "author_kind": "human",
+      "draft": false,
+      "base": "master",
+      "created_at": "2026-04-25T00:00:00Z",
+      "updated_at": "2026-05-12T00:00:00Z",
+      "idle": false,
+      "stage": "unknown",
+      "engine_state": null,
+      "next_action": null,
+      "blockers": [],
+      "since": "2026-04-25T00:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [],
+      "unresolved_comments": 0,
+      "ci_failing": false,
+      "merge_conflict": false,
+      "changes_requested": true,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/platform#9100",
+      "repo": "dashpay/platform",
+      "number": 9100,
+      "title": "fix: a new contributor's first PR",
+      "author": "newcomer",
+      "author_kind": "human",
+      "draft": false,
+      "base": null,
+      "created_at": null,
+      "updated_at": null,
+      "idle": false,
+      "stage": "review",
+      "engine_state": "ready-for-human",
+      "next_action": "Human approval or objection resolution is required",
+      "blockers": [
+        "Human approval or objection resolution is required"
+      ],
+      "since": null,
+      "since_basis": null,
+      "lateness": null,
+      "asks": [
+        {
+          "area": "fallback",
+          "approvers": [
+            "QuantumExplorer"
+          ]
+        }
+      ],
+      "objectors": [],
+      "areas": [
+        "fallback"
+      ],
+      "unresolved_comments": 0,
+      "ci_failing": false,
+      "merge_conflict": false,
+      "changes_requested": false,
+      "tracked": false
+    },
+    {
+      "key": "dashpay/rust-dashcore#101",
+      "repo": "dashpay/rust-dashcore",
+      "number": 101,
+      "title": "spv: retry header sync after reorg",
+      "author": "bob",
+      "author_kind": "human",
+      "draft": false,
+      "base": "dev",
+      "created_at": "2026-04-20T00:00:00Z",
+      "updated_at": "2026-05-10T00:00:00Z",
+      "idle": false,
+      "stage": "unknown",
+      "engine_state": null,
+      "next_action": null,
+      "blockers": [],
+      "since": "2026-04-20T00:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [
+        "dash-spv"
+      ],
+      "unresolved_comments": 0,
+      "ci_failing": false,
+      "merge_conflict": false,
+      "changes_requested": false,
+      "tracked": true
+    },
+    {
+      "key": "dashpay/rust-dashcore#102",
+      "repo": "dashpay/rust-dashcore",
+      "number": 102,
+      "title": "docs: fix README badges",
+      "author": "alice",
+      "author_kind": "human",
+      "draft": false,
+      "base": "dev",
+      "created_at": "2026-04-22T00:00:00Z",
+      "updated_at": "2026-05-12T00:00:00Z",
+      "idle": false,
+      "stage": "unknown",
+      "engine_state": null,
+      "next_action": null,
+      "blockers": [],
+      "since": "2026-04-22T00:00:00Z",
+      "since_basis": "opened",
+      "lateness": null,
+      "asks": [],
+      "objectors": [],
+      "areas": [
+        "fallback"
+      ],
+      "unresolved_comments": 0,
+      "ci_failing": false,
+      "merge_conflict": false,
+      "changes_requested": false,
+      "tracked": true
+    }
+  ],
+  "people": [
+    {
+      "login": "alice",
+      "kind": "human",
+      "roles": [],
+      "owes": [
+        {
+          "pr": "dashpay/platform#3000",
+          "areas": [
+            {
+              "area": "fallback",
+              "others": [
+                "QuantumExplorer"
+              ]
+            }
+          ],
+          "rereview": true
+        }
+      ],
+      "authored": [
+        "dashpay/platform#1234",
+        "dashpay/platform#1240",
+        "dashpay/platform#5000",
+        "dashpay/rust-dashcore#102"
+      ],
+      "wip": {
+        "dashpay/platform": 3,
+        "dashpay/rust-dashcore": 1
+      },
+      "areas": {}
+    },
+    {
+      "login": "bob",
+      "kind": "human",
+      "roles": [],
+      "owes": [],
+      "authored": [
+        "dashpay/platform#2001",
+        "dashpay/platform#6000",
+        "dashpay/rust-dashcore#101"
+      ],
+      "wip": {
+        "dashpay/platform": 1,
+        "dashpay/rust-dashcore": 1
+      },
+      "areas": {}
+    },
+    {
+      "login": "carol",
+      "kind": "human",
+      "roles": [],
+      "owes": [],
+      "authored": [
+        "dashpay/platform#3000",
+        "dashpay/platform#7000",
+        "dashpay/platform#8000"
+      ],
+      "wip": {
+        "dashpay/platform": 3
+      },
+      "areas": {}
+    },
+    {
+      "login": "dave",
+      "kind": "human",
+      "roles": [],
+      "owes": [],
+      "authored": [],
+      "wip": {},
+      "areas": {
+        "dashpay/platform": [
+          "validation"
+        ]
+      }
+    },
+    {
+      "login": "newcomer",
+      "kind": "human",
+      "roles": [],
+      "owes": [],
+      "authored": [
+        "dashpay/platform#9100"
+      ],
+      "wip": {
+        "dashpay/platform": 1
+      },
+      "areas": {}
+    },
+    {
+      "login": "PastaPastaPasta",
+      "kind": "human",
+      "roles": [],
+      "owes": [],
+      "authored": [
+        "dashpay/platform#2988"
+      ],
+      "wip": {},
+      "areas": {}
+    },
+    {
+      "login": "QuantumExplorer",
+      "kind": "human",
+      "roles": [],
+      "owes": [
+        {
+          "pr": "dashpay/platform#3000",
+          "areas": [
+            {
+              "area": "fallback",
+              "others": [
+                "alice"
+              ]
+            }
+          ],
+          "rereview": false
+        },
+        {
+          "pr": "dashpay/platform#9100",
+          "areas": [
+            {
+              "area": "fallback",
+              "others": []
+            }
+          ],
+          "rereview": false
+        }
+      ],
+      "authored": [],
+      "wip": {},
+      "areas": {
+        "dashpay/platform": [
+          "fallback"
+        ],
+        "dashpay/rust-dashcore": [
+          "fallback"
+        ]
+      }
+    },
+    {
+      "login": "shumkov",
+      "kind": "human",
+      "roles": [],
+      "owes": [],
+      "authored": [],
+      "wip": {},
+      "areas": {
+        "dashpay/platform": [
+          "wasm-sdk"
+        ]
+      }
+    },
+    {
+      "login": "thepastaclaw",
+      "kind": "bot",
+      "roles": [
+        "author-bot",
+        "review-bot"
+      ],
+      "owes": [],
+      "authored": [
+        "dashpay/platform#3001"
+      ],
+      "wip": {
+        "dashpay/platform": 1
+      },
+      "areas": {}
+    },
+    {
+      "login": "xdustinface",
+      "kind": "human",
+      "roles": [],
+      "owes": [],
+      "authored": [],
+      "wip": {},
+      "areas": {
+        "dashpay/rust-dashcore": [
+          "dash-spv"
+        ]
+      }
+    },
+    {
+      "login": "ZocoLini",
+      "kind": "human",
+      "roles": [],
+      "owes": [],
+      "authored": [],
+      "wip": {},
+      "areas": {
+        "dashpay/rust-dashcore": [
+          "dash-spv"
+        ]
+      }
+    }
+  ]
+}

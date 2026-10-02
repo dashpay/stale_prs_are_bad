@@ -10,8 +10,6 @@ pub struct RawPr {
     pub url: String,
     pub author: Option<String>,
     pub created_at: DateTime<Utc>,
-    /// Kept for ordering / future incremental fetch; not currently consumed.
-    #[allow(dead_code)]
     pub updated_at: DateTime<Utc>,
     pub is_draft: bool,
     pub mergeable: Mergeable,
@@ -176,25 +174,88 @@ pub struct ScoredPr {
     pub policy_state: Option<PolicyState>,
 }
 
+/// A `null` reads as the field's default. One odd value in the engine's
+/// export must not drop that repository's every verdict.
+fn null_as_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
+
 /// One PR's verdict as exported by the shared review engine. `state` is
 /// rendered verbatim; the dashboard only interprets the ready-for-human and
 /// ready-to-merge values.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolicyState {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub state: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub status: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub blockers: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub reviewers: Vec<String>,
+    /// The row describes its PR on its own, so a PR the dashboard filtered out
+    /// of its own analysis can still be shown in its reviewers' queues.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub title: String,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub author: String,
+    /// Every area the PR touches, known even before any approval is asked.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub areas: Vec<String>,
+    /// When the current review cycle started; ISO 8601, kept as text and
+    /// parsed leniently so one odd value cannot drop the whole export.
+    #[serde(default)]
+    pub ready_since: Option<String>,
+    /// Every touched area: who may approve it and who has, on the current head.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub approvals: Vec<AreaApproval>,
+    /// Reviewers asked because of their own open objection.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub objectors: Vec<String>,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub checklist: Vec<ChecklistItem>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AreaApproval {
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub area: String,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub approvers: Vec<String>,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub approved_by: Vec<String>,
+    /// The author owns the area, so nobody's approval is needed for it.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub owned: bool,
+}
+
+/// One line of the engine's checklist. Only the build line's `state`
+/// (`green`, `running`, `failed`) is read; other fields are ignored.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChecklistItem {
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub item: String,
+    #[serde(default)]
+    pub state: Option<serde_json::Value>,
 }
 
 impl PolicyState {
     /// True when the engine says the PR only waits on a human reviewer or merge.
     pub fn is_ready_for_human(&self) -> bool {
         matches!(self.state.as_str(), "ready-for-human" | "ready-to-merge")
+    }
+
+    /// The head's build as the engine saw it, when its checklist says.
+    pub fn build(&self) -> Option<&str> {
+        self.checklist
+            .iter()
+            .find(|i| i.item == "build")
+            .and_then(|i| i.state.as_ref())
+            .and_then(|v| v.as_str())
     }
 }
 
