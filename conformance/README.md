@@ -12,6 +12,7 @@ There are three artifacts.
 | Boundary recordings | `conformance/live/` | **no** (`.gitignore`) | a whole run against real pull requests: every GitHub call and its answer, the verdicts, the ordered writes, the exact text written |
 | Evaluate cases | `conformance/evaluate/` | yes | every `policy.evaluate` call the engine's own test suite makes: inputs and result |
 | Function cases | `conformance/functions/<function>/` | yes | every call the test suite makes of the pure functions `main.py` relies on: inputs and output, byte for byte |
+| Python behaviour goldens | `conformance/pycompat/` | yes | what Python 3.12 itself does with the text, JSON, patterns and timestamps the engine handles |
 
 Python 3.12 is what these were produced with, and what the engine and its
 tests run on in CI (`actions/setup-python`); any Python from 3.10 runs the
@@ -291,6 +292,20 @@ inputs, made by the JSON writer the port has to have anyway.
 ```sh
 python -m pr_review.conformance replay conformance/functions
 ```
+
+## Python behaviour goldens
+
+```sh
+uv run -q --python 3.12 --no-project python conformance/pycompat/generate.py
+```
+
+Asks CPython 3.12 (its C `json` and `datetime`, its `re`, its Unicode 15.0
+data) about every code point and about curated and seeded random inputs, and
+writes the answers: the JSON files here, and the character tables the Rust
+engine compiles in (`engine/src/pycompat/tables.rs`). The engine's
+`tests/pycompat` replays them. The script refuses any other Python, records
+the version it ran on in every file, and writes the same bytes each run; run
+it again only when the Python the engine runs on changes.
 
 ## What another engine must match exactly
 
