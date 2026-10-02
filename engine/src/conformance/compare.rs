@@ -6,8 +6,9 @@
 //! its own: one reader for the run, with its caches; the batched history
 //! read that admission made, its pull requests named by the recorded query
 //! itself; a snapshot for each evaluation, the first ones (as many as there
-//! are verdicts) over that history, and each later one — the last check
-//! before a write — after the caches are dropped and without it. Every read
+//! are verdicts, or all of them where the run raised before writing any)
+//! over that history, and each later one — the last check before a write —
+//! after the caches are dropped and without it. Every read
 //! must be one the recording holds, asked no more often than Python asked
 //! it.
 //!
@@ -288,6 +289,15 @@ pub fn rebuild_snapshots(recording: &Recording) -> (Vec<Check>, usize) {
     } else {
         api.histories(&numbers)
     };
+    // The evaluations `evaluate_snapshots` made, one per verdict row, come
+    // first. A run that raised inside it wrote no row, and made no later
+    // evaluation either, since those come after it returns: then every
+    // evaluation is one of the first.
+    let first = if recording.verdicts.is_empty() {
+        recording.evaluations.len()
+    } else {
+        recording.verdicts.len()
+    };
     let mut checks = Vec::with_capacity(recording.evaluations.len());
     for (index, evaluation) in recording.evaluations.iter().enumerate() {
         let (Some(wanted), Some(policy)) =
@@ -312,7 +322,7 @@ pub fn rebuild_snapshots(recording: &Recording) -> (Vec<Check>, usize) {
         };
         let transport = api.client().transport();
         let before = (transport.missing(), transport.exhausted());
-        let read = if index < recording.verdicts.len() {
+        let read = if index < first {
             match &histories {
                 Ok(histories) => api.snapshot(number, policy, histories.get(number)),
                 Err(error) => {
@@ -342,12 +352,24 @@ pub fn rebuild_snapshots(recording: &Recording) -> (Vec<Check>, usize) {
 }
 
 /// The port's result against Python's, with the exclusion the evaluate-case
-/// gate applies: where Python's first reason is the text of a Python
-/// exception, that reason is set aside on both sides.
-fn compare_result(ours: &PyValue, python: &PyValue, root: &str, own: &OwnWords) -> Vec<Difference> {
+/// gate applies: where Python's `evaluate` answered with the text of a
+/// Python exception as its first reason (`exception_text`), that reason is
+/// set aside on both sides.
+///
+/// Whether it did is read from what `evaluate` returned, never from a
+/// verdict row: a row whose head another pull request shares is made a
+/// configuration error after `evaluate`, and its first reason is then the
+/// engine's own words, whatever `python_exception_text` would make of it.
+fn compare_result(
+    ours: &PyValue,
+    python: &PyValue,
+    root: &str,
+    exception_text: bool,
+    own: &OwnWords,
+) -> Vec<Difference> {
     let mut found = Vec::new();
     let (mut ours, mut python) = (ours.clone(), python.clone());
-    if own.python_exception_text(&python) {
+    if exception_text {
         if let Err(problem) = set_aside_exception_text(&mut ours, &mut python, own) {
             found.push(Difference {
                 path: format!("{root}.blockers"),
@@ -407,7 +429,13 @@ fn evaluations(recording: &Recording, own: &OwnWords) -> (Vec<Check>, Vec<Option
                 checks.push(Check::new(
                     Layer::Evaluation,
                     index,
-                    compare_result(&ours, python, "result", own),
+                    compare_result(
+                        &ours,
+                        python,
+                        "result",
+                        own.python_exception_text(python),
+                        own,
+                    ),
                 ));
                 results.push(Some(ours));
             }
@@ -489,10 +517,14 @@ fn verdicts(recording: &Recording, results: &[Option<PyValue>], own: &OwnWords) 
             continue;
         };
         let ours = verdict_row(ours, policy, shares_head(row));
+        // Decided from what Python's `evaluate` answered for this row,
+        // before `evaluate_snapshots` touched it.
+        let exception_text =
+            field(evaluation, "result").is_some_and(|result| own.python_exception_text(result));
         checks.push(Check::new(
             Layer::Verdict,
             index,
-            compare_result(&ours, row, "verdict", own),
+            compare_result(&ours, row, "verdict", exception_text, own),
         ));
     }
     checks

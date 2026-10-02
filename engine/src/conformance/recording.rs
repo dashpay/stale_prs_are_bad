@@ -207,8 +207,10 @@ impl Recording {
     }
 
     /// How many requests to GitHub the recorded reads made: one per call,
-    /// except a paginated one that succeeded, which made one per page it
-    /// printed. A retried call is two calls. Writes were never sent.
+    /// except a paginated one, which made one per page it printed, whether
+    /// or not a later page then failed. A retried call is two calls. Writes
+    /// were never sent. GraphQL's own limit is counted in points, which
+    /// this does not see.
     pub fn requests(&self) -> Result<usize, LoadError> {
         let mut total = 0;
         for (index, line) in self.calls.split('\n').enumerate() {
@@ -221,10 +223,8 @@ impl Recording {
             }
             let paginated = matches!(field(&entry, "args"), Some(PyValue::List(args))
                 if args.iter().any(|a| matches!(a, PyValue::Str(a) if a == "--paginate")));
-            let succeeded = matches!(field(&entry, "exit"), Some(PyValue::Int(exit)) if exit.is_zero())
-                && field(&entry, "raised").is_none();
             let pages = match field(&entry, "stdout") {
-                Some(PyValue::Str(stdout)) if paginated && succeeded => match py_loads(stdout) {
+                Some(PyValue::Str(stdout)) if paginated => match py_loads(stdout) {
                     Ok(PyValue::List(pages)) => pages.len(),
                     _ => 1,
                 },
@@ -320,11 +320,14 @@ mod tests {
             r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/pulls", "--paginate", "--slurp"], "exit": 0, "stdout": "[[1], [2], [3]]"}"#,
             r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/pulls/1"], "exit": 0, "stdout": "{}"}"#,
             r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/x", "--paginate", "--slurp"], "exit": 1, "stdout": ""}"#,
+            r#"{"kind": "read", "args": ["--method", "GET", "repos/a/b/y", "--paginate", "--slurp"], "exit": 1, "stdout": "[[1], [2]]"}"#,
             r#"{"kind": "read", "args": ["--method", "POST", "graphql"], "raised": "TimeoutExpired"}"#,
             r#"{"kind": "write", "args": ["--method", "POST", "repos/a/b/statuses/c"], "exit": 0, "stdout": "{}"}"#,
         ]
         .join("\n");
         let recorded = recording(r#"{"format": 1}"#, &calls).unwrap();
-        assert_eq!(recorded.requests(), Ok(3 + 1 + 1 + 1));
+        // Three pages; one; a failure that printed nothing, still asked;
+        // a failure after two pages; a call that ran out of time.
+        assert_eq!(recorded.requests(), Ok(3 + 1 + 1 + 2 + 1));
     }
 }

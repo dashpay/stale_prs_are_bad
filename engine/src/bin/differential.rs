@@ -17,8 +17,10 @@
 //! table alone to `FILE`.
 //!
 //! Nothing a recording holds is printed: no title, body, login or
-//! permission level, and no error message, which can quote them. A
-//! recording is named by its repository and the command recorded.
+//! permission level, and no error message, which can quote them. A panic
+//! prints only where it happened, and a recording whose comparison panics
+//! is one unreadable row. A recording is named by its repository and the
+//! command recorded.
 //!
 //! `--requests` prints one number: how many requests to GitHub the
 //! recordings' reads made, counting each page of a paginated read.
@@ -30,6 +32,7 @@ use pr_hygiene_engine::conformance::{compare, Comparison, Layer, Outcome, OwnWor
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io::Write as _;
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -46,7 +49,8 @@ struct Options {
     paths: Vec<PathBuf>,
 }
 
-fn options() -> Result<Options, String> {
+/// The command line, or `None` when it asks for help.
+fn options() -> Result<Option<Options>, String> {
     let mut options = Options {
         summary: None,
         python_source: Path::new(env!("CARGO_MANIFEST_DIR")).join("../pr_review"),
@@ -66,7 +70,7 @@ fn options() -> Result<Options, String> {
                     .into()
             }
             Some("--requests") => options.requests = true,
-            Some("-h" | "--help") => return Err(String::new()),
+            Some("-h" | "--help") => return Ok(None),
             Some(flag) if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => options.paths.push(arg.into()),
         }
@@ -74,7 +78,7 @@ fn options() -> Result<Options, String> {
     if options.paths.is_empty() {
         return Err("no recording given".into());
     }
-    Ok(options)
+    Ok(Some(options))
 }
 
 /// Every recording at or under each path, in a stable order.
@@ -331,8 +335,53 @@ fn label_rows(rows: &mut [Row]) {
     }
 }
 
-fn run() -> Result<bool, String> {
-    let options = options()?;
+/// The line a panic leaves on stderr: where it happened, and nothing it was
+/// handed. A panic's own message can quote what it was looking at — a slice
+/// of a body, an error naming a login — and stderr is the job's public log.
+fn panic_line(location: Option<&std::panic::Location<'_>>) -> String {
+    match location {
+        Some(at) => format!("differential: panicked at {}:{}", at.file(), at.line()),
+        None => "differential: panicked".to_owned(),
+    }
+}
+
+/// `f`, with a panic inside it caught and kept to its kind.
+fn guarded<T>(f: impl FnOnce() -> T) -> Result<T, String> {
+    std::panic::catch_unwind(AssertUnwindSafe(f))
+        .map_err(|_| "the tool panicked here; its message is not printed".to_owned())
+}
+
+/// One recording's row: loaded, counted and compared, a panic included.
+fn row(dir: &Path, own: &OwnWords) -> Row {
+    let directory = plain(&dir.file_name().unwrap_or_default().to_string_lossy());
+    let compared = guarded(|| {
+        let recording = load(dir)?;
+        let repository = plain(recording.repository().unwrap_or("?"));
+        let label = format!("{repository} · {}", plain(&recording.command()));
+        let found = recording
+            .requests()
+            .map(|requests| (compare(&recording, own), requests))
+            .map_err(|e| e.to_string());
+        Ok::<_, String>((repository, label, found))
+    })
+    .and_then(|loaded| loaded);
+    match compared {
+        Ok((repository, label, found)) => Row {
+            repository,
+            label,
+            directory,
+            found,
+        },
+        Err(problem) => Row {
+            repository: "?".into(),
+            label: format!("unreadable ({directory})"),
+            directory,
+            found: Err(problem),
+        },
+    }
+}
+
+fn run(options: Options) -> Result<bool, String> {
     let dirs = recordings(&options.paths);
     if dirs.is_empty() {
         return Err("no recording found under the paths given".into());
@@ -340,10 +389,9 @@ fn run() -> Result<bool, String> {
     if options.requests {
         let mut total = 0;
         for dir in &dirs {
-            let recording = load(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            total += recording
-                .requests()
-                .map_err(|e| format!("{}: {e}", dir.display()))?;
+            let counted = guarded(|| load(dir)?.requests().map_err(|e| e.to_string()))
+                .and_then(|counted| counted);
+            total += counted.map_err(|e| format!("{}: {e}", dir.display()))?;
         }
         println!("{total}");
         return Ok(true);
@@ -354,34 +402,7 @@ fn run() -> Result<bool, String> {
     };
     let own = OwnWords::from_sources(&source("conformance.py")?, &source("policy.py")?)
         .map_err(|e| format!("the engine's own words: {e}"))?;
-    let mut rows: Vec<Row> = dirs
-        .iter()
-        .map(|dir| {
-            let directory = plain(&dir.file_name().unwrap_or_default().to_string_lossy());
-            match load(dir) {
-                Ok(recording) => {
-                    let repository = plain(recording.repository().unwrap_or("?"));
-                    let label = format!("{repository} · {}", plain(&recording.command()));
-                    let found = recording
-                        .requests()
-                        .map(|requests| (compare(&recording, &own), requests))
-                        .map_err(|e| e.to_string());
-                    Row {
-                        repository,
-                        label,
-                        directory,
-                        found,
-                    }
-                }
-                Err(problem) => Row {
-                    repository: "?".into(),
-                    label: format!("unreadable ({directory})"),
-                    directory,
-                    found: Err(problem),
-                },
-            }
-        })
-        .collect();
+    let mut rows: Vec<Row> = dirs.iter().map(|dir| row(dir, &own)).collect();
     label_rows(&mut rows);
     let clean = rows
         .iter()
@@ -406,15 +427,56 @@ fn run() -> Result<bool, String> {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    std::panic::set_hook(Box::new(|info| {
+        eprintln!("{}", panic_line(info.location()))
+    }));
+    let options = match options() {
+        Ok(Some(options)) => options,
+        Ok(None) => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Err(problem) => {
+            eprintln!("differential: {problem}\n{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match run(options) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::from(1),
         Err(problem) => {
-            if !problem.is_empty() {
-                eprintln!("differential: {problem}");
-            }
-            eprintln!("{USAGE}");
+            eprintln!("differential: {problem}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_panic_is_reported_by_where_it_happened_and_never_by_what_it_said() {
+        let caught = guarded(|| -> usize { panic!("mallory has admin on dashpay/secret") });
+        let problem = caught.unwrap_err();
+        assert!(!problem.contains("mallory"), "{problem}");
+        let line = panic_line(Some(std::panic::Location::caller()));
+        assert!(line.starts_with("differential: panicked at "), "{line}");
+        assert!(line.contains("differential.rs:"), "{line}");
+        assert_eq!(panic_line(None), "differential: panicked");
+    }
+
+    #[test]
+    fn a_recording_whose_comparison_panics_is_one_unreadable_row() {
+        let caught: Result<usize, String> = guarded(|| panic!("a title"));
+        let row = Row {
+            repository: "?".into(),
+            label: "unreadable (x)".into(),
+            directory: "x".into(),
+            found: caught.map(|_| (Comparison::default(), 0)),
+        };
+        let table = counts_table(std::slice::from_ref(&row));
+        assert!(table.contains("| unreadable (x) | 0/0 | 0/0 | 0/0 | 0 | 0 | 1 (1 unreadable) |"));
+        assert!(!categories(&[row]).contains("a title"));
     }
 }

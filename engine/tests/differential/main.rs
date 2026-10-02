@@ -2,6 +2,7 @@
 //! recordings, judged by its exit status and by what it prints — counts,
 //! field paths and case indices, and never anything a recording holds.
 
+use pr_hygiene_engine::pycompat::{py_dumps, py_loads, PyValue};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -209,6 +210,69 @@ fn a_verdict_python_reached_differently_is_named_by_path() {
 }
 
 #[test]
+fn a_shared_head_row_is_held_to_its_first_reason() {
+    // `evaluate_snapshots` turns a row whose head another pull request
+    // shares into a configuration error. Its first reason is still the
+    // engine's own, not a Python exception's: a row whose first reason
+    // changed must not match.
+    let dir = scratch("shared");
+    let shared = copy("report", &dir);
+    // Edited with the engine's own reader and writer, which keep each key
+    // where it was, as Python's `dict.update` does.
+    edit(&shared.join("verdicts.json"), |text| {
+        let PyValue::List(mut rows) = py_loads(&text).expect("verdicts") else {
+            panic!("verdicts are a list")
+        };
+        let Some(PyValue::Dict(row)) = rows.first_mut() else {
+            panic!("a row")
+        };
+        let text = |s: &str| PyValue::Str(s.to_owned());
+        row.insert("state".into(), text("configuration-error"));
+        row.insert("status".into(), text("error"));
+        row.insert("reviewers".into(), PyValue::List(Default::default()));
+        row.insert("objectors".into(), PyValue::List(Default::default()));
+        row.insert("ready_since".into(), PyValue::None);
+        row.insert(
+            "blockers".into(),
+            PyValue::List(
+                vec![
+                    text("A reason the port never gave"),
+                    text("Another open PR shares this head; commit-scoped status is ambiguous"),
+                ]
+                .into(),
+            ),
+        );
+        py_dumps(&PyValue::List(rows), false, None, None).expect("no floats")
+    });
+    let (output, said) = run(&[&shared]);
+    assert_eq!(output.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains(
+            "| verdict | `verdict.blockers[]` | value | 1 | dashpay/platform · report: 0 |"
+        ),
+        "{said}"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_run_that_raised_inside_evaluate_snapshots_still_rebuilds_over_the_history() {
+    // Python raised after evaluating some snapshots and before returning
+    // their rows: no verdicts, and every evaluation was one of the first,
+    // taken over the batched history read.
+    let dir = scratch("raised");
+    let raised = copy("report", &dir);
+    edit(&raised.join("verdicts.json"), |_| "[]\n".to_owned());
+    let (output, said) = run(&[&raised]);
+    assert!(output.status.success(), "{said}");
+    assert!(
+        said.contains("| dashpay/platform · report | 2/2 | 2/2 | 0/0 | 0 | 16 | 0 |"),
+        "{said}"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn a_format_1_recording_is_compared_like_a_format_2_one() {
     let dir = scratch("format1");
     let old = copy("sync-pr-2", &dir);
@@ -271,8 +335,8 @@ fn the_summary_file_gets_the_counts_table_alone() {
 
 #[test]
 fn requests_count_every_page_a_read_fetched() {
-    // Counted here independently: one per read, a paginated read that
-    // succeeded one per page it printed.
+    // Counted here independently: one per read, a paginated read one per
+    // page it printed.
     let mut wanted = 0;
     for entry in std::fs::read_dir(synthetic()).expect("the synthetic recordings") {
         let calls = entry.expect("an entry").path().join("calls.jsonl");
@@ -287,10 +351,11 @@ fn requests_count_every_page_a_read_fetched() {
             let paged = call["args"]
                 .as_array()
                 .is_some_and(|args| args.iter().any(|a| a == "--paginate"));
-            wanted += match (paged, call["exit"].as_i64(), call["stdout"].as_str()) {
-                (true, Some(0), Some(stdout)) => serde_json::from_str::<Value>(stdout)
+            wanted += match (paged, call["stdout"].as_str()) {
+                (true, Some(stdout)) => serde_json::from_str::<Value>(stdout)
                     .ok()
                     .and_then(|pages| pages.as_array().map(Vec::len))
+                    .filter(|&pages| pages > 0)
                     .unwrap_or(1),
                 _ => 1,
             };
