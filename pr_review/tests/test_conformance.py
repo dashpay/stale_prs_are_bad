@@ -22,10 +22,15 @@ CLOCK = datetime(2026, 9, 12, 10, 0, 0, tzinfo=timezone.utc)
 
 
 def _pr(number, author, head, created_at):
+    # `author_association`, the repository's `permissions` and
+    # `requested_teams` describe whoever holds the token, as GitHub answers it.
     return {'number': number, 'user': {'login': author, 'type': 'User'}, 'body': 'Some text.', 'labels': [],
-            'assignees': [], 'head': {'sha': head}, 'base': {'ref': 'v4.2-dev', 'sha': 'b' * 40},
+            'assignees': [], 'head': {'sha': head, 'repo': {'full_name': REPO, 'permissions': {
+                'admin': True, 'maintain': True, 'push': True, 'triage': True, 'pull': True}}},
+            'base': {'ref': 'v4.2-dev', 'sha': 'b' * 40},
             'created_at': created_at, 'draft': False, 'state': 'open', 'html_url': f'https://x/{number}',
-            'title': f'PR {number}', 'changed_files': 1, 'requested_reviewers': []}
+            'title': f'PR {number}', 'changed_files': 1, 'requested_reviewers': [],
+            'requested_teams': [{'slug': 'secret-team'}], 'author_association': 'MEMBER'}
 
 
 def _graph(**repository):
@@ -47,15 +52,17 @@ class FakeGh:
                              'commit_id': pr['head']['sha'], 'submitted_at': '2026-09-11T10:00:00Z', 'body': ''},
                             # A passer-by the listing does not name: asked about one by one.
                             {'id': 10 * n + 3, 'user': {'login': 'passerby'}, 'state': 'COMMENTED',
-                             'commit_id': pr['head']['sha'], 'submitted_at': '2026-09-11T10:30:00Z', 'body': 'nice'}]
+                             'commit_id': pr['head']['sha'], 'submitted_at': '2026-09-11T10:30:00Z', 'body': 'nice',
+                             'author_association': 'MEMBER'}]
                         for n, pr in self.prs.items()}
         self.collaborators = [
             {'login': 'owner', 'permissions': {'admin': True, 'maintain': True, 'push': True, 'triage': True,
                                                'pull': True}, 'role_name': 'admin'},
             {'login': 'reviewer', 'permissions': {'admin': False, 'maintain': True, 'push': True, 'triage': True,
                                                   'pull': True}, 'role_name': 'maintain'},
-            {'login': 'fallback', 'permissions': {'admin': False, 'maintain': False, 'push': True, 'triage': True,
-                                                  'pull': True}, 'role_name': 'write'},
+            # A custom role whose flags say nothing: a level the engine cannot read.
+            {'login': 'fallback', 'permissions': {'admin': False, 'maintain': False, 'push': False, 'triage': False,
+                                                  'pull': False}, 'role_name': 'security-auditors'},
             {'login': 'hidden-member', 'permissions': {'admin': True, 'maintain': True, 'push': True,
                                                        'triage': True, 'pull': True}, 'role_name': 'admin'}]
 
@@ -113,8 +120,9 @@ class FakeGh:
             return [self.collaborators]
         if parts[0] == 'collaborators' and parts[2] == 'permission':
             return {'permission': 'read', 'role_name': 'triage',
-                    'user': {'login': parts[1], 'permissions': {'admin': False, 'maintain': False, 'push': False,
-                                                                 'triage': True, 'pull': True}}}
+                    'user': {'login': parts[1], 'role_name': 'triage',
+                             'permissions': {'admin': False, 'maintain': False, 'push': False,
+                                             'triage': True, 'pull': True}}}
         if parts[0] == 'labels':
             return {'name': parts[1]}
         raise AssertionError(f'unknown route {path}')
@@ -302,7 +310,12 @@ class SafetyTests(RecordingCase):
                   (['--method', 'GET', 'repos/a/b/pulls/1', '--input', '-'], '{}'),
                   (['--method', 'GET', 'repos/a/b/pulls/1', '-f', 'x=1'], None),
                   (['repos/a/b/pulls/1'], None),
-                  (['--method', 'GET', '--method', 'POST', 'repos/a/b/x'], None)]
+                  (['--method', 'GET', '--method', 'POST', 'repos/a/b/x'], None),
+                  (['--method', 'GET', '/graphql?query=x'], None),
+                  (['--method', 'GET', 'https://api.github.com/repos/a/b/pulls/1'], None),
+                  (['--method', 'GET', 'user'], None),
+                  (['--method', 'POST', 'graphql', '--input', '-'],
+                   '{"query": "mutation { a }", "query": "query { b }"}')]
         for arguments, stdin in reads:
             self.assertTrue(conformance.is_read(arguments, stdin), arguments)
         for arguments, stdin in writes:
@@ -315,6 +328,17 @@ class SafetyTests(RecordingCase):
 
 
 class ClockTests(RecordingCase):
+    def test_the_engine_reads_the_time_nowhere_but_its_clock(self):
+        # A reading anywhere else would run on real time inside a recording,
+        # and a replay at the recorded instant would no longer reproduce it.
+        reads = ('datetime.now(', 'datetime.utcnow(', 'datetime.today(', 'date.today(', 'time.time(',
+                 'time.monotonic(', 'time.perf_counter(', 'time.localtime(', 'time.gmtime(')
+        engine = Path(main.__file__).resolve().parent
+        found = [f'{path.name}:{number}' for path in sorted(engine.glob('*.py')) if path.name != 'conformance.py'
+                 for number, line in enumerate(path.read_text().splitlines(), 1)
+                 if any(read in line for read in reads)]
+        self.assertEqual(found, ['main.py:30'], 'main.clock() is the only reading')
+
     def test_the_clock_is_read_once_and_every_reading_returns_it(self):
         directory = self.record('report')
         meta = json.loads(Path(directory, 'recording.json').read_text())
@@ -360,6 +384,25 @@ class MutationTests(RecordingCase):
         differences = self.replay(directory)
         self.assertTrue(any(d.startswith('writes:') or d.startswith('write 1') for d in differences), differences)
 
+    def test_requests_are_matched_on_what_they_say_not_how_python_spelled_them(self):
+        # Another engine writes its own JSON: compact, keys in another order.
+        # The same request must still find its answer, and the same write
+        # still count as the same.
+        directory = self.record('sync')
+
+        def respell(calls):
+            for call in calls:
+                if call['stdin']:
+                    value = json.loads(call['stdin'])
+                    call['stdin'] = json.dumps(dict(reversed(list(value.items()))), separators=(',', ':'))
+        self.edit(directory, 'calls.jsonl', respell)
+        self.assertEqual(self.replay(directory), [])
+
+    def test_maps_compare_by_their_entries_not_their_order(self):
+        directory = self.record('report')
+        self.edit(directory, 'verdicts.json', lambda rows: [dict(reversed(list(row.items()))) for row in rows])
+        self.assertEqual(self.replay(directory), [])
+
     def test_a_changed_write_body_is_caught(self):
         directory = self.record('sync')
 
@@ -379,6 +422,18 @@ class MutationTests(RecordingCase):
         differences = self.replay(directory)
         self.assertTrue(any(d.startswith('verdict #1: state') for d in differences), differences)
 
+    def test_an_output_with_more_or_less_in_it_is_caught(self):
+        directory = self.record('sync')
+        self.edit(directory, 'outputs.json', lambda rows: rows[0].update(extra='surplus'))
+        self.assertIn('output #1: extra differs', self.replay(directory))
+
+    def test_a_changed_printed_report_is_caught(self):
+        directory = self.record('report')
+        path = Path(directory, 'printed.txt')
+        self.assertIn('| [#2: PR 2](https://x/2) | reviewer |', path.read_text())
+        path.write_text(path.read_text().replace('ready-for-human', 'ready-to-merge'))
+        self.assertIn('the printed report differs', self.replay(directory))
+
     def test_a_read_the_recording_lacks_fails_the_replay(self):
         directory = self.record('report')
         self.edit(directory, 'calls.jsonl', lambda calls: [c for c in calls if '/reviews' not in c['args'][2]])
@@ -397,18 +452,22 @@ class RedactionTests(RecordingCase):
     def test_levels_collapse_and_strangers_go_while_every_decision_stays(self):
         source, destination, counts = self.redacted('sync')
         self.assertEqual(counts['collaborators_dropped'], 1)
+        self.assertGreaterEqual(counts['unreadable_levels'], 1, 'one per listing read: a sync reads it again')
         text = ''.join(p.read_text() for p in destination.iterdir())
         self.assertNotIn('hidden-member', text)
-        for level in ('"admin"', '"maintain"', '"triage"'):
-            self.assertNotIn(f'"role_name":{level}', text.replace(' ', ''))
-            self.assertNotIn(f"'{level[1:-1]}'", text)
+        # The custom role nobody could read, nested role names, and whatever
+        # GitHub said about the token's own holder all go.
+        for secret in ('security-auditors', '"role_name":"triage"', '"role_name":"maintain"', '"role_name":"admin"',
+                       '"maintain":true', '"admin":true', 'MEMBER', 'secret-team'):
+            self.assertNotIn(secret, text.replace(' ', '').replace('\\"', '"'), secret)
         evidence = conformance.load_recording(destination)['evaluations'][0]['pr']['permissions']
         self.assertEqual(evidence, {'owner': 'write', 'passerby': 'read', 'reviewer': 'write'})
         before, after = (json.loads(Path(d, 'verdicts.json').read_text()) for d in (source, destination))
         self.assertEqual(before, after)
         self.assertEqual(self.replay(destination), [])
-        self.assertEqual(json.loads(Path(destination, 'recording.json').read_text())['redacted']['permissions'],
-                         'collapsed to write or read')
+        meta = json.loads(Path(destination, 'recording.json').read_text())
+        self.assertEqual(meta['redacted']['permissions'], 'collapsed to write or read')
+        self.assertNotIn('collaborators_dropped', json.dumps(meta), 'how many people were dropped is itself telling')
 
     def test_a_redaction_that_would_change_a_decision_is_refused(self):
         source = self.record('report')
@@ -428,6 +487,19 @@ class EvaluateCaseTests(unittest.TestCase):
         self.assertGreater(len(paths), 100, 'the harvested cases are committed')
         failed = [line for path in paths for line in conformance.replay_case(path)]
         self.assertEqual(failed, [])
+
+    def test_only_text_python_wrote_is_marked_as_an_exception(self):
+        policy, pr = fixture()
+        own = conformance.evaluate_case_result({'policy': dict(policy, unknown=True), 'pr': pr,
+                                                'admitted_at': None, 'now': '2026-09-11T12:00:00Z',
+                                                'telemetry_states': None})
+        self.assertEqual(own['blockers'], ['Unknown or missing policy fields'])
+        self.assertFalse(conformance.python_exception_text(own), 'raised by policy.py in its own words')
+        del pr['files'][0]['filename']
+        python = conformance.evaluate_case_result({'policy': policy, 'pr': pr, 'admitted_at': None,
+                                                   'now': '2026-09-11T12:00:00Z', 'telemetry_states': None})
+        self.assertEqual(python['blockers'], ["'filename'"])
+        self.assertTrue(conformance.python_exception_text(python), "a KeyError's text is Python's")
 
     def test_a_changed_case_result_is_caught(self):
         policy, pr = fixture()

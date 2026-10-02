@@ -46,9 +46,10 @@ _FLAGS_WITH_VALUE = {'--method', '--input'}
 _BARE_FLAGS = {'--paginate', '--slurp'}
 _GRAPHQL_WRITES = re.compile(r'\b(?:mutation|subscription)\b')
 _HASHES = re.compile(r'"(evidence|context)":"[0-9a-f]{64}"')
-# Blockers `evaluate` writes in its own words. A configuration error carrying
-# anything else carries the text of a Python exception, which another
-# implementation cannot be asked to reproduce.
+# Blockers `evaluate` stops with in its own words. With what `policy.py`
+# raises, these are the engine's; a configuration error carrying anything
+# else carries the text of a Python exception, which another implementation
+# cannot be asked to reproduce.
 _OWN_BLOCKERS = ('Incomplete GitHub snapshot', 'Invalid head SHA', 'PR is outside the active policy scope',
                  'Draft PR does not occupy a review slot', 'No changed-file evidence', 'Unresolved identities in ',
                  'Cannot verify write access for ', 'An assigned owner/reviewer lacks verified write access',
@@ -90,11 +91,24 @@ def _parse(arguments):
     return method, path, stdin, flags
 
 
+# Every route the engine reads is under the repository it governs.
+_REPOSITORY_PATH = re.compile(r'repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/')
+
+
+def _unique_keys(pairs):
+    """A JSON object that names a key twice is not one this recorder will judge."""
+    keys = [key for key, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError('duplicate key')
+    return dict(pairs)
+
+
 def is_read(arguments, stdin):
     """Whether this call can only read. Anything not proven a read is a write.
 
-    A GET with nothing on stdin, or a GraphQL document that is a query and
-    nothing else. GraphQL is a POST, so the method alone does not decide it.
+    A GET of a route under the repository with nothing on stdin, or a GraphQL
+    document that is a query and nothing else. GraphQL is a POST, so the
+    method alone does not decide it.
     """
     parsed = _parse(list(arguments))
     if parsed is None:
@@ -102,11 +116,12 @@ def is_read(arguments, stdin):
     method, path, reads_stdin, flags = parsed
     if not path:
         return False
-    if method == 'GET' and not reads_stdin and stdin is None and path != 'graphql':
+    if method == 'GET' and not reads_stdin and stdin is None and _REPOSITORY_PATH.match(path) \
+            and '://' not in path and '..' not in path:
         return True
     if method == 'POST' and path == 'graphql' and reads_stdin and not flags and isinstance(stdin, str):
         try:
-            document = json.loads(stdin)
+            document = json.loads(stdin, object_pairs_hook=_unique_keys)
         except ValueError:
             return False
         query = document.get('query') if isinstance(document, dict) else None
@@ -221,13 +236,23 @@ def _masked(value):
     return value
 
 
-def _stdin_masked(stdin):
+def _value(stdin):
+    """A request body as the JSON value it carries, or the text itself when it carries none.
+
+    Requests are matched on what they say, not on how Python spelled the
+    JSON: separators, escaping and key order are not part of a request.
+    """
     if not stdin:
         return stdin
     try:
-        return _dump(_masked(json.loads(stdin)))
+        return json.loads(stdin)
     except ValueError:
-        return _masked(stdin)
+        return stdin
+
+
+def _same_form(value):
+    """`value` written so that two maps holding the same entries compare equal; lists keep their order."""
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
 
 
 def outputs_for(engine, policy, context, pr, result):
@@ -297,6 +322,7 @@ class _Session:
         self._boundary = _Boundary(self)
         self._installed = False
         self._fetch = None
+        self.printed = ''
 
     # -- what `main.run` asks of a recording
 
@@ -439,7 +465,7 @@ class ReplaySession(_Session):
 
     @staticmethod
     def _key(arguments, stdin):
-        return _dump([list(arguments), stdin])
+        return _same_form([list(arguments), _value(stdin)])
 
     def _read(self, command, arguments, stdin, options):
         queue = self.answers.get(self._key(arguments, stdin))
@@ -516,6 +542,7 @@ def record(args, argv, engine):
         'engine_commit': _engine_commit(),
         'redacted': None,
     }
+    session.printed = printed
     write_recording(directory, meta, session)
     sys.stdout.write(printed)
     writes = sum(1 for c in session.calls if c['kind'] == 'write')
@@ -538,6 +565,8 @@ def write_recording(directory, meta, session):
             out.write(_dump(entry) + '\n')
     (directory / 'verdicts.json').write_text(json.dumps(session.verdicts, ensure_ascii=False, indent=1) + '\n')
     (directory / 'outputs.json').write_text(json.dumps(session.outputs, ensure_ascii=False, indent=1) + '\n')
+    # The report as printed: the JSON form is what the dashboard reads.
+    (directory / 'printed.txt').write_text(session.printed)
 
 
 def load_recording(directory):
@@ -551,7 +580,8 @@ def load_recording(directory):
 
     return {'meta': meta, 'calls': lines('calls.jsonl'), 'evaluations': lines('evaluations.jsonl'),
             'verdicts': json.loads((directory / 'verdicts.json').read_text()),
-            'outputs': json.loads((directory / 'outputs.json').read_text())}
+            'outputs': json.loads((directory / 'outputs.json').read_text()),
+            'printed': (directory / 'printed.txt').read_text()}
 
 
 # ---------------------------------------------------------------- replay
@@ -576,7 +606,7 @@ def rerun(recording):
             # What the engine says along the way was said when it was recorded.
             stack.enter_context(redirect_stderr(io.StringIO()))
             try:
-                outcome, _, _ = _outcome(lambda: engine.run(argv, recording=session))
+                outcome, session.printed, _ = _outcome(lambda: engine.run(argv, recording=session))
             except RecordingError as error:
                 outcome = {'raised': 'RecordingError', 'message': str(error)}
     return session, outcome
@@ -589,22 +619,30 @@ def _set_run_id(value):
         os.environ['GITHUB_RUN_ID'] = value
 
 
-def _writes(calls):
-    return [(c['args'], c['stdin']) for c in calls if c['kind'] == 'write']
+def _writes(calls, m):
+    return [(c['args'], _same_form(m(_value(c['stdin'])))) for c in calls if c['kind'] == 'write']
 
 
-def _sequence(calls):
-    return [(c['kind'], c['args'], c['stdin']) for c in calls]
+def _sequence(calls, m):
+    return [(c['kind'], c['args'], _same_form(m(_value(c['stdin'])))) for c in calls]
+
+
+def _differing(before, after):
+    """The keys whose values differ between two maps, over both maps' keys."""
+    return [k for k in dict.fromkeys(list(before) + list(after))
+            if _same_form(before.get(k)) != _same_form(after.get(k))]
 
 
 def compare(recording, session, outcome, mask=False):
     """Every way the rerun differs from the recording, as readable lines. Empty means identical.
 
-    `mask` blanks the evidence and context prints, which redaction changes and
-    nothing compares across runs.
+    This is Python checked against itself, so it is stricter than what
+    another engine is held to: every recorded read must be asked again, in
+    the same order. Maps compare by their entries, lists by their order.
+    `mask` blanks the evidence and context prints, which redaction changes
+    and nothing compares across runs.
     """
     m = _masked if mask else (lambda v: v)
-    ms = _stdin_masked if mask else (lambda v: v)
     differences = []
     if outcome != recording['meta']['outcome']:
         differences.append(f"outcome: recorded {recording['meta']['outcome']}, replayed {outcome}")
@@ -616,16 +654,15 @@ def compare(recording, session, outcome, mask=False):
         differences.append(f'{len(left)} recorded read(s) never asked again, first #{left[0]["ordinal"]}: '
                            + ' '.join(left[0]['args']))
     recorded, replayed = recording['verdicts'], session.verdicts
-    if _dump(recorded) != _dump(replayed):
+    if _same_form(recorded) != _same_form(replayed):
         if len(recorded) != len(replayed):
             differences.append(f'verdicts: recorded {len(recorded)}, replayed {len(replayed)}')
         for before, after in zip(recorded, replayed):
-            if _dump(before) != _dump(after):
-                keys = [k for k in dict.fromkeys(list(before) + list(after)) if before.get(k) != after.get(k)]
+            keys = _differing(before, after)
+            if keys:
                 differences.append(f"verdict #{before.get('number')}: {', '.join(keys)} differ "
                                    f"(recorded {before.get('state')}, replayed {after.get('state')})")
-    old_writes = [(a, ms(s)) for a, s in _writes(recording['calls'])]
-    new_writes = [(a, ms(s)) for a, s in _writes(session.calls)]
+    old_writes, new_writes = _writes(recording['calls'], m), _writes(session.calls, m)
     if old_writes != new_writes:
         differences.append(f'writes: recorded {len(old_writes)}, replayed {len(new_writes)}')
         for index, (before, after) in enumerate(zip(old_writes, new_writes), 1):
@@ -633,28 +670,27 @@ def compare(recording, session, outcome, mask=False):
                 differences.append(f"write {index}: recorded {' '.join(before[0])}, replayed {' '.join(after[0])}"
                                    + ('' if before[0] != after[0] else ' (same route, different body)'))
                 break
-    old_sequence = [(k, a, ms(s)) for k, a, s in _sequence(recording['calls'])]
-    new_sequence = [(k, a, ms(s)) for k, a, s in _sequence(session.calls)]
-    if old_sequence != new_sequence and old_writes == new_writes:
+    if _sequence(recording['calls'], m) != _sequence(session.calls, m) and old_writes == new_writes:
         differences.append('the calls were made in a different order')
-    if _dump(m(recording['outputs'])) != _dump(m(session.outputs)):
-        for before, after in zip(recording['outputs'], session.outputs):
-            for key in before:
-                if _dump(m(before[key])) != _dump(m(after.get(key))):
-                    differences.append(f"output #{before['number']}: {key} differs")
+    if _same_form(m(recording['outputs'])) != _same_form(m(session.outputs)):
+        for before, after in zip(m(recording['outputs']), m(session.outputs)):
+            for key in _differing(before, after):
+                differences.append(f"output #{before.get('number')}: {key} differs")
         if len(recording['outputs']) != len(session.outputs):
             differences.append(f"outputs: recorded {len(recording['outputs'])}, replayed {len(session.outputs)}")
-    old_results = [_dump(e['result']) for e in recording['evaluations']]
-    new_results = [_dump(e['result']) for e in session.evaluations]
+    old_results = [_same_form(e['result']) for e in recording['evaluations']]
+    new_results = [_same_form(e['result']) for e in session.evaluations]
     if old_results != new_results:
         differences.append(f'evaluations: {sum(a != b for a, b in zip(old_results, new_results))} results differ, '
                            f'recorded {len(old_results)}, replayed {len(new_results)}')
     if not mask:
-        old_evidence = [_dump(e['pr']) for e in recording['evaluations']]
-        new_evidence = [_dump(e['pr']) for e in session.evaluations]
+        old_evidence = [_same_form(e['pr']) for e in recording['evaluations']]
+        new_evidence = [_same_form(e['pr']) for e in session.evaluations]
         if old_evidence != new_evidence:
             differences.append(f'evidence: {sum(a != b for a, b in zip(old_evidence, new_evidence))} '
                                'pull requests read differently')
+    if getattr(session, 'printed', None) != recording['printed']:
+        differences.append('the printed report differs')
     if session.telemetry_reads != recording['meta'].get('telemetry_reads', 0):
         differences.append(f"status page read {session.telemetry_reads} time(s), "
                            f"recorded {recording['meta'].get('telemetry_reads', 0)}")
@@ -668,6 +704,11 @@ def replay_recording(directory):
     writes = sum(1 for c in recording['calls'] if c['kind'] == 'write')
     summary = (f"{len(recording['calls'])} calls, {writes} writes, {len(recording['verdicts'])} verdicts, "
                f"{len(recording['evaluations'])} evaluations")
+    # What `fromisoformat` accepts changed between minor versions, so a
+    # recording made on another one may not be this Python's to judge.
+    made_on = str(recording['meta'].get('python') or '')
+    if made_on.split('.')[:2] != [str(sys.version_info.major), str(sys.version_info.minor)]:
+        summary += f' (recorded on Python {made_on or "unknown"})'
     return summary, differences
 
 
@@ -682,19 +723,48 @@ def evaluate_case_result(case):
 def replay_case(path):
     case = json.loads(Path(path).read_text())
     replayed = evaluate_case_result(case)
-    if _dump(replayed) != _dump(case['result']):
-        keys = [k for k in dict.fromkeys(list(case['result']) + list(replayed))
-                if _dump(case['result'].get(k)) != _dump(replayed.get(k))]
-        return [f'{Path(path).name}: {", ".join(keys)} differ']
-    return []
+    keys = _differing(case['result'], replayed)
+    return [f'{Path(path).name}: {", ".join(keys)} differ'] if keys else []
+
+
+def _raised_messages():
+    """What `policy.py` raises in its own words: (text, whole) for each, whole False when a value follows.
+
+    Read from the source, so a message added there is known here without
+    anybody remembering to list it.
+    """
+    import ast
+    found = []
+    tree = ast.parse((Path(__file__).resolve().parent / 'policy.py').read_text())
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) and node.exc.args):
+            continue
+        message = node.exc.args[0]
+        while isinstance(message, ast.BinOp):
+            message = message.left
+        if isinstance(message, ast.Constant) and isinstance(message.value, str):
+            found.append((message.value, message is node.exc.args[0]))
+        elif isinstance(message, ast.JoinedStr) and message.values and isinstance(message.values[0], ast.Constant):
+            found.append((message.values[0].value, False))
+    return found
 
 
 def python_exception_text(result):
-    """Whether a verdict's blockers carry the text of a Python exception rather than the engine's own words."""
+    """Whether a verdict's blockers carry the text of a Python exception rather than the engine's own words.
+
+    The engine's own words are what `evaluate` says when it stops and what
+    `policy.py` raises; anything else in a configuration error came from
+    Python itself — a missing key, a timestamp `fromisoformat` refused.
+    """
     if result.get('state') != 'configuration-error' or result.get('status') != 'error':
         return False
     reasons = [b for b in result.get('blockers') or [] if not b.startswith('Proceeded without')]
-    return bool(reasons) and not any(reasons[0].startswith(own) for own in _OWN_BLOCKERS)
+    if not reasons:
+        return False
+    if any(reasons[0].startswith(own) for own in _OWN_BLOCKERS):
+        return False
+    return not any(reasons[0] == text if whole else reasons[0].startswith(text)
+                   for text, whole in _raised_messages())
 
 
 # The instant the engine's own clock reads during a harvest.
@@ -787,7 +857,7 @@ def harvest(destination, start='pr_review/tests'):
         # does not replay against itself teaches the port nothing.
         try:
             stored = json.loads(json.dumps(case, ensure_ascii=False))
-            if _dump(evaluate_case_result(stored)) != _dump(stored['result']):
+            if _differing(evaluate_case_result(stored), stored['result']):
                 lossy += 1
                 continue
         except Exception:
@@ -819,20 +889,52 @@ def _level(flags, legacy=None):
     return level
 
 
+_NO_FLAGS = dict.fromkeys(_WRITE_FLAGS, False)
+
+
 def _redacted_access(flags, legacy=None):
-    """(flags, legacy permission, role name) for the class the engine distinguishes, or None to leave as is.
+    """(flags, legacy permission, role name) for the class the engine distinguishes.
 
     The engine asks two things of a level: whether it can write, and whether
-    it is known at all. Everything with write access reads as `write` and
-    everything without as `read`; which of admin, maintain or a custom role a
-    person holds is not public and decides nothing.
+    it is known at all. Everything with write access reads as `write`,
+    everything without as `read`, and a level it cannot read as nothing at
+    all; which of admin, maintain or a custom role a person holds is not
+    public and decides nothing.
     """
     level = _level(flags, legacy)
     if level is None:
-        return None
+        return dict(_NO_FLAGS), None, None
     if level in WRITE_LEVELS:
         return dict(_WRITE_FLAGS), 'write', 'write'
     return dict(_READ_FLAGS), 'read', 'read'
+
+
+# Fields an answer carries about whoever is asking rather than about the pull
+# request: `author_association` says MEMBER for a private member of the
+# organisation when the token can see them, a repository's `permissions` are
+# the token holder's own, and `requested_teams` can name a secret team. The
+# engine reads none of them — the redaction rerun proves it — and they go.
+VIEWER_FIELDS = frozenset({'author_association', 'authorAssociation', 'permissions', 'requested_teams'})
+
+
+def _without_viewer_fields(value):
+    if isinstance(value, dict):
+        return {k: _without_viewer_fields(v) for k, v in value.items() if k not in VIEWER_FIELDS}
+    if isinstance(value, list):
+        return [_without_viewer_fields(v) for v in value]
+    return value
+
+
+def _collapsed(holder, flags_key, access):
+    """`holder` with its flags, legacy level and role name replaced by `access`, wherever it carries them."""
+    holder = dict(holder)
+    if isinstance(holder.get(flags_key), dict):
+        holder[flags_key] = access[0]
+    if 'permission' in holder:
+        holder['permission'] = access[1]
+    if 'role_name' in holder:
+        holder['role_name'] = access[2]
+    return holder
 
 
 def _logins(value, found):
@@ -857,7 +959,8 @@ def _path(entry):
 
 
 def redact_calls(calls, policy):
-    """The calls with every permission level collapsed and every collaborator nobody here names dropped.
+    """The calls with every permission level collapsed, every collaborator nobody here names
+    dropped, and every field about the token's holder removed.
 
     Kept: anyone the policy names and anyone whose login appears in any other
     answer — an author, a reviewer, a commenter — which is everyone the engine
@@ -876,47 +979,48 @@ def redact_calls(calls, policy):
             except ValueError:
                 pass
     keep = named | seen
-    counts, dropped = {'levels_collapsed': 0, 'left_unknown': 0}, set()
+    counts, dropped = {'levels_collapsed': 0, 'unreadable_levels': 0, 'answers_stripped': 0}, set()
     redacted = []
     for entry in calls:
         entry = dict(entry)
         path = _path(entry)
-        if entry['kind'] == 'read' and entry.get('exit') == 0 and entry.get('stdout') and (
-                _LISTING.match(path) or _ONE.fullmatch(path)):
+        if entry['kind'] != 'read' or not entry.get('stdout'):
+            redacted.append(entry)
+            continue
+        try:
             body = json.loads(entry['stdout'])
-            if _LISTING.match(path) and isinstance(body, list):
-                pages = []
-                for page in body:
-                    kept = []
-                    for person in page if isinstance(page, list) else []:
-                        login = ((person or {}).get('login') or '').lower()
-                        if login not in keep:
-                            dropped.add(login)
-                            continue
-                        access = _redacted_access(person.get('permissions'))
-                        if access is None:
-                            counts['left_unknown'] += 1
-                        else:
-                            person = dict(person, permissions=access[0])
-                            if 'role_name' in person:
-                                person['role_name'] = access[2]
-                            counts['levels_collapsed'] += 1
-                        kept.append(person)
-                    pages.append(kept if isinstance(page, list) else page)
-                body = pages
-            elif isinstance(body, dict):
-                user = body.get('user') if isinstance(body.get('user'), dict) else None
-                access = _redacted_access(user.get('permissions') if user else None, body.get('permission'))
-                if access is None:
-                    counts['left_unknown'] += 1
-                else:
-                    body = dict(body, permission=access[1])
-                    if 'role_name' in body:
-                        body['role_name'] = access[2]
-                    if user is not None and isinstance(user.get('permissions'), dict):
-                        body['user'] = dict(user, permissions=access[0])
-                    counts['levels_collapsed'] += 1
-            entry['stdout'] = json.dumps(body, ensure_ascii=False, separators=(',', ':'))
+        except ValueError:
+            redacted.append(entry)
+            continue
+        if entry.get('exit') == 0 and _LISTING.match(path) and isinstance(body, list):
+            pages = []
+            for page in body:
+                kept = []
+                for person in page if isinstance(page, list) else []:
+                    login = ((person or {}).get('login') or '').lower()
+                    if login not in keep:
+                        dropped.add(login)
+                        continue
+                    access = _redacted_access(person.get('permissions'))
+                    counts['unreadable_levels' if access[1] is None else 'levels_collapsed'] += 1
+                    kept.append(_collapsed(person, 'permissions', access))
+                pages.append(kept if isinstance(page, list) else page)
+            body = pages
+        elif entry.get('exit') == 0 and _ONE.fullmatch(path) and isinstance(body, dict):
+            user = body.get('user') if isinstance(body.get('user'), dict) else None
+            access = _redacted_access(user.get('permissions') if user else None, body.get('permission'))
+            counts['unreadable_levels' if access[1] is None else 'levels_collapsed'] += 1
+            body = _collapsed(body, 'permissions', access)
+            if user is not None:
+                body['user'] = _collapsed(user, 'permissions', access)
+        else:
+            stripped = _without_viewer_fields(body)
+            if stripped == body:
+                redacted.append(entry)
+                continue
+            counts['answers_stripped'] += 1
+            body = stripped
+        entry['stdout'] = json.dumps(body, ensure_ascii=False, separators=(',', ':'))
         redacted.append(entry)
     counts['collaborators_dropped'] = len(dropped)
     return redacted, counts
@@ -936,18 +1040,23 @@ def redact(source, destination):
     # compared across runs.
     differences = compare(original, session, outcome, mask=True)
     for before, after in zip(original['evaluations'], session.evaluations):
-        if _dump(_without_permissions(before['pr'])) != _dump(_without_permissions(after['pr'])):
+        if _same_form(_without_permissions(before['pr'])) != _same_form(_without_permissions(after['pr'])):
             differences.append(f"evidence #{before['pr'].get('number')} changed beyond its permissions")
             break
     if differences:
         raise RecordingError('Redaction would change what the engine decides: ' + '; '.join(differences))
-    meta = dict(original['meta'], redacted={'permissions': 'collapsed to write or read', **counts})
+    # What was done, not how much: how many people a listing held that no
+    # answer names is itself something about who has access.
+    meta = dict(original['meta'], redacted={'permissions': 'collapsed to write or read',
+                                            'collaborators': 'only those an answer or the policy names',
+                                            'removed': sorted(VIEWER_FIELDS)})
     # The rerun asked the same calls in the same order and was answered from
     # the redacted reads, so its own log is the redacted recording, its
     # writes carrying the evidence print they now produce.
     rebased = _Session(meta['clock'])
     rebased.calls = session.calls
     rebased.verdicts, rebased.outputs, rebased.evaluations = session.verdicts, session.outputs, session.evaluations
+    rebased.printed = session.printed
     write_recording(destination, meta, rebased)
     summary, differences = replay_recording(destination)
     if differences:

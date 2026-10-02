@@ -41,9 +41,10 @@ anything. Every governed repository: `platform`, `rust-dashcore`,
 
 What a recording run does differently, and only while recording:
 
-- **Every call is classified at the boundary.** A read is a `GET` with nothing
-  on stdin, or a GraphQL document that is a query and nothing else. Anything
-  else, including any argument shape the engine does not build, is a write.
+- **Every call is classified at the boundary.** A read is a `GET` of a route
+  under `repos/<owner>/<repo>/` with nothing on stdin, or a GraphQL document
+  that is a query and nothing else, naming no key twice. Anything else,
+  including any argument shape the engine does not build, is a write.
 - **Writes are never sent.** The recorder answers each write itself, with what
   GitHub would have answered, made out of the request: a status or comment
   under the engine's own identity (`github-actions[bot]`), at the recorded
@@ -51,7 +52,15 @@ What a recording run does differently, and only while recording:
   write to a route it has no answer for stops the recording. The read path
   re-checks the classification before it runs `gh`.
 - **A dry `sync` walks the write path**, as `--apply` would, so the writes it
-  would have made are recorded in order. `report` has no write path.
+  would have made are recorded in order. `report` has no write path. Since
+  nothing lands, a read made after a write sees GitHub as it was: where the
+  engine reads its own write back in the same run, the run goes on as it
+  would if that write had been lost. The one place this shows today is a
+  first admission: the pre-success re-check reloads the author's records,
+  does not find the record this run wrote, and the recording ends with
+  `pending: Review evidence changed; reconciliation required` where a real
+  run posts the verdict. The recording is still exact — the same reads must
+  give the same writes — but it is not a forecast of the next real run.
 - **The clock is read once.** `main.clock()` is the one place the engine reads
   the time (`utc_now` and the batch rotations go through it); the recording
   fixes it at the start of the run and stores it.
@@ -71,9 +80,11 @@ What a recording run does differently, and only while recording:
 | `verdicts.json` | the verdict rows, in order, exactly as `evaluate_snapshots` returned them |
 | `evaluations.jsonl` | every `evaluate` call of the run: `pr` (the evidence Python's reader produced), `admitted_at`, `now`, `telemetry_states`, `result`; `policy` only where it is not the recording's |
 | `outputs.json` | per verdict, the text it puts on GitHub — see below |
+| `printed.txt` | the report the run printed (with `--format json`, what the dashboard reads) |
 
-Objects keep the engine's key order. That order is part of what it decided:
-a record keeps the last eight receipts by insertion.
+Objects are written in the engine's key order, which is how its maps iterate
+(a record keeps the last eight receipts by insertion); comparisons treat a
+map as its entries and a list as its order.
 
 ### Canonical outputs
 
@@ -88,7 +99,7 @@ whether or not it already does (the writes say what was actually sent):
 | `move` | the move comment's text, `null` where nobody is told a move |
 | `markers` | the marker lines of the record comment |
 | `record`, `diff` | the record's and the diff record's JSON, as written inside the markers |
-| `comment` | the whole record comment as written: markers, a blank line, then the move text or the pointer |
+| `comment` | the whole record comment as a new one is written: markers, a blank line, then the move text, or where nobody is told a move the pointer at the description (a record refreshed in place keeps the words already there, and the writes show them) |
 | `comment_refused` | why the engine would refuse to write that comment, else `null` |
 | `diff_print` | `policy.diff_print` of the evidence |
 | `receipt_prints` | `policy.receipt_print` of each comment that has one, by comment id |
@@ -103,16 +114,25 @@ python -m pr_review.conformance redact conformance/live/raw/platform-report \
     conformance/live/redacted/platform-report
 ```
 
-A live recording holds collaborator permission levels, which are not public,
-and a listing of everyone with access to the repository, which includes
-members whose membership of the organisation is private. Redaction:
+A live recording is read with your token, so it holds what only you may see:
+collaborator permission levels; a listing of everyone with access to the
+repository, including members whose membership of the organisation is
+private; and fields describing the asker, such as `author_association` (which
+says `MEMBER` for a private member). Redaction:
 
 - collapses every level to the two the engine tells apart: `write` for admin,
   maintain, write and any custom role that can push; `read` for triage, read
-  and none. Flags, the legacy `permission` and `role_name` all say the same. A
-  level the engine could not read is left as it was and counted;
+  and none. The flags, the legacy `permission` and every `role_name`,
+  including the one inside `user`, say the same. A level the engine could not
+  read becomes no flags, no permission and no role name;
 - drops from the listing everyone not named by the policy and not appearing
-  as a login in any other answer the run read — nobody the engine can ask about.
+  as a login in any other answer the run read — nobody the engine can ask about;
+- removes `author_association`, `authorAssociation`, `permissions` (outside
+  the two access routes: on a repository they are the asker's own) and
+  `requested_teams` (which can name a secret team) from every other answer.
+  The engine reads none of them.
+
+`recording.json` says what was done, but not how many people were dropped.
 
 It then replays the redacted copy and refuses to write it unless every verdict,
 every result, the outcome and the order of every call are identical to the
@@ -134,16 +154,29 @@ python -m pr_review.conformance replay conformance/live/redacted conformance/eva
 Takes recordings, evaluate cases, or directories of either. For a recording
 it runs the engine at the recorded clock, with the recorded policy and status
 page, every read answered from the recording — each answer once, in the order
-given for the same request — and every write answered as when recording. It
-fails when:
+given for the same request — and every write answered as when recording.
 
-- a verdict differs in any field, or the outcome differs;
+A request is matched on its arguments exactly and on its body as a JSON
+value: the path with its query string as written (`?state=open&per_page=100`,
+a login escaped as `quote(login, safe='')`), `--paginate --slurp` meaning
+every page as a list of pages, and a GraphQL query's text verbatim; the
+separators, escaping and key order Python used to write the body are not part
+of it.
+
+This is Python checked against itself, so it is stricter than the contract
+for another engine below. It fails when:
+
+- a verdict differs in any field, or the outcome differs (including the
+  exception's message);
 - the writes differ in number, order, route or body;
 - the calls were made in a different order;
-- an output differs;
+- an output differs, or the printed report does;
 - an evaluation's result or evidence differs;
 - the engine asks a read the recording does not hold, or leaves one unasked;
 - the status page is read a different number of times.
+
+The summary line notes a recording made on another minor version of Python:
+what `fromisoformat` accepts changed between them.
 
 ## Evaluate cases
 
@@ -163,17 +196,25 @@ tests change, and commit the difference.
 
 `evaluate` is replaced before the engine or any test is imported, so every
 name it is bound to is the observing one and the engine carries no hook for
-it. Evidence built from mocks would not survive JSON and is not kept; the
-harvest reports how many calls that was (none, today).
+it; an independent count of calls agrees (328). Evidence built from mocks
+would not survive JSON and is not kept; the harvest reports how many calls
+that was (none, today). The one test that evaluates in child processes, to
+vary the hash seed, is not seen; other cases cover the renames it uses.
 
-## What must match exactly
+`python_exception_text` is true for a `configuration-error` whose first reason
+is neither one `evaluate` stops with nor a message `policy.py` raises — read
+from its source, so a new message is known without being listed.
 
-- **The verdicts**: every field of every row, in order.
+## What another engine must match exactly
+
+- **The verdicts**: every field of every row, rows in order.
 - **The ordered writes**: method, path and body. Bodies are compared as JSON
   values; every string in them byte for byte.
 - **The canonical outputs**: markers, record, diff record, `diff_print`,
   `receipt_print`, checklist, move text, labels, status state and description.
   These are what one engine writes and the other reads back.
+- **The printed report**, where the port prints one.
+- **Whether the run failed**, not the message it failed with.
 - **Replaying the state after the writes** must produce no writes. Nothing
   here builds that state; the port's own replay fake does.
 
@@ -181,12 +222,23 @@ harvest reports how many calls that was (none, today).
 
 - The `evidence` and `context` prints inside a record. They are compared only
   within one run, never across runs or engines.
-- A blocker carrying the text of a Python exception: a `configuration-error`
-  whose first reason is not one of `evaluate`'s own (an evaluate case marks it
-  `python_exception_text: true`).
-- The order of reads. Another engine may read in any order and cache more; it
-  must not need a read the recording does not hold.
+- A blocker carrying the text of a Python exception (an evaluate case marks it
+  `python_exception_text: true`), wherever it shows: the verdict's blockers and
+  the printed report's next action.
+- Which reads are made, and in what order. Another engine may read in any
+  order and cache more; it must not need a read the recording does not hold.
 - The canned ids and anything the engine prints to its log.
+
+## What this corpus cannot tell apart
+
+- **When the clock is read.** It is fixed for the whole run, so an engine that
+  reuses the run's instant where Python reads the clock again — the second
+  evaluation before a success, the admission re-check — gives the same
+  answers here. In a real run they differ by seconds.
+- **What happens when a write fails.** Every canned answer is a success. The
+  failure paths — a label that 404s, a reviewer request refused with 422 —
+  belong to the port's own HTTP-mock tests.
+- **A run that reads its own write.** See the dry `sync` under Recording.
 
 ## Python behaviours the port must reproduce
 
@@ -240,7 +292,15 @@ harvest reports how many calls that was (none, today).
 - **Per-run caches**: access by lowercased login (an unreadable answer is
   remembered as unknown for the run), statuses and builds by head, the
   collaborator listing read once; all cleared before the final pre-write
-  snapshot.
+  snapshot. A status the engine posts goes into its head's cache with the
+  `creator` and `created_at` GitHub answered, and that cached status decides
+  whether the same status is posted again.
+- **Not to be copied: a race between snapshots.** In production four
+  snapshots run at once, and `GitHub.access()` marks the listing read before
+  it has read it; another thread can then find nobody listed, ask the
+  per-person route, and on a failure read the person's access as unknown —
+  a configuration error the next run clears. Recordings run snapshots one at
+  a time and never show it; the port should read the listing once, then use it.
 - **Login spellings**: REST reports an app as `name[bot]`, GraphQL as `name`.
   Comment authors are given the suffix back; review-thread authors are not, so
   a bot such as `github-actions` that opens a thread is looked up as a person
