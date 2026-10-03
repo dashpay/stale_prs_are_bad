@@ -39,11 +39,11 @@
 
 use super::compare::{
     compare_result, policy_of, shares_head, verdict_row, Check, Comparison, Explanation, Failure,
-    Layer, Outcome,
+    Layer, Outcome, Unoffered, WhyNot,
 };
 use super::diff::{differences, Difference, Kind};
 use super::exception::OwnWords;
-use super::gh_output::printed;
+use super::gh_output::gh_printed;
 use super::recording::Recording;
 use super::run::{replayed, synced, Synced};
 use crate::evidence::queries;
@@ -1237,12 +1237,15 @@ fn failed_where_python_read(recorded: &HashMap<CallKey, Vec<PyValue>>, log: &[Lo
         .any(|(key, ok)| !ok && recorded.contains_key(key))
 }
 
-/// A live snapshot against Python's, by how the pull request moved.
+/// A live snapshot against Python's, by how the pull request moved, and
+/// against the same snapshot read from the live answers as `gh api` prints
+/// them (`gh_view`), where any answer prints otherwise.
 fn snapshot_check(
     index: usize,
     motion: Motion,
     snapshot: Result<PyValue, ReadError>,
     python: &PyValue,
+    gh_view: Option<&PyValue>,
 ) -> Check {
     let moved = Check {
         layer: Layer::LiveSnapshot,
@@ -1267,7 +1270,7 @@ fn snapshot_check(
             let left = unexcused(&snapshot);
             if left.is_empty() && motion.moved() {
                 moved
-            } else if !left.is_empty() && unexcused(&printed(&snapshot)).is_empty() {
+            } else if !left.is_empty() && gh_view.is_some_and(|gh| unexcused(gh).is_empty()) {
                 Check {
                     layer: Layer::LiveSnapshot,
                     index,
@@ -1290,6 +1293,49 @@ const GH_PRINTED: Explanation = Explanation {
     admission: false,
     gh_printed: true,
 };
+
+/// The live run's answers as `gh api` would have printed them to Python
+/// ([`gh_printed`]), in the order got; `None` where every one prints as it
+/// came, so that gh can explain nothing.
+fn rendered(log: &[Logged]) -> Option<Vec<Logged>> {
+    let mut changed = false;
+    let mut render = |text: &String| {
+        let printed = gh_printed(text);
+        changed |= printed != *text;
+        printed
+    };
+    let log: Vec<Logged> = log
+        .iter()
+        .map(|logged| Logged {
+            key: logged.key.clone(),
+            answer: match &logged.answer {
+                Ok(Reply::Text(text)) => Ok(Reply::Text(render(text))),
+                Ok(Reply::Pages(pages)) => {
+                    Ok(Reply::Pages(pages.iter().map(&mut render).collect()))
+                }
+                Err(error) => Err(error.clone()),
+            },
+        })
+        .collect();
+    changed.then_some(log)
+}
+
+/// Pull requests' snapshots read from `answers` as a report reads them:
+/// their histories in one query, then each one's own reads.
+fn read_snapshots<T: Transport>(
+    api: &mut GitHub<T>,
+    wanted: &[(usize, PyInt, &PyValue, &PyValue)],
+) -> Vec<Result<PyValue, ReadError>> {
+    let numbers: Vec<PyInt> = wanted.iter().map(|(_, n, _, _)| n.clone()).collect();
+    let histories = api.histories(&numbers);
+    wanted
+        .iter()
+        .map(|(_, number, _, policy)| match &histories {
+            Ok(histories) => api.snapshot(number, policy, histories.get(number)),
+            Err(error) => Err(error.clone()),
+        })
+        .collect()
+}
 
 /// Up to `picks` of the pull requests a recording's run evaluated first,
 /// rotating with `slot` so that each comes round, read now through
@@ -1355,17 +1401,19 @@ pub fn live_snapshots<T: Transport>(
             )),
         }
     }
-    let numbers: Vec<PyInt> = wanted.iter().map(|(_, n, _, _)| n.clone()).collect();
-    let histories = api.histories(&numbers);
-    let mut read = Vec::with_capacity(wanted.len());
-    for (index, number, pr, policy) in &wanted {
-        let snapshot = match &histories {
-            Ok(histories) => api.snapshot(number, policy, histories.get(number)),
-            Err(error) => Err(error.clone()),
-        };
-        read.push((*index, number, *pr, snapshot));
-    }
+    let read = read_snapshots(&mut api, &wanted);
     let observed = api.client().transport();
+    // The same snapshots read again, at no request's cost, from what the
+    // live reads were answered, as `gh api` would have printed it.
+    let gh_views: Vec<Option<PyValue>> = match rendered(&observed.log)
+        .and_then(|log| GitHub::new(repository, Client::with_sleep(Echo::of(&log), NoSleep)).ok())
+    {
+        Some(mut gh) => read_snapshots(&mut gh, &wanted)
+            .into_iter()
+            .map(Result::ok)
+            .collect(),
+        None => vec![None; wanted.len()],
+    };
     live.requests = observed.requests();
     let recorded = recorded_answers(&recording.calls);
     if failed_where_python_read(&recorded, &observed.log) {
@@ -1378,7 +1426,8 @@ pub fn live_snapshots<T: Transport>(
         return live;
     }
     let since = instant(field(&recording.meta, "clock"));
-    for (index, number, pr, snapshot) in read {
+    for (((index, number, pr, _), snapshot), gh_view) in wanted.iter().zip(read).zip(&gh_views) {
+        let (index, number, pr) = (*index, number, *pr);
         let heads: Vec<&str> = [head_of(pr), snapshot.as_ref().ok().and_then(|s| head_of(s))]
             .into_iter()
             .flatten()
@@ -1390,7 +1439,13 @@ pub fn live_snapshots<T: Transport>(
         if motion.moved() {
             live.moved += 1;
         }
-        checks.push(snapshot_check(index, motion, snapshot, pr));
+        checks.push(snapshot_check(
+            index,
+            motion,
+            snapshot,
+            pr,
+            gh_view.as_ref(),
+        ));
     }
     live
 }
@@ -1421,6 +1476,20 @@ fn of_author(candidates: &[PyValue], author: &str) -> Vec<PyValue> {
         .collect()
 }
 
+/// One verdict that differs, and what it is decided again from.
+struct Case<'a> {
+    /// The live snapshot.
+    snapshot: &'a PyValue,
+    /// The same snapshot read from the live answers as `gh api` prints
+    /// them, where that reads otherwise.
+    gh_snapshot: Option<&'a PyValue>,
+    verdict: &'a PyValue,
+    python_row: &'a PyValue,
+    /// Python's evaluation of it.
+    python: &'a PyValue,
+    exception_text: bool,
+}
+
 impl Decided<'_> {
     /// The admitted pull requests, in the order `admit` gives them, and
     /// each one's instant, for `candidates` at `now`.
@@ -1432,43 +1501,38 @@ impl Decided<'_> {
 
     /// Whether Python's run and the live one admitted the same pull
     /// requests of `author`, in the same order: only then can an
-    /// admission's instant be all that differs. Admission is decided per
-    /// author, so another author's pull requests have no part in it.
-    fn same_admissions(&self, python_now: &str, author: &str) -> bool {
-        let live = self.admitted(
-            &of_author(&self.run.candidates, author),
-            &self.run.generated_at,
-        );
-        let python = self
+    /// admission's instant be all that differs; and if not, how not.
+    /// Admission is decided per author, so another author's pull requests
+    /// have no part in it.
+    fn same_admissions(&self, python_now: &str, author: &str) -> Result<(), Unoffered> {
+        let live = self
+            .admitted(
+                &of_author(&self.run.candidates, author),
+                &self.run.generated_at,
+            )
+            .ok_or(Unoffered::LiveNotAdmitted)?;
+        let python_run = self
             .python_run
             .get_or_init(|| replayed(self.recording))
             .as_ref()
-            .and_then(|python| self.admitted(&of_author(&python.candidates, author), python_now));
-        match (live, python) {
-            (Some(live), Some(python)) => live
-                .iter()
-                .map(|(n, _)| n)
-                .eq(python.iter().map(|(n, _)| n)),
-            _ => false,
-        }
+            .ok_or(Unoffered::PythonNotReplayed)?;
+        let python = self
+            .admitted(&of_author(&python_run.candidates, author), python_now)
+            .ok_or(Unoffered::Unreadable)?;
+        same_order(&live, &python)
     }
 
-    /// The live verdict of `snapshot`, decided again with whichever of
-    /// Python's inputs `by` names in place of the port's own, compared with
-    /// Python's row: the differences left.
-    #[allow(clippy::too_many_arguments)]
+    /// The live verdict, decided again with whichever of Python's inputs
+    /// `by` names in place of the port's own, compared with Python's row:
+    /// the differences left.
     fn again(
         &self,
-        snapshot: &PyValue,
-        verdict: &PyValue,
-        python_row: &PyValue,
-        python: &PyValue,
+        case: &Case<'_>,
         live_admitted: &PyValue,
-        exception_text: bool,
         by: Explanation,
     ) -> Option<Vec<Difference>> {
         let now = if by.clock {
-            field(python, "now")?.clone()
+            field(case.python, "now")?.clone()
         } else {
             s(self.run.generated_at.as_str())
         };
@@ -1480,9 +1544,14 @@ impl Decided<'_> {
             self.payload.clone()
         };
         let admitted = if by.admission {
-            field(python, "admitted_at")?.clone()
+            field(case.python, "admitted_at")?.clone()
         } else {
             live_admitted.clone()
+        };
+        let snapshot = if by.gh_printed {
+            case.gh_snapshot?
+        } else {
+            case.snapshot
         };
         let PyValue::Str(now_text) = &now else {
             return None;
@@ -1498,72 +1567,126 @@ impl Decided<'_> {
             .last()
             .map_or(PyValue::None, |(_, state)| state.clone());
         let result = evaluate(self.policy, snapshot, &admitted, &now, &state).ok()?;
-        let row = verdict_row(&PyValue::Dict(result), self.policy, shares_head(verdict));
+        let row = verdict_row(
+            &PyValue::Dict(result),
+            self.policy,
+            shares_head(case.verdict),
+        );
         Some(compare_result(
             &row,
-            python_row,
+            case.python_row,
             "verdict",
-            exception_text,
+            case.exception_text,
             self.own,
         ))
     }
 
     /// Which of Python's inputs, the fewest that do, make the live verdict
-    /// of `snapshot` Python's row; `None` when none do.
-    fn explain_verdict(
-        &self,
-        snapshot: &PyValue,
-        verdict: &PyValue,
-        python_row: &PyValue,
-        python: &PyValue,
-        exception_text: bool,
-    ) -> Option<Explanation> {
-        let number = number_of(snapshot)?;
-        let live_admitted = self
-            .admitted(&self.run.candidates, &self.run.generated_at)?
-            .into_iter()
-            .find(|(n, _)| *n == number)
-            .map_or(PyValue::None, |(_, at)| at);
-        let python_now = match field(python, "now") {
-            Some(PyValue::Str(now)) => now.clone(),
-            _ => return None,
+    /// Python's row; where none do, why each did not.
+    fn explain_verdict(&self, case: &Case<'_>) -> Result<Explanation, WhyNot> {
+        let number = number_of(case.snapshot);
+        let live_admitted = match (
+            &number,
+            self.admitted(&self.run.candidates, &self.run.generated_at),
+        ) {
+            (Some(number), Some(admitted)) => admitted
+                .into_iter()
+                .find(|(n, _)| n == number)
+                .map_or(PyValue::None, |(_, at)| at),
+            _ => PyValue::None,
         };
-        let python_admitted = field(python, "admitted_at").unwrap_or(&PyValue::None);
-        let clock = python_now != self.run.generated_at;
-        let telemetry = pages_differ(&self.recording.meta, &self.payload);
-        let admission = live_admitted.truthy()
-            && python_admitted.truthy()
-            && !same(&live_admitted, python_admitted)
-            && matches!(field(snapshot, "author"), Some(PyValue::Str(author))
-                if self.same_admissions(&python_now, author));
+        let python_now = match field(case.python, "now") {
+            Some(PyValue::Str(now)) => Some(now.as_str()),
+            _ => None,
+        };
+        let python_admitted = field(case.python, "admitted_at").unwrap_or(&PyValue::None);
+        // Each input offered says so; where nothing offered removes the
+        // difference, that is what is said of it.
+        let why = WhyNot {
+            clock: match python_now {
+                None => Unoffered::Unreadable,
+                Some(now) if now == self.run.generated_at => Unoffered::Same,
+                Some(_) => Unoffered::Tried,
+            },
+            telemetry: telemetry_offered(&self.recording.meta, &self.payload),
+            admission: if !live_admitted.truthy() {
+                Unoffered::LiveNotAdmitted
+            } else if !python_admitted.truthy() {
+                Unoffered::PythonNotAdmitted
+            } else if same(&live_admitted, python_admitted) {
+                Unoffered::Same
+            } else {
+                match (python_now, field(case.snapshot, "author")) {
+                    (None, _) => Unoffered::Unreadable,
+                    (_, Some(PyValue::Str(author))) if author.is_empty() => Unoffered::NoAuthor,
+                    (Some(now), Some(PyValue::Str(author))) => self
+                        .same_admissions(now, author)
+                        .err()
+                        .unwrap_or(Unoffered::Tried),
+                    (Some(_), _) => Unoffered::NoAuthor,
+                }
+            },
+            gh_printed: match case.gh_snapshot {
+                Some(gh) if !same(gh, case.snapshot) => Unoffered::Tried,
+                _ => Unoffered::Same,
+            },
+        };
         let available = Explanation {
-            clock,
-            telemetry,
-            admission,
-            gh_printed: false,
+            clock: why.clock == Unoffered::Tried,
+            telemetry: why.telemetry == Unoffered::Tried,
+            admission: why.admission == Unoffered::Tried,
+            gh_printed: why.gh_printed == Unoffered::Tried,
         };
-        subsets(available).into_iter().find(|by| {
-            self.again(
-                snapshot,
-                verdict,
-                python_row,
-                python,
-                &live_admitted,
-                exception_text,
-                *by,
-            )
-            .is_some_and(|left| left.is_empty())
+        subsets(available)
+            .into_iter()
+            .find(|by| {
+                self.again(case, &live_admitted, *by)
+                    .is_some_and(|left| left.is_empty())
+            })
+            .ok_or(why)
+    }
+}
+
+/// Whether two admitted lists name the same pull requests in the same
+/// order; and if not, how not.
+fn same_order(live: &[(PyInt, PyValue)], python: &[(PyInt, PyValue)]) -> Result<(), Unoffered> {
+    let numbers = |admitted: &[(PyInt, PyValue)]| -> Vec<PyInt> {
+        admitted.iter().map(|(n, _)| n.clone()).collect()
+    };
+    let (live, python) = (numbers(live), numbers(python));
+    if live == python {
+        return Ok(());
+    }
+    let as_set = |numbers: &[PyInt]| numbers.iter().cloned().collect::<HashSet<PyInt>>();
+    if as_set(&live) == as_set(&python) {
+        Err(Unoffered::OrderDiffers)
+    } else {
+        Err(Unoffered::AdmittedDiffer {
+            live: live.len(),
+            python: python.len(),
         })
+    }
+}
+
+/// Whether Python's status page can explain a difference: only where both
+/// runs read one and read it otherwise. A page read on one side only is no
+/// explanation, so a live read of it that failed is never taken for the
+/// page having changed.
+fn telemetry_offered(meta: &PyValue, live: &PyValue) -> Unoffered {
+    let python = field(meta, "telemetry").unwrap_or(&PyValue::None);
+    match (python.truthy(), live.truthy()) {
+        (true, true) if same(python, live) => Unoffered::Same,
+        (true, true) => Unoffered::Tried,
+        (false, false) => Unoffered::NotRead,
+        _ => Unoffered::OneSideOnly,
     }
 }
 
 /// Whether Python's run and the live one both read the review system's
 /// status page and read it otherwise: the only way the page can explain a
-/// difference. A page read on one side only is no explanation, so a live
-/// read of it that failed is never taken for the page having changed.
+/// difference.
 fn pages_differ(meta: &PyValue, live: &PyValue) -> bool {
-    let python = field(meta, "telemetry").unwrap_or(&PyValue::None);
-    python.truthy() && live.truthy() && !same(python, live)
+    telemetry_offered(meta, live) == Unoffered::Tried
 }
 
 /// Every non-empty combination of what `available` holds, the smaller
@@ -1571,21 +1694,27 @@ fn pages_differ(meta: &PyValue, live: &PyValue) -> bool {
 /// ones it is put down to.
 fn subsets(available: Explanation) -> Vec<Explanation> {
     let mut found = Vec::new();
-    for bits in 1u8..8 {
+    for bits in 1u8..16 {
         let by = Explanation {
             clock: bits & 1 != 0,
             telemetry: bits & 2 != 0,
             admission: bits & 4 != 0,
-            gh_printed: false,
+            gh_printed: bits & 8 != 0,
         };
         let fits = (!by.clock || available.clock)
             && (!by.telemetry || available.telemetry)
-            && (!by.admission || available.admission);
+            && (!by.admission || available.admission)
+            && (!by.gh_printed || available.gh_printed);
         if fits {
             found.push(by);
         }
     }
-    found.sort_by_key(|by| u8::from(by.clock) + u8::from(by.telemetry) + u8::from(by.admission));
+    found.sort_by_key(|by| {
+        u8::from(by.clock)
+            + u8::from(by.telemetry)
+            + u8::from(by.admission)
+            + u8::from(by.gh_printed)
+    });
     found
 }
 
@@ -1759,6 +1888,33 @@ pub fn live_run<T: Transport>(
             ));
         }
     }
+    let python_writes = recorded_writes(&recording.calls);
+    let nudged = Nudged::of(&python_numbers, &python_writes);
+    let gh_log = rendered(&observed.log);
+    let mut again = Again::new(
+        recording,
+        policy,
+        &synced,
+        &run,
+        &payload,
+        Logs {
+            live: &observed.log,
+            gh_printed: gh_log.as_deref(),
+        },
+        &nudged,
+    );
+    // The run again over the live answers as `gh api` prints them, where
+    // any prints otherwise: the snapshots it reads then.
+    let gh_snapshots: HashMap<PyInt, PyValue> = again
+        .run_again(GH_PRINTED)
+        .map(|again| {
+            again
+                .snapshots
+                .iter()
+                .filter_map(|snapshot| Some((number_of(snapshot)?, snapshot.clone())))
+                .collect()
+        })
+        .unwrap_or_default();
     let decided = Decided {
         recording,
         policy,
@@ -1789,7 +1945,14 @@ pub fn live_run<T: Transport>(
         let motion = motions.get(number).copied().unwrap_or_default();
         let (snapshot, verdict) = (&run.snapshots[at], &run.verdicts[at]);
         let wanted = field(evaluation, "pr").unwrap_or(&PyValue::None);
-        checks.push(snapshot_check(index, motion, Ok(snapshot.clone()), wanted));
+        let gh_snapshot = gh_snapshots.get(number);
+        checks.push(snapshot_check(
+            index,
+            motion,
+            Ok(snapshot.clone()),
+            wanted,
+            gh_snapshot,
+        ));
         let Some(python_row) = recording.verdicts.get(index) else {
             continue;
         };
@@ -1804,32 +1967,26 @@ pub fn live_run<T: Transport>(
         let exception_text =
             field(evaluation, "result").is_some_and(|result| own.python_exception_text(result));
         let found = compare_result(verdict, python_row, "verdict", exception_text, own);
-        // A verdict carries some of its pull request's text as it was read
-        // (its title): as gh printed it, on Python's side.
-        let printed_verdict = || {
-            compare_result(
-                &printed(verdict),
-                python_row,
-                "verdict",
-                exception_text,
-                own,
-            )
-        };
         let outcome = if found.is_empty() {
             Outcome::Matched
-        } else if printed_verdict().is_empty() {
-            Outcome::Explained {
-                differences: found,
-                by: GH_PRINTED,
-            }
         } else {
-            match decided.explain_verdict(snapshot, verdict, python_row, evaluation, exception_text)
-            {
-                Some(by) => Outcome::Explained {
+            let case = Case {
+                snapshot,
+                gh_snapshot,
+                verdict,
+                python_row,
+                python: evaluation,
+                exception_text,
+            };
+            match decided.explain_verdict(&case) {
+                Ok(by) => Outcome::Explained {
                     differences: found,
                     by,
                 },
-                None => Outcome::Differs(found),
+                Err(why) => Outcome::Unexplained {
+                    differences: found,
+                    why,
+                },
             }
         };
         checks.push(Check {
@@ -1855,24 +2012,13 @@ pub fn live_run<T: Transport>(
     let returned = field(&recording.meta, "outcome")
         .and_then(|outcome| field(outcome, "returned"))
         .is_some();
-    let python_writes = recorded_writes(&recording.calls);
     let python_aimed = Aimed::of(
         python_writes.iter().map(|write| (&write.target, "")),
         &Aims::of(python_prs.iter().copied()),
     );
-    let nudged = Nudged::of(&python_numbers, &python_writes);
     let live_aimed = Aimed::of(
         held_writes(&observed.would_be, &nudged),
         &Aims::of(&run.snapshots),
-    );
-    let mut again = Again::new(
-        recording,
-        policy,
-        &synced,
-        &run,
-        &payload,
-        &observed.log,
-        &nudged,
     );
     for (index, number) in python_numbers.iter().enumerate() {
         let Some(number) = number else {
@@ -1977,23 +2123,39 @@ pub fn live_run<T: Transport>(
     live
 }
 
+/// The answers the live run got: as GitHub sent them, and as `gh api`
+/// would have printed them to Python where any prints otherwise.
+#[derive(Clone, Copy)]
+struct Logs<'a> {
+    live: &'a [Logged],
+    gh_printed: Option<&'a [Logged]>,
+}
+
+/// One run again: what it read and what it would write.
+struct RunAgain {
+    snapshots: Vec<PyValue>,
+    aims: Aims,
+    aimed: Aimed,
+}
+
 /// The live run, run again over exactly the answers it got, at no
-/// request's cost, with Python's clock — which also dates any new admission
-/// as Python dated it — or Python's status page, or both, in place of its
-/// own: what it would write then. Each is run at most once, when a
-/// difference first asks for it.
+/// request's cost, with any of Python's inputs in place of its own:
+/// Python's clock, which also dates any new admission as Python dated it;
+/// Python's status page; and GitHub's answers as `gh api` printed them to
+/// Python. What it reads and would write then. Each is run at most once,
+/// when it is first asked for.
 struct Again<'a> {
     recording: &'a Recording,
     policy: &'a PyValue,
     synced: &'a Synced,
-    log: &'a [Logged],
+    logs: Logs<'a>,
     /// The status page the live run read.
     payload: &'a PyValue,
     live_now: Option<PyDateTime>,
     python_now: Option<PyDateTime>,
     /// Which of its writes are held, as the live run's are.
     nudged: &'a Nudged,
-    tried: Vec<(Explanation, Option<(Aims, Aimed)>)>,
+    tried: Vec<(Explanation, Option<RunAgain>)>,
 }
 
 impl<'a> Again<'a> {
@@ -2003,7 +2165,7 @@ impl<'a> Again<'a> {
         synced: &'a Synced,
         run: &Run,
         payload: &'a PyValue,
-        log: &'a [Logged],
+        logs: Logs<'a>,
         nudged: &'a Nudged,
     ) -> Self {
         let parse = |text: &str| PyDateTime::fromisoformat(&text.replace('Z', "+00:00")).ok();
@@ -2015,7 +2177,7 @@ impl<'a> Again<'a> {
             recording,
             policy,
             synced,
-            log,
+            logs,
             payload,
             live_now: parse(&run.generated_at),
             python_now,
@@ -2024,14 +2186,20 @@ impl<'a> Again<'a> {
         }
     }
 
-    /// The writes of the run again with `by` of Python's inputs, set
-    /// against the pull requests it decided; `None` where it could not run
-    /// or could not decide.
-    fn writes(&self, by: Explanation) -> Option<(Aims, Aimed)> {
+    /// The run again with `by` of Python's inputs: its snapshots, and its
+    /// writes set against the pull requests it decided; `None` where it
+    /// could not run or could not decide, or where gh's printing is asked
+    /// for and no answer prints otherwise.
+    fn made(&self, by: Explanation) -> Option<RunAgain> {
         let instant = if by.clock {
             self.python_now?
         } else {
             self.live_now?
+        };
+        let log = if by.gh_printed {
+            self.logs.gh_printed?
+        } else {
+            self.logs.live
         };
         let mut clock = Stopped(instant);
         let page = if by.telemetry {
@@ -2044,7 +2212,7 @@ impl<'a> Again<'a> {
         let mut telemetry = || page.clone();
         let mut api = GitHub::new(
             self.recording.repository()?,
-            Client::with_sleep(Observed::new(Echo::of(self.log)), NoSleep),
+            Client::with_sleep(Observed::new(Echo::of(log)), NoSleep),
         )
         .ok()?;
         let again = Reconciler::new(&mut api, &mut clock)
@@ -2055,7 +2223,24 @@ impl<'a> Again<'a> {
             held_writes(&api.client().transport().would_be, self.nudged),
             &aims,
         );
-        Some((aims, aimed))
+        Some(RunAgain {
+            snapshots: again.snapshots,
+            aims,
+            aimed,
+        })
+    }
+
+    /// The run again with `by`, made once.
+    fn run_again(&mut self, by: Explanation) -> Option<&RunAgain> {
+        let at = match self.tried.iter().position(|(tried, _)| *tried == by) {
+            Some(at) => at,
+            None => {
+                let made = self.made(by);
+                self.tried.push((by, made));
+                self.tried.len() - 1
+            }
+        };
+        self.tried[at].1.as_ref()
     }
 
     /// The fewest of Python's inputs under which the run again is
@@ -2065,24 +2250,12 @@ impl<'a> Again<'a> {
             clock: true,
             telemetry: pages_differ(&self.recording.meta, self.payload),
             admission: false,
-            gh_printed: false,
+            gh_printed: self.logs.gh_printed.is_some(),
         };
-        for by in subsets(available) {
-            let at = match self.tried.iter().position(|(tried, _)| *tried == by) {
-                Some(at) => at,
-                None => {
-                    let writes = self.writes(by);
-                    self.tried.push((by, writes));
-                    self.tried.len() - 1
-                }
-            };
-            if let (_, Some((aims, aimed))) = &self.tried[at] {
-                if settled(aims, aimed) {
-                    return Some(by);
-                }
-            }
-        }
-        None
+        subsets(available).into_iter().find(|by| {
+            self.run_again(*by)
+                .is_some_and(|again| settled(&again.aims, &again.aimed))
+        })
     }
 }
 
@@ -2348,6 +2521,66 @@ mod tests {
     }
 
     #[test]
+    fn admissions_that_are_not_the_same_say_how_in_counts_alone() {
+        let admitted = |numbers: &[i64]| -> Vec<(PyInt, PyValue)> {
+            numbers
+                .iter()
+                .map(|n| (PyInt::from(*n), s("2026-09-12T10:00:00Z")))
+                .collect()
+        };
+        assert_eq!(same_order(&admitted(&[3, 5]), &admitted(&[3, 5])), Ok(()));
+        assert_eq!(
+            same_order(&admitted(&[3, 5]), &admitted(&[5, 3])),
+            Err(Unoffered::OrderDiffers)
+        );
+        assert_eq!(
+            same_order(&admitted(&[3, 5, 7]), &admitted(&[3, 5, 8, 9])),
+            Err(Unoffered::AdmittedDiffer { live: 3, python: 4 })
+        );
+        let why = WhyNot {
+            clock: Unoffered::Tried,
+            telemetry: Unoffered::OneSideOnly,
+            admission: Unoffered::AdmittedDiffer { live: 3, python: 4 },
+            gh_printed: Unoffered::Same,
+        };
+        assert_eq!(
+            why.to_string(),
+            "clock: offered, and the difference stayed; status page: read on one side only; \
+             admission: admitted sets differ (live 3, Python 4); gh-printed control \
+             characters: every answer prints as it came"
+        );
+    }
+
+    #[test]
+    fn gh_s_printing_is_tried_as_one_more_of_pythons_inputs() {
+        let available = Explanation {
+            clock: true,
+            gh_printed: true,
+            ..Explanation::default()
+        };
+        let tried: Vec<String> = subsets(available).iter().map(ToString::to_string).collect();
+        assert_eq!(
+            tried,
+            [
+                "clock",
+                "gh-printed control characters",
+                "clock and gh-printed control characters"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_answers_as_gh_prints_them_are_offered_only_where_one_prints_otherwise() {
+        let answer = |text: &str| Logged {
+            key: gh_arguments(&rest(Method::Get, "repos/a/b/pulls/1", None)).unwrap(),
+            answer: Ok(Reply::Text(text.into())),
+        };
+        assert!(rendered(&[answer(r#"{"body": "plain"}"#)]).is_none());
+        let log = rendered(&[answer(r#"{"body": "\u001b[1m"}"#)]).unwrap();
+        assert!(matches!(&log[0].answer, Ok(Reply::Text(t)) if t == r#"{"body": "^[[1m"}"#));
+    }
+
+    #[test]
     fn the_fewest_of_pythons_inputs_are_tried_first() {
         let all = Explanation {
             clock: true,
@@ -2603,12 +2836,12 @@ mod tests {
         let built =
             py_loads(r#"{"number": 1, "build": "green", "head_seen_at": "t", "draft": false}"#)
                 .unwrap();
-        let check = snapshot_check(0, CHECKS, Ok(built), &python);
+        let check = snapshot_check(0, CHECKS, Ok(built), &python, None);
         assert!(matches!(check.outcome, Outcome::Moved), "{check:?}");
         let drafted =
             py_loads(r#"{"number": 1, "build": "green", "head_seen_at": null, "draft": true}"#)
                 .unwrap();
-        let check = snapshot_check(0, CHECKS, Ok(drafted), &python);
+        let check = snapshot_check(0, CHECKS, Ok(drafted), &python, None);
         let Outcome::Differs(left) = check.outcome else {
             panic!("{check:?}")
         };
@@ -2731,6 +2964,17 @@ mod tests {
                     ),
                     Outcome::Differs(found) => format!(
                         "differs: {}",
+                        found
+                            .iter()
+                            .map(|d| format!("{} {}", d.path, d.kind))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    Outcome::Unexplained {
+                        differences: found,
+                        why,
+                    } => format!(
+                        "differs: {} ({why})",
                         found
                             .iter()
                             .map(|d| format!("{} {}", d.path, d.kind))

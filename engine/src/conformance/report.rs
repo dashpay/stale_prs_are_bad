@@ -13,7 +13,7 @@
 //! panicked ([`guarded`]).
 
 use super::compare::{Check, Comparison, Layer, Outcome};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::panic::AssertUnwindSafe;
 
@@ -226,6 +226,7 @@ pub fn categories(rows: &[Row], cases: &str) -> String {
     };
     let mut unreadable = Vec::new();
     let mut shapes = Vec::new();
+    let mut whys = Vec::new();
     for row in rows {
         let comparison = match &row.found {
             Ok(found) => &found.comparison,
@@ -240,9 +241,27 @@ pub fn categories(rows: &[Row], cases: &str) -> String {
             outcome,
         } in &comparison.checks
         {
+            let unexplained = match outcome {
+                Outcome::Unexplained { differences, why } => Some((differences, why)),
+                _ => None,
+            };
+            if let Some((differences, why)) = unexplained {
+                let fields: Vec<String> = differences
+                    .iter()
+                    .map(|d| format!("`{}`", d.field()))
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                whys.push(format!(
+                    "| {} | {} | {}: {index} | {why} |",
+                    layer.as_str(),
+                    fields.join(", "),
+                    row.label
+                ));
+            }
             match outcome {
                 Outcome::Matched => {}
-                Outcome::Differs(differences) => {
+                Outcome::Differs(differences) | Outcome::Unexplained { differences, .. } => {
                     for difference in differences {
                         let field = format!("`{}`", difference.field());
                         if let Some(shape) = &difference.shape {
@@ -336,6 +355,21 @@ pub fn categories(rows: &[Row], cases: &str) -> String {
             let _ = writeln!(out, "{line}");
         }
         let more = shapes.len().saturating_sub(SHAPES_SHOWN);
+        if more > 0 {
+            let _ = writeln!(out, "\nAnd {more} more.");
+        }
+    }
+    if !whys.is_empty() {
+        let _ = write!(
+            out,
+            "\nDifferences none of Python's inputs explained, and why each did not: not \
+             offered, and on what grounds, or offered and the difference stayed.\n\n\
+             | Layer | Fields | Case | Why not explained |\n|---|---|---|---|\n"
+        );
+        for line in whys.iter().take(SHAPES_SHOWN) {
+            let _ = writeln!(out, "{line}");
+        }
+        let more = whys.len().saturating_sub(SHAPES_SHOWN);
         if more > 0 {
             let _ = writeln!(out, "\nAnd {more} more.");
         }

@@ -383,6 +383,16 @@ async fn a_difference_where_nothing_moved_fails_by_its_field() {
         ),
         "{said}"
     );
+    // The verdict that follows is not explained either, and says why not,
+    // input by input, in the tool's own words alone.
+    assert!(
+        said.contains(
+            "`verdict.self_reviewed_at`, `verdict.state` | dashpay/platform · sync --pr 2: 0 | \
+             clock: the same instant; status page: read on neither side; admission: the same \
+             instant; gh-printed control characters: every answer prints as it came |"
+        ),
+        "{said}"
+    );
     only_reads(&github);
     no_content::assert_no_contents(&said, &recording, &sources());
 }

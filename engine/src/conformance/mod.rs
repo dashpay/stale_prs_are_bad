@@ -36,7 +36,7 @@ mod run;
 
 pub use compare::{
     collected, compare, rebuild_snapshots, Check, Comparison, Explanation, Failure, Layer, Outcome,
-    SHARED_HEAD,
+    Unoffered, WhyNot, SHARED_HEAD,
 };
 pub use diff::{class, differences, Difference, Kind, Shape};
 pub use exception::{set_aside_exception_text, ExceptionText, OwnWords, SourceError};

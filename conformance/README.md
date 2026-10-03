@@ -416,14 +416,20 @@ it:
   itself, as the service will, and keeps what was written: the
   substitution is a display measure of the CLI, gone with Python's engine
   at cut-over, and copying it would make the service rewrite what people
-  wrote. The live comparison holds a snapshot, and a verdict row, to
-  Python's under this rule (`conformance::gh_output`): a difference that
-  vanishes once every string on the port's side is written as gh prints it
-  is *explained*, by *gh-printed control characters*. The replay is
-  unaffected: Python's recording holds what gh printed, and both engines
-  replay that. A verdict that gh's substitution changes in another way than
-  by carrying the text, which nothing seen so far does, would still read as
-  a difference.
+  wrote. Since gh rewrites the whole answer before the engine sees
+  anything, its effect reaches whatever the engine computes from the text:
+  a patch quoting `\u001b` in source code is hashed by Python as gh
+  printed it, so the digest of its shape differs, and with it the print of
+  the diff in the engine's record, which the live run would then rewrite.
+  The live comparison therefore renders the answers the live run got as gh
+  prints them (`conformance::gh_output`, a port of the sanitizer over the
+  JSON text of each answer) and reads, decides and runs again from those,
+  at no request's cost: GitHub as gh printed it to Python is one more of
+  Python's inputs, tried with the clock, the status page and the admission
+  instant. A snapshot, verdict or would-be write whose difference then
+  vanishes is *explained*, by *gh-printed control characters*; any other
+  difference still fails. The replay is unaffected: Python's recording
+  holds what gh printed, and both engines replay that.
 
 ## The differential job
 
@@ -585,7 +591,10 @@ the engine's own reads of the governed repositories.
 A verdict, or a write, that differs is decided again from what was read
 live with Python's own inputs in place of the port's: the instant it
 decided at, the status page it read, the instant it admitted the pull
-request. The status page is substituted only where both sides read one,
+request, and GitHub's answers as `gh api` printed them (where any prints
+otherwise; see the deliberate divergences above). A snapshot that differs
+is held to the same snapshot read from the answers as gh prints them. The
+status page is substituted only where both sides read one,
 so a live read of it that failed is never taken for the page changing.
 Admission is substituted only where both sides admitted it and admitted
 the same pull requests of its author in the same order. A write is decided
@@ -734,6 +743,13 @@ holds the counts tables only.
     *live read refused by the read-only layer*: the port asked a read the
     read-only layer does not let through; *live read failed where Python's
     was answered*: see above.
+  - A *live verdict* that none of Python's inputs explained has a line in
+    a table under the categories saying why, input by input: not offered,
+    and on what grounds (*the same instant*, *read on neither side*, *live
+    not admitted*, *Python not admitted*, *Python's run not replayed*,
+    *admitted sets differ (live N, Python M)*, *admitted in another order*,
+    *every answer prints as it came*), or *offered, and the difference
+    stayed*. Fixed words and counts only.
 
   To reproduce, run `differential-live` locally on a fresh recording with a
   read-only token in `GH_TOKEN`.

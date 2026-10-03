@@ -58,7 +58,8 @@ pub const TABLE: Table = Table {
             compared: snapshots and verdicts against Python's, and the pull requests of a \
             sync held to getting no write where nothing changed since the engine last \
             wrote. Moved: pull requests that changed between the two reads. Explained: \
-            differences gone once given Python's clock, status page or admission instant. \
+            differences gone once given Python's clock, status page or admission instant, \
+            or GitHub's answers as gh printed them. \
             Unsettled: pull requests of a sync not held to getting no write, as Python's own \
             run wrote to them or did not run to its end. Skipped: recordings over the \
             budget, not read live.",

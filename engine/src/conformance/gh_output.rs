@@ -1,30 +1,32 @@
 //! What `gh api` does to the JSON it prints. Python's engine reads GitHub
-//! through `gh`, and so reads what it prints; the Rust engine reads GitHub
-//! itself. They differ where a string holds a control character.
+//! through `gh`, and so reads what gh prints; the Rust engine reads GitHub
+//! itself. The two differ wherever an answer holds a control character.
 //!
-//! `gh api` runs its output through go-gh's `asciisanitizer`, which keeps
-//! a terminal from acting on what an answer holds. In the JSON it prints:
+//! `gh api` runs every answer through go-gh's `asciisanitizer` in its JSON
+//! mode before printing it, so that a terminal does not act on what an
+//! answer holds:
 //!
 //! - every C0 control character but tab, newline, vertical tab and
-//!   carriage return, and every C1 control character, raw or escaped, is
-//!   written in caret notation: escape (U+001B) as `^[`, U+009B as `^[`
-//!   too;
-//! - so is the text `\u00XX` of such a character after a backslash in a
-//!   string, which is no control character at all: a comment that quotes
-//!   `\u001b` is printed quoting `\^[`.
+//!   carriage return, and every C1 control character, raw or as a `\u00XX`
+//!   escape, is printed in caret notation: escape (U+001B) as `^[`, U+009B
+//!   as `^[` too;
+//! - the text `\u00XX` of such a character after a backslash is replaced
+//!   the same way, though in JSON it is no control character but a
+//!   backslash and five letters and digits: source code quoting `"\u001b"`
+//!   in a patch is printed quoting `"\^[`.
 //!
-//! Python's engine therefore decides on what gh printed: a comment, a
-//! title, a description with those characters in caret notation. This is
-//! a deliberate divergence. The service reads GitHub itself and must not
-//! rewrite what people wrote; at cut-over Python's engine, and with it gh,
-//! is gone. The live comparison holds a value to Python's under this rule:
-//! a difference that vanishes once every string of the Rust engine's value
-//! is written as gh prints it ([`printed`]) is gh's, not the port's.
+//! Python's engine decides on what gh printed: a comment, a title, and
+//! anything computed from them, such as the digest of a patch. This is a
+//! deliberate divergence. The service reads GitHub itself and must not
+//! rewrite what people wrote; at cut-over Python's engine, and gh with it,
+//! is gone. The live comparison renders the answers the Rust engine got as
+//! gh would have printed them ([`gh_printed`]) and decides again from
+//! those: a difference that then vanishes is gh's, not the port's.
 
-use crate::pycompat::{PyDict, PyList, PyValue};
-
-/// The caret notation gh prints for control code point `code`, or `None`
-/// for one it leaves alone.
+/// The caret notation gh prints for control code point `code`, as JSON
+/// text, or `None` for one it leaves alone. File separator's is `^\`, which
+/// gh writes with its backslash escaped, `^\\`, so that its output stays
+/// valid JSON.
 fn caret(code: u32) -> Option<String> {
     let c0 = match code {
         0x09 | 0x0a | 0x0b | 0x0d => return None,
@@ -32,61 +34,10 @@ fn caret(code: u32) -> Option<String> {
         0x80..=0x9f => code - 0x80,
         _ => return None,
     };
-    char::from_u32(c0 + 0x40).map(|c| format!("^{c}"))
-}
-
-/// `text` as `gh api` prints it, read back: each control character it
-/// sanitizes in caret notation, and each backslash followed by the text
-/// `u00XX` of one (`u` in lower case, the digits in either) followed by
-/// that character's caret notation in place of the text.
-pub fn as_gh_prints(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut at = 0;
-    while at < chars.len() {
-        let c = chars[at];
-        if let Some(repl) = caret(u32::from(c)) {
-            out.push_str(&repl);
-            at += 1;
-            continue;
-        }
-        if c == '\\' {
-            let quoted: Option<String> =
-                chars.get(at + 1..at + 6).map(|tail| tail.iter().collect());
-            let code = quoted
-                .as_deref()
-                .and_then(|tail| tail.strip_prefix("u00"))
-                .filter(|hex| hex.chars().all(|h| h.is_ascii_hexdigit()))
-                .and_then(|hex| u32::from_str_radix(hex, 16).ok());
-            if let Some(repl) = code.and_then(caret) {
-                out.push('\\');
-                out.push_str(&repl);
-                at += 6;
-                continue;
-            }
-        }
-        out.push(c);
-        at += 1;
-    }
-    out
-}
-
-/// `value` with every string in it, keys too, as `gh api` prints it.
-pub fn printed(value: &PyValue) -> PyValue {
-    match value {
-        PyValue::Str(text) => PyValue::Str(as_gh_prints(text)),
-        PyValue::List(items) => {
-            PyValue::List(PyList::from(items.iter().map(printed).collect::<Vec<_>>()))
-        }
-        PyValue::Dict(entries) => {
-            let mut out = PyDict::new();
-            for (key, item) in entries.iter() {
-                out.insert(as_gh_prints(key), printed(item));
-            }
-            PyValue::Dict(out)
-        }
-        other => other.clone(),
-    }
+    char::from_u32(c0 + 0x40).map(|c| match c {
+        '\\' => r"^\\".to_owned(),
+        _ => format!("^{c}"),
+    })
 }
 
 /// The JSON text of one answer as `gh api` prints it: go-gh's sanitizer
@@ -143,60 +94,88 @@ pub fn gh_printed(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pycompat::{py_loads, PyValue};
+
+    /// The string a JSON answer holds, once gh has printed it.
+    fn read_back(json: &str) -> String {
+        match py_loads(&gh_printed(json)).unwrap() {
+            PyValue::Str(text) => text,
+            other => panic!("{other:?}"),
+        }
+    }
 
     #[test]
     fn control_characters_are_printed_in_caret_notation_as_gh_prints_them() {
-        assert_eq!(as_gh_prints("a\u{1b}[1mb\u{1b}[0m"), "a^[[1mb^[[0m");
+        assert_eq!(read_back(r#""a\u001b[1mb\u001B[0m""#), "a^[[1mb^[[0m");
         assert_eq!(
-            as_gh_prints("\u{0}\u{7}\u{8}\u{c}\u{1c}\u{1f}"),
+            read_back(r#""\u0000\u0007\u0008\u000c\u001c\u001f""#),
             "^@^G^H^L^\\^_"
         );
         // Tab, newline, vertical tab and carriage return are left alone,
         // and so is DEL, which gh's tables do not hold.
         assert_eq!(
-            as_gh_prints("a\tb\nc\u{b}d\re\u{7f}"),
-            "a\tb\nc\u{b}d\re\u{7f}"
+            read_back(r#""a\tb\nc\u000bd\re\u007f\u0009""#),
+            "a\tb\nc\u{b}d\re\u{7f}\t"
         );
-        // Every C1 control, those four's included, takes its C0 twin's.
+        // Every C1 control, raw or escaped, takes its C0 twin's.
+        assert_eq!(read_back("\"\u{85}\u{9b}\""), "^E^[");
+        assert_eq!(read_back(r#""\u0089\u008a\u008d\u009f""#), "^I^J^M^_");
+        // Anything else is itself, other escapes included.
         assert_eq!(
-            as_gh_prints("\u{80}\u{85}\u{89}\u{8a}\u{8d}\u{9b}\u{9f}"),
-            "^@^E^I^J^M^[^_"
+            read_back(r#""naïve — ✓ \u2028 \u00a0 \ud83d\ude00 \/ \"""#),
+            "naïve — ✓ \u{2028} \u{a0} 😀 / \""
         );
-        // Anything else is itself.
+        // Between tokens, where only whitespace can stand, nothing changes.
         assert_eq!(
-            as_gh_prints("naïve — ✓ \u{2028} \u{a0}"),
-            "naïve — ✓ \u{2028} \u{a0}"
+            gh_printed("[1,\n\t{\"a\": 2}\r\n]"),
+            "[1,\n\t{\"a\": 2}\r\n]"
         );
     }
 
     #[test]
     fn the_text_of_a_control_character_after_a_backslash_is_printed_as_its_caret() {
-        // `\u001b` written out in a comment, as JSON carries it: `\\u001b`.
-        // gh keeps its output valid JSON, and so reads back as `\^[`.
-        assert_eq!(as_gh_prints(r"quoting \u001b here"), r"quoting \^[ here");
-        assert_eq!(as_gh_prints(r"\u001B"), r"\^[", "digits in either case");
-        assert_eq!(as_gh_prints(r"\\u001b"), r"\\^[", "after any backslash");
+        // Source code quoting `"\u001b"`, as JSON carries it: `\\u001b`.
+        // gh keeps its output valid JSON: it reads back as `\^[`.
         assert_eq!(
-            as_gh_prints(r"\U001b"),
+            read_back(r#""let esc = \"\\u001b\";""#),
+            r#"let esc = "\^[";"#
+        );
+        assert_eq!(read_back(r#""\\u001B""#), r"\^[", "digits in either case");
+        // An escaped backslash, then a real escape character.
+        assert_eq!(read_back(r#""\\\u001b""#), r"\^[");
+        // Two escaped backslashes, then the text: the second one's.
+        assert_eq!(read_back(r#""\\\\u001b""#), r"\\^[");
+        assert_eq!(
+            read_back(r#""\\U001b""#),
             r"\U001b",
             "the u in lower case only"
         );
-        assert_eq!(as_gh_prints(r"\u0009 \u007f A"), r"\u0009 \u007f A");
-        assert_eq!(as_gh_prints(r"\u009b"), r"\^[");
-        assert_eq!(as_gh_prints(r"\u00"), r"\u00", "too short to be one");
+        assert_eq!(
+            read_back(r#""\\u0009 \\u007f \\u0041""#),
+            r"\u0009 \u007f \u0041"
+        );
+        assert_eq!(read_back(r#""\\u00""#), r"\u00", "too short to be one");
+        // A quote between does not carry the backslash over.
+        assert_eq!(read_back(r#""\\\"\u001b""#), "\\\"^[");
     }
 
     #[test]
-    fn a_value_is_printed_string_by_string() {
-        let value = crate::pycompat::py_loads(
-            r#"{"body": "\u001b[1m", "list": ["\u0085", 1, null], "n": 2}"#,
-        )
-        .unwrap();
-        let written =
-            |value: &PyValue| crate::pycompat::py_dumps(value, false, None, None).unwrap();
-        assert_eq!(
-            written(&printed(&value)),
-            r#"{"body": "^[[1m", "list": ["^E", 1, null], "n": 2}"#
+    fn a_whole_answer_keeps_its_structure() {
+        let answer = r#"{"files": [{"patch": "+\"\\u001b[1m\"", "sha": "abc"}], "n": 2.5}"#;
+        let printed = py_loads(&gh_printed(answer)).unwrap();
+        let PyValue::Dict(fields) = printed else {
+            panic!("an object")
+        };
+        assert!(fields.contains_key("n"));
+        let Some(PyValue::List(files)) = fields.get("files") else {
+            panic!("a list")
+        };
+        let Some(PyValue::Dict(file)) = files.iter().next() else {
+            panic!("a file")
+        };
+        assert!(
+            matches!(file.get("patch"), Some(PyValue::Str(patch)) if patch == r#"+"\^[[1m""#),
+            "{file:?}"
         );
     }
 }

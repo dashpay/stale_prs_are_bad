@@ -220,6 +220,85 @@ impl fmt::Display for Explanation {
     }
 }
 
+/// Why one of Python's inputs did not explain a live difference: said in
+/// fixed words and counts, never by what either side read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unoffered {
+    /// Offered, and the difference stayed.
+    Tried,
+    /// Python's input is the port's own: the same instant, the same page,
+    /// the same answers.
+    Same,
+    /// Read on one side only.
+    OneSideOnly,
+    /// Read on neither side.
+    NotRead,
+    /// Python's input could not be read.
+    Unreadable,
+    /// The live run did not admit the pull request.
+    LiveNotAdmitted,
+    /// Python's run did not admit it.
+    PythonNotAdmitted,
+    /// The pull request names no author whose admissions to compare.
+    NoAuthor,
+    /// Python's run could not be replayed to read its admissions.
+    PythonNotReplayed,
+    /// Its author's admitted pull requests are not the same: how many on
+    /// each side.
+    AdmittedDiffer { live: usize, python: usize },
+    /// The same pull requests admitted, in another order.
+    OrderDiffers,
+}
+
+impl Unoffered {
+    /// What it says of `input`, one of [`WhyNot`]'s.
+    fn said(self, input: &str) -> String {
+        match self {
+            Unoffered::Tried => "offered, and the difference stayed".into(),
+            Unoffered::Same if input == "status page" => "the same page".into(),
+            Unoffered::Same if input == "gh-printed control characters" => {
+                "every answer prints as it came".into()
+            }
+            Unoffered::Same => "the same instant".into(),
+            Unoffered::OneSideOnly => "read on one side only".into(),
+            Unoffered::NotRead => "read on neither side".into(),
+            Unoffered::Unreadable => "Python's could not be read".into(),
+            Unoffered::LiveNotAdmitted => "live not admitted".into(),
+            Unoffered::PythonNotAdmitted => "Python not admitted".into(),
+            Unoffered::NoAuthor => "no author".into(),
+            Unoffered::PythonNotReplayed => "Python's run not replayed".into(),
+            Unoffered::AdmittedDiffer { live, python } => {
+                format!("admitted sets differ (live {live}, Python {python})")
+            }
+            Unoffered::OrderDiffers => "admitted in another order".into(),
+        }
+    }
+}
+
+/// Why none of Python's inputs explained a live difference, input by input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WhyNot {
+    pub clock: Unoffered,
+    pub telemetry: Unoffered,
+    pub admission: Unoffered,
+    pub gh_printed: Unoffered,
+}
+
+impl fmt::Display for WhyNot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let said: Vec<String> = [
+            ("clock", self.clock),
+            ("status page", self.telemetry),
+            ("admission", self.admission),
+            ("gh-printed control characters", self.gh_printed),
+        ]
+        .into_iter()
+        .map(|(input, why)| format!("{input}: {}", why.said(input)))
+        .collect();
+        f.write_str(&said.join("; "))
+    }
+}
+
 /// What one check found.
 #[derive(Debug, Clone)]
 pub enum Outcome {
@@ -243,6 +322,12 @@ pub enum Outcome {
     /// The pull request changed between Python's read and the port's live
     /// one, so what differs says nothing of the port. Not a failure.
     Moved,
+    /// Live differences none of Python's inputs explained, and why each was
+    /// not offered or did not remove them. A failure, as `Differs` is.
+    Unexplained {
+        differences: Vec<Difference>,
+        why: WhyNot,
+    },
 }
 
 /// One snapshot, evaluation or verdict, by its index in its file.
@@ -317,7 +402,10 @@ impl Comparison {
             .iter()
             .map(|check| match &check.outcome {
                 Outcome::Matched | Outcome::Explained { .. } | Outcome::Moved => 0,
-                Outcome::Differs(found) => found.len(),
+                Outcome::Differs(found)
+                | Outcome::Unexplained {
+                    differences: found, ..
+                } => found.len(),
                 Outcome::Failed { .. } => 1,
             })
             .sum()
