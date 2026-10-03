@@ -623,6 +623,17 @@ between Python's reads and the live ones:
   to the instant Python's run began: Python read each comment minutes into
   its run, so an edit between the two is already in what Python read. A
   comment that differs with its update time unmoved still fails;
+- a comment was added to it after Python's run began — one Python's read
+  lacks, created after the recording's instant — or one Python read was
+  deleted since. A deletion leaves no time to read, so it is proven, not
+  assumed: each comment Python read that the live read lacks is asked of
+  GitHub by itself (`GET repos/{owner}/{repo}/issues/comments/{id}`, one
+  read-only request each, counted against the live budget and judged by
+  the read-only layer), and only a 404 counts it deleted. A comment come
+  or gone any other way — one GitHub still has, or one older than Python's
+  run — is the port's difference, and while one is, no change to the
+  comments is excused; otherwise its comments and the record read from
+  them are excused, with its verdict and writes;
 - one of its review threads was replied to, or opened, after Python's run
   began — a voice Python's read lacks, created after the recording's
   instant (a thread carries no update time, only when each voice in it was

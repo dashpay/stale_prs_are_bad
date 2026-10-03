@@ -966,3 +966,78 @@ async fn a_string_that_differs_otherwise_fails_and_is_described_by_its_shape_alo
     );
     no_content::assert_no_contents(&said, &recording, &sources());
 }
+
+/// Every history answer of `calls` without comment `id`: GitHub answering
+/// after that comment was deleted.
+fn without_comment(calls: &str, id: i64) -> String {
+    edited(
+        calls,
+        |args| args.get(2).is_some_and(|route| route == "graphql"),
+        |answer| {
+            let Some(PyValue::Dict(data)) = (match answer {
+                PyValue::Dict(fields) => fields.get_mut("data"),
+                _ => None,
+            }) else {
+                return;
+            };
+            let Some(PyValue::Dict(pulls)) = data.get_mut("repository") else {
+                return;
+            };
+            for pull in pulls.values_mut() {
+                let PyValue::Dict(pull) = pull else { continue };
+                let Some(PyValue::Dict(comments)) = pull.get_mut("comments") else {
+                    continue;
+                };
+                let removed = match comments.get_mut("nodes") {
+                    Some(PyValue::List(nodes)) => {
+                        let before = nodes.len();
+                        nodes.retain(|node| match node {
+                            PyValue::Dict(node) => !matches!(node.get("databaseId"),
+                                Some(PyValue::Int(n)) if n.as_i64() == Some(id)),
+                            _ => true,
+                        });
+                        before - nodes.len()
+                    }
+                    _ => 0,
+                };
+                if let Some(PyValue::Int(total)) = comments.get("totalCount") {
+                    let left = total.as_i64().unwrap_or(0) - removed as i64;
+                    comments.insert("totalCount".into(), PyValue::Int(left.into()));
+                }
+            }
+        },
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_comment_deleted_between_the_reads_is_proven_by_one_more_read_and_never_said() {
+    // Python read pull request 2's one comment; GitHub now answers without
+    // it, and answers 404 for it by itself. The live run asks, through the
+    // read-only layer, counts the request, and calls the pull request moved.
+    let recording = synthetic().join("sweep");
+    let served = without_comment(&read(&recording.join("calls.jsonl")), 102);
+    let github = github(&served, None).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(outcome.clean(), "{said}");
+    assert!(
+        said.contains(
+            "| live snapshot | — | moved during the read | 1 | dashpay/platform · sync: 0 |"
+        ),
+        "{said}"
+    );
+    let asked: Vec<_> = github
+        .seen()
+        .into_iter()
+        .filter(|seen| seen.path() == "/repos/dashpay/platform/issues/comments/102")
+        .collect();
+    assert_eq!(asked.len(), 1, "asked once, by itself");
+    let to_github = github
+        .seen()
+        .iter()
+        .filter(|request| request.path() != "/status.json")
+        .count();
+    assert_eq!(outcome.spent, to_github, "the asking counted with the rest");
+    only_reads(&github);
+    no_content::assert_no_contents(&said, &recording, &sources());
+}

@@ -790,19 +790,85 @@ fn later(a: Option<PyDateTime>, b: Option<PyDateTime>) -> bool {
     matches!((a, b), (Some(a), Some(b)) if a.py_cmp(&b) == Ok(std::cmp::Ordering::Greater))
 }
 
+/// The comments Python read on the pull requests both read that the live
+/// read lacks, which GitHub, asked for each by itself, answers it no longer
+/// has: deleted between the reads. By id, as [`discussion`] keys them.
+///
+/// Each costs one more read-only request, made through the live run's own
+/// transport, so it is counted with the rest and the read-only layer
+/// judges it. Any answer but a 404 (the comment, or a failure of another
+/// kind) proves nothing, and the comment is not counted as deleted.
+fn deleted_comments<T: Transport>(
+    api: &mut GitHub<Observed<T>>,
+    repository: &str,
+    pairs: &[(&PyValue, &PyValue)],
+) -> HashSet<String> {
+    let ids = |pr: &PyValue| -> Vec<PyValue> {
+        match field(pr, "comments") {
+            Some(PyValue::List(comments)) => comments
+                .iter()
+                .filter_map(|comment| field(comment, "id").cloned())
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    let key = |id: &PyValue| py_dumps(id, false, None, None).ok();
+    let mut deleted = HashSet::new();
+    for (python, live) in pairs {
+        let present: HashSet<String> = ids(live).iter().filter_map(key).collect();
+        for id in ids(python) {
+            let (Some(written), PyValue::Int(number)) = (key(&id), &id) else {
+                continue;
+            };
+            if present.contains(&written) {
+                continue;
+            }
+            let ask = Call::Rest {
+                method: Method::Get,
+                path: format!("repos/{repository}/issues/comments/{number}"),
+                body: None,
+                paginate: false,
+            };
+            let answer = api.client_mut().transport_mut().call(&ask);
+            if matches!(&answer, Err(TransportError::Failed(failed)) if not_found(failed)) {
+                deleted.insert(written);
+            }
+        }
+    }
+    deleted
+}
+
+/// Whether a failed read was GitHub answering 404, as `gh` and the HTTP
+/// transport both say it.
+fn not_found(failed: &Failed) -> bool {
+    failed.detail.ends_with("(HTTP 404)") || failed.detail == "HTTP 404"
+}
+
 /// How a pull request's discussion moved between Python's snapshot of it
-/// and the live one: a comment edited, a review thread opened or replied
-/// to. `since` is the instant Python's run began.
+/// and the live one: a comment edited, added or deleted, a review thread
+/// opened or replied to. `since` is the instant Python's run began;
+/// `deleted`, the comments GitHub answered it no longer has.
 ///
 /// A comment is held to its own update time as Python read it, not to the
 /// recording's instant: Python read each comment minutes into its run, and
 /// an edit made between the run's start and that read is already in what
 /// Python read, so only an update time later than Python's own copy of it
-/// shows an edit Python did not see. A review thread carries no update
-/// time, only when each voice in it was created, so a reply shows only as
-/// a voice Python's read lacks, created after Python's run began; a thread
-/// resolved or unresolved shows no time at all, and is not excused.
-fn discussion(python: &PyValue, live: &PyValue, since: Option<PyDateTime>) -> Motion {
+/// shows an edit Python did not see. A comment Python's read lacks moved in
+/// when it was created after Python's run began. A deletion leaves no time
+/// to read, so a comment the live read lacks moved out only where GitHub,
+/// asked for it by itself, answered that it does not have it
+/// ([`deleted_comments`]). A comment come or gone otherwise is the port's
+/// difference, and then no change to the comments is excused. A review
+/// thread carries no update time, only when each voice in it was created,
+/// so a reply shows only as a voice Python's read lacks, created after
+/// Python's run began; a thread resolved or unresolved shows no time at
+/// all, and is not excused.
+fn discussion(
+    python: &PyValue,
+    live: &PyValue,
+    since: Option<PyDateTime>,
+    deleted: &HashSet<String>,
+) -> Motion {
     let by_id = |pr: &PyValue, list: &str| -> HashMap<String, PyValue> {
         let mut found = HashMap::new();
         if let Some(PyValue::List(items)) = field(pr, list) {
@@ -820,13 +886,25 @@ fn discussion(python: &PyValue, live: &PyValue, since: Option<PyDateTime>) -> Mo
         instant(field(comment, "updated_at")).or_else(|| instant(field(comment, "edited_at")))
     };
     let python_comments = by_id(python, "comments");
-    let comments = by_id(live, "comments").iter().any(|(id, comment)| {
-        let Some(read) = python_comments.get(id) else {
-            return false;
-        };
-        later(updated(comment), updated(read))
+    let live_comments = by_id(live, "comments");
+    let edited = live_comments.iter().any(|(id, comment)| {
+        python_comments
+            .get(id)
+            .is_some_and(|read| later(updated(comment), updated(read)))
     });
     let after_start = |voice: &PyValue| later(instant(field(voice, "created_at")), since);
+    let added: Vec<bool> = live_comments
+        .iter()
+        .filter(|(id, _)| !python_comments.contains_key(*id))
+        .map(|(_, comment)| after_start(comment))
+        .collect();
+    let gone: Vec<bool> = python_comments
+        .keys()
+        .filter(|id| !live_comments.contains_key(*id))
+        .map(|id| deleted.contains(id))
+        .collect();
+    let comments = added.iter().chain(&gone).all(|shown| *shown)
+        && (edited || !added.is_empty() || !gone.is_empty());
     let voices = |thread: &PyValue| -> Vec<PyValue> {
         match field(thread, "voices") {
             Some(PyValue::List(voices)) => voices.iter().cloned().collect(),
@@ -1402,6 +1480,12 @@ pub fn live_snapshots<T: Transport>(
         }
     }
     let read = read_snapshots(&mut api, &wanted);
+    let pairs: Vec<(&PyValue, &PyValue)> = wanted
+        .iter()
+        .zip(&read)
+        .filter_map(|((_, _, pr, _), snapshot)| Some((*pr, snapshot.as_ref().ok()?)))
+        .collect();
+    let deleted = deleted_comments(&mut api, repository, &pairs);
     let observed = api.client().transport();
     // The same snapshots read again, at no request's cost, from what the
     // live reads were answered, as `gh api` would have printed it.
@@ -1434,7 +1518,7 @@ pub fn live_snapshots<T: Transport>(
             .collect();
         let mut motion = motion(repository, number, &heads, &recorded, &observed.log);
         if let Ok(snapshot) = &snapshot {
-            motion = motion.and(discussion(pr, snapshot, since));
+            motion = motion.and(discussion(pr, snapshot, since, &deleted));
         }
         if motion.moved() {
             live.moved += 1;
@@ -1792,13 +1876,30 @@ pub fn live_run<T: Transport>(
     };
     let outcome =
         Reconciler::new(&mut api, clock).run(policy, sync_options(&synced, &mut read_page));
-    let observed = api.client().transport();
-    live.requests = observed.requests();
-    let recorded = recorded_answers(&recording.calls);
     let first = first_evaluations(recording);
     let python: Vec<&PyValue> = recording.evaluations[..first].iter().collect();
     let python_numbers: Vec<Option<PyInt>> = python.iter().map(|e| evaluated_number(e)).collect();
     let python_prs: Vec<&PyValue> = python.iter().filter_map(|e| field(e, "pr")).collect();
+    // Each comment Python read that the live read lacks, asked of GitHub by
+    // itself, before what the run spent is counted.
+    let pairs: Vec<(&PyValue, &PyValue)> = match &outcome {
+        Ok(run) => python_prs
+            .iter()
+            .filter_map(|python| {
+                let n = number_of(python)?;
+                let live = run
+                    .snapshots
+                    .iter()
+                    .find(|snapshot| number_of(snapshot).as_ref() == Some(&n))?;
+                Some((*python, live))
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    let deleted = deleted_comments(&mut api, repository, &pairs);
+    let observed = api.client().transport();
+    live.requests = observed.requests();
+    let recorded = recorded_answers(&recording.calls);
 
     let moved = |live: &mut Live, index: usize| {
         live.comparison.checks.push(Check {
@@ -1868,7 +1969,7 @@ pub fn live_run<T: Transport>(
             .collect();
         let mut moved = motion(repository, n, &heads, &recorded, &observed.log);
         if let (Some(python), Some(live)) = (python_of_n.first(), live_of_n.first()) {
-            moved = moved.and(discussion(python, live, since));
+            moved = moved.and(discussion(python, live, since, &deleted));
         }
         motions.insert(n.clone(), moved);
     }
@@ -2639,6 +2740,7 @@ mod tests {
             &python,
             &pr("2026-09-11T12:00:00Z", "summary, again"),
             since,
+            &HashSet::new(),
         );
         assert!(edited.comments && !edited.threads, "{edited:?}");
         // The same update time: no edit since Python's read.
@@ -2646,16 +2748,58 @@ mod tests {
             &python,
             &pr("2026-09-11T11:00:00Z", "summary, again"),
             since,
+            &HashSet::new(),
         );
         assert_eq!(same, STILL);
         // An update time that is not one: nothing shown.
-        let unreadable = discussion(&python, &pr("soon", "summary, again"), since);
+        let unreadable = discussion(
+            &python,
+            &pr("soon", "summary, again"),
+            since,
+            &HashSet::new(),
+        );
         assert_eq!(unreadable, STILL);
         // Only what comments feed is excused.
         assert!(edited.excuses("pr.comments[0].body"));
         assert!(edited.excuses("pr.controller_state.state"));
         assert!(!edited.excuses("pr.reviews[0].state"));
         assert!(!edited.excuses("pr.threads[0].is_resolved"));
+    }
+
+    #[test]
+    fn a_comment_came_after_pythons_run_began_or_went_where_github_says_so() {
+        let pr = |comments: &[(i64, &str)]| {
+            let comments: Vec<String> = comments
+                .iter()
+                .map(|(id, at)| {
+                    format!(r#"{{"id": {id}, "created_at": "{at}", "updated_at": "{at}"}}"#)
+                })
+                .collect();
+            py_loads(&format!(
+                r#"{{"comments": [{}], "threads": []}}"#,
+                comments.join(", ")
+            ))
+            .unwrap()
+        };
+        let since = instant(Some(&s("2026-09-12T10:00:00Z")));
+        let none = HashSet::new();
+        let python = pr(&[(1, "2026-09-11T09:00:00Z")]);
+        // Added after Python's run began: a move.
+        let added = pr(&[(1, "2026-09-11T09:00:00Z"), (2, "2026-09-12T10:01:00Z")]);
+        assert!(discussion(&python, &added, since, &none).comments);
+        // Added before it began: Python should have read it.
+        let older = pr(&[(1, "2026-09-11T09:00:00Z"), (2, "2026-09-12T09:00:00Z")]);
+        assert_eq!(discussion(&python, &older, since, &none), STILL);
+        // Gone: a move only where GitHub said it was deleted.
+        let gone = pr(&[]);
+        assert_eq!(discussion(&python, &gone, since, &none), STILL);
+        let deleted: HashSet<String> = ["1".to_owned()].into();
+        assert!(discussion(&python, &gone, since, &deleted).comments);
+        // One unaccounted for undoes the rest: an edit elsewhere excuses
+        // nothing while a comment is missing that GitHub still has.
+        let two = pr(&[(1, "2026-09-11T09:00:00Z"), (3, "2026-09-11T09:00:00Z")]);
+        let edited_and_missing = pr(&[(1, "2026-09-12T10:05:00Z")]);
+        assert_eq!(discussion(&two, &edited_and_missing, since, &none), STILL);
     }
 
     #[test]
@@ -2673,7 +2817,7 @@ mod tests {
             &format!(r#"{first}, {{"user": "b", "created_at": "2026-09-12T10:02:00Z"}}"#),
             false,
         );
-        let moved = discussion(&python, &replied, since);
+        let moved = discussion(&python, &replied, since, &HashSet::new());
         assert!(moved.threads && !moved.comments, "{moved:?}");
         assert!(moved.excuses("pr.threads[0].voices"));
         assert!(moved.excuses("pr.permissions.*"));
@@ -2683,16 +2827,19 @@ mod tests {
             &format!(r#"{first}, {{"user": "b", "created_at": "2026-09-12T09:00:00Z"}}"#),
             false,
         );
-        assert_eq!(discussion(&python, &older, since), STILL);
+        assert_eq!(discussion(&python, &older, since, &HashSet::new()), STILL);
         // Resolved or unresolved shows no time: not excused.
-        assert_eq!(discussion(&python, &pr(first, true), since), STILL);
+        assert_eq!(
+            discussion(&python, &pr(first, true), since, &HashSet::new()),
+            STILL
+        );
         // A thread opened since Python's run began.
         let opened = py_loads(
             r#"{"comments": [], "threads": [{"id": "T2", "is_resolved": false, "voices": [{"user": "c", "created_at": "2026-09-12T10:01:00Z"}]}]}"#,
         )
         .unwrap();
         let none = py_loads(r#"{"comments": [], "threads": []}"#).unwrap();
-        assert!(discussion(&none, &opened, since).threads);
+        assert!(discussion(&none, &opened, since, &HashSet::new()).threads);
     }
 
     fn logged(path: &str, body: &str) -> Logged {

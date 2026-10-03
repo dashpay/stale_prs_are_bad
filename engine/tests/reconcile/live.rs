@@ -584,3 +584,155 @@ fn a_patch_that_differs_otherwise_still_fails_though_gh_prints_it_otherwise_too(
     );
     assert!(!live.comparison.is_clean());
 }
+
+/// A comment by someone who has not spoken on the pull request before.
+fn passerby_comment(id: i64, at: &str) -> Comment {
+    Comment::new(id, "passerby", "Thanks for this.", at)
+}
+
+/// The settled repository of `mixed()` with a passerby's comment on pull
+/// request 2 when Python's run read it, recorded.
+fn settled_with_comment() -> (Scene, Recording) {
+    let (policy, mut fake) = mixed();
+    fake.pr(2)
+        .comments
+        .push(passerby_comment(900, "2026-09-11T11:30:00Z"));
+    let mut scene = Scene::new(fake);
+    for _ in 0..3 {
+        scene.fake.forget_calls();
+        scene.sync_all(&policy);
+    }
+    let recording = recorded_of(&mut scene, &policy, &PyValue::None, Pick::All);
+    (scene, recording)
+}
+
+/// The fake, but its GraphQL answers leave comment `id` out: a read that
+/// misses a comment GitHub still has.
+struct Hiding<'a> {
+    fake: &'a mut Fake,
+    id: i64,
+}
+
+impl Transport for Hiding<'_> {
+    fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
+        let answer = self.fake.call(call)?;
+        let (Call::Graphql { .. }, Reply::Text(text)) = (call, &answer) else {
+            return Ok(answer);
+        };
+        let Ok(mut value) = serde_json::from_str::<Value>(text) else {
+            return Ok(answer);
+        };
+        if let Some(pulls) = value["data"]["repository"].as_object_mut() {
+            for pull in pulls.values_mut() {
+                let comments = &mut pull["comments"];
+                if let Some(nodes) = comments["nodes"].as_array_mut() {
+                    let before = nodes.len();
+                    nodes.retain(|node| node["databaseId"].as_i64() != Some(self.id));
+                    let gone = (before - nodes.len()) as i64;
+                    if let Some(total) = comments["totalCount"].as_i64() {
+                        comments["totalCount"] = json!(total - gone);
+                    }
+                }
+            }
+        }
+        Ok(Reply::Text(value.to_string()))
+    }
+}
+
+/// Whether the live run asked GitHub for comment `id` by itself.
+fn asked_for_comment(scene: &Scene, id: i64) -> bool {
+    scene
+        .fake
+        .calls
+        .iter()
+        .any(|call| reads(call, &format!("issues/comments/{id}")))
+}
+
+#[test]
+fn a_comment_added_between_the_reads_moved_its_pull_request() {
+    // Someone comments on pull request 2 after Python's run read it: GitHub
+    // keeps the pull request's update time where it was, and the live read
+    // has one comment more, created after Python's run began.
+    let (policy, fake) = mixed();
+    let mut scene = Scene::new(fake);
+    for _ in 0..3 {
+        scene.fake.forget_calls();
+        scene.sync_all(&policy);
+    }
+    let recording = recorded_of(&mut scene, &policy, &PyValue::None, Pick::All);
+    scene
+        .fake
+        .pr(2)
+        .comments
+        .push(passerby_comment(901, "2026-09-11T14:05:00Z"));
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    let checks = described(&live, 1);
+    assert_eq!(
+        &checks[..2],
+        ["live snapshot: moved", "live verdict: moved"],
+        "{:?}",
+        live.comparison
+    );
+    assert!(live.comparison.is_clean(), "{:?}", live.comparison);
+}
+
+#[test]
+fn a_comment_github_no_longer_has_was_deleted_between_the_reads() {
+    // Python's read had the passerby's comment; the live read has not, and
+    // GitHub, asked for it by itself, answers that it does not have it.
+    let (mut scene, recording) = settled_with_comment();
+    scene
+        .fake
+        .pr(2)
+        .comments
+        .retain(|comment| comment.id != 900);
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    let checks = described(&live, 1);
+    assert_eq!(
+        &checks[..2],
+        ["live snapshot: moved", "live verdict: moved"],
+        "{:?}",
+        live.comparison
+    );
+    assert!(live.comparison.is_clean(), "{:?}", live.comparison);
+    assert!(
+        asked_for_comment(&scene, 900),
+        "the deletion is proven, not assumed"
+    );
+}
+
+#[test]
+fn a_comment_the_live_read_lacks_that_github_still_has_is_the_ports_difference() {
+    // The live read lacks the passerby's comment, but GitHub, asked for it
+    // by itself, still has it: nothing was deleted; the port dropped it.
+    let (mut scene, recording) = settled_with_comment();
+    let live = live_run(
+        &recording,
+        Hiding {
+            fake: &mut scene.fake,
+            id: 900,
+        },
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    let checks = described(&live, 1);
+    assert!(
+        checks[0].starts_with("live snapshot: differs: ") && checks[0].contains("pr.comments"),
+        "{checks:?}"
+    );
+    assert!(!live.comparison.is_clean());
+    assert!(asked_for_comment(&scene, 900), "asked, and answered");
+}

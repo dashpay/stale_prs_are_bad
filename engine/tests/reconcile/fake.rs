@@ -643,6 +643,18 @@ impl Fake {
                     .push(comment);
                 Ok(Some(answer))
             }
+            (Method::Get, ["issues", "comments", id]) => {
+                // One comment by its id, wherever it stands; GitHub answers
+                // 404 for one that was deleted.
+                let id: i64 = id.parse().map_err(|_| not_found())?;
+                self.state
+                    .prs
+                    .values()
+                    .flat_map(|pr| &pr.comments)
+                    .find(|comment| comment.id == id)
+                    .map(|comment| Some(Self::comment_rest(comment)))
+                    .ok_or_else(|| (404, "Not Found".to_owned()))
+            }
             (Method::Patch, ["issues", "comments", id]) => {
                 let text = text_of("body")?;
                 let id: i64 = id.parse().map_err(|_| not_found())?;
