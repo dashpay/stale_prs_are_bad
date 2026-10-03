@@ -72,7 +72,7 @@ fn found(comparison: &Comparison) -> Vec<String> {
             }
             Outcome::Failed { failure, detail } => found.push(format!("{at}: {failure}: {detail}")),
             // Only a live read explains a difference or sees a move.
-            Outcome::Explained { .. } | Outcome::Moved => {
+            Outcome::Explained { .. } | Outcome::Moved | Outcome::Unexplained { .. } => {
                 found.push(format!("{at}: a live outcome from a recording"))
             }
         }

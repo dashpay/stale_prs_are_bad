@@ -470,3 +470,117 @@ fn the_same_status_where_no_read_answered_otherwise_on_asking_again_still_fails(
         live.comparison
     );
 }
+
+/// A patch quoting an escape character in source code: the text `\u001b`,
+/// which GitHub sends as it is and `gh api` prints as `\^[`.
+const QUOTING: &str = "@@ -1 +1 @@\n-a\n+let esc = \"\\u001b\";";
+
+/// A file whose patch is `patch`, with its blob, so that its pull
+/// request's diff has a print.
+fn file_with(patch: &str) -> Value {
+    json!({"filename": "packages/drive/a.rs", "status": "modified",
+           "sha": "1".repeat(40), "patch": patch})
+}
+
+/// The repository of `mixed()`, pull request 2's one file patched with
+/// `patch`, settled by full passes and recorded by an engine that reads
+/// GitHub through `gh api`, as the Python engine does: its records hold
+/// the print of the diff as gh printed it. The fake then answers as GitHub
+/// sends, as the live run reads it.
+fn settled_through_gh(patch: &str) -> (Scene, Recording) {
+    let (policy, mut fake) = mixed();
+    fake.pr(2).files = vec![file_with(patch)];
+    fake.prints_as_gh = true;
+    let mut scene = Scene::new(fake);
+    for _ in 0..3 {
+        scene.fake.forget_calls();
+        scene.sync_all(&policy);
+    }
+    assert!(scene.writes().is_empty(), "settled: {:?}", scene.writes());
+    let recording = recorded_of(&mut scene, &policy, &PyValue::None, Pick::All);
+    scene.fake.prints_as_gh = false;
+    (scene, recording)
+}
+
+/// Each check of pull request `index`, by layer, as one line.
+fn described(live: &Live, index: usize) -> Vec<String> {
+    live.comparison
+        .checks
+        .iter()
+        .filter(|check| check.index == index)
+        .map(|check| {
+            let paths = |found: &[pr_hygiene_engine::conformance::Difference]| {
+                found
+                    .iter()
+                    .map(|d| d.path.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let what = match &check.outcome {
+                Outcome::Matched => "matched".to_owned(),
+                Outcome::Moved => "moved".to_owned(),
+                Outcome::Explained { differences, by } => {
+                    format!("explained by {by}: {}", paths(differences))
+                }
+                Outcome::Differs(found) => format!("differs: {}", paths(found)),
+                other => format!("{other:?}"),
+            };
+            format!("{}: {what}", check.layer.as_str())
+        })
+        .collect()
+}
+
+#[test]
+fn a_patch_gh_prints_otherwise_is_gh_s_down_to_its_digest_and_the_write_that_follows() {
+    // Python's engine hashed the patch gh printed; the live run hashes the
+    // one GitHub sent. The digests differ, and so do the diff's print and
+    // the record the engine keeps beside it: the live run would rewrite
+    // it. Read again as gh prints GitHub's answers, the live run reaches
+    // Python's snapshot and wants to write nothing: all of it is gh's.
+    let (mut scene, recording) = settled_through_gh(QUOTING);
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    assert_eq!(
+        described(&live, 1),
+        [
+            "live snapshot: explained by gh-printed control characters: pr.files[0].shape",
+            "live verdict: matched",
+            r#"live writes: explained by gh-printed control characters: POST repos/*/*/statuses/* pending "Evaluating current review policy""#,
+        ],
+        "{:?}",
+        live.comparison
+    );
+    assert!(live.comparison.is_clean(), "{:?}", live.comparison);
+}
+
+#[test]
+fn a_patch_that_differs_otherwise_still_fails_though_gh_prints_it_otherwise_too() {
+    // The same repository, the patch changed since Python read it with
+    // nothing to say GitHub moved: rendered as gh prints it, it is still
+    // not what Python read, so the difference is the port's.
+    let (mut scene, recording) = settled_through_gh(QUOTING);
+    scene.fake.pr(2).files = vec![file_with(&format!("{QUOTING}\n+let bell = 7;"))];
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    assert_eq!(
+        described(&live, 1),
+        [
+            "live snapshot: differs: pr.files[0].shape",
+            "live verdict: matched",
+            r#"live writes: differs: POST repos/*/*/statuses/* pending "Evaluating current review policy""#,
+        ],
+        "{:?}",
+        live.comparison
+    );
+    assert!(!live.comparison.is_clean());
+}

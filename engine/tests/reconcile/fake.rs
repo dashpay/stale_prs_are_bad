@@ -20,6 +20,7 @@
 //! writes and the reads after them can be set against it answer by answer.
 
 use crate::support::*;
+use pr_hygiene_engine::conformance::gh_printed;
 use pr_hygiene_engine::evidence::replay::transient;
 use pr_hygiene_engine::evidence::{Failure, Method};
 use pr_hygiene_engine::pycompat::text::py_lower;
@@ -253,6 +254,9 @@ pub struct Fake {
     pub state: State,
     pub calls: Vec<Call>,
     pub written: Vec<Written>,
+    /// Whether it answers as `gh api` prints GitHub's answers, as the
+    /// Python engine reads them, rather than as GitHub sends them.
+    pub prints_as_gh: bool,
     rules: Vec<Rule>,
     hooks: Vec<Hook>,
 }
@@ -317,6 +321,7 @@ impl Fake {
             },
             calls: Vec::new(),
             written: Vec::new(),
+            prints_as_gh: false,
             rules: Vec::new(),
             hooks: Vec::new(),
         }
@@ -832,6 +837,7 @@ impl Transport for Fake {
             }
         };
         match answer {
+            Ok(Some(value)) if self.prints_as_gh => Ok(Reply::Text(gh_printed(&value.to_string()))),
             Ok(Some(value)) => Ok(Reply::Text(value.to_string())),
             Ok(None) => Ok(Reply::Text(String::new())),
             Err((status, message)) => Err(failed(status, &message)),
