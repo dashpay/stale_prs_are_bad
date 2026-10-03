@@ -40,5 +40,6 @@ pub use compare::{
 };
 pub use diff::{class, differences, Difference, Kind, Shape};
 pub use exception::{set_aside_exception_text, ExceptionText, OwnWords, SourceError};
+pub use gh_output::gh_printed;
 pub use recording::{LoadError, Recording, FILES, READABLE_FORMATS};
 pub use run::{replay_run, RunFiles, RUN_FILES};

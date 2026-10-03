@@ -89,6 +89,57 @@ pub fn printed(value: &PyValue) -> PyValue {
     }
 }
 
+/// The JSON text of one answer as `gh api` prints it: go-gh's sanitizer
+/// in its JSON mode, character by character.
+///
+/// - A control character it maps, as itself, becomes its caret notation.
+/// - A backslash followed by `u00XX` (`u` in lower case, the two digits in
+///   either), where U+00XX is a control character it maps, becomes the
+///   caret notation; where the backslashes before it are odd in number,
+///   so that the six characters are the text of an escaped backslash and
+///   five letters and digits, a backslash is put before the caret notation
+///   to keep the JSON valid, which reads back as a backslash and the caret
+///   notation.
+/// - Anything else is copied.
+pub fn gh_printed(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    // Whether the backslashes just copied are odd in number.
+    let mut escaping = false;
+    let mut at = 0;
+    while at < chars.len() {
+        let c = chars[at];
+        if let Some(repl) = caret(u32::from(c)) {
+            out.push_str(&repl);
+            at += 1;
+            continue;
+        }
+        if c == '\\' {
+            let code = match chars.get(at + 1..at + 6) {
+                Some(['u', '0', '0', high, low])
+                    if high.is_ascii_hexdigit() && low.is_ascii_hexdigit() =>
+                {
+                    u32::from_str_radix(&format!("{high}{low}"), 16).ok()
+                }
+                _ => None,
+            };
+            if let Some(repl) = code.and_then(caret) {
+                if escaping {
+                    out.push('\\');
+                    escaping = false;
+                }
+                out.push_str(&repl);
+                at += 6;
+                continue;
+            }
+        }
+        out.push(c);
+        escaping = c == '\\' && !escaping;
+        at += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
