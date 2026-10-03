@@ -40,7 +40,7 @@ jobs:
         run: echo "names=$(python3 -c "import json; print(','.join(e['repository'].split('/')[1] for e in json.load(open('policies/repositories.json'))['repositories']))")" >> "$GITHUB_OUTPUT"
       - name: Create selected-repository read token
         id: app
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ vars.PR_REVIEW_APP_ID }}
           private-key: ${{ secrets.PR_REVIEW_APP_PRIVATE_KEY }}
