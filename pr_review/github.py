@@ -920,6 +920,9 @@ class GitHub:
             result["threads"] = self.threads(number)
             result["lifecycle_at"] = history["lifecycle_at"] if reuse else self.activity(number)
             result["head_seen_at"] = self.head_seen_at(result["head"])
+            limited = self.coderabbit_rate_limited_at(result["head"])
+            if limited is not None:
+                result["coderabbit_rate_limited_at"] = limited
             result["build"] = self.build_state(number, result["head"])
             result["ready_published"] = self.ready_published(result["head"])
             result["requested_reviewers"] = [_login(user) for user in raw["requested_reviewers"]]
@@ -1049,6 +1052,22 @@ class GitHub:
         if any(not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stamp) for stamp in stamps):
             raise GitHubError("Unexpected status timestamp format")
         return min(stamps)
+
+    def coderabbit_rate_limited_at(self, head):
+        """A limit reported by CodeRabbit's latest own status on this commit."""
+        for status in self._head_statuses(head):
+            if status.get('context') != 'CodeRabbit' or (status.get('creator') or {}).get('login', '').lower() \
+                    not in {'coderabbitai', 'coderabbitai[bot]'}:
+                continue
+            # The endpoint is newest first. A later run supersedes a limit,
+            # even if that run has not supplied a recognizable result yet.
+            if status.get('state') != 'success' or status.get('description') != 'Review rate limited':
+                return None
+            stamp = _text(status.get('created_at'), 'status creation time')
+            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', stamp):
+                raise GitHubError('Unexpected status timestamp format')
+            return stamp
+        return None
 
     def ready_published(self, head):
         """Whether a human has ever been asked to review this head.

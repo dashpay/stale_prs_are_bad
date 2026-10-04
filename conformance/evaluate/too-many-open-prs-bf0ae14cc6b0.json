@@ -176,6 +176,8 @@
  },
  "tests": [
   "test_checklist.ChecklistTests.test_beyond_the_limit_is_said_positively_and_unchecked",
+  "test_checklist.PublishTests.test_admission_wait_explains_how_to_free_a_slot",
+  "test_checklist.PublishTests.test_waiting_announcements_are_quiet_until_the_details_change",
   "test_policy.PolicyTests.test_the_check_passes_in_exactly_one_state"
  ],
  "python_exception_text": false,

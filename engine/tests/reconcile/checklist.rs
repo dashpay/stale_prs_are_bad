@@ -191,7 +191,20 @@ fn words_that_cannot_be_written_back_are_replaced_not_refused() {
         record_comment(&record, &moved(&result), None)
     );
     assert!(visible(&tampered).contains("pr-hygiene-diff-v1"));
-    scene.fake.pr(1).comments = vec![Comment::new(50, ENGINE, &tampered, NOW)];
+    scene
+        .fake
+        .pr(1)
+        .comments
+        .push(Comment::new(50, ENGINE, &tampered, NOW));
+    scene
+        .fake
+        .pr(1)
+        .comments
+        .push(Comment::new(2, "llbartekll", "/self-reviewed", LATER));
+    scene.fake.pr(1).checks = Some(vec![json!({"__typename": "CheckRun", "name": "tests",
+        "conclusion": null, "status": "IN_PROGRESS", "startedAt": LATER,
+        "detailsUrl": "https://github.com/dashpay/platform/actions/runs/1/job/2",
+        "checkSuite": {"workflowRun": {"workflow": {"resourcePath": "/dashpay/platform/actions/workflows/ci.yml"}}}})]);
     scene.fake.forget_calls();
     scene.sync_pr(&policy, 1);
     assert_eq!(comment_writes(&scene).0, ["50"]);
@@ -209,12 +222,25 @@ fn a_record_line_somebody_truncated_does_not_wedge_the_pull_request() {
     let body = record_comment(&record, &moved(&result), None);
     assert!(body.contains(MOVE_MARKER));
     let broken = body.replacen("\n\n", "\n<!-- pr-hygiene-diff-v1 {\"number\":1} \n\n", 1);
-    scene.fake.pr(1).comments = vec![Comment::new(50, ENGINE, &broken, NOW)];
+    scene
+        .fake
+        .pr(1)
+        .comments
+        .push(Comment::new(50, ENGINE, &broken, NOW));
+    scene
+        .fake
+        .pr(1)
+        .comments
+        .push(Comment::new(2, "llbartekll", "/self-reviewed", LATER));
+    scene.fake.pr(1).checks = Some(vec![json!({"__typename": "CheckRun", "name": "tests",
+        "conclusion": null, "status": "IN_PROGRESS", "startedAt": LATER,
+        "detailsUrl": "https://github.com/dashpay/platform/actions/runs/1/job/2",
+        "checkSuite": {"workflowRun": {"workflow": {"resourcePath": "/dashpay/platform/actions/workflows/ci.yml"}}}})]);
     scene.fake.forget_calls();
     let run = scene.sync_pr(&policy, 1);
     assert_eq!(
         text(field(&run.verdicts[0], "state")),
-        "waiting-bots",
+        "waiting-build",
         "a state that posts no words"
     );
     let words = written_words(&scene);
@@ -439,7 +465,7 @@ fn a_new_head_is_announced_afresh_so_the_author_is_told_again() {
 }
 
 #[test]
-fn the_old_standing_comment_points_at_the_description_then_goes() {
+fn the_old_standing_comment_explains_the_wait_then_goes_when_the_move_changes() {
     let (policy, fake) = bartek();
     let mut scene = Scene::new(fake);
     let pr = scene.snapshot(&policy, 1);
@@ -453,15 +479,14 @@ fn the_old_standing_comment_points_at_the_description_then_goes() {
         None,
         "2026-09-10T00:00:00Z",
     );
-    // No move yet: the old comment is kept as the record, its text
-    // repointed.
+    // Waiting on bots is explained in the existing comment.
     let (_, mut quiet) = bartek();
     quiet.pr(1).comments = vec![standing.clone()];
     let mut quiet = Scene::new(quiet);
     let run = quiet.sync_pr(&policy, 1);
     assert_eq!(text(field(&run.verdicts[0], "state")), "waiting-bots");
     assert_eq!(comment_writes(&quiet), (vec!["7".to_owned()], 0));
-    assert_eq!(written_words(&quiet), [POINTER]);
+    assert!(written_words(&quiet)[0].contains("Waiting for bot review"));
     assert!(quiet.wrote(Method::Delete, "issues/comments/").is_empty());
     // A move: the announcement carries the record, the old comment goes.
     let (_, mut moving) = bartek();

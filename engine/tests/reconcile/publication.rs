@@ -585,13 +585,19 @@ fn labels_read_like_the_status() {
         ));
         let mut scene = Scene::new(fake);
         let pr = scene.snapshot(&policy, 1);
-        let result = py(
+        let mut result = py(
             json!({"number": 1, "head": HEAD, "author": "owner", "state": state,
             "status": if state == "ready-to-merge" { "success" } else { "pending" },
             "blockers": [], "reviewers": [], "areas": ["drive"],
             "admitted_at": "2026-09-11T00:00:00Z", "ready_since": null,
             "waived": if waived { json!(["thepastaclaw"]) } else { json!([]) }}),
         );
+        if let PyValue::Dict(fields) = &mut result {
+            fields.insert(
+                "checklist".into(),
+                field(&scene.verdict(&policy, 1, &s(NOW)), "checklist").clone(),
+            );
+        }
         scene.fake.forget_calls();
         scene
             .with(|engine| {

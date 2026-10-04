@@ -490,6 +490,7 @@
   "test_checklist.PublishTests.test_a_new_head_is_announced_afresh_so_the_author_is_told_again",
   "test_checklist.PublishTests.test_a_record_line_somebody_truncated_does_not_wedge_the_pull_request",
   "test_checklist.PublishTests.test_nothing_is_rewritten_when_description_labels_and_comment_already_agree",
+  "test_checklist.PublishTests.test_platform_5014_bot_wait_replaces_obsolete_author_instructions",
   "test_checklist.PublishTests.test_the_old_standing_comment_points_at_the_description_then_goes",
   "test_checklist.PublishTests.test_the_same_move_on_the_same_head_is_kept_current_in_place",
   "test_checklist.PublishTests.test_words_that_cannot_be_written_back_are_replaced_not_refused",

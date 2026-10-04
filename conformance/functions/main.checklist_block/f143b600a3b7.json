@@ -1,0 +1,98 @@
+{
+ "function": "main.checklist_block",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "owner",
+   "title": "title",
+   "url": "url",
+   "state": "ready-to-merge",
+   "status": "success",
+   "blockers": [
+    "All policy requirements are satisfied",
+    "Proceeded without coderabbitai: it reported a rate limit and did not return"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "drive"
+   ],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": "2026-09-11T11:00:00Z",
+   "nudge": [],
+   "waived": [
+    "coderabbitai"
+   ],
+   "approvals": [
+    {
+     "area": "drive",
+     "files": [
+      "packages/drive/a.rs"
+     ],
+     "approvers": [],
+     "approved_by": [],
+     "owned": true
+    }
+   ],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": true,
+     "lines": [
+      "coderabbitai skipped after its own rate limit",
+      "thepastaclaw ✓"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": true,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": true,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": true,
+     "areas": [
+      {
+       "area": "drive",
+       "files": [
+        "packages/drive/a.rs"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {}
+  }
+ },
+ "output": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai skipped after its own rate limit · thepastaclaw ✓\n- [x] Self-review — posted; again after any push\n- [x] Within your 5 open PRs\n- [x] Build green\n- [x] Approvals — you own every area touched; none needed\n\nWhen every box is checked the `PR Hygiene` check passes and this can merge.\n<!-- pr-hygiene:end -->",
+ "tests": [
+  "test_checklist.PublishTests.test_a_superseded_rate_limit_refuses_stale_ready_publication"
+ ],
+ "python": "3.12"
+}

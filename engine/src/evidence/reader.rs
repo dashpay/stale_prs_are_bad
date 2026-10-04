@@ -915,6 +915,7 @@ impl<T: Transport> GitHub<T> {
             _ => return Err(ReadError::github("Missing or invalid head SHA")),
         };
         let seen = self.head_seen_at(&head)?;
+        let limited = self.coderabbit_rate_limited_at(&head)?;
         let build = self.build_state(number, &head)?;
         let ready = self.ready_published(&head)?;
         let mut requested = Vec::new();
@@ -981,6 +982,11 @@ impl<T: Transport> GitHub<T> {
         ];
         for (key, value) in fields {
             result.insert(key.into(), value);
+            if key == "head_seen_at" {
+                if let Some(limited) = &limited {
+                    result.insert("coderabbit_rate_limited_at".into(), str_value(limited));
+                }
+            }
         }
         Ok(result)
     }
@@ -1117,6 +1123,33 @@ impl<T: Transport> GitHub<T> {
             return Err(ReadError::github("Unexpected status timestamp format"));
         }
         Ok(py_min_by(stamps, |a, b| a.cmp(b)).map(str::to_owned))
+    }
+
+    /// A limit reported by CodeRabbit's latest own status on this commit.
+    pub fn coderabbit_rate_limited_at(&mut self, head: &str) -> Result<Option<String>, ReadError> {
+        for status in self.head_statuses(head)? {
+            if !get(status, "context")?.is_some_and(|v| py_eq_str(v, "CodeRabbit")) {
+                continue;
+            }
+            let creator = or(get(status, "creator")?, &EMPTY_DICT);
+            let author = get(creator, "login")?.map_or(Ok(""), |v| str_method(v, "lower"))?;
+            if !["coderabbitai", "coderabbitai[bot]"].contains(&py_lower(author).as_str()) {
+                continue;
+            }
+            // Newest first: a later run supersedes a limit even if its
+            // outcome is not one this reader recognizes.
+            if !get(status, "state")?.is_some_and(|v| py_eq_str(v, "success"))
+                || !get(status, "description")?.is_some_and(|v| py_eq_str(v, "Review rate limited"))
+            {
+                return Ok(None);
+            }
+            let stamp = text(get(status, "created_at")?, "status creation time")?;
+            if !utc_timestamp(stamp) {
+                return Err(ReadError::github("Unexpected status timestamp format"));
+            }
+            return Ok(Some(stamp.to_owned()));
+        }
+        Ok(None)
     }
 
     /// `GitHub.ready_published(head)`: whether a human has ever been asked

@@ -822,6 +822,52 @@ fn should_refuse_truncated_thread_connection() {
 }
 
 #[test]
+fn status_only_rate_limits_are_bound_to_the_head_and_latest_trusted_run() {
+    let limited = json!({"context": "CodeRabbit", "creator": {"login": "coderabbitai[bot]"},
+        "state": "success", "description": "Review rate limited", "created_at": "2026-09-14T09:35:13Z"});
+    let statuses = json!([
+        merged(
+            &limited,
+            json!({"creator": {"login": "impostor"}, "created_at": "2020-01-01T00:00:00Z"})
+        ),
+        merged(
+            &limited,
+            json!({"context": "Other", "created_at": "2020-01-01T00:00:00Z"})
+        ),
+        limited.clone()
+    ]);
+    let mut api = api(move |_| page(statuses.clone()));
+    assert_eq!(
+        api.coderabbit_rate_limited_at(&head()).unwrap().as_deref(),
+        Some("2026-09-14T09:35:13Z")
+    );
+    assert_eq!(
+        path(&calls(&api)[0]),
+        format!(
+            "repos/dashpay/platform/commits/{}/statuses?per_page=100",
+            head()
+        )
+    );
+    for newest in [
+        json!({"state": "pending"}),
+        json!({"description": "Review completed"}),
+        json!({"description": null}),
+    ] {
+        let statuses = json!([merged(&limited, newest), limited.clone()]);
+        api.forget_cached_access();
+        reroute(&mut api, move |_| page(statuses.clone()));
+        assert_eq!(api.coderabbit_rate_limited_at(&head()).unwrap(), None);
+    }
+    let statuses = json!([merged(&limited, json!({"created_at": "whenever"})), limited]);
+    api.forget_cached_access();
+    reroute(&mut api, move |_| page(statuses.clone()));
+    assert_eq!(
+        github_error(api.coderabbit_rate_limited_at(&head())),
+        "Unexpected status timestamp format"
+    );
+}
+
+#[test]
 fn head_seen_at_is_the_earliest_status_this_controller_wrote() {
     let ours = json!({"context": "PR Hygiene", "creator": {"login": "github-actions[bot]"}});
     let statuses = json!([

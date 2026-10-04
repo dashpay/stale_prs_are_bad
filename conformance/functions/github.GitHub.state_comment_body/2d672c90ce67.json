@@ -1,0 +1,22 @@
+{
+ "function": "github.GitHub.state_comment_body",
+ "inputs": {
+  "state": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "admitted_at": null,
+   "ready_since": null,
+   "state": "waiting-bots",
+   "version": 1,
+   "evidence": "fb638d0c087e95cc9c50b328e5229ad352e097084540e8f3651ffd3585b83011",
+   "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "body": "<!-- pr-hygiene:move state=waiting-bots sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nWaiting for bot review — coderabbitai not yet · thepastaclaw not yet. Wait for the missing reviews, or a writer can post `/skip-bots` to proceed without them; blocking findings still need addressing.\nFull checklist in the description.",
+  "diff": null
+ },
+ "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":null,\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"fb638d0c087e95cc9c50b328e5229ad352e097084540e8f3651ffd3585b83011\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n\n<!-- pr-hygiene:move state=waiting-bots sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nWaiting for bot review — coderabbitai not yet · thepastaclaw not yet. Wait for the missing reviews, or a writer can post `/skip-bots` to proceed without them; blocking findings still need addressing.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.PublishTests.test_waiting_announcements_are_quiet_until_the_details_change"
+ ],
+ "python": "3.12"
+}

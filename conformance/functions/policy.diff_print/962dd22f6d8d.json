@@ -1,0 +1,83 @@
+{
+ "function": "policy.diff_print",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "llbartekll",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "packages/swift-sdk/Sources/a.swift"
+    },
+    {
+     "filename": ".editorconfig"
+    },
+    {
+     "filename": ".github/workflows/swift-sdk-build.yml"
+    },
+    {
+     "filename": ".github/workflows/tests.yml"
+    },
+    {
+     "filename": "AGENTS.md"
+    }
+   ],
+   "reviews": [
+    {
+     "id": 5,
+     "user": "romchornyi",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:30:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [
+    {
+     "id": 7,
+     "user": "github-actions[bot]",
+     "created_at": "2026-09-10T00:00:00Z",
+     "updated_at": "2026-09-10T00:00:00Z",
+     "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n\n### PR Hygiene\nState: **waiting-bots**"
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "llbartekll": "write",
+    "romchornyi": "write",
+    "QuantumExplorer": "admin",
+    "shumkov": "admin",
+    "ktechmidas": "admin"
+   },
+   "controller_state": {
+    "number": 1,
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "admitted_at": "2026-09-11T12:00:00Z",
+    "ready_since": null,
+    "state": "waiting-bots",
+    "version": 1,
+    "evidence": "f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36",
+    "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+   },
+   "labels": [],
+   "complete": true,
+   "build": "green",
+   "head_seen_at": "2026-09-11T09:00:00Z",
+   "body": "",
+   "controller_comment_id": 7
+  }
+ },
+ "output": null,
+ "tests": [
+  "test_checklist.PublishTests.test_the_old_standing_comment_points_at_the_description_then_goes"
+ ],
+ "python": "3.12"
+}

@@ -56,6 +56,52 @@ fn waived_at(policy: &PyValue, pr: &PyValue) -> Option<String> {
 }
 
 #[test]
+fn a_status_only_rate_limit_stops_waiting_at_its_one_hour_boundary() {
+    let (policy, mut pr) = waiting(2.0);
+    set(&mut pr, &["coderabbit_rate_limited_at"], s(&ago(1.0)));
+    assert_eq!(
+        schedule(&policy, &pr, "coderabbitai", None).waived_reason,
+        Some("rate-limit")
+    );
+    assert_eq!(waived_at(&policy, &pr).as_deref(), Some(NOW));
+    assert_eq!(schedule(&policy, &pr, "thepastaclaw", None), NOTHING);
+    set(&mut pr, &["coderabbit_rate_limited_at"], s(&ago(0.9)));
+    assert_eq!(waived_at(&policy, &pr), None);
+}
+
+#[test]
+fn a_status_limit_never_starts_before_the_head_or_extends_the_ordinary_window() {
+    let (policy, mut pr) = waiting(0.5);
+    set(&mut pr, &["coderabbit_rate_limited_at"], s(&ago(2.0)));
+    assert_eq!(waived_at(&policy, &pr), None);
+    set(&mut pr, &["head_seen_at"], s(&ago(17.0)));
+    set(&mut pr, &["coderabbit_rate_limited_at"], s(&ago(0.5)));
+    assert_eq!(
+        schedule(&policy, &pr, "coderabbitai", None).waived_reason,
+        Some("window")
+    );
+}
+
+#[test]
+fn the_earliest_effective_comment_or_status_limit_starts_the_retry_hour() {
+    for (comment_age, status_age) in [(1.5, 0.2), (0.2, 1.5)] {
+        let (policy, mut pr) = waiting(2.0);
+        let at = ago(comment_age);
+        comments(
+            &mut pr,
+            json!([{"user": "coderabbitai[bot]", "created_at": at,
+            "body": format!("{RATE_LIMITED}\nwait")} ]),
+        );
+        set(
+            &mut pr,
+            &["coderabbit_rate_limited_at"],
+            s(&ago(status_age)),
+        );
+        assert_eq!(waived_at(&policy, &pr).as_deref(), Some(ago(0.5).as_str()));
+    }
+}
+
+#[test]
 fn nothing_happens_before_the_window() {
     assert_eq!(plan(2.0, None), NOTHING);
 }

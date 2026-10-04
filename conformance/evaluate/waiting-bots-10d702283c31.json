@@ -352,14 +352,14 @@
     "updated_at": "2026-09-11T11:00:00Z",
     "edited_at": "2026-09-11T11:00:00Z",
     "edited_by": "github-actions[bot]",
-    "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-self-review\",\"version\":1} -->\n\nold text"
+    "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n\nold text"
    },
    {
     "id": 2,
     "user": "github-actions[bot]",
     "created_at": "2026-09-10T12:00:00Z",
     "updated_at": "2026-09-10T12:00:00Z",
-    "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":\"2026-09-10T12:00:00Z\",\"state\":\"waiting-self-review\",\"version\":1} -->\n\nother text"
+    "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":\"2026-09-10T12:00:00Z\",\"state\":\"waiting-bots\",\"version\":1} -->\n\nother text"
    }
   ],
   "threads": [],
@@ -378,7 +378,7 @@
    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
    "number": 1,
    "ready_since": null,
-   "state": "waiting-self-review",
+   "state": "waiting-bots",
    "version": 1
   },
   "labels": [],

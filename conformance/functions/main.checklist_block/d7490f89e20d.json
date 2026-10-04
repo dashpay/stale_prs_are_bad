@@ -93,7 +93,8 @@
  },
  "output": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai ✓ · thepastaclaw ✓\n- [x] Self-review — posted; again after any push\n- [ ] Within your 5 open PRs — this one is beyond the limit; it waits until one merges\n- [x] Build green\n- Approvals\n  - [ ] `drive` (`packages/drive/a.rs`) — owner\n\nWhen every box is checked the `PR Hygiene` check passes and this can merge.\n<!-- pr-hygiene:end -->",
  "tests": [
-  "test_checklist.ChecklistTests.test_beyond_the_limit_is_said_positively_and_unchecked"
+  "test_checklist.ChecklistTests.test_beyond_the_limit_is_said_positively_and_unchecked",
+  "test_checklist.PublishTests.test_waiting_announcements_are_quiet_until_the_details_change"
  ],
  "python": "3.12"
 }

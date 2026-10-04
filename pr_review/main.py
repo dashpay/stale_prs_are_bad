@@ -359,6 +359,7 @@ def diff_record(pr, result):
 
 SAFE_PATH = re.compile(r'[A-Za-z0-9._/@+-]+')
 MOVE_STATES = {'waiting-self-review': 'waiting-self-review', 'waiting-author': 'waiting-self-review',
+               'waiting-bots': 'waiting-bots', 'too-many-open-prs': 'too-many-open-prs',
                'ready-for-human': 'ready-for-human', 'ready-to-merge': 'ready-to-merge'}
 POINTER = 'PR Hygiene: the checklist is in the description.'
 
@@ -492,7 +493,13 @@ def move_text(result):
     if move is None:
         return None
     items = {item['item']: item for item in result.get('checklist') or []}
-    if move == 'waiting-self-review':
+    if move == 'waiting-bots':
+        line = f"Waiting for bot review — {' · '.join(items['bots']['lines'])}."
+        if items['bots']['skippable']:
+            line += ' Wait for the missing reviews, or a writer can post `/skip-bots` to proceed without them; blocking findings still need addressing.'
+    elif move == 'too-many-open-prs':
+        line = 'Waiting for an active PR slot — merge, close, or convert another active PR by this author to draft so this one can enter human review.'
+    elif move == 'waiting-self-review':
         # What actually blocks it, not what usually does. A bot's own finding
         # lands in this move too, and "bots are done, post /self-reviewed" is
         # wrong three ways there: the bots are not done, the author has

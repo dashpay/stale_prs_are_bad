@@ -42,6 +42,7 @@
  },
  "output": null,
  "tests": [
+  "test_checklist.PublishTests.test_waiting_announcements_are_quiet_until_the_details_change",
   "test_policy.PolicyTests.test_only_a_satisfied_policy_passes_the_check"
  ],
  "python": "3.12"

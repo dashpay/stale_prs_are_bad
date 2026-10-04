@@ -310,7 +310,7 @@ class BuildVerdictTests(unittest.TestCase):
         comments = [{"id": 1, "user": "helper", "body": "/skip-bots", "created_at": "2026-09-11T01:00:00Z", "updated_at": "2026-09-11T01:00:00Z"},
                     {"id": 2, "user": "chatter", "body": "nice", "created_at": "2026-09-11T01:00:00Z", "updated_at": "2026-09-11T01:00:00Z"}]
         looked_up = []
-        pages = {"/files": [{"filename": "packages/rs-drive/x"}], "/reviews": []}
+        pages = {"/files": [{"filename": "packages/rs-drive/x"}], "/reviews": [], "/statuses": []}
         with patch.object(api, "request", return_value=raw), \
              patch.object(api, "pages", side_effect=lambda path: next(v for k, v in pages.items() if path.endswith(k))), \
              patch.object(api, "threads", return_value=[]), \
@@ -435,6 +435,41 @@ class BuildVerdictTests(unittest.TestCase):
 class GitHubTests(unittest.TestCase):
     def setUp(self):
         self.api = GitHub("dashpay/platform")
+
+    def test_platform_5014_status_limit_uses_only_latest_trusted_status(self):
+        limit = dict(context='CodeRabbit', state='success', description='Review rate limited',
+                     creator={'login': 'coderabbitai[bot]'}, created_at='2026-10-04T15:21:11Z')
+        head = 'ee44bba9dbc2725dbe0075a7542026fecf83e8fc'
+        with patch.object(self.api, 'pages', return_value=[limit]) as pages:
+            self.assertEqual(self.api.coderabbit_rate_limited_at(head), limit['created_at'])
+            pages.assert_called_once_with(f'repos/dashpay/platform/commits/{head}/statuses')
+        for newer in (dict(limit, description='Review in progress', state='pending'),
+                      dict(limit, description='Review complete'), dict(limit, description=None)):
+            self.api.forget_cached_access()
+            with patch.object(self.api, 'pages', return_value=[newer, limit]):
+                self.assertIsNone(self.api.coderabbit_rate_limited_at(head))
+        for foreign in (dict(limit, creator={'login': 'author'}), dict(limit, creator=None),
+                        dict(limit, context='other')):
+            self.api.forget_cached_access()
+            with patch.object(self.api, 'pages', return_value=[foreign]):
+                self.assertIsNone(self.api.coderabbit_rate_limited_at(head))
+        self.api.forget_cached_access()
+        with patch.object(self.api, 'pages', return_value=[dict(limit, created_at='bad'), limit]):
+            with self.assertRaises(GitHubError):
+                self.api.coderabbit_rate_limited_at(head)
+
+    def test_status_limit_enters_snapshot_and_disappears_after_refresh(self):
+        head = self.pr()['head']['sha']
+        limit = dict(context='CodeRabbit', state='success', description='Review rate limited',
+                     creator={'login': 'coderabbitai[bot]'}, created_at='2026-10-04T15:21:11Z')
+        self.api._statuses[head] = [limit]
+        request, pages = self.snapshot_fixture()
+        with request, pages:
+            before = self.api.snapshot(1, {'fallback': ['owner'], 'areas': []})
+            self.assertEqual(before['coderabbit_rate_limited_at'], limit['created_at'])
+            self.api.forget_cached_access()
+            after = self.api.snapshot(1, {'fallback': ['owner'], 'areas': []})
+            self.assertNotIn('coderabbit_rate_limited_at', after)
 
     @patch("pr_review.github.subprocess.run")
     def test_should_pass_untrusted_text_as_json_stdin(self, run):
