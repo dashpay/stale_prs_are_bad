@@ -196,7 +196,9 @@ class ChecklistTests(unittest.TestCase):
         # It covers the code whenever it is written; nothing about it waits on the bots.
         self.assertIn('- [ ] Self-review — post `/self-reviewed`\n', block)
         self.assertNotIn('once the bots are done', block)
-        self.assertIsNone(main.move_text(result), 'nobody\'s move: nothing is announced')
+        self.assertIn('Waiting for bot review', main.move_text(result))
+        self.assertIn('coderabbitai not yet', main.move_text(result))
+        self.assertIn('/skip-bots', main.move_text(result))
 
     def test_the_skip_is_not_offered_once_every_missing_bot_is_already_waived(self):
         policy, pr = bartek()
@@ -336,6 +338,69 @@ class PublishTests(unittest.TestCase):
         self.policy, self.pr = bartek()
         self.pr['controller_state'] = None
 
+    def test_platform_5014_bot_wait_replaces_obsolete_author_instructions(self):
+        old = evaluate(self.policy, self.pr, NOW, LATER)
+        record = main.state_record(self.pr, old, 'c' * 64)
+        pr = dict(self.pr, comments=[dict(id=50, user='github-actions[bot]', created_at=NOW,
+                  updated_at=NOW, body=GitHub.state_comment_body(record, main.move_text(old)))],
+                  controller_state=record, controller_comment_id=50)
+        result = evaluate(self.policy, pr, NOW, LATER)
+        self.assertEqual(result['state'], 'waiting-bots')
+        api = self.run_publish(pr, result)
+        api.upsert_state.assert_called_once()
+        self.assertIn('Waiting for bot review', api.upsert_state.call_args.args[2])
+        self.assertIsNone(api.upsert_state.call_args.args[3])
+
+    def test_admission_wait_explains_how_to_free_a_slot(self):
+        policy, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        result = evaluate(policy, pr, None, NOW)
+        self.assertEqual(result['state'], 'too-many-open-prs')
+        self.assertIn('active PR', main.move_text(result))
+        self.assertIn('draft', main.move_text(result))
+
+    def test_waiting_announcements_are_quiet_until_the_details_change(self):
+        for state in ('waiting-bots', 'too-many-open-prs'):
+            with self.subTest(state=state):
+                policy, pr = fixture()
+                pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+                if state == 'waiting-bots':
+                    pr['reviews'] = []
+                self.policy = policy
+                result = evaluate(policy, pr, None, NOW)
+                self.assertEqual(result['state'], state)
+                record = main.state_record(pr, result, 'c' * 64)
+                pr.update(body=main.checklist_block(result), labels=[state], controller_state=record,
+                          controller_comment_id=50)
+                pr['comments'].append(dict(id=50, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+                                           body=GitHub.state_comment_body(record, main.move_text(result))))
+                self.run_publish(pr, result).upsert_state.assert_not_called()
+                if state == 'waiting-bots':
+                    pr['reviews'] = fixture()[1]['reviews'][:1]
+                    changed = evaluate(policy, pr, None, NOW)
+                    api = self.run_publish(pr, changed)
+                    self.assertEqual(api.upsert_state.call_args.args[3], 50)
+                    self.assertIn('thepastaclaw ✓', api.upsert_state.call_args.args[2])
+
+    def test_a_superseded_rate_limit_refuses_stale_ready_publication(self):
+        policy, pr = fixture()
+        policy['bot_timeouts'] = {'nudge_after_hours': 6, 'waive_after_hours': 16}
+        pr.update(head_seen_at='2026-09-11T09:00:00Z', coderabbit_rate_limited_at='2026-09-11T09:00:00Z')
+        pr['reviews'] = pr['reviews'][:1]
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-to-merge')
+        self.policy = policy
+        api = Mock()
+        api.pull.return_value = pr
+        api.open_prs.return_value = [pr]
+        after = {k: v for k, v in pr.items() if k != 'coderabbit_rate_limited_at'}
+        api.snapshot.side_effect = [copy.deepcopy(pr), after]
+        with patch.object(main, 'load_histories', return_value=[pr]):
+            main.publish(api, policy, pr, result, [pr], apply=True)
+        self.assertEqual(api.post_status.call_args.args[1:],
+                         ('pending', 'Review evidence changed; reconciliation required'))
+        self.assertNotIn('success', [c.args[1] for c in api.post_status.call_args_list])
+
     def test_a_move_is_announced_once_with_the_record_and_the_block_written(self):
         result = evaluate(self.policy, self.pr, NOW, LATER)
         api = self.run_publish(self.pr, result)
@@ -417,7 +482,9 @@ class PublishTests(unittest.TestCase):
         # the pull request keeps an error it cannot leave. The pointer at the
         # description says less, and says it.
         pr = copy.deepcopy(self.pr)
-        pr['comments'] = [c for c in pr['comments'] if c['user'] != 'llbartekll']
+        pr['comments'].append(dict(id=2, user='llbartekll', body=f'/self-reviewed {HEAD}',
+                                  created_at=LATER, updated_at=LATER))
+        pr['build'] = 'running'
         announced = evaluate(self.policy, self.pr, NOW, LATER)
         record = main.state_record(pr, announced, 'c' * 64)
         tampered = GitHub.state_comment_body(record, main.move_text(announced)) + (
@@ -590,13 +657,13 @@ class PublishTests(unittest.TestCase):
         old_record = main.state_record(self.pr, dict(result, state='waiting-bots'), 'c' * 64)
         standing = dict(id=7, user='github-actions[bot]', created_at='2026-09-10T00:00:00Z', updated_at='2026-09-10T00:00:00Z',
                         body=GitHub.state_comment_body(old_record, '### PR Hygiene\nState: **waiting-bots**'))
-        # No move yet: the old comment is kept as the record, its text repointed.
-        quiet = dict(self.pr, comments=[]); quiet['comments'] = [standing]
+        # A legacy record for this same wait becomes the announcement in place.
+        quiet = dict(self.pr, comments=[standing], controller_state=old_record, controller_comment_id=7)
         quiet_result = evaluate(self.policy, quiet, NOW, LATER)
         self.assertEqual(quiet_result['state'], 'waiting-bots')
         api = self.run_publish(quiet, quiet_result)
         api.upsert_state.assert_called_once()
-        self.assertEqual(api.upsert_state.call_args.args[2:4], (main.POINTER, 7))
+        self.assertEqual(api.upsert_state.call_args.args[2:4], (main.move_text(quiet_result), 7))
         api.delete_comment.assert_not_called()
         # A move: the announcement carries the record, the old comment is removed.
         moving = dict(self.pr); moving['comments'] = self.pr['comments'] + [standing]
@@ -1018,7 +1085,7 @@ class SecondReviewTests(unittest.TestCase):
         # Two record comments; the older one was written last. The record was
         # read from it, and it is the one edited and kept.
         result = evaluate(self.policy, self.pr, NOW, LATER)
-        record = main.state_record(self.pr, result, 'c' * 64)
+        record = main.state_record(self.pr, dict(result, state='waiting-bots'), 'c' * 64)
         older_written_last = dict(id=1, user='github-actions[bot]', created_at='2026-09-10T00:00:00Z', updated_at='2026-09-11T11:00:00Z',
                                   edited_at='2026-09-11T11:00:00Z', edited_by='github-actions[bot]',
                                   body=GitHub.state_comment_body(record, 'old text'))

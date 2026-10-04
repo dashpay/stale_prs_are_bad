@@ -317,11 +317,28 @@ pub(crate) fn schedule(
     };
     let already = nudged_at(comments, bot, heads)?;
 
-    let limited = if bot == "coderabbitai" {
+    let mut limited = if bot == "coderabbitai" {
         rate_limited_at(pr.item("comments")?, seen, pr.get("head")?)?
     } else {
         None
     };
+    if bot == "coderabbitai" {
+        let status = pr.get("coderabbit_rate_limited_at")?;
+        if status.truthy() {
+            let status_limit = if time(status)? > time(seen)? {
+                status
+            } else {
+                seen
+            };
+            let earlier = match &limited {
+                Some(stamp) => time(status_limit)? < time(stamp)?,
+                None => true,
+            };
+            if earlier {
+                limited = Some(status_limit.clone());
+            }
+        }
+    }
     let due = match &limited {
         // CodeRabbit announced its own limit and documents this retry.
         Some(limited) => hours(limited, now)? >= 1.0,

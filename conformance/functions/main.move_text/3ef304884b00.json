@@ -1,0 +1,87 @@
+{
+ "function": "main.move_text",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "reviewer",
+   "title": "title",
+   "url": "url",
+   "state": "waiting-bots",
+   "status": "pending",
+   "blockers": [
+    "coderabbitai has not reported for the current head"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "drive"
+   ],
+   "ready_since": null,
+   "admitted_at": null,
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [],
+   "approvals": [],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": false,
+     "lines": [
+      "coderabbitai not yet",
+      "thepastaclaw ✓"
+     ],
+     "skippable": true
+    },
+    {
+     "item": "self_review",
+     "done": true,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": false,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "drive",
+       "files": [
+        "packages/drive/a.rs"
+       ],
+       "approvers": [
+        "owner"
+       ],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": null,
+   "receipts": {}
+  }
+ },
+ "output": "<!-- pr-hygiene:move state=waiting-bots sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nWaiting for bot review — coderabbitai not yet · thepastaclaw ✓. Wait for the missing reviews, or a writer can post `/skip-bots` to proceed without them; blocking findings still need addressing.\nFull checklist in the description.",
+ "tests": [
+  "test_checklist.PublishTests.test_waiting_announcements_are_quiet_until_the_details_change"
+ ],
+ "python": "3.12"
+}

@@ -149,6 +149,7 @@
  },
  "output": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai skipped by llbartekll · thepastaclaw skipped by llbartekll\n- [x] Self-review — posted; again after any push\n- [x] Within your 5 open PRs\n- [ ] Build running\n- Approvals\n  - [x] `swift-sdk` — you own it\n  - [ ] files with no dedicated owner (`.editorconfig`, `AGENTS.md`) — QuantumExplorer or shumkov\n  - [ ] `github` (`.github/workflows/swift-sdk-build.yml`, `.github/workflows/tests.yml`) — ktechmidas or shumkov\n\nWhen every box is checked the `PR Hygiene` check passes and this can merge.\n<!-- pr-hygiene:end -->",
  "tests": [
+  "test_checklist.PublishTests.test_words_that_cannot_be_written_back_are_replaced_not_refused",
   "test_checklist.RecordTests.test_a_state_change_that_is_not_a_move_refreshes_the_record_silently"
  ],
  "python": "3.12"

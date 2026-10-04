@@ -188,9 +188,9 @@
  "tests": [
   "test_checklist.PublishTests.test_a_bot_reporting_with_nothing_to_answer_is_not_announced_again",
   "test_checklist.PublishTests.test_a_new_head_is_announced_afresh_so_the_author_is_told_again",
+  "test_checklist.PublishTests.test_platform_5014_bot_wait_replaces_obsolete_author_instructions",
   "test_checklist.PublishTests.test_the_same_move_on_the_same_head_is_kept_current_in_place",
   "test_checklist.SecondReviewTests.test_a_foreign_bot_comment_quoting_the_marker_is_left_alone",
-  "test_checklist.SecondReviewTests.test_the_holder_is_the_comment_the_record_was_read_from",
   "test_checklist.SecondReviewTests.test_the_move_coming_back_to_the_author_is_announced_again"
  ],
  "python": "3.12"

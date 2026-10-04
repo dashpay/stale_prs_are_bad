@@ -24,6 +24,44 @@ def waiting(hours_since_seen=0, **overrides):
 
 
 class BotTimeoutTests(unittest.TestCase):
+    def test_platform_5014_status_only_rate_limit_after_pasta_approved(self):
+        policy, pr = fixture()
+        policy['bot_timeouts'] = {'nudge_after_hours': 6, 'waive_after_hours': 16}
+        pr['reviews'] = [r for r in pr['reviews'] if r['user'] == 'thepastaclaw']
+        pr['comments'] = []
+        pr['head_seen_at'] = '2026-10-04T15:22:25Z'
+        pr['coderabbit_rate_limited_at'] = '2026-10-04T15:21:11Z'
+        result = evaluate(policy, pr, NOW, '2026-10-04T17:28:03Z')
+        self.assertEqual(result['waived'], ['coderabbitai'])
+        self.assertNotEqual(result['state'], 'waiting-bots')
+        self.assertIn('rate limit', ' '.join(result['blockers']))
+
+    def test_status_limit_waits_a_full_hour_and_does_not_waive_pasta(self):
+        policy, pr = waiting(2, comments=[], coderabbit_rate_limited_at=ago(0.5))
+        self.assertIsNone(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'])
+        pr['coderabbit_rate_limited_at'] = ago(1)
+        self.assertEqual(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'], NOW)
+        self.assertIsNone(bot_schedule(policy, pr, 'thepastaclaw', NOW)['waived_at'])
+        self.assertEqual(bot_schedule(policy, pr, 'coderabbitai', ago(-1))['waived_at'], NOW)
+
+    def test_status_limit_is_evidence_and_does_not_override_blocking_threads(self):
+        policy, pr = waiting(2, comments=[], coderabbit_rate_limited_at=ago(2))
+        before = fingerprint(pr)
+        self.assertNotEqual(before, fingerprint({k: v for k, v in pr.items() if k != 'coderabbit_rate_limited_at'}))
+        pr['threads'] = [dict(id=1, author='coderabbitai', is_resolved=False, created_at=NOW,
+                              voices=[dict(user='coderabbitai', created_at=NOW)])]
+        self.assertNotIn('coderabbitai', evaluate(policy, pr, NOW, NOW)['waived'])
+
+    def test_comment_and_status_limits_use_the_earliest_effective_notice(self):
+        for comment_age, status_age in ((2, 1.5), (1.5, 2)):
+            policy, pr = waiting(3, coderabbit_rate_limited_at=ago(status_age))
+            pr['comments'] = [dict(user='coderabbitai[bot]', created_at=ago(comment_age),
+                                   updated_at=ago(comment_age),
+                                   body='<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->')]
+            self.assertEqual(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_at'], ago(1))
+        policy, pr = waiting(20, comments=[], coderabbit_rate_limited_at=ago(0.5))
+        self.assertEqual(bot_schedule(policy, pr, 'coderabbitai', NOW)['waived_reason'], 'window')
+
     def plan(self, hours, state=None, comments=None, bot='thepastaclaw'):
         policy, pr = waiting(hours)
         if comments is not None:

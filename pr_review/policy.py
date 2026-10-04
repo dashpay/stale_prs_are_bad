@@ -659,6 +659,9 @@ def bot_schedule(policy, pr, bot, nowISO, telemetry_state=None):
     already = nudged_at(pr['comments'], bot, pr.get('reviewed_heads') or [pr['head']])
 
     limited = rate_limited_at(pr['comments'], seen, pr.get('head')) if bot == 'coderabbitai' else None
+    if bot == 'coderabbitai' and pr.get('coderabbit_rate_limited_at'):
+        status_limit = max(pr['coderabbit_rate_limited_at'], seen, key=_time)
+        limited = min(limited, status_limit, key=_time) if limited else status_limit
     if limited is not None:
         # CodeRabbit announced its own limit and documents this exact retry.
         due = _hours(limited, nowISO) >= 1

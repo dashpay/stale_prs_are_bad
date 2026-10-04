@@ -17,6 +17,7 @@
  "output": "<!-- platform-pr-review-state-v1 {\"admitted_at\":\"2026-09-11T12:00:00Z\",\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"f30bada513e89335a980f2bb939ae93631da124fb47328bd99199aa091c4ea36\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-self-review\",\"version\":1} -->\n\n<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nBots are done — your move: post `/self-reviewed`.\nFull checklist in the description.",
  "tests": [
   "test_checklist.PublishTests.test_a_bot_reporting_with_nothing_to_answer_is_not_announced_again",
+  "test_checklist.PublishTests.test_platform_5014_bot_wait_replaces_obsolete_author_instructions",
   "test_checklist.SecondReviewTests.test_the_move_coming_back_to_the_author_is_announced_again"
  ],
  "python": "3.12"

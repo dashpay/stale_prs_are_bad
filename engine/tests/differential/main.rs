@@ -90,7 +90,7 @@ fn every_synthetic_recording_matches_and_is_counted() {
     );
     assert!(
         said.contains(
-            "| **all** (13 recordings) | 18/18 | 18/18 | 15/15 | 25/25 | 15/15 | 67/67 | 15/15 | 4/4 | 13/13 | 13/13 | 0 | 438 | 0 |"
+            "| **all** (13 recordings) | 18/18 | 18/18 | 15/15 | 25/25 | 15/15 | 68/68 | 15/15 | 4/4 | 13/13 | 13/13 | 0 | 439 | 0 |"
         ),
         "{said}"
     );

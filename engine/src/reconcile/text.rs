@@ -13,9 +13,11 @@ use std::borrow::Cow;
 /// `MOVE_STATES`: whose move each state is, as the move comment names it.
 /// An objection and a bot's finding are the author's move, as a missing
 /// attestation is.
-pub const MOVE_STATES: [(&str, &str); 4] = [
+pub const MOVE_STATES: [(&str, &str); 6] = [
     ("waiting-self-review", "waiting-self-review"),
     ("waiting-author", "waiting-self-review"),
+    ("waiting-bots", "waiting-bots"),
+    ("too-many-open-prs", "too-many-open-prs"),
     ("ready-for-human", "ready-for-human"),
     ("ready-to-merge", "ready-to-merge"),
 ];
@@ -370,6 +372,15 @@ pub fn move_text(result: &PyValue) -> Result<Option<String>, PyErr> {
     };
     let items = Items::of(result)?;
     let line = match mv {
+        "waiting-bots" => {
+            let bots = items.get("bots")?;
+            let mut line = format!("Waiting for bot review — {}.", join(" · ", getitem(bots, "lines")?)?);
+            if getitem(bots, "skippable")?.truthy() {
+                line.push_str(" Wait for the missing reviews, or a writer can post `/skip-bots` to proceed without them; blocking findings still need addressing.");
+            }
+            line
+        }
+        "too-many-open-prs" => "Waiting for an active PR slot — merge, close, or convert another active PR by this author to draft so this one can enter human review.".to_owned(),
         "waiting-self-review" => {
             // What actually blocks it, not what usually does. A bot's own
             // finding lands in this move too, and "bots are done, post
@@ -445,7 +456,14 @@ mod tests {
             move_state(&state("waiting-author")).unwrap(),
             Some("waiting-self-review")
         );
-        assert_eq!(move_state(&state("waiting-bots")).unwrap(), None);
+        assert_eq!(
+            move_state(&state("waiting-bots")).unwrap(),
+            Some("waiting-bots")
+        );
+        assert_eq!(
+            move_state(&state("too-many-open-prs")).unwrap(),
+            Some("too-many-open-prs")
+        );
         assert_eq!(move_state(&PyValue::None).unwrap(), None);
         assert!(move_state(&PyValue::List(Vec::new().into())).is_err());
     }
