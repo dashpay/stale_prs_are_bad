@@ -51,7 +51,12 @@ pub const STATE_MARKER: &str = "platform-pr-review-state-v1";
 /// The marker this controller's nudge comments start with.
 pub const NUDGE_MARKER: &str = "<!-- pr-hygiene-nudge v1";
 /// The review bots, by every login they write under.
-pub const BOTS: [&str; 3] = ["thepastaclaw", "coderabbitai", "coderabbitai[bot]"];
+pub const BOTS: [&str; 4] = [
+    "thepastaclaw",
+    "coderabbitai",
+    "coderabbitai[bot]",
+    "claudbot[bot]",
+];
 /// The review bots a policy may require. Which bots a repository runs is a
 /// property of that repository, not of the review rules.
 pub const REVIEW_BOTS: [&str; 2] = ["thepastaclaw", "coderabbitai"];

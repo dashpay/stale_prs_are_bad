@@ -24,7 +24,7 @@ const KNOWN_BOTS: &[&str] = &[
 /// Bots that perform code review and whose threads block merge in the shared
 /// review engine. Their threads are graded like CodeRabbit's rather than as
 /// low-severity automation noise.
-const REVIEW_BOTS: &[&str] = &["thepastaclaw"];
+const REVIEW_BOTS: &[&str] = &["thepastaclaw", "claudbot[bot]"];
 
 /// `default_branch` is the repository's default branch as reported by GitHub;
 /// PRs targeting anything else are stale. `None` (detection failed) disables
@@ -648,6 +648,17 @@ mod tests {
         let analyzed = analyze(vec![pr.clone()], &cfg, None, now);
         assert_eq!(analyzed[0].unresolved_threads.len(), 1);
         assert_eq!(analyzed[0].unresolved_threads[0].source, ThreadSource::Bot);
+
+        for login in ["claudbot[bot]", "CLAUDBOT[BOT]"] {
+            pr.threads[0].comments[0].author = Some(login.into());
+            pr.threads[0].comments[0].body =
+                "Extracting show_action_menu() dropped the full-width min_size on dropdown buttons"
+                    .into();
+            let analyzed = analyze(vec![pr.clone()], &cfg, None, now);
+            assert_eq!(analyzed[0].unresolved_threads.len(), 1, "{login}");
+            assert_eq!(analyzed[0].unresolved_threads[0].source, ThreadSource::Bot);
+            assert_eq!(analyzed[0].unresolved_threads[0].severity, Severity::Medium);
+        }
 
         // Plain automation bots stay Low and are dropped.
         pr.threads[0].comments[0].author = Some("dependabot[bot]".into());
