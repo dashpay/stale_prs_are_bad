@@ -116,7 +116,10 @@ recordings are provided. Workspace Clippy, Rust formatting, and dashboard
 security checks pass. Fresh harvesting adds 12 evaluation cases and 12
 diff-print cases; no existing corpus file changes. The 287 evaluation and 676
 function cases match the fresh harvest, and the Rust policy suite passes with
-the new corpus. Policy compatibility goldens remain unchanged.
+the new corpus. CI caught a generation-order error: the policy goldens were
+initially generated before adding the harvested cases. Regenerating after
+those additions includes the 12 new variants and refreshes the seeded
+malformed-input samples that depend on the sorted evaluation inputs.
 
 Three independent code reviewers reported no required fixes. The Rust
 checklist assertion was narrowed to the checklist itself following review.
