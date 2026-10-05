@@ -27,11 +27,10 @@
         "packages/rs-drive/"
       ],
       "owners": [
-        "QuantumExplorer"
-      ],
-      "reviewers": [
+        "QuantumExplorer",
         "shumkov"
       ],
+      "reviewers": [],
       "metadata": {
         "contributors": [
           "lklimek"
@@ -44,11 +43,10 @@
         "packages/rs-drive-abci/"
       ],
       "owners": [
-        "QuantumExplorer"
-      ],
-      "reviewers": [
+        "QuantumExplorer",
         "shumkov"
       ],
+      "reviewers": [],
       "metadata": {
         "contributors": [
           "lklimek"
