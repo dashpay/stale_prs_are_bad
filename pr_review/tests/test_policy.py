@@ -48,6 +48,47 @@ def fixture():
 
 
 class PolicyTests(unittest.TestCase):
+    def test_claudbot_findings_are_bot_blockers_regardless_of_permission(self):
+        for login in ('claudbot[bot]', 'CLAUDBOT[BOT]'):
+            for permission in (None, 'read'):
+                with self.subTest(login=login, permission=permission):
+                    p, pr = fixture()
+                    pr['permissions']['claudbot[bot]'] = permission
+                    pr['threads'] = [dict(id='claudbot-thread', author=login, is_resolved=False,
+                                          created_at=NOW, severities=[])]
+                    result = evaluate(p, pr, NOW, NOW)
+                    self.assertEqual(result['blockers'],
+                                     ['claudbot left review threads unresolved; resolve them'])
+                    self.assertIn('claudbot 1 thread unresolved', str(result['checklist']))
+                    pr['threads'][0]['is_resolved'] = True
+                    self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
+
+    def test_claudbot_is_optional_but_current_head_changes_requested_blocks(self):
+        p, pr = fixture()
+        pr['permissions']['claudbot[bot]'] = 'read'
+        pr['reviews'].append(dict(id=4, user='claudbot[bot]', state='COMMENTED',
+                                  commit_id=HEAD, submitted_at=NOW, body='Approving with comments.'))
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
+        pr['reviews'][-1]['state'] = 'CHANGES_REQUESTED'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['blockers'],
+                         ['claudbot requested changes on this head; dismiss the review or push a fix'])
+        pr['reviews'][-1]['user'] = 'claudbot'
+        pr['permissions']['claudbot'] = 'read'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
+
+    def test_skipping_missing_bots_cannot_waive_claudbot_findings(self):
+        p, pr = fixture()
+        pr['head_seen_at'] = '2026-09-11T10:00:00Z'
+        pr['reviews'] = []
+        pr['permissions']['claudbot[bot]'] = 'read'
+        pr['threads'] = [dict(id='claudbot-thread', author='claudbot[bot]', is_resolved=False,
+                              created_at=NOW, severities=[])]
+        pr['comments'].append(dict(id=4, user='owner', body='/skip-bots',
+                                   created_at=NOW, updated_at=NOW))
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual(result['waived'], ['coderabbitai', 'thepastaclaw'])
+        self.assertIn('claudbot left review threads unresolved; resolve them', result['blockers'])
+
     def test_owner_exemption_does_not_apply_to_reviewer(self):
         p, pr = fixture()
         self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'success')

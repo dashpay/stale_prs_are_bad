@@ -10,7 +10,7 @@ from pathlib import Path
 
 STATE_MARKER = 'platform-pr-review-state-v1'
 NUDGE_MARKER = '<!-- pr-hygiene-nudge v1'
-BOTS = {'thepastaclaw', 'coderabbitai', 'coderabbitai[bot]'}
+BOTS = {'thepastaclaw', 'coderabbitai', 'coderabbitai[bot]', 'claudbot[bot]'}
 # Which bots a repository actually runs is a property of that repository, not of
 # the review rules: requiring a producer that never reports would never resolve.
 REVIEW_BOTS = ('thepastaclaw', 'coderabbitai')

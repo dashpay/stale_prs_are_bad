@@ -17,6 +17,103 @@ fn strs(items: &[&str]) -> PyValue {
     value(json!(items))
 }
 
+#[test]
+fn claudbot_findings_are_bot_blockers_regardless_of_permission() {
+    for login in ["claudbot[bot]", "CLAUDBOT[BOT]"] {
+        for permission in [PyValue::None, s("read")] {
+            let (p, mut pr) = fixture();
+            set(&mut pr, &["permissions", "claudbot[bot]"], permission);
+            set(
+                &mut pr,
+                &["threads"],
+                value(json!([{
+                    "id": "claudbot-thread", "author": login, "is_resolved": false,
+                    "created_at": NOW, "severities": []
+                }])),
+            );
+            let result =
+                pr_hygiene_engine::policy::evaluate(&p, &pr, &s(NOW), &s(NOW), &PyValue::None)
+                    .unwrap();
+            assert!(pr_hygiene_engine::pycompat::ops::py_eq(
+                result.get("blockers").unwrap(),
+                &strs(&["claudbot left review threads unresolved; resolve them"])
+            ));
+            assert!(pr_hygiene_engine::pycompat::py_dumps(
+                result.get("checklist").unwrap(),
+                false,
+                None,
+                None
+            )
+            .unwrap()
+            .contains("claudbot 1 thread unresolved"));
+            set(
+                &mut pr,
+                &["threads", "0", "is_resolved"],
+                PyValue::Bool(true),
+            );
+            let result =
+                pr_hygiene_engine::policy::evaluate(&p, &pr, &s(NOW), &s(NOW), &PyValue::None)
+                    .unwrap();
+            assert!(
+                matches!(result.get("state"), Some(PyValue::Str(state)) if state == "ready-to-merge")
+            );
+        }
+    }
+}
+
+#[test]
+fn claudbot_is_optional_but_current_head_changes_requested_blocks() {
+    let (p, mut pr) = fixture();
+    set(&mut pr, &["permissions", "claudbot[bot]"], s("read"));
+    list_mut(&mut pr, &["reviews"]).push(value(json!({
+        "id": 4, "user": "claudbot[bot]", "state": "COMMENTED",
+        "commit_id": HEAD, "submitted_at": NOW, "body": "Approving with comments."
+    })));
+    let result =
+        pr_hygiene_engine::policy::evaluate(&p, &pr, &s(NOW), &s(NOW), &PyValue::None).unwrap();
+    assert!(matches!(result.get("state"), Some(PyValue::Str(state)) if state == "ready-to-merge"));
+    set(&mut pr, &["reviews", "2", "state"], s("CHANGES_REQUESTED"));
+    let result =
+        pr_hygiene_engine::policy::evaluate(&p, &pr, &s(NOW), &s(NOW), &PyValue::None).unwrap();
+    assert!(pr_hygiene_engine::pycompat::ops::py_eq(
+        result.get("blockers").unwrap(),
+        &strs(&["claudbot requested changes on this head; dismiss the review or push a fix"])
+    ));
+    set(&mut pr, &["reviews", "2", "user"], s("claudbot"));
+    set(&mut pr, &["permissions", "claudbot"], s("read"));
+    let result =
+        pr_hygiene_engine::policy::evaluate(&p, &pr, &s(NOW), &s(NOW), &PyValue::None).unwrap();
+    assert!(matches!(result.get("state"), Some(PyValue::Str(state)) if state == "ready-to-merge"));
+}
+
+#[test]
+fn skipping_missing_bots_cannot_waive_claudbot_findings() {
+    let (p, mut pr) = fixture();
+    set(&mut pr, &["head_seen_at"], s("2026-09-11T10:00:00Z"));
+    set(&mut pr, &["reviews"], value(json!([])));
+    set(&mut pr, &["permissions", "claudbot[bot]"], s("read"));
+    set(
+        &mut pr,
+        &["threads"],
+        value(json!([{
+            "id": "claudbot-thread", "author": "claudbot[bot]", "is_resolved": false,
+            "created_at": NOW, "severities": []
+        }])),
+    );
+    list_mut(&mut pr, &["comments"]).push(value(json!({
+        "id": 4, "user": "owner", "body": "/skip-bots", "created_at": NOW, "updated_at": NOW
+    })));
+    let result =
+        pr_hygiene_engine::policy::evaluate(&p, &pr, &s(NOW), &s(NOW), &PyValue::None).unwrap();
+    assert!(pr_hygiene_engine::pycompat::ops::py_eq(
+        result.get("waived").unwrap(),
+        &strs(&["coderabbitai", "thepastaclaw"])
+    ));
+    assert!(
+        matches!(result.get("blockers"), Some(PyValue::List(blockers)) if blockers.iter().any(|blocker| matches!(blocker, PyValue::Str(text) if text == "claudbot left review threads unresolved; resolve them")))
+    );
+}
+
 fn print(body: &str) -> Option<String> {
     receipt_print(&comment(1, body)).unwrap()
 }
