@@ -34,7 +34,7 @@
       ],
       "metadata": {
         "contributors": [
-          "Lukasz"
+          "lklimek"
         ]
       }
     },
@@ -51,7 +51,7 @@
       ],
       "metadata": {
         "contributors": [
-          "Lukasz"
+          "lklimek"
         ]
       }
     },
@@ -67,7 +67,7 @@
       "reviewers": [],
       "metadata": {
         "contributors": [
-          "Lukasz"
+          "lklimek"
         ]
       }
     },
@@ -86,10 +86,10 @@
       ],
       "metadata": {
         "contributors": [
-          "Sam",
-          "Lukasz",
-          "Ivan",
-          "Pasta"
+          "QuantumExplorer",
+          "lklimek",
+          "shumkov",
+          "PastaPastaPasta"
         ]
       }
     },
@@ -108,10 +108,10 @@
       ],
       "metadata": {
         "contributors": [
-          "Sam",
-          "Lukasz",
-          "Ivan",
-          "Pasta"
+          "QuantumExplorer",
+          "lklimek",
+          "shumkov",
+          "PastaPastaPasta"
         ]
       }
     },
@@ -126,8 +126,8 @@
       "reviewers": [],
       "metadata": {
         "contributors": [
-          "Sam",
-          "Ivan"
+          "QuantumExplorer",
+          "shumkov"
         ]
       }
     },
@@ -143,13 +143,13 @@
       "reviewers": [],
       "metadata": {
         "contributors": [
-          "Sam",
-          "Pasta",
-          "Borja",
-          "Brian"
+          "QuantumExplorer",
+          "PastaPastaPasta",
+          "ZocoLini",
+          "bfoss765"
         ],
         "qa": [
-          "Andrei"
+          "abvgedeika"
         ]
       }
     },
@@ -165,9 +165,9 @@
       "reviewers": [],
       "metadata": {
         "contributors": [
-          "Sam",
-          "Pasta",
-          "Borja"
+          "QuantumExplorer",
+          "PastaPastaPasta",
+          "ZocoLini"
         ],
         "qa": [
           "thephez"
@@ -186,7 +186,7 @@
       "reviewers": [],
       "metadata": {
         "contributors": [
-          "Sam"
+          "QuantumExplorer"
         ]
       }
     },
@@ -202,7 +202,7 @@
       "reviewers": [],
       "metadata": {
         "contributors": [
-          "Sam"
+          "QuantumExplorer"
         ],
         "qa": [
           "thephez"
@@ -222,7 +222,7 @@
       "reviewers": [],
       "metadata": {
         "contributors": [
-          "Sam"
+          "QuantumExplorer"
         ],
         "qa": [
           "thephez"
@@ -277,13 +277,13 @@
       "reviewers": [],
       "metadata": {
         "contributors": [
-          "Sam",
-          "Roman",
-          "Brian"
+          "QuantumExplorer",
+          "romchornyi",
+          "bfoss765"
         ],
         "qa": [
-          "Brian",
-          "Andrei"
+          "bfoss765",
+          "abvgedeika"
         ]
       }
     },
