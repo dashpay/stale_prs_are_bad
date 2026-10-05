@@ -14,8 +14,9 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(policy['fallback'], {
             'owners': ['QuantumExplorer', 'shumkov'], 'reviewers': []})
         paths = {path: area for area in policy['areas'] for path in area['paths']}
-        self.assertEqual(paths['packages/rs-drive/']['owners'], ['QuantumExplorer'])
-        self.assertEqual(paths['packages/rs-drive/']['reviewers'], ['shumkov'])
+        for path in ('packages/rs-drive/', 'packages/rs-drive-abci/'):
+            self.assertEqual(paths[path]['owners'], ['QuantumExplorer', 'shumkov'])
+            self.assertEqual(paths[path]['reviewers'], [])
         self.assertEqual(paths['packages/rs-platform-wallet/']['owners'], ['llbartekll'])
         self.assertEqual(set(paths['packages/rs-platform-wallet/']['reviewers']),
                          {'ZocoLini', 'HashEngineering', 'romchornyi'})
