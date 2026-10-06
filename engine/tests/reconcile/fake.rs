@@ -22,7 +22,7 @@
 use crate::support::*;
 use pr_hygiene_engine::conformance::gh_printed;
 use pr_hygiene_engine::evidence::replay::transient;
-use pr_hygiene_engine::evidence::{Failure, Method};
+use pr_hygiene_engine::evidence::{Failure, FailureClass, Method};
 use pr_hygiene_engine::pycompat::text::py_lower;
 use std::collections::BTreeMap;
 
@@ -781,6 +781,10 @@ fn failed(status: u16, message: &str) -> TransportError {
         status: Some(1),
         body: String::new(),
         detail: stderr,
+        class: FailureClass::Http {
+            code: status,
+            rate_limited: false,
+        },
     })
 }
 

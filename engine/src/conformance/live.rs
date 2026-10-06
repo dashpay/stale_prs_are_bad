@@ -49,8 +49,8 @@ use super::run::{replayed, synced, Synced};
 use crate::evidence::queries;
 use crate::evidence::replay::{gh_arguments, is_read};
 use crate::evidence::{
-    Call, Client, Failure as Failed, GitHub, Method, NoSleep, ReadError, Reply, Transport,
-    TransportError,
+    Call, Client, Failure as Failed, FailureClass, GitHub, Method, NoSleep, ReadError, Reply,
+    Transport, TransportError,
 };
 use crate::policy::{admit, evaluate, validate_policy, NUDGE_MARKER};
 use crate::pycompat::{py_dumps, py_loads, PyDateTime, PyInt, PyList, PyValue};
@@ -296,6 +296,7 @@ impl<T: Transport> Transport for Observed<T> {
                 status: Some(1),
                 body: String::new(),
                 detail: "a write, not sent: this run only reads".to_owned(),
+                class: FailureClass::Unclassed,
             }));
         }
         let answer = self.inner.call(call);
@@ -3071,6 +3072,7 @@ mod tests {
                     status: Some(1),
                     body: text("stdout"),
                     detail: text("stderr"),
+                    class: FailureClass::Unclassed,
                 })),
             };
             log.push(Logged {
