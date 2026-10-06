@@ -880,87 +880,161 @@ It is judged on operation, not on verdicts. 1b-6a carries the verdicts.
 Goal: once the service is hosted and writes, GitHub's events drive the
 engine, and everything that reads PR Hygiene's state reads the service, not
 GitHub. Request cost then follows what happens on the pull requests, not how
-often someone polls them. §2 gives the receiver, queue and worker; this
-section is what changes in cost and state, and what doesn't. (Draft, before
-review.)
+often anyone polls. §2 gives the receiver, queue and worker; this section
+covers what changes in cost and state, and what has to hold for push to be
+as correct as today's polling. (Revised after a review of the push model's
+failure modes.)
 
 **What reads the service instead of GitHub.** The dashboard, the `/prs`
 skill, the Slack digest and any Actions job read the public API, which
-answers from the store and never reaches GitHub (§2).
-- What goes away: the dashboard export through Actions (about 590 requests
-  a run), each person's `gh` queries from the skill, and the interim post
-  path (§6a).
+answers from the store and never reaches GitHub (§2). This removes:
+- the dashboard export through Actions (about 590 requests a run);
+- each person's `gh` queries from the skill;
+- the interim post path (§6a).
 
-**What drives the engine.**
-- **Events.** An event enqueues `(repo, pr)`, and the worker reconciles that
-  author's PRs.
-  - Measured: a one-author reconcile costs 15–40 requests. Platform's full
-    pass costs about 1 200.
-  - Bursts coalesce per author. A push with twenty checks finishing is one
-    reconcile, not twenty.
-  - Events the App's own writes cause are dropped by sender.
-- **Time.** Some verdicts change with no event at all:
-  - a review bot's timeout (nudged after the configured hours, waived
-    later);
-  - CodeRabbit's rate-limit hour running out.
+**What triggers a reconcile.**
 
-  After each evaluation the worker stores the next instant at which that PR's
-  verdict can change by time alone (`bot_schedule` gives it). A timer wakes
-  the worker then, for that PR only.
+- **Events.** Subscriptions:
+  - `pull_request`, including `edited` (base, body), `labeled`/`unlabeled`,
+    `assigned`/`unassigned` (assignees are holders) and
+    `review_requested`;
+  - `pull_request_review`, `pull_request_review_comment` and
+    `pull_request_review_thread`;
+  - `issue_comment`, including `edited` and `deleted` (records,
+    attestations, CodeRabbit's edited notice);
+  - `status`, `check_run` and `check_suite`;
+  - `push` to a governed base branch.
 
-  A build finishing isn't one of these: it raises check events, which
-  replace the build scan. The dashboard's lateness needs no wake-up either;
-  it's computed when the page is read.
-- **A safety sweep, slow.** GitHub doesn't redeliver failed webhooks.
-  - The worker replays failed deliveries from the App's delivery log.
-  - It reconciles everything on start-up.
-  - It sweeps every PR every few hours, using cached reads (below).
+  An event enqueues `(repo, pr)`, and the worker reconciles that author with
+  `Selection::Pr`. This was measured at 15–40 requests, against about 1 200
+  for platform's full pass.
+- **Coalescing that loses nothing.**
+  - The delivery id is recorded and the event enqueued in one transaction.
+    A crash can't lose an event and also mark it delivered.
+  - An event that arrives while its author's run is in progress marks that
+    author dirty, and the run is followed by another.
+  - Check events are debounced, and are enqueued only for PRs recorded as
+    waiting on a build, as the build scan does today.
+- **Cross-author effects.**
+  - Every PR on a shared head is enqueued together and serialised per head,
+    so two authors' runs never race on one commit status.
+  - A base change that takes a PR out of policy runs `clear_marks` for that
+    PR on the event, not on the next sweep.
+- **The engine's own retries.** These are re-enqueued with backoff, because
+  the event the App's own write raises is dropped by sender:
+  - a "…reconciliation required" pending status;
+  - "Policy reconciliation failed";
+  - a nudge that failed;
+  - a nudge deferred by the per-window limit.
+- **Reads older than their event.** The worker checks the read against the
+  event's payload: head SHA, review or comment id, check conclusion. If the
+  read predates the event, the PR is re-enqueued with bounded backoff.
+  Otherwise a repository with no further events would keep a stale verdict
+  until the sweep.
+- **Time.** A pure `next_change(policy, pr, now)` gives the next instant a
+  verdict can change by time alone. That is the earliest of these, over the
+  bots still owed:
+  - first seen plus the nudge time;
+  - first seen plus the waive time;
+  - a CodeRabbit rate limit plus one hour.
 
-  This replaces the hourly sweep and the quarter-hourly build scans that run
-  today in all five repositories' Actions.
+  It is computed **after** the writes, from the `created_at` of the status
+  just posted. "First seen" is the App's first status on the head, and that
+  status's own event is dropped. A timer runs the author's reconcile then.
+  The tests hold `next_change` to `evaluate`: no change at t−1 s, a change
+  at t.
+- **Inputs no event reports.** Each is polled every few minutes, and a change
+  enqueues the PRs it affects:
+  - the review system's status page, whose heartbeat and data windows move
+    nudges;
+  - this repository's master, for policy changes (the App isn't installed
+    here);
+  - collaborator permissions. There is no webhook for base-role changes,
+    and `member` would need an organisation permission the reader App
+    doesn't have.
+- **A safety sweep.** The worker replays failed deliveries from the App's
+  delivery log and reconciles everything on start-up. It also sweeps every
+  PR in rotation, so no input is staler than one rotation. Alerting watches
+  the PR whose last reconcile is oldest, not each repository.
 
-**Cached reads.** The worker keeps each REST answer's `ETag` (or
-`Last-Modified`) in the store and asks again with `If-None-Match`. An
-unchanged answer comes back `304 Not Modified`. GitHub says this "does not
-count against your primary rate limit" when the request is authorized
+**Cached reads.** The worker stores each REST answer's `ETag` and asks again
+with `If-None-Match`. An authorized `304 Not Modified` "does not count
+against your primary rate limit"
 ([REST best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)).
-- **Where it applies:** REST reads only. GraphQL has no conditional
-  requests, and it is about a third of the engine's requests (27–32 % in
-  the recordings). Writes are never conditional.
-- **Pagination:** each page is cached by its own URL, with the parameters
-  kept identical, as GitHub recommends.
-- **Conformance:** a 304 must give the engine the same answer the cached
-  body did. The transport returns the cached body. The engine never sees a
-  304, and the replay and conformance gates are unchanged.
-- **Why it's safe:** freshness is exactly what GitHub's ETag says. A cached
-  answer is never reused without asking.
+Its limits:
+- **ETags depend on the token**
+  ([community #75228](https://github.com/orgs/community/discussions/75228),
+  not an official statement). An installation token lives an hour, so 304s
+  help repeat reads within that hour, the event-driven re-reads. A sweep
+  every few hours mostly pays full price. The cache is keyed by token, each
+  token is used for its whole hour, and the soak measures the 304 share
+  across rotations.
+- **REST reads only.** GraphQL has no conditional requests, and it is about
+  a third of the engine's requests. Writes are never conditional, and 304s
+  still count toward the secondary limits.
+- **ETag only, never `Last-Modified`,** which follows `updated_at` rather
+  than the body. GitHub's `max-age=60` is ignored: every reuse is a
+  conditional request.
+- **Pagination.** A 304 on a page gives that page's cached body. The `next`
+  link comes from the 304's own `Link` header, never from the cached page.
+  Otherwise a new item on a page after an exactly full last page would never
+  be read.
+- **Conformance.** The transport returns the cached body, so the engine never
+  sees a 304. The per-evaluation caches stay as they are, within one
+  evaluation.
 
-**What still costs, and still matters.**
-- **Every write gates a merge.** So an event is a hint, never evidence. The
-  worker reads the PR again before it writes, as the engine does today.
-  Cached reads make that cheap, not free.
-- **Writes have secondary limits** (about 80 content-creating requests a
-  minute). A mass reconcile, such as a policy change or a cut-over, is paced.
-- **GraphQL points.** The review-thread, history and build queries stay on
-  GraphQL. Coalescing is what keeps them bounded.
+**Writes.**
+- **Secondary limits.** These include about 80 content-generating requests a
+  minute and 500 an hour
+  ([rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)).
+  Work runs in priority classes: event, then timer, then sweep, then mass
+  reconcile. A write reserve is kept for events.
+  - A cut-over (every record rewritten, every status posted again, §6c) or a
+    policy change is a paced mass reconcile.
+  - Each pass pins one policy commit.
+- **No duplicate posts.** A write-intent row per (PR, head, kind) stops a
+  run seconds after a crash or timeout from posting a nudge or move comment
+  again. Without it, the comment read could lag behind the post it just
+  made.
 - **The worker is merge-critical.** While it is down, PRs keep their last
-  status and can't turn green. That needs alerting on delivery failures,
-  queue age and the time since each repository's last reconcile (§4).
+  status and can't turn green. Alerting covers failed deliveries, queue
+  age, and the oldest last reconcile.
+- **Times are processing times.** `ready_since` and `admitted_at` are set
+  when the worker processes the PR, so delivery lag shifts them by that
+  lag, as Actions queueing does today.
 
-**Where the engine's memory lives, in two stages.**
-- **At cut-over (v1).** The record comments and statuses on GitHub stay the
-  engine's memory, and the store is history and cache. Rollback to the
-  Python engine is a switch only while both engines read the same memory.
-- **After Python is retired (v2).** The store becomes the memory, and the
-  record comment is display only.
-  - **What it fixes:** this closes the accepted residuals of the trust model
-    (§6c). A collaborator can't delete or edit the store, and an Actions
-    workflow can't post as the App's memory.
-  - **What it costs:** the store becomes the source of truth for admission
-    order and review history. Backups and restore become part of operations,
-    and there is no rollback to Python.
-  - **Migration:** one reconcile per PR reads the GitHub record into the
-    store, then writes the display-only form.
+**The engine's identity, everywhere it reads its memory.** At cut-over the
+App writes the records. `src/stages.rs` hard-codes `github-actions[bot]`
+(line 23), so stage history would stop seeing them. It moves onto the
+engine's identity list with the rest (§6 step 0), in the same change that
+lets the engine trust the App.
+
+**Where the engine's memory lives.**
+- **At cut-over (v1).** Record comments and commit statuses on GitHub stay the
+  memory, and the store is history and cache. Rollback to the Python engine
+  is a switch only while both engines read the same memory.
+  - The trust model's deleted-record residual (§6c) closes in v1. Each
+    record carries a sequence number the store also holds, and a record
+    behind the store's number is not trusted.
+  - Step 3 drops trust in `github-actions[bot]`, which closes the
+    branch-workflow residual.
+- **Optional, after Python is retired (v2).** The store becomes the memory
+  for records.
+  - **What stays on GitHub:** commit statuses (`head_seen_at`,
+    `ready_published`) remain on GitHub as memory.
+  - **The mirror:** the service keeps writing v1-format records. These are
+    trusted only when the App wrote them and nobody edited them. They are the
+    restore source when a backup is older than the last write, and the way
+    back to v1.
+  - **Migration,** done per repository with that repository's queue paused:
+    - include closed and draft PRs' diff records;
+    - apply the trust rules on import;
+    - require identical verdicts from both memories before the switch;
+    - make it resumable after a crash.
+
+  With the trust residuals closed in v1, v2's gain is mostly speed and
+  simplicity. It is worth doing only if the soak shows record reads are a
+  real cost.
 
 **What is retired, when.**
 
@@ -973,17 +1047,22 @@ count against your primary rate limit" when the request is authorized
 
 **Verification.**
 - **Worker tests on the stateful fake:**
-  - an event burst coalesced into one reconcile;
-  - a timer firing at the stored instant and not before;
-  - an own-write event dropped;
-  - a 304 serving the cached answer;
-  - a lost delivery recovered by replay;
-  - a lost delivery recovered by the safety sweep.
+  - a burst coalesced, and an event during a run causing another run;
+  - a delivery recorded and enqueued atomically, with a crash between;
+  - each self-scheduled retry re-enqueued;
+  - a read older than its event re-enqueued;
+  - `next_change` against `evaluate` at t−1 s and at t;
+  - a 304 serving the cached page with `next` taken from the 304;
+  - a shared head serialised;
+  - a write-intent row stopping a duplicate post;
+  - recovery by delivery replay, and by the sweep.
 - **In 1b-6b's soak (shadow, before step 2):**
-  - requests spent per hour and the 304 share, read from the `x-ratelimit`
-    headers;
+  - requests per hour;
+  - the 304 share across token rotations;
   - delivery lag;
-  - queue age.
+  - queue age;
+  - the oldest last reconcile;
+  - secondary-limit headroom.
 
   Step 2 starts only when these have been stable for the soak's duration.
 
