@@ -410,11 +410,6 @@ fn graphql_types(failed: &Failed) -> Vec<String> {
 /// before it, where no read came between; else the engine itself.
 fn cause_before(log: &[Logged], start: usize, after_a_write: bool) -> Cause {
     let window = &log[start.min(log.len())..];
-    let answered = |logged: &Logged| match &logged.answer {
-        Ok(_) => true,
-        Err(TransportError::Failed(failed)) => taken_as_answer(&logged.key, failed),
-        Err(TransportError::Refused(_)) => false,
-    };
     for (at, logged) in window.iter().enumerate().rev() {
         if answered(logged) {
             continue;
@@ -426,26 +421,43 @@ fn cause_before(log: &[Logged], start: usize, after_a_write: bool) -> Cause {
         {
             continue;
         }
-        let route = read_route(&logged.key);
-        return match &logged.answer {
-            Err(TransportError::Failed(failed)) => Cause::Read {
-                class: failed.class,
-                retried: at > 0 && window[at - 1].key == logged.key,
-                never_completed: failed.status.is_none(),
-                route,
-                types: if failed.class == FailureClass::Graphql {
-                    graphql_types(failed)
-                } else {
-                    Vec::new()
-                },
-            },
-            _ => Cause::Refused { route },
-        };
+        let retried = at > 0 && window[at - 1].key == logged.key;
+        return read_cause(logged, retried);
     }
     if window.is_empty() && after_a_write {
         Cause::Write
     } else {
         Cause::Engine
+    }
+}
+
+/// Whether a read was answered: it succeeded, or failed with a GraphQL
+/// answer the client takes for its data.
+fn answered(logged: &Logged) -> bool {
+    match &logged.answer {
+        Ok(_) => true,
+        Err(TransportError::Failed(failed)) => taken_as_answer(&logged.key, failed),
+        Err(TransportError::Refused(_)) => false,
+    }
+}
+
+/// The cause a read that failed is: by its class and route, asked again
+/// where `retried`; a refused one by its route.
+fn read_cause(logged: &Logged, retried: bool) -> Cause {
+    let route = read_route(&logged.key);
+    match &logged.answer {
+        Err(TransportError::Failed(failed)) => Cause::Read {
+            class: failed.class,
+            retried,
+            never_completed: failed.status.is_none(),
+            route,
+            types: if failed.class == FailureClass::Graphql {
+                graphql_types(failed)
+            } else {
+                Vec::new()
+            },
+        },
+        _ => Cause::Refused { route },
     }
 }
 
@@ -1596,18 +1608,58 @@ fn answered_where_python_failed(calls: &str, log: &[Logged]) -> bool {
     })
 }
 
-/// Whether a read failed live, every time it was asked, where Python's
-/// same read was answered: GitHub failing it, or the transport. Either
-/// way what follows is not a comparison of the two engines.
-fn failed_where_python_read(recorded: &HashMap<CallKey, Vec<PyValue>>, log: &[Logged]) -> bool {
-    let mut answered: HashMap<&CallKey, bool> = HashMap::new();
+/// The first read, in the order asked, that failed live every time it was
+/// asked where Python's same read was answered, and what it is: by its
+/// class and route, asked again where it was asked more than once. What
+/// follows it is not a comparison of the two engines.
+fn failed_where_python_read(
+    recorded: &HashMap<CallKey, Vec<PyValue>>,
+    log: &[Logged],
+) -> Option<Cause> {
+    // Per read: whether it was ever answered, how often asked, its last.
+    let mut tries: HashMap<&CallKey, (bool, usize, &Logged)> = HashMap::new();
     for logged in log {
-        let ok = logged.answer.is_ok();
-        *answered.entry(&logged.key).or_default() |= ok;
+        let entry = tries.entry(&logged.key).or_insert((false, 0, logged));
+        entry.0 |= answered(logged);
+        entry.1 += 1;
+        entry.2 = logged;
     }
-    answered
-        .into_iter()
-        .any(|(key, ok)| !ok && recorded.contains_key(key))
+    log.iter().find_map(|logged| {
+        let (ever, asked, last) = tries.get(&logged.key)?;
+        (!ever && recorded.contains_key(&logged.key)).then(|| read_cause(last, *asked > 1))
+    })
+}
+
+/// A recording whose comparison stopped at a read Python's run was
+/// answered and the live run never was: not compared where GitHub or the
+/// transport failed it, counted and no failure; otherwise a failure, named
+/// by the read's class and route.
+fn stopped_at_failed_read(mut live: Live, cause: Cause) -> Live {
+    let check = if cause.github_or_transport() {
+        let why = format!("live read failed where Python's was answered ({cause})");
+        live.not_compared = Some(why.clone());
+        Check {
+            layer: Layer::LiveSnapshot,
+            index: 0,
+            outcome: Outcome::NotCompared { why },
+        }
+    } else {
+        let (path, kind) = match cause {
+            Cause::Refused { route } => (route, Kind::ReadRefused),
+            other => (other.to_string(), Kind::LiveReadFailed),
+        };
+        Check::new(
+            Layer::LiveSnapshot,
+            0,
+            vec![Difference {
+                path,
+                kind,
+                shape: None,
+            }],
+        )
+    };
+    live.comparison.checks.push(check);
+    live
 }
 
 /// A live snapshot against Python's, by how the pull request moved, and
@@ -1801,14 +1853,8 @@ pub fn live_snapshots<T: Transport>(
     };
     live.requests = observed.requests();
     let recorded = recorded_answers(&recording.calls);
-    if failed_where_python_read(&recorded, &observed.log) {
-        checks.push(Check::failed(
-            Layer::LiveSnapshot,
-            0,
-            Failure::LiveReadFailed,
-            "a live read failed where Python's was answered",
-        ));
-        return live;
+    if let Some(cause) = failed_where_python_read(&recorded, &observed.log) {
+        return stopped_at_failed_read(live, cause);
     }
     let since = instant(field(&recording.meta, "clock"));
     for (((index, number, pr, _), snapshot), gh_view) in wanted.iter().zip(read).zip(&gh_views) {
@@ -2213,12 +2259,8 @@ pub fn live_run<T: Transport>(
             outcome: Outcome::Moved,
         });
     };
-    if failed_where_python_read(&recorded, &observed.log) {
-        return stop(
-            live,
-            Failure::LiveReadFailed,
-            "a live read failed where Python's was answered",
-        );
+    if let Some(cause) = failed_where_python_read(&recorded, &observed.log) {
+        return stopped_at_failed_read(live, cause);
     }
     let listings = Listings::of(repository, &recorded, &observed.log);
     // Whether each author's open pull requests moved: which of them are
@@ -3452,19 +3494,25 @@ mod tests {
             key: key.clone(),
             answer: Err(TransportError::Failed(Failed::unavailable())),
         };
-        assert!(failed_where_python_read(&recorded, &[failed(), failed()]));
+        // Never completed, twice: a deadline, asked again, by its route.
+        let cause = failed_where_python_read(&recorded, &[failed(), failed()]).unwrap();
+        assert_eq!(
+            cause.to_string(),
+            "deadline after retry on GET repos/*/*/pulls/*"
+        );
+        assert!(cause.github_or_transport());
         // Failed once and answered on the retry: a read like any other.
         let answered = Logged {
             key: key.clone(),
             answer: Ok(Reply::Text("{}".into())),
         };
-        assert!(!failed_where_python_read(&recorded, &[failed(), answered]));
+        assert!(failed_where_python_read(&recorded, &[failed(), answered]).is_none());
         // Failed where Python's failed too: nothing to set against it.
         let other = Logged {
             key: gh_arguments(&rest(Method::Get, "repos/a/b/labels/x", None)).unwrap(),
             answer: Err(TransportError::Failed(Failed::unavailable())),
         };
-        assert!(!failed_where_python_read(&recorded, &[other]));
+        assert!(failed_where_python_read(&recorded, &[other]).is_none());
     }
 
     /// A synthetic recording, read from the corpus.

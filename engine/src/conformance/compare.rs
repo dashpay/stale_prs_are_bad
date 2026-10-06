@@ -148,10 +148,6 @@ pub enum Failure {
     /// A live run that evaluated other pull requests than Python's run, or
     /// in another order.
     OtherPullRequests,
-    /// A live read failed, every time it was asked, where Python's same
-    /// read was answered: GitHub failed it, or the transport did. Nothing
-    /// after it compares the two engines.
-    LiveReadFailed,
 }
 
 impl fmt::Display for Failure {
@@ -185,7 +181,6 @@ impl fmt::Display for Failure {
             Failure::OtherPullRequests => {
                 f.write_str("live run evaluated other pull requests than Python's")
             }
-            Failure::LiveReadFailed => f.write_str("live read failed where Python's was answered"),
         }
     }
 }

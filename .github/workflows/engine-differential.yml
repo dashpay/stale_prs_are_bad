@@ -542,6 +542,13 @@ jobs:
                   else
                     counted[$repo]="the live tool could not compare it"
                   fi
+                  # A pass nothing of which was compared, GitHub or the
+                  # transport having failed a read, is no failure, and no
+                  # coverage either: said, and not counted as covered.
+                  if [[ "${counted[$repo]}" =~ ^[0-9]+\ pull\ requests\;\ not\ compared: ]]; then
+                    covered[$repo]="not this run: nothing compared, GitHub or the transport failed a read; its turn again: $(next_turn "$repo")"
+                    echo "::warning::$repo: its full pass was not compared; GitHub or the transport failed a read (the summary says which)"
+                  fi
                   ;;
                 spent) counted[$repo]="not read live: the live budget was spent" ;;
                 *) counted[$repo]="not read live" ;;

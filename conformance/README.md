@@ -665,9 +665,16 @@ GitHub's routes disagreeing, or the port reading again differently from
 the first time — still fails, and names itself.
 
 A read that failed live, every time it was asked, where Python's same read
-was answered stops that recording's comparison and is named as such
-(*live read failed where Python's was answered*): GitHub failing it, or
-the transport. The other way round — Python's read failed where the live
+was answered stops that recording's comparison: nothing after it compares
+the two engines. It follows the same classes as a failure status (below):
+where GitHub or the transport failed it, the recording is *not compared:
+live read failed where Python's was answered (class on route)*, counted
+and no failure; any other 4xx, a refused read, or an error of the
+engine's fails, named by class and route. A recording not compared as a
+whole is said beside every counts table (*Not compared as a whole: …*),
+a full pass's coverage line says *not compared* and nothing else, and the
+job summary does not count that repository as covered that run; the job
+annotates it with a warning. The other way round — Python's read failed where the live
 one was answered — Python passed over a pull request it could not read,
 and the runs deciding different pull requests counts as moved. Every other
 difference fails.
@@ -699,8 +706,9 @@ reads moves no time the snapshot carries, so it reads as a difference.
 
 A full pass reads its pull requests minutes after Python's — platform's
 takes Python about ten — so more of them read as moved than in a one-author
-run. A live read that failed twice stops the whole pass's comparison, as it
-does a one-author run's.
+run. A live read that failed twice where Python's was answered stops the
+whole pass's comparison, as it does a one-author run's, by the same
+classes.
 
 The live reads have their own budget, 1 600 requests, beside the
 recordings'. Each recording's reads are weighed before they are made: a
@@ -781,7 +789,8 @@ holds the counts tables only.
     set than Python's, with none of the author's pull requests moved;
     *read refused by the read-only layer*, with the route as the field: the
     port asked a read the read-only layer does not let through; *live read
-    failed where Python's was answered*: see above.
+    failed where Python's was answered*, with its class and route as the
+    field: a 404 or another 4xx on a read Python made (see above).
   - A *live verdict* that none of Python's inputs explained has a line in
     a table under the categories saying why, input by input: not offered,
     and on what grounds (*the same instant*, *read on neither side*, *live
