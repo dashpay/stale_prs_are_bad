@@ -32,8 +32,9 @@ use crate::policy::{diff_print, machine_author, receipt_print, validate_policy, 
 use crate::pycompat::text::py_slice;
 use crate::pycompat::{py_dumps, py_loads, PyDateTime, PyDict, PyInt, PyList, PyValue};
 use crate::reconcile::{
-    checklist_block, context_fingerprint, diff_record, move_state, move_text, state_record, Clock,
-    ClockSite, Command, Reconciler, Run, RunOptions, Selection, POINTER, WAIVED_LABEL,
+    checklist_block, context_fingerprint, diff_record, move_state, move_text, state_record,
+    status_description, Clock, ClockSite, Command, Reconciler, Run, RunOptions, Selection, POINTER,
+    WAIVED_LABEL,
 };
 use regex::Regex;
 use std::cell::{Cell, RefCell};
@@ -311,7 +312,11 @@ fn outputs_for(
     status.insert("context".into(), s("PR Hygiene"));
     status.insert(
         "description".into(),
-        s(py_slice(state_text, None, Some(140))),
+        s(py_slice(
+            &status_description(result).map_err(|e| error(&e))?,
+            None,
+            Some(140),
+        )),
     );
     let optional = |text: Option<String>| text.map_or(PyValue::None, s);
     let mut out = PyDict::new();

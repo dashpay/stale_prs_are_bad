@@ -1,0 +1,24 @@
+{
+ "function": "main.status_description",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "alice",
+   "state": "ready-to-merge",
+   "status": "success",
+   "blockers": [],
+   "reviewers": [],
+   "areas": [
+    "core"
+   ],
+   "admitted_at": "2026-09-11T00:00:00Z",
+   "ready_since": null
+  }
+ },
+ "output": "ready-to-merge",
+ "tests": [
+  "test_main.PublicationTests.test_own_new_admission_is_expected_during_success_revalidation"
+ ],
+ "python": "3.12"
+}

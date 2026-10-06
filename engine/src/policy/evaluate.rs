@@ -893,10 +893,7 @@ fn decide(
             gate(
                 &mut first,
                 "too-many-open-prs",
-                vec![format!(
-                    "More than {} open pull requests; this one waits until one merges",
-                    py_str(getitem(policy, "max_active_prs")?)
-                )],
+                vec!["Human review is still required; automatic reviewer requests are paused until a review slot is available".into()],
             );
         }
         if !was_ready && !green {
@@ -958,8 +955,8 @@ fn decide(
         );
     }
 
-    // In the order the verdict weighs them, so the first unchecked line is
-    // the state.
+    // Keep recorded requirements in the order the verdict weighs them;
+    // rendered admission is informational, separate from merge requirements.
     let first_word = |line: &str| py_lower(line.split_once(' ').map_or(line, |(word, _)| word));
     let skippable = missing.iter().any(|bot| !waived.contains_key(bot));
     let self_review_done =

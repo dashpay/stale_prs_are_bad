@@ -1,0 +1,159 @@
+{
+ "function": "main.checklist_block",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "ready-for-human",
+   "status": "pending",
+   "blockers": [
+    "Human approval or objection resolution is required",
+    "Proceeded without coderabbitai: skipped by @llbartekll",
+    "Proceeded without thepastaclaw: skipped by @llbartekll"
+   ],
+   "reviewers": [
+    "QuantumExplorer",
+    "ktechmidas",
+    "shumkov"
+   ],
+   "objectors": [],
+   "areas": [
+    "fallback",
+    "github",
+    "swift-sdk"
+   ],
+   "ready_since": "2026-09-11T14:00:00Z",
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": "2026-09-11T09:20:00Z",
+   "nudge": [],
+   "waived": [
+    "coderabbitai",
+    "thepastaclaw"
+   ],
+   "approvals": [
+    {
+     "area": "swift-sdk",
+     "files": [
+      "packages/swift-sdk/Sources/a.swift"
+     ],
+     "approvers": [],
+     "approved_by": [],
+     "owned": true
+    },
+    {
+     "area": "fallback",
+     "files": [
+      ".editorconfig",
+      "AGENTS.md"
+     ],
+     "approvers": [
+      "QuantumExplorer",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    },
+    {
+     "area": "github",
+     "files": [
+      ".github/workflows/swift-sdk-build.yml",
+      ".github/workflows/tests.yml"
+     ],
+     "approvers": [
+      "ktechmidas",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    }
+   ],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": true,
+     "lines": [
+      "coderabbitai skipped by llbartekll",
+      "thepastaclaw skipped by llbartekll"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": true,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": true,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "swift-sdk",
+       "files": [
+        "packages/swift-sdk/Sources/a.swift"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      },
+      {
+       "area": "fallback",
+       "files": [
+        ".editorconfig",
+        "AGENTS.md"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "github",
+       "files": [
+        ".github/workflows/swift-sdk-build.yml",
+        ".github/workflows/tests.yml"
+       ],
+       "approvers": [
+        "ktechmidas",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {},
+   "skipped_by": "llbartekll"
+  }
+ },
+ "output": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai skipped by llbartekll · thepastaclaw skipped by llbartekll\n- [x] Self-review — posted; again after any push\n- [x] Build green\n- Approvals\n  - [x] `swift-sdk` — you own it\n  - [ ] files with no dedicated owner (`.editorconfig`, `AGENTS.md`) — QuantumExplorer or shumkov\n  - [ ] `github` (`.github/workflows/swift-sdk-build.yml`, `.github/workflows/tests.yml`) — ktechmidas or shumkov\n\nWhen every merge requirement is met, the `PR Hygiene` check passes. Reviewer limits do not block merging; other required GitHub checks and protections still apply.\n<!-- pr-hygiene:end -->",
+ "tests": [
+  "test_checklist.PublishTests.test_a_bot_reporting_with_nothing_to_answer_is_not_announced_again"
+ ],
+ "python": "3.12"
+}

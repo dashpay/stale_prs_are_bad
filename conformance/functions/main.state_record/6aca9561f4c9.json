@@ -1,0 +1,156 @@
+{
+ "function": "main.state_record",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "reviewer",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "packages/drive/a.rs"
+    }
+   ],
+   "reviews": [],
+   "comments": [
+    {
+     "id": 3,
+     "user": "reviewer",
+     "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "created_at": "2026-09-11T11:00:00Z",
+     "updated_at": "2026-09-11T11:00:00Z"
+    },
+    {
+     "id": 50,
+     "user": "github-actions[bot]",
+     "created_at": "2026-09-11T12:00:00Z",
+     "updated_at": "2026-09-11T12:00:00Z",
+     "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":null,\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"fb638d0c087e95cc9c50b328e5229ad352e097084540e8f3651ffd3585b83011\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"waiting-bots\",\"version\":1} -->\n\n<!-- pr-hygiene:move state=waiting-bots sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nWaiting for bot review — coderabbitai not yet · thepastaclaw not yet. Wait for the missing reviews, or a writer can post `/skip-bots` to proceed without them; blocking findings still need addressing.\nFull checklist in the description."
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "owner": "write",
+    "reviewer": "write",
+    "fallback": "write"
+   },
+   "controller_state": {
+    "number": 1,
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "admitted_at": null,
+    "ready_since": null,
+    "state": "waiting-bots",
+    "version": 1,
+    "evidence": "fb638d0c087e95cc9c50b328e5229ad352e097084540e8f3651ffd3585b83011",
+    "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+   },
+   "labels": [
+    "waiting-bots"
+   ],
+   "complete": true,
+   "build": "green",
+   "body": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [ ] Bots — coderabbitai not yet · thepastaclaw not yet — `/skip-bots` proceeds without the ones not yet reported\n- [x] Self-review — posted; again after any push\n- Reviewer requests paused — your 5 review slots are occupied; this PR is excluded from reviewers' queues. Required approvals still count without a slot.\n- [x] Build green\n- Approvals\n  - [ ] `drive` (`packages/drive/a.rs`) — owner\n\nWhen every merge requirement is met, the `PR Hygiene` check passes. Reviewer limits do not block merging; other required GitHub checks and protections still apply.\n<!-- pr-hygiene:end -->",
+   "controller_comment_id": 50
+  },
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "reviewer",
+   "title": "title",
+   "url": "url",
+   "state": "waiting-bots",
+   "status": "pending",
+   "blockers": [
+    "coderabbitai has not reported for the current head",
+    "thepastaclaw has not reported for the current head"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "drive"
+   ],
+   "ready_since": null,
+   "admitted_at": null,
+   "bot_completed_at": null,
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [],
+   "approvals": [],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": false,
+     "lines": [
+      "coderabbitai not yet",
+      "thepastaclaw not yet"
+     ],
+     "skippable": true
+    },
+    {
+     "item": "self_review",
+     "done": true,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": false,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "drive",
+       "files": [
+        "packages/drive/a.rs"
+       ],
+       "approvers": [
+        "owner"
+       ],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": null,
+   "receipts": {}
+  },
+  "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+ },
+ "output": {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "admitted_at": null,
+  "ready_since": null,
+  "state": "waiting-bots",
+  "version": 1,
+  "evidence": "fb638d0c087e95cc9c50b328e5229ad352e097084540e8f3651ffd3585b83011",
+  "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+ },
+ "tests": [
+  "test_checklist.PublishTests.test_waiting_announcements_are_quiet_until_the_details_change"
+ ],
+ "python": "3.12"
+}

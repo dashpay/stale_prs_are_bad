@@ -1073,7 +1073,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 # requests on its own has no attention to ration; what it
                 # costs reviewers is governed by the approvals it still needs,
                 # not by a queue its author never feels.
-                gate('too-many-open-prs', f"More than {policy['max_active_prs']} open pull requests; this one waits until one merges")
+                gate('too-many-open-prs', 'Human review is still required; automatic reviewer requests are paused until a review slot is available')
             if not was_ready and build != 'green':
                 # Green before a human is asked; red afterwards does not take it
                 # back, so a flake cannot withdraw a review request already sent
@@ -1106,8 +1106,9 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             gate('waiting-build',
                  'The build must pass before this can merge' if build == 'failed'
                  else 'Waiting for the build to finish')
-        # In the order the verdict weighs them, so the first unchecked line is
-        # the state. Attested-and-nothing-objected-since is what checks
+        # Keep recorded requirements in the order the verdict weighs them;
+        # rendered admission is informational, separate from merge requirements.
+        # Attested-and-nothing-objected-since is what checks
         # self-review: an objection at or after the attestation is the
         # author's to answer, and the box stays open.
         result['checklist'] = _checklist(

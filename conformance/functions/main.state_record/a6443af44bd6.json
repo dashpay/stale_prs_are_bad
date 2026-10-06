@@ -1,0 +1,184 @@
+{
+ "function": "main.state_record",
+ "inputs": {
+  "pr": {
+   "number": 1,
+   "author": "reviewer",
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "base": "v4.2-dev",
+   "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": "2026-09-10T00:00:00Z",
+   "draft": false,
+   "state": "open",
+   "url": "url",
+   "title": "title",
+   "files": [
+    {
+     "filename": "packages/drive/a.rs"
+    }
+   ],
+   "reviews": [
+    {
+     "id": 1,
+     "user": "thepastaclaw",
+     "state": "COMMENTED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": "<!-- thepastaclaw-review-phase v1 phase=final sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->"
+    },
+    {
+     "id": 2,
+     "user": "coderabbitai[bot]",
+     "state": "APPROVED",
+     "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "submitted_at": "2026-09-11T10:00:00Z",
+     "body": ""
+    }
+   ],
+   "comments": [
+    {
+     "id": 3,
+     "user": "reviewer",
+     "body": "/self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "created_at": "2026-09-11T11:00:00Z",
+     "updated_at": "2026-09-11T11:00:00Z"
+    },
+    {
+     "id": 50,
+     "user": "github-actions[bot]",
+     "created_at": "2026-09-11T12:00:00Z",
+     "updated_at": "2026-09-11T12:00:00Z",
+     "body": "<!-- platform-pr-review-state-v1 {\"admitted_at\":null,\"context\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"evidence\":\"c18b588aba3449f5608f7cc40eeb0e745252c726716f6bfdde3ddd5f22e053bc\",\"head\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"number\":1,\"ready_since\":null,\"state\":\"too-many-open-prs\",\"version\":1} -->\n\n<!-- pr-hygiene:move state=too-many-open-prs sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nWaiting for an active PR slot."
+    }
+   ],
+   "threads": [],
+   "requested_reviewers": [],
+   "permissions": {
+    "owner": "write",
+    "reviewer": "write",
+    "fallback": "write"
+   },
+   "controller_state": {
+    "number": 1,
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "admitted_at": null,
+    "ready_since": null,
+    "state": "too-many-open-prs",
+    "version": 1,
+    "evidence": "c18b588aba3449f5608f7cc40eeb0e745252c726716f6bfdde3ddd5f22e053bc",
+    "context": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+   },
+   "labels": [
+    "too-many-open-prs"
+   ],
+   "complete": true,
+   "build": "green",
+   "body": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai ✓ · thepastaclaw ✓\n- [x] Self-review — posted; again after any push\n- Reviewer requests paused — your 5 review slots are occupied; this PR is excluded from reviewers' queues. Required approvals still count without a slot.\n- [x] Build green\n- Approvals\n  - [ ] `drive` (`packages/drive/a.rs`) — owner\n\nWhen every merge requirement is met, the `PR Hygiene` check passes. Reviewer limits do not block merging; other required GitHub checks and protections still apply.\n<!-- pr-hygiene:end -->",
+   "controller_comment_id": 50
+  },
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "reviewer",
+   "title": "title",
+   "url": "url",
+   "state": "too-many-open-prs",
+   "status": "pending",
+   "blockers": [
+    "Human review is still required; automatic reviewer requests are paused until a review slot is available"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "drive"
+   ],
+   "ready_since": null,
+   "admitted_at": null,
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": "2026-09-11T11:00:00Z",
+   "nudge": [],
+   "waived": [],
+   "approvals": [
+    {
+     "area": "drive",
+     "files": [
+      "packages/drive/a.rs"
+     ],
+     "approvers": [
+      "owner"
+     ],
+     "approved_by": [],
+     "owned": false
+    }
+   ],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": true,
+     "lines": [
+      "coderabbitai ✓",
+      "thepastaclaw ✓"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": true,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": false,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "drive",
+       "files": [
+        "packages/drive/a.rs"
+       ],
+       "approvers": [
+        "owner"
+       ],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": null,
+   "receipts": {}
+  },
+  "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+ },
+ "output": {
+  "number": 1,
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "admitted_at": null,
+  "ready_since": null,
+  "state": "too-many-open-prs",
+  "version": 1,
+  "evidence": "c18b588aba3449f5608f7cc40eeb0e745252c726716f6bfdde3ddd5f22e053bc",
+  "context": "ab26808f1c4db54d4bb1d4423a9adafbd08f096ffc6fd64cf028bded98c736be"
+ },
+ "tests": [
+  "test_checklist.PublishTests.test_queued_status_is_refreshed_even_when_other_surfaces_are_current"
+ ],
+ "python": "3.12"
+}

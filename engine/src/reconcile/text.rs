@@ -127,14 +127,30 @@ pub fn area_name(area: &PyValue, code: bool) -> Cow<'_, str> {
     }
 }
 
+/// `status_description(result)`: the unmet review requirement, separate
+/// from automatic reviewer routing.
+pub fn status_description(result: &PyValue) -> Result<String, PyErr> {
+    let state = getitem(result, "state")?;
+    if py_eq_str(state, "too-many-open-prs") {
+        let items = Items::of(result)?;
+        let awaiting = getitem(items.get("approvals")?, "awaiting")?;
+        return Ok(if awaiting.truthy() {
+            "Human review unresolved"
+        } else {
+            "Missing human approval"
+        }
+        .to_owned());
+    }
+    Ok(text(state, "state")?.to_owned())
+}
+
 /// `checklist_block(result)`: the description's block, every requirement
 /// met or not, checked when met — or `None` when the verdict has no
 /// checklist.
 ///
-/// One shape always. The state is the first unchecked line, which is what
-/// the label and the status say too, so the three surfaces never disagree —
-/// and an author with an approval in hand can see which files it did not
-/// cover, before anyone has to ask.
+/// Merge requirements are checkboxes; reviewer admission is informational.
+/// An author with an approval in hand can see which files it did not cover,
+/// before anyone has to ask.
 pub fn checklist_block(result: &PyValue) -> Result<Option<String>, PyErr> {
     let items = Items::of(result)?;
     if items.is_empty() {
@@ -193,15 +209,9 @@ pub fn checklist_block(result: &PyValue) -> Result<Option<String>, PyErr> {
         }
     }
     let slot = items.get("slot")?;
-    let mut line = format!(
-        "- {} Within your {} open PRs",
-        tick(getitem(slot, "done")?),
-        shown(getitem(slot, "limit")?)
-    );
     if !getitem(slot, "done")?.truthy() {
-        line.push_str(" — this one is beyond the limit; it waits until one merges");
+        lines.push(format!("- Reviewer requests paused — your {} review slots are occupied; this PR is excluded from reviewers' queues. Required approvals still count without a slot.", shown(getitem(slot, "limit")?)));
     }
-    lines.push(line);
     let build = items.get("build")?;
     let state = getitem(build, "state")?;
     let fallback = format!("Build {}", shown(state));
@@ -261,7 +271,7 @@ pub fn checklist_block(result: &PyValue) -> Result<Option<String>, PyErr> {
     }
     lines.push(String::new());
     lines.push(
-        "When every box is checked the `PR Hygiene` check passes and this can merge.".to_owned(),
+        "When every merge requirement is met, the `PR Hygiene` check passes. Reviewer limits do not block merging; other required GitHub checks and protections still apply.".to_owned(),
     );
     lines.push(CHECKLIST_END.to_owned());
     Ok(Some(lines.join("\n")))
@@ -380,7 +390,7 @@ pub fn move_text(result: &PyValue) -> Result<Option<String>, PyErr> {
             }
             line
         }
-        "too-many-open-prs" => "Waiting for an active PR slot — merge, close, or convert another active PR by this author to draft so this one can enter human review.".to_owned(),
+        "too-many-open-prs" => format!("{}. Automatic reviewer requests are paused and this PR is excluded from reviewers' queues. Merge, close, or draft another active PR by this author to free a review slot. Required human review can be satisfied without a slot; once all merge requirements are met, PR Hygiene passes.", status_description(result)?),
         "waiting-self-review" => {
             // What actually blocks it, not what usually does. A bot's own
             // finding lands in this move too, and "bots are done, post

@@ -1,0 +1,39 @@
+{
+ "function": "main.status_description",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "configuration-error",
+   "status": "error",
+   "blockers": [
+    "No changed-file evidence"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": null,
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [],
+   "approvals": [],
+   "objections": [],
+   "checklist": [],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {}
+  }
+ },
+ "output": "configuration-error",
+ "tests": [
+  "test_checklist.RecordTests.test_a_configuration_error_writes_no_block_and_no_announcement"
+ ],
+ "python": "3.12"
+}

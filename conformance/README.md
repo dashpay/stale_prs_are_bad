@@ -305,6 +305,7 @@ The same harvest observes the pure functions `main.py` relies on besides
 |---|---|
 | `main.checklist_block` | the description's block |
 | `main.move_text` | the move comment's words |
+| `main.status_description` | the unmet requirement shown in the commit status |
 | `github.GitHub.state_comment_body` | the record comment, markers and words |
 | `main.state_record` | the record inside the state marker |
 | `main.diff_record` | the diff record beside it |
