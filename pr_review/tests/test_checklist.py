@@ -392,9 +392,18 @@ class PublishTests(unittest.TestCase):
 
     def test_nonqueued_status_descriptions_keep_their_existing_meaning(self):
         for state in ('draft', 'waiting-bots', 'waiting-build', 'waiting-self-review',
-                      'waiting-author', 'ready-for-human', 'ready-to-merge', 'configuration-error'):
+                      'ready-for-human', 'ready-to-merge', 'configuration-error'):
             with self.subTest(state=state):
                 self.assertEqual(main.status_description({'state': state}), state)
+
+    def test_author_response_check_uses_the_self_review_name(self):
+        self.policy, pr = fixture()
+        pr['reviews'][-1]['state'] = 'CHANGES_REQUESTED'
+        result = evaluate(self.policy, pr, None, NOW)
+        self.assertEqual(result['state'], 'waiting-author')
+        self.assertEqual(main.status_description(result), 'waiting-self-review')
+        api = self.run_publish(pr, result)
+        self.assertEqual(api.post_status.call_args.args[1:], ('pending', 'waiting-self-review'))
 
     def test_queued_status_distinguishes_objections_from_missing_area_approval(self):
         self.policy, pr = fixture()

@@ -141,6 +141,9 @@ pub fn status_description(result: &PyValue) -> Result<String, PyErr> {
         }
         .to_owned());
     }
+    if py_eq_str(state, "waiting-author") {
+        return Ok("waiting-self-review".to_owned());
+    }
     Ok(text(state, "state")?.to_owned())
 }
 

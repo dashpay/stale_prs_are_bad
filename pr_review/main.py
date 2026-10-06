@@ -378,6 +378,8 @@ def status_description(result):
     if result['state'] == 'too-many-open-prs':
         approvals = next(item for item in result['checklist'] if item['item'] == 'approvals')
         return 'Human review unresolved' if approvals['awaiting'] else 'Missing human approval'
+    if result['state'] == 'waiting-author':
+        return 'waiting-self-review'
     return result['state']
 
 
