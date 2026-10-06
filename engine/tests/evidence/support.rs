@@ -4,8 +4,8 @@
 
 pub use pr_hygiene_engine::evidence::replay::transient;
 pub use pr_hygiene_engine::evidence::{
-    Call, Client, Failure, FromFn, GitHub, History, Method, NoSleep, ReadError, Reply, Transport,
-    TransportError,
+    Call, Client, Failure, FailureClass, FromFn, GitHub, History, Method, NoSleep, ReadError,
+    Reply, Transport, TransportError,
 };
 pub use pr_hygiene_engine::pycompat::ops::py_eq;
 pub use pr_hygiene_engine::pycompat::{py_dumps, py_loads, PyInt, PyValue};
@@ -66,6 +66,7 @@ pub fn failed(exit: i32, stdout: &str, stderr: &str) -> Answer {
         status: Some(exit),
         body: stdout.to_owned(),
         detail: stderr.to_owned(),
+        class: FailureClass::Unclassed,
     }))
 }
 

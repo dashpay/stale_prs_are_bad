@@ -49,8 +49,8 @@ use super::run::{replayed, synced, Synced};
 use crate::evidence::queries;
 use crate::evidence::replay::{gh_arguments, is_read};
 use crate::evidence::{
-    Call, Client, Failure as Failed, GitHub, Method, NoSleep, ReadError, Reply, Transport,
-    TransportError,
+    Call, Client, Failure as Failed, FailureClass, GitHub, Method, NoSleep, ReadError, Reply,
+    Transport, TransportError,
 };
 use crate::policy::{admit, evaluate, validate_policy, NUDGE_MARKER};
 use crate::pycompat::{py_dumps, py_loads, PyDateTime, PyInt, PyList, PyValue};
@@ -138,6 +138,10 @@ struct WouldBe {
     target: Target,
     /// Whether it asks a review bot to look at a head.
     nudge: bool,
+    /// How many reads the run had made before it.
+    after: usize,
+    /// What led to it, where it is one of the engine's failure statuses.
+    cause: Option<Cause>,
 }
 
 /// The descriptions the engine posts on a status other than a verdict's
@@ -207,6 +211,256 @@ fn evidence_changed_kind() -> String {
     format!("POST repos/*/*/statuses/* pending \"{EVIDENCE_CHANGED}\"")
 }
 
+/// The descriptions of the statuses the engine posts because it could not
+/// reconcile a pull request: after any error, and where its evidence could
+/// not be read.
+const FAILURE_DESCRIPTIONS: [&str; 2] = [
+    "Policy reconciliation failed; inspect workflow log",
+    "Incomplete policy evidence; reconciliation required",
+];
+
+/// Whether `call` posts one of the engine's failure statuses.
+fn is_failure_status(call: &Call) -> bool {
+    let Call::Rest {
+        path,
+        body: Some(body),
+        ..
+    } = call
+    else {
+        return false;
+    };
+    path.split('?')
+        .next()
+        .is_some_and(|route| route.contains("/statuses/"))
+        && matches!(field(body, "description"),
+            Some(PyValue::Str(description)) if FAILURE_DESCRIPTIONS.contains(&description.as_str()))
+}
+
+/// The words of GitHub's API a read's route is named with, beside
+/// [`ROUTE_WORDS`]: the engine's other reads.
+const READ_WORDS: [&str; 7] = [
+    "files",
+    "timeline",
+    "collaborators",
+    "permission",
+    "check-runs",
+    "status",
+    "events",
+];
+
+/// How a read is named: its method and route, every segment that is not
+/// one of the API's words written `*`, and no query; a GraphQL query as
+/// `POST graphql`.
+fn read_route(key: &CallKey) -> String {
+    let words = &key.0;
+    let method = words.get(1).map_or("?", String::as_str);
+    let route = words.get(2).map_or("", String::as_str);
+    if route == "graphql" {
+        return "POST graphql".to_owned();
+    }
+    let segments: Vec<&str> = route
+        .split('?')
+        .next()
+        .unwrap_or_default()
+        .split('/')
+        .map(|segment| {
+            if ROUTE_WORDS.contains(&segment) || READ_WORDS.contains(&segment) {
+                segment
+            } else {
+                "*"
+            }
+        })
+        .collect();
+    let method = if ["GET", "POST"].contains(&method) {
+        method
+    } else {
+        "?"
+    };
+    format!("{method} {}", segments.join("/"))
+}
+
+/// What led to one of the engine's failure statuses, said in classes and
+/// the tool's own words, never by what was read or what GitHub said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Cause {
+    /// A read failed, every time it was asked.
+    Read {
+        class: FailureClass,
+        /// Whether it was asked twice, failing both times.
+        retried: bool,
+        /// Whether it never completed at all.
+        never_completed: bool,
+        /// Its route, as [`read_route`] names it.
+        route: String,
+        /// For GraphQL errors, their `type`s, each GitHub's own word.
+        types: Vec<String>,
+    },
+    /// A read the transport beneath refused to send.
+    Refused { route: String },
+    /// No read failed, and a write the run wanted was not sent just before.
+    Write,
+    /// No read failed: the engine raised `GitHubError` on what it read.
+    Engine,
+}
+
+impl Cause {
+    /// Whether GitHub or the transport failed a read, so that nothing about
+    /// the port is shown: a 5xx asked again, or on a GraphQL query, which
+    /// the engine never asks twice; a 403 or 429 carrying rate-limit
+    /// headers; no answer in time, no connection, an answer cut short. A
+    /// read refused, any other 4xx (a route the port built wrong) and an
+    /// error of the engine's are not.
+    fn github_or_transport(&self) -> bool {
+        let Cause::Read {
+            class,
+            retried,
+            never_completed,
+            route,
+            ..
+        } = self
+        else {
+            return false;
+        };
+        match class {
+            FailureClass::Http { code, .. } if (500..600).contains(code) => {
+                *retried || route == "POST graphql"
+            }
+            FailureClass::Http { rate_limited, .. } => *rate_limited,
+            FailureClass::Deadline | FailureClass::Connection | FailureClass::Body => true,
+            FailureClass::Unclassed => *never_completed,
+            FailureClass::Graphql | FailureClass::Local => false,
+        }
+    }
+}
+
+impl std::fmt::Display for Cause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Cause::Read {
+                class,
+                retried,
+                never_completed,
+                route,
+                types,
+            } => {
+                match class {
+                    FailureClass::Http { code, rate_limited } => {
+                        write!(f, "HTTP {code}")?;
+                        if *rate_limited {
+                            f.write_str(", rate limited")?;
+                        }
+                    }
+                    FailureClass::Deadline => f.write_str("deadline")?,
+                    FailureClass::Connection => f.write_str("connection")?,
+                    FailureClass::Body => f.write_str("truncated or invalid body")?,
+                    FailureClass::Graphql if types.is_empty() => f.write_str("GraphQL errors")?,
+                    FailureClass::Graphql => write!(f, "GraphQL errors ({})", types.join(", "))?,
+                    FailureClass::Local => f.write_str("the transport's own refusal")?,
+                    FailureClass::Unclassed if *never_completed => f.write_str("deadline")?,
+                    FailureClass::Unclassed => f.write_str("a failure not classed")?,
+                }
+                if *retried {
+                    f.write_str(" after retry")?;
+                }
+                write!(f, " on {route}")
+            }
+            Cause::Refused { route } => write!(f, "read refused by the read-only layer ({route})"),
+            Cause::Write => f.write_str("a would-be write, not sent"),
+            Cause::Engine => f.write_str("engine error: GitHubError, no read failed"),
+        }
+    }
+}
+
+/// Whether the client took a failed read as an answer: a GraphQL answer
+/// that carries errors and a `data` object.
+fn taken_as_answer(key: &CallKey, failed: &Failed) -> bool {
+    key.1.is_some()
+        && matches!(py_loads(&failed.body),
+            Ok(PyValue::Dict(answer)) if matches!(answer.get("data"), Some(PyValue::Dict(_))))
+}
+
+/// The `type`s of a failed GraphQL answer's errors: GitHub's own words,
+/// kept only where they are plainly one (capitals and underscores).
+fn graphql_types(failed: &Failed) -> Vec<String> {
+    let Ok(PyValue::Dict(answer)) = py_loads(&failed.body) else {
+        return Vec::new();
+    };
+    let Some(PyValue::List(errors)) = answer.get("errors") else {
+        return Vec::new();
+    };
+    let types: BTreeSet<String> = errors
+        .iter()
+        .filter_map(|error| match field(error, "type") {
+            Some(PyValue::Str(kind))
+                if !kind.is_empty()
+                    && kind.len() <= 40
+                    && kind.bytes().all(|b| b.is_ascii_uppercase() || b == b'_') =>
+            {
+                Some(kind.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    types.into_iter().collect()
+}
+
+/// What led to a failure status posted after `log[start..]`, the reads
+/// since the write before it, if any: the latest read that failed, every
+/// time it was asked, and was not taken as an answer; else the write
+/// before it, where no read came between; else the engine itself.
+fn cause_before(log: &[Logged], start: usize, after_a_write: bool) -> Cause {
+    let window = &log[start.min(log.len())..];
+    for (at, logged) in window.iter().enumerate().rev() {
+        if answered(logged) {
+            continue;
+        }
+        let later = &window[at + 1..];
+        if later
+            .iter()
+            .any(|again| again.key == logged.key && answered(again))
+        {
+            continue;
+        }
+        let retried = at > 0 && window[at - 1].key == logged.key;
+        return read_cause(logged, retried);
+    }
+    if window.is_empty() && after_a_write {
+        Cause::Write
+    } else {
+        Cause::Engine
+    }
+}
+
+/// Whether a read was answered: it succeeded, or failed with a GraphQL
+/// answer the client takes for its data.
+fn answered(logged: &Logged) -> bool {
+    match &logged.answer {
+        Ok(_) => true,
+        Err(TransportError::Failed(failed)) => taken_as_answer(&logged.key, failed),
+        Err(TransportError::Refused(_)) => false,
+    }
+}
+
+/// The cause a read that failed is: by its class and route, asked again
+/// where `retried`; a refused one by its route.
+fn read_cause(logged: &Logged, retried: bool) -> Cause {
+    let route = read_route(&logged.key);
+    match &logged.answer {
+        Err(TransportError::Failed(failed)) => Cause::Read {
+            class: failed.class,
+            retried,
+            never_completed: failed.status.is_none(),
+            route,
+            types: if failed.class == FailureClass::Graphql {
+                graphql_types(failed)
+            } else {
+                Vec::new()
+            },
+        },
+        _ => Cause::Refused { route },
+    }
+}
+
 impl WouldBe {
     fn of(call: &Call) -> Self {
         let (target, nudge) = match call {
@@ -226,6 +480,8 @@ impl WouldBe {
             kind,
             target,
             nudge,
+            after: 0,
+            cause: None,
         }
     }
 }
@@ -290,12 +546,23 @@ impl<T> Observed<T> {
 impl<T: Transport> Transport for Observed<T> {
     fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
         if !is_read(call) {
-            self.would_be.push(WouldBe::of(call));
+            let mut write = WouldBe::of(call);
+            write.after = self.log.len();
+            if is_failure_status(call) {
+                let previous = self.would_be.last().map(|w| w.after);
+                write.cause = Some(cause_before(
+                    &self.log,
+                    previous.unwrap_or(0),
+                    previous.is_some(),
+                ));
+            }
+            self.would_be.push(write);
             return Err(TransportError::Failed(Failed {
                 transient: false,
                 status: Some(1),
                 body: String::new(),
                 detail: "a write, not sent: this run only reads".to_owned(),
+                class: FailureClass::Unclassed,
             }));
         }
         let answer = self.inner.call(call);
@@ -380,6 +647,10 @@ pub struct Live {
     /// held to writing nothing to, as Python's own run wrote to them or did
     /// not run to its end. Each one held is a [`Layer::LiveWrites`] check.
     pub unsettled: usize,
+    /// Why the whole recording was not compared, where GitHub or the
+    /// transport failed a read Python's run was answered: classes and the
+    /// tool's own words, never what was read.
+    pub not_compared: Option<String>,
 }
 
 fn field<'a>(value: &'a PyValue, key: &str) -> Option<&'a PyValue> {
@@ -395,6 +666,26 @@ fn s(text: impl Into<String>) -> PyValue {
 
 fn same(a: &PyValue, b: &PyValue) -> bool {
     differences(a, b, "").is_empty()
+}
+
+/// A run, or a read, stopped by the transport beneath refusing a read: a
+/// failure, named by the route of the last read refused, as [`read_route`]
+/// names it.
+fn refused_check(layer: Layer, index: usize, log: &[Logged]) -> Check {
+    let route = log
+        .iter()
+        .rev()
+        .find(|logged| matches!(logged.answer, Err(TransportError::Refused(_))))
+        .map_or_else(|| "?".to_owned(), |logged| read_route(&logged.key));
+    Check::new(
+        layer,
+        index,
+        vec![Difference {
+            path: route,
+            kind: Kind::ReadRefused,
+            shape: None,
+        }],
+    )
 }
 
 /// What stopped a live read, by its class.
@@ -573,27 +864,46 @@ impl Aims {
 /// in order, and those aimed at none of them.
 #[derive(Debug, Default)]
 struct Aimed {
-    by_pr: HashMap<PyInt, Vec<String>>,
+    /// Each pull request's writes: how each is named, and what led to it
+    /// where it is one of the engine's failure statuses.
+    by_pr: HashMap<PyInt, Vec<(String, Option<Cause>)>>,
     elsewhere: Vec<(Target, String)>,
 }
 
+/// One write to set against a pull request: what it was aimed at, how it
+/// is named, and what led to it, if that is known.
+type ToAim<'w> = (&'w Target, &'w str, Option<&'w Cause>);
+
 impl Aimed {
-    fn of<'w>(writes: impl IntoIterator<Item = (&'w Target, &'w str)>, aims: &Aims) -> Self {
+    fn of<'w>(writes: impl IntoIterator<Item = ToAim<'w>>, aims: &Aims) -> Self {
         let mut aimed = Aimed::default();
-        for (target, kind) in writes {
+        for (target, kind, cause) in writes {
             let prs = aims.of_target(target);
             if prs.is_empty() {
                 aimed.elsewhere.push((target.clone(), kind.to_owned()));
             }
             for n in prs {
-                aimed.by_pr.entry(n).or_default().push(kind.to_owned());
+                aimed
+                    .by_pr
+                    .entry(n)
+                    .or_default()
+                    .push((kind.to_owned(), cause.cloned()));
             }
         }
         aimed
     }
 
-    fn to(&self, n: &PyInt) -> &[String] {
-        self.by_pr.get(n).map_or(&[], Vec::as_slice)
+    /// How each write to pull request `n` is named, in order.
+    fn to(&self, n: &PyInt) -> Vec<&str> {
+        self.by_pr.get(n).map_or_else(Vec::new, |writes| {
+            writes.iter().map(|(kind, _)| kind.as_str()).collect()
+        })
+    }
+
+    /// The first write to pull request `n`, and what led to it.
+    fn first(&self, n: &PyInt) -> Option<(&str, Option<&Cause>)> {
+        let (kind, cause) = self.by_pr.get(n)?.first()?;
+        Some((kind.as_str(), cause.as_ref()))
     }
 }
 
@@ -640,14 +950,11 @@ impl Nudged {
 }
 
 /// The would-be writes a live run is held to, by [`Nudged::holds`].
-fn held_writes<'w>(
-    would_be: &'w [WouldBe],
-    nudged: &'w Nudged,
-) -> impl Iterator<Item = (&'w Target, &'w str)> {
+fn held_writes<'w>(would_be: &'w [WouldBe], nudged: &'w Nudged) -> impl Iterator<Item = ToAim<'w>> {
     would_be
         .iter()
         .filter(|write| nudged.holds(write))
-        .map(|write| (&write.target, write.kind.as_str()))
+        .map(|write| (&write.target, write.kind.as_str(), write.cause.as_ref()))
 }
 
 /// A live answer as the value it holds: a listing as its list of pages,
@@ -1301,18 +1608,58 @@ fn answered_where_python_failed(calls: &str, log: &[Logged]) -> bool {
     })
 }
 
-/// Whether a read failed live, every time it was asked, where Python's
-/// same read was answered: GitHub failing it, or the transport. Either
-/// way what follows is not a comparison of the two engines.
-fn failed_where_python_read(recorded: &HashMap<CallKey, Vec<PyValue>>, log: &[Logged]) -> bool {
-    let mut answered: HashMap<&CallKey, bool> = HashMap::new();
+/// The first read, in the order asked, that failed live every time it was
+/// asked where Python's same read was answered, and what it is: by its
+/// class and route, asked again where it was asked more than once. What
+/// follows it is not a comparison of the two engines.
+fn failed_where_python_read(
+    recorded: &HashMap<CallKey, Vec<PyValue>>,
+    log: &[Logged],
+) -> Option<Cause> {
+    // Per read: whether it was ever answered, how often asked, its last.
+    let mut tries: HashMap<&CallKey, (bool, usize, &Logged)> = HashMap::new();
     for logged in log {
-        let ok = logged.answer.is_ok();
-        *answered.entry(&logged.key).or_default() |= ok;
+        let entry = tries.entry(&logged.key).or_insert((false, 0, logged));
+        entry.0 |= answered(logged);
+        entry.1 += 1;
+        entry.2 = logged;
     }
-    answered
-        .into_iter()
-        .any(|(key, ok)| !ok && recorded.contains_key(key))
+    log.iter().find_map(|logged| {
+        let (ever, asked, last) = tries.get(&logged.key)?;
+        (!ever && recorded.contains_key(&logged.key)).then(|| read_cause(last, *asked > 1))
+    })
+}
+
+/// A recording whose comparison stopped at a read Python's run was
+/// answered and the live run never was: not compared where GitHub or the
+/// transport failed it, counted and no failure; otherwise a failure, named
+/// by the read's class and route.
+fn stopped_at_failed_read(mut live: Live, cause: Cause) -> Live {
+    let check = if cause.github_or_transport() {
+        let why = format!("live read failed where Python's was answered ({cause})");
+        live.not_compared = Some(why.clone());
+        Check {
+            layer: Layer::LiveSnapshot,
+            index: 0,
+            outcome: Outcome::NotCompared { why },
+        }
+    } else {
+        let (path, kind) = match cause {
+            Cause::Refused { route } => (route, Kind::ReadRefused),
+            other => (other.to_string(), Kind::LiveReadFailed),
+        };
+        Check::new(
+            Layer::LiveSnapshot,
+            0,
+            vec![Difference {
+                path,
+                kind,
+                shape: None,
+            }],
+        )
+    };
+    live.comparison.checks.push(check);
+    live
 }
 
 /// A live snapshot against Python's, by how the pull request moved, and
@@ -1331,13 +1678,19 @@ fn snapshot_check(
         outcome: Outcome::Moved,
     };
     match snapshot {
-        _ if motion.pull => moved,
+        Err(_) if motion.pull => moved,
         Err(error) => Check::failed(
             Layer::LiveSnapshot,
             index,
             live_failure(&error),
             error.to_string(),
         ),
+        // Compared first: a snapshot equal to Python's is matched whatever
+        // moved, and only one that differs is put down to the move.
+        Ok(snapshot) if differences(&snapshot, python, "pr").is_empty() => {
+            Check::new(Layer::LiveSnapshot, index, Vec::new())
+        }
+        Ok(_) if motion.pull => moved,
         Ok(snapshot) => {
             let unexcused = |snapshot: &PyValue| -> Vec<Difference> {
                 differences(snapshot, python, "pr")
@@ -1346,9 +1699,9 @@ fn snapshot_check(
                     .collect()
             };
             let left = unexcused(&snapshot);
-            if left.is_empty() && motion.moved() {
+            if left.is_empty() {
                 moved
-            } else if !left.is_empty() && gh_view.is_some_and(|gh| unexcused(gh).is_empty()) {
+            } else if gh_view.is_some_and(|gh| unexcused(gh).is_empty()) {
                 Check {
                     layer: Layer::LiveSnapshot,
                     index,
@@ -1500,14 +1853,8 @@ pub fn live_snapshots<T: Transport>(
     };
     live.requests = observed.requests();
     let recorded = recorded_answers(&recording.calls);
-    if failed_where_python_read(&recorded, &observed.log) {
-        checks.push(Check::failed(
-            Layer::LiveSnapshot,
-            0,
-            Failure::LiveReadFailed,
-            "a live read failed where Python's was answered",
-        ));
-        return live;
+    if let Some(cause) = failed_where_python_read(&recorded, &observed.log) {
+        return stopped_at_failed_read(live, cause);
     }
     let since = instant(field(&recording.meta, "clock"));
     for (((index, number, pr, _), snapshot), gh_view) in wanted.iter().zip(read).zip(&gh_views) {
@@ -1522,6 +1869,10 @@ pub fn live_snapshots<T: Transport>(
         }
         if motion.moved() {
             live.moved += 1;
+        }
+        if let Err(ReadError::Refused(_)) = &snapshot {
+            checks.push(refused_check(Layer::LiveSnapshot, index, &observed.log));
+            continue;
         }
         checks.push(snapshot_check(
             index,
@@ -1908,12 +2259,8 @@ pub fn live_run<T: Transport>(
             outcome: Outcome::Moved,
         });
     };
-    if failed_where_python_read(&recorded, &observed.log) {
-        return stop(
-            live,
-            Failure::LiveReadFailed,
-            "a live read failed where Python's was answered",
-        );
+    if let Some(cause) = failed_where_python_read(&recorded, &observed.log) {
+        return stopped_at_failed_read(live, cause);
     }
     let listings = Listings::of(repository, &recorded, &observed.log);
     // Whether each author's open pull requests moved: which of them are
@@ -1945,6 +2292,12 @@ pub fn live_run<T: Transport>(
             if scope_moved || pr_moved {
                 live.moved += 1;
                 moved(&mut live, 0);
+                return live;
+            }
+            if let ReadError::Refused(_) = error {
+                live.comparison
+                    .checks
+                    .push(refused_check(Layer::LiveSnapshot, 0, &observed.log));
                 return live;
             }
             return stop(live, live_failure(&error), &error.to_string());
@@ -2057,19 +2410,16 @@ pub fn live_run<T: Transport>(
         let Some(python_row) = recording.verdicts.get(index) else {
             continue;
         };
-        if pr_moved(number, wanted) {
-            checks.push(Check {
-                layer: Layer::LiveVerdict,
-                index,
-                outcome: Outcome::Moved,
-            });
-            continue;
-        }
+        // Compared first: a verdict equal to Python's is evidence whatever
+        // moved. Only one that differs is put down to its pull request, or
+        // its author's others, having moved: a verdict follows from them.
         let exception_text =
             field(evaluation, "result").is_some_and(|result| own.python_exception_text(result));
         let found = compare_result(verdict, python_row, "verdict", exception_text, own);
         let outcome = if found.is_empty() {
             Outcome::Matched
+        } else if pr_moved(number, wanted) {
+            Outcome::Moved
         } else {
             let case = Case {
                 snapshot,
@@ -2114,7 +2464,7 @@ pub fn live_run<T: Transport>(
         .and_then(|outcome| field(outcome, "returned"))
         .is_some();
     let python_aimed = Aimed::of(
-        python_writes.iter().map(|write| (&write.target, "")),
+        python_writes.iter().map(|write| (&write.target, "", None)),
         &Aims::of(python_prs.iter().copied()),
     );
     let live_aimed = Aimed::of(
@@ -2158,16 +2508,26 @@ pub fn live_run<T: Transport>(
             };
             moved_within_run(repository, number, &heads, author, &observed.log)
         };
-        let outcome = match live_aimed.to(number).first() {
+        let outcome = match live_aimed.first(number) {
             None => Outcome::Matched,
             Some(_) if pr_moved(number, wanted) => Outcome::Moved,
-            Some(kind) if moved_under_the_run(kind) => {
+            Some((kind, _)) if moved_under_the_run(kind) => {
                 live.moved += 1;
                 Outcome::Moved
             }
-            Some(kind) => {
+            // A failure status after GitHub or the transport failed a read:
+            // nothing about the port is shown.
+            Some((_, Some(cause))) if cause.github_or_transport() => Outcome::NotCompared {
+                why: format!("live read failed ({cause})"),
+            },
+            Some((kind, cause)) => {
+                // A failure status is named with what led to it.
+                let path = match cause {
+                    Some(cause) => format!("{kind}, after {cause}"),
+                    None => kind.to_owned(),
+                };
                 let found = vec![Difference {
-                    path: kind.clone(),
+                    path,
                     kind: Kind::WouldBeWrite,
                     shape: None,
                 }];
@@ -2468,6 +2828,131 @@ mod tests {
             None,
         );
         assert_eq!(write_kind(&call), "DELETE repos/*/*/issues/*/labels/*");
+    }
+
+    fn read_of(path: &str, paginate: bool) -> CallKey {
+        gh_arguments(&Call::Rest {
+            method: Method::Get,
+            path: path.into(),
+            body: None,
+            paginate,
+        })
+        .unwrap()
+    }
+
+    fn failing(key: &CallKey, class: FailureClass, body: &str) -> Logged {
+        Logged {
+            key: key.clone(),
+            answer: Err(TransportError::Failed(Failed {
+                transient: false,
+                status: Some(1),
+                body: body.into(),
+                detail: "Quokka-Zanzibar said no (HTTP 502)".into(),
+                class,
+            })),
+        }
+    }
+
+    fn answered(key: &CallKey) -> Logged {
+        Logged {
+            key: key.clone(),
+            answer: Ok(Reply::Text("{}".into())),
+        }
+    }
+
+    #[test]
+    fn what_led_to_a_failure_status_is_the_latest_read_that_failed_every_time() {
+        let timeline = read_of("repos/a/b/issues/7/timeline?per_page=100", true);
+        let pull = read_of("repos/a/b/pulls/7", false);
+        let http = |code| FailureClass::Http {
+            code,
+            rate_limited: false,
+        };
+        // Failed twice: asked again, and failed again.
+        let log = [
+            answered(&pull),
+            failing(&timeline, http(502), ""),
+            failing(&timeline, http(502), ""),
+        ];
+        let cause = cause_before(&log, 0, false);
+        assert_eq!(
+            cause.to_string(),
+            "HTTP 502 after retry on GET repos/*/*/issues/*/timeline"
+        );
+        assert!(cause.github_or_transport());
+        // Failed, then answered when asked again: not what led to it.
+        let log = [failing(&pull, http(502), ""), answered(&pull)];
+        assert_eq!(cause_before(&log, 0, false), Cause::Engine);
+        // Nothing failed, right after a write: the write.
+        assert_eq!(cause_before(&log, 2, true), Cause::Write);
+        // A GraphQL answer the client takes for its data is no failure.
+        let graphql = (
+            vec!["--method".into(), "POST".into(), "graphql".into()],
+            Some("{}".to_owned()),
+        );
+        let partial = failing(
+            &graphql,
+            FailureClass::Graphql,
+            r#"{"data": {}, "errors": [{"type": "NOT_FOUND"}]}"#,
+        );
+        assert_eq!(cause_before(&[partial], 0, false), Cause::Engine);
+        let errors = failing(
+            &graphql,
+            FailureClass::Graphql,
+            r#"{"errors": [{"type": "FORBIDDEN", "message": "Quokka"}, {"type": "not a word"}]}"#,
+        );
+        let cause = cause_before(&[errors], 0, false);
+        assert_eq!(
+            cause.to_string(),
+            "GraphQL errors (FORBIDDEN) on POST graphql"
+        );
+        assert!(!cause.github_or_transport());
+        // A refused read, named by its route.
+        let refused = Logged {
+            key: pull.clone(),
+            answer: Err(TransportError::Refused("Quokka".into())),
+        };
+        assert_eq!(
+            cause_before(&[refused], 0, false).to_string(),
+            "read refused by the read-only layer (GET repos/*/*/pulls/*)"
+        );
+    }
+
+    #[test]
+    fn only_github_or_the_transport_failing_a_read_leaves_a_failure_status_uncompared() {
+        let read = |class: FailureClass, retried: bool, route: &str| Cause::Read {
+            class,
+            retried,
+            never_completed: false,
+            route: route.into(),
+            types: Vec::new(),
+        };
+        let http = |code, rate_limited| FailureClass::Http { code, rate_limited };
+        let get = "GET repos/*/*/pulls/*";
+        for (cause, uncompared) in [
+            (read(http(502, false), true, get), true),
+            (read(http(502, false), false, get), false),
+            (read(http(503, false), false, "POST graphql"), true),
+            (read(http(403, true), false, get), true),
+            (read(http(429, true), false, get), true),
+            (read(http(403, false), false, get), false),
+            (read(http(404, false), false, get), false),
+            (read(http(422, false), false, get), false),
+            (read(FailureClass::Deadline, false, get), true),
+            (read(FailureClass::Connection, true, get), true),
+            (read(FailureClass::Body, true, get), true),
+            (read(FailureClass::Graphql, false, "POST graphql"), false),
+            (read(FailureClass::Local, false, get), false),
+            (Cause::Refused { route: get.into() }, false),
+            (Cause::Write, false),
+            (Cause::Engine, false),
+        ] {
+            assert_eq!(cause.github_or_transport(), uncompared, "{cause}");
+        }
+        assert_eq!(
+            read(http(403, true), false, get).to_string(),
+            "HTTP 403, rate limited on GET repos/*/*/pulls/*"
+        );
     }
 
     #[test]
@@ -3009,19 +3494,25 @@ mod tests {
             key: key.clone(),
             answer: Err(TransportError::Failed(Failed::unavailable())),
         };
-        assert!(failed_where_python_read(&recorded, &[failed(), failed()]));
+        // Never completed, twice: a deadline, asked again, by its route.
+        let cause = failed_where_python_read(&recorded, &[failed(), failed()]).unwrap();
+        assert_eq!(
+            cause.to_string(),
+            "deadline after retry on GET repos/*/*/pulls/*"
+        );
+        assert!(cause.github_or_transport());
         // Failed once and answered on the retry: a read like any other.
         let answered = Logged {
             key: key.clone(),
             answer: Ok(Reply::Text("{}".into())),
         };
-        assert!(!failed_where_python_read(&recorded, &[failed(), answered]));
+        assert!(failed_where_python_read(&recorded, &[failed(), answered]).is_none());
         // Failed where Python's failed too: nothing to set against it.
         let other = Logged {
             key: gh_arguments(&rest(Method::Get, "repos/a/b/labels/x", None)).unwrap(),
             answer: Err(TransportError::Failed(Failed::unavailable())),
         };
-        assert!(!failed_where_python_read(&recorded, &[other]));
+        assert!(failed_where_python_read(&recorded, &[other]).is_none());
     }
 
     /// A synthetic recording, read from the corpus.
@@ -3071,6 +3562,7 @@ mod tests {
                     status: Some(1),
                     body: text("stdout"),
                     detail: text("stderr"),
+                    class: FailureClass::Unclassed,
                 })),
             };
             log.push(Logged {
@@ -3129,6 +3621,7 @@ mod tests {
                             .join(", ")
                     ),
                     Outcome::Failed { failure, detail } => format!("failed: {failure}: {detail}"),
+                    Outcome::NotCompared { why } => format!("not compared: {why}"),
                 };
                 format!("{} {}: {what}", check.layer.as_str(), check.index)
             })
@@ -3137,6 +3630,58 @@ mod tests {
 
     fn at(instant: &str) -> Stopped {
         Stopped(PyDateTime::fromisoformat(instant).unwrap())
+    }
+
+    /// `sync-pr-2` read live, pull request 2's files, which Python read and
+    /// was answered, failing every time with HTTP `code`.
+    fn files_failing(code: u16) -> Live {
+        let recording = synthetic("sync-pr-2");
+        let mut github = as_recorded(&recording);
+        let files = read_of("repos/dashpay/platform/pulls/2/files?per_page=100", true);
+        let mut failure = failing(
+            &files,
+            FailureClass::Http {
+                code,
+                rate_limited: false,
+            },
+            "",
+        );
+        if let Err(TransportError::Failed(failed)) = &mut failure.answer {
+            failed.transient = code == 502;
+            failed.detail = format!("Quokka-Zanzibar says no (HTTP {code})");
+        }
+        github.answers.insert(files, (vec![failure.answer], 0));
+        live_run(
+            &recording,
+            github,
+            &mut at("2026-09-12T10:00:00+00:00"),
+            &mut || PyValue::None,
+            &own(),
+        )
+    }
+
+    #[test]
+    fn a_read_python_made_that_github_fails_live_leaves_the_recording_not_compared() {
+        // Asked, and asked again: GitHub failed it both times. Nothing after
+        // it compares the two engines, and nothing about the port is shown.
+        let live = files_failing(502);
+        assert_eq!(
+            outcomes(&live),
+            ["live snapshot 0: not compared: live read failed where Python's was answered (HTTP 502 after retry on GET repos/*/*/pulls/*/files)"]
+        );
+        assert!(live.comparison.is_clean());
+        assert!(live.not_compared.is_some());
+    }
+
+    #[test]
+    fn a_read_python_made_that_github_does_not_have_live_fails_named_by_its_class() {
+        let live = files_failing(404);
+        assert_eq!(
+            outcomes(&live),
+            ["live snapshot 0: differs: HTTP 404 on GET repos/*/*/pulls/*/files live read failed where Python's was answered"]
+        );
+        assert!(!live.comparison.is_clean());
+        assert!(live.not_compared.is_none());
     }
 
     #[test]
@@ -3347,16 +3892,37 @@ mod tests {
             })
             .collect();
         let live = sweep_at_its_instant(&recording, served(&moved));
+        // Each verdict is compared first: both are Python's, and matched.
         assert_eq!(
             outcomes(&live),
             [
                 "live snapshot 0: matched",
                 "live verdict 0: matched",
                 "live snapshot 1: matched",
-                "live verdict 1: moved",
+                "live verdict 1: matched",
             ]
         );
         assert!(live.comparison.is_clean());
+        // Where Python decided both otherwise, 5's difference is put down to
+        // its author's move; 2's, whose author's did not move, fails.
+        let mut otherwise = recording.clone();
+        for row in &mut otherwise.verdicts {
+            if let PyValue::Dict(row) = row {
+                row.insert("state".into(), s("too-many-open-prs"));
+            }
+        }
+        let live = sweep_at_its_instant(&otherwise, served(&moved));
+        let verdicts: Vec<(usize, bool, bool)> = live
+            .comparison
+            .checks
+            .iter()
+            .filter(|check| check.layer == Layer::LiveVerdict)
+            .map(|check| {
+                let moved = matches!(check.outcome, Outcome::Moved);
+                (check.index, moved, check.passed())
+            })
+            .collect();
+        assert_eq!(verdicts, [(0, false, false), (1, true, true)]);
     }
 
     #[test]
@@ -3413,7 +3979,13 @@ mod tests {
             Target::Other,
         ];
         let kinds = ["a", "b", "c", "d", "e", "f", "g"];
-        let aimed = Aimed::of(targets.iter().zip(kinds), &aims);
+        let aimed = Aimed::of(
+            targets
+                .iter()
+                .zip(kinds)
+                .map(|(target, kind)| (target, kind, None)),
+            &aims,
+        );
         assert_eq!(aimed.to(&PyInt::from(2)), ["a", "b", "c"]);
         assert_eq!(aimed.to(&PyInt::from(5)), ["c"]);
         assert!(aimed.to(&PyInt::from(4)).is_empty());
@@ -3459,7 +4031,7 @@ mod tests {
         let held = |python: &[Recorded]| -> Vec<Target> {
             let nudged = Nudged::of(&decided, python);
             held_writes(&writes, &nudged)
-                .map(|(target, _)| target.clone())
+                .map(|(target, _, _)| target.clone())
                 .collect()
         };
         let one = Target::Number(PyInt::from(1));
@@ -3489,7 +4061,7 @@ mod tests {
         let later: Vec<WouldBe> = writes[1..].to_vec();
         let nudged = Nudged::of(&decided, &[python_nudged(1)]);
         let held: Vec<Target> = held_writes(&later, &nudged)
-            .map(|(target, _)| target.clone())
+            .map(|(target, _, _)| target.clone())
             .collect();
         assert_eq!(held, [one, status]);
     }

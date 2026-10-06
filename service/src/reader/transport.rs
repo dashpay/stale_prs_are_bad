@@ -48,7 +48,9 @@
 use super::app::TokenSource;
 use super::{github_client, API_URL, API_VERSION};
 use pr_hygiene_engine::evidence::replay::gh_arguments;
-use pr_hygiene_engine::evidence::{Call, Failure, Method, Reply, Transport, TransportError};
+use pr_hygiene_engine::evidence::{
+    Call, Failure, FailureClass, Method, Reply, Transport, TransportError,
+};
 use pr_hygiene_engine::pycompat::text::py_strip;
 use pr_hygiene_engine::pycompat::{py_loads, PyErr, PyValue};
 use reqwest::header::{HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, LINK};
@@ -270,6 +272,7 @@ impl HttpTransport {
                     false,
                     String::new(),
                     format!("a listing of more than {MAX_PAGES} pages"),
+                    FailureClass::Local,
                 )
                 .into());
             }
@@ -323,6 +326,7 @@ impl HttpTransport {
                 error.transient(),
                 String::new(),
                 format!("no installation token: {error}"),
+                FailureClass::Local,
             )
         })?;
         let mut authorization = HeaderValue::from_str(&format!("token {}", token.expose()))
@@ -331,6 +335,7 @@ impl HttpTransport {
                     false,
                     String::new(),
                     "an installation token unfit for a header",
+                    FailureClass::Local,
                 )
             })?;
         authorization.set_sensitive(true);
@@ -345,11 +350,12 @@ impl HttpTransport {
         if let Some(body) = body {
             request = request.body(body);
         }
-        let mut response = request
-            .send()
-            .await
-            .map_err(|error| failure(is_transient(&error), String::new(), describe(error)))?;
+        let mut response = request.send().await.map_err(|error| {
+            let class = class_of(&error);
+            failure(is_transient(&error), String::new(), describe(error), class)
+        })?;
         let status = response.status();
+        let rate_limited = rate_limited(response.headers());
         // `gh` reads the first `Link` header, and the first `next` in it.
         let next = response
             .headers()
@@ -362,6 +368,7 @@ impl HttpTransport {
                 false,
                 String::new(),
                 format!("a call answered with more than {} bytes", self.budget),
+                FailureClass::Local,
             )
         };
         if response.content_length().is_some_and(|n| n > budget as u64) {
@@ -378,12 +385,30 @@ impl HttpTransport {
                 }
                 Ok(None) => break,
                 // Cut short: the connection closed or stalled mid-answer.
-                Err(error) => return Err(failure(true, String::new(), describe(error))),
+                Err(error) => {
+                    return Err(failure(
+                        true,
+                        String::new(),
+                        describe(error),
+                        FailureClass::Body,
+                    ))
+                }
             }
         }
-        let text = String::from_utf8(bytes)
-            .map_err(|_| failure(true, String::new(), "an answer that is not UTF-8"))?;
-        Ok(Answer { status, text, next })
+        let text = String::from_utf8(bytes).map_err(|_| {
+            failure(
+                true,
+                String::new(),
+                "an answer that is not UTF-8",
+                FailureClass::Body,
+            )
+        })?;
+        Ok(Answer {
+            status,
+            text,
+            next,
+            rate_limited,
+        })
     }
 }
 
@@ -399,6 +424,7 @@ impl Transport for HttpTransport {
                 // completed.
                 Err(_) => Err(Failure {
                     detail: format!("no answer within {} s", self.deadline.as_secs_f32()),
+                    class: FailureClass::Deadline,
                     ..Failure::unavailable()
                 }
                 .into()),
@@ -413,14 +439,23 @@ struct Answer {
     text: String,
     /// The page after this one, as the `Link` header names it.
     next: Option<String>,
+    /// Whether its headers say the rate limit was reached: no requests
+    /// left, or a time to wait before asking again.
+    rate_limited: bool,
 }
 
-fn failure(transient: bool, body: String, detail: impl Into<String>) -> Failure {
+fn failure(
+    transient: bool,
+    body: String,
+    detail: impl Into<String>,
+    class: FailureClass,
+) -> Failure {
     Failure {
         transient,
         status: Some(GH_FAILED),
         body,
         detail: detail.into(),
+        class,
     }
 }
 
@@ -445,7 +480,11 @@ fn refused(answer: Answer) -> Failure {
             None => format!("HTTP {code}"),
         }
     };
-    failure(matches!(code, 502..=504), answer.text, detail)
+    let class = FailureClass::Http {
+        code,
+        rate_limited: answer.rate_limited && matches!(code, 403 | 429),
+    };
+    failure(matches!(code, 502..=504), answer.text, detail, class)
 }
 
 /// GitHub's own words for a refusal: the `message` of its answer.
@@ -473,6 +512,7 @@ fn readable(text: &str) -> Result<Option<PyValue>, Failure> {
             true,
             text.to_owned(),
             "an answer that is not JSON, cut short or garbled",
+            FailureClass::Body,
         )),
         Err(_) => Ok(None),
     }
@@ -489,7 +529,7 @@ fn graphql(answer: Answer) -> Result<Reply, TransportError> {
         .as_ref()
         .and_then(|value| graphql_errors(value, code));
     match errors {
-        Some(messages) => Err(failure(false, answer.text, messages).into()),
+        Some(messages) => Err(failure(false, answer.text, messages, FailureClass::Graphql).into()),
         None => Ok(Reply::Text(answer.text)),
     }
 }
@@ -636,6 +676,26 @@ pub(super) fn is_transient(error: &reqwest::Error) -> bool {
         cause = inner.source();
     }
     error.is_request() && !error.is_connect()
+}
+
+/// The class of a request that got no answer: no answer in time, an answer
+/// cut short, or no connection.
+fn class_of(error: &reqwest::Error) -> FailureClass {
+    if error.is_timeout() {
+        FailureClass::Deadline
+    } else if error.is_body() || error.is_decode() {
+        FailureClass::Body
+    } else {
+        FailureClass::Connection
+    }
+}
+
+/// Whether an answer's headers say the rate limit was reached: none of
+/// the hour's requests left, or a time to wait before asking again, which
+/// GitHub sends with a secondary limit.
+fn rate_limited(headers: &reqwest::header::HeaderMap) -> bool {
+    let value = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+    value("x-ratelimit-remaining") == Some("0") || value("retry-after").is_some()
 }
 
 /// What went wrong, with its causes, and without the URL: nothing a request
@@ -1127,6 +1187,45 @@ mod tests {
             };
             assert_eq!(failure.transient, transient, "{code}");
             assert_eq!(failure.status, Some(1));
+            assert_eq!(
+                failure.class,
+                FailureClass::Http {
+                    code,
+                    rate_limited: false
+                },
+                "no rate-limit headers"
+            );
+        }
+    }
+
+    /// A 403 or 429 carrying rate-limit headers is GitHub's limit, told
+    /// apart from a refusal of what was asked; GitHub's words are not read.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refusal_carrying_rate_limit_headers_is_classed_rate_limited() {
+        for (code, header, rate_limited) in [
+            (403, ("x-ratelimit-remaining", "0"), true),
+            (429, ("retry-after", "60"), true),
+            (403, ("x-ratelimit-remaining", "12"), false),
+            (404, ("retry-after", "60"), false),
+        ] {
+            let github = mock::serve(move |_: &Seen| {
+                let mut response = (Code::from_u16(code).unwrap(), "{}").into_response();
+                response
+                    .headers_mut()
+                    .insert(header.0, header.1.parse().unwrap());
+                response
+            })
+            .await;
+            let Err(TransportError::Failed(failure)) =
+                call(transport(&github.url), get("repos/a/b/pulls/1")).await
+            else {
+                panic!("{code} succeeded")
+            };
+            assert_eq!(
+                failure.class,
+                FailureClass::Http { code, rate_limited },
+                "{code} {header:?}"
+            );
         }
     }
 
@@ -1143,6 +1242,7 @@ mod tests {
             panic!("{reply:?}")
         };
         assert!(failure.transient, "{failure:?}");
+        assert_eq!(failure.class, FailureClass::Body);
         let before = raw.connections();
         let error = run(transport(&raw.url), |client| {
             client.request(Method::Get, "repos/a/b/pulls/1", None)
@@ -1163,6 +1263,7 @@ mod tests {
             panic!("{reply:?}")
         };
         assert!(failure.transient, "{failure:?}");
+        assert_eq!(failure.class, FailureClass::Connection);
         assert_eq!(failure.status, Some(1));
     }
 
@@ -1254,6 +1355,7 @@ mod tests {
         };
         assert!(failure.transient, "{failure:?}");
         assert_eq!(failure.status, Some(1), "a completed failure: asked again");
+        assert_eq!(failure.class, FailureClass::Deadline);
     }
 
     /// A connection that cannot be made is not a flaky answer.
@@ -1268,6 +1370,7 @@ mod tests {
             panic!("{reply:?}")
         };
         assert!(!failure.transient, "{failure:?}");
+        assert_eq!(failure.class, FailureClass::Connection);
         assert!(
             !failure.detail.contains("127.0.0.1"),
             "no URL: {}",

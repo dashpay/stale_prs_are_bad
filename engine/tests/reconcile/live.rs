@@ -345,6 +345,7 @@ fn writes_of(live: &Live) -> Vec<(usize, String)> {
                 Outcome::Matched => "matched".to_owned(),
                 Outcome::Moved => "moved".to_owned(),
                 Outcome::Differs(found) => found[0].path.clone(),
+                Outcome::NotCompared { why } => format!("not compared: {why}"),
                 other => format!("{other:?}"),
             };
             (check.index, said)
@@ -675,7 +676,9 @@ fn a_comment_added_between_the_reads_moved_its_pull_request() {
     let checks = described(&live, 1);
     assert_eq!(
         &checks[..2],
-        ["live snapshot: moved", "live verdict: moved"],
+        // The verdict, compared first, is Python's: a comment that says
+        // nothing the engine reads leaves it as it was.
+        ["live snapshot: moved", "live verdict: matched"],
         "{:?}",
         live.comparison
     );
@@ -702,7 +705,9 @@ fn a_comment_github_no_longer_has_was_deleted_between_the_reads() {
     let checks = described(&live, 1);
     assert_eq!(
         &checks[..2],
-        ["live snapshot: moved", "live verdict: moved"],
+        // The verdict, compared first, is Python's: a comment that says
+        // nothing the engine reads leaves it as it was.
+        ["live snapshot: moved", "live verdict: matched"],
         "{:?}",
         live.comparison
     );
@@ -735,4 +740,216 @@ fn a_comment_the_live_read_lacks_that_github_still_has_is_the_ports_difference()
     );
     assert!(!live.comparison.is_clean());
     assert!(asked_for_comment(&scene, 900), "asked, and answered");
+}
+
+/// The settled repository of `mixed()`, recorded, with GitHub then
+/// answering pull request 2's timeline, which only the re-check before its
+/// status reads (the first read takes its history in one query), with
+/// `status`: a read Python's run never made.
+fn timeline_failing(status: u16) -> (Scene, Recording) {
+    let (mut scene, recording, _) = settled_then(|_, _| {});
+    scene.fake.refuse(
+        Method::Get,
+        "issues/2/timeline",
+        Refusal::Http(status, "GitHub said no".into()),
+    );
+    (scene, recording)
+}
+
+#[test]
+fn a_read_github_fails_twice_with_502_before_the_failure_status_is_not_compared() {
+    // The re-check's read of pull request 2's timeline fails with 502, is
+    // asked again, and fails again: the run marks 2's reconciliation
+    // failed, its first write. GitHub failed the read; nothing about the
+    // port is shown, so 2's writes are not compared, and that is no failure.
+    let (mut scene, recording) = timeline_failing(502);
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    assert_eq!(
+        writes_of(&live),
+        [
+            (0, "matched".to_owned()),
+            (
+                1,
+                "not compared: live read failed (HTTP 502 after retry on GET repos/*/*/issues/*/timeline)"
+                    .to_owned()
+            ),
+            (2, "matched".to_owned()),
+            (3, "matched".to_owned()),
+        ],
+        "{:?}",
+        live.comparison
+    );
+    assert!(live.comparison.is_clean(), "{:?}", live.comparison);
+}
+
+#[test]
+fn a_read_answered_404_before_the_failure_status_still_fails_named_by_its_class() {
+    // The same read answered 404: the port asked for something GitHub does
+    // not have. The failure status is the port's, named by what caused it.
+    let (mut scene, recording) = timeline_failing(404);
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    assert_eq!(
+        writes_of(&live)[1],
+        (
+            1,
+            r#"POST repos/*/*/statuses/* error "Policy reconciliation failed; inspect workflow log", after HTTP 404 on GET repos/*/*/issues/*/timeline"#
+                .to_owned()
+        ),
+        "{:?}",
+        live.comparison
+    );
+    assert!(!live.comparison.is_clean());
+}
+
+/// The fake, behind a layer that refuses every read of `route` as the
+/// read-only layer refuses a read it does not let through.
+struct ReadOnlyRefusing<'a> {
+    fake: &'a mut Fake,
+    route: &'static str,
+}
+
+impl Transport for ReadOnlyRefusing<'_> {
+    fn call(&mut self, call: &Call) -> Result<Reply, TransportError> {
+        if reads(call, self.route) {
+            return Err(TransportError::Refused(format!(
+                "not one of the engine's reads: {call}"
+            )));
+        }
+        self.fake.call(call)
+    }
+}
+
+#[test]
+fn a_read_the_read_only_layer_refuses_still_fails_named_by_its_route() {
+    let (mut scene, recording) = timeline_failing(200);
+    let live = live_run(
+        &recording,
+        ReadOnlyRefusing {
+            fake: &mut scene.fake,
+            route: "issues/2/timeline",
+        },
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    let failing: Vec<String> = live
+        .comparison
+        .checks
+        .iter()
+        .filter(|check| !check.passed())
+        .map(|check| match &check.outcome {
+            Outcome::Differs(found) => format!("{}: {}", found[0].path, found[0].kind),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        failing,
+        ["GET repos/*/*/issues/*/timeline: read refused by the read-only layer"],
+        "{:?}",
+        live.comparison
+    );
+}
+
+/// The settled repository of `mixed()`, recorded, with pull request 3 —
+/// whose author also opened 2 — rebased onto another base commit while the
+/// live run reads: the open listing answers it otherwise the second time.
+fn sibling_moving() -> (Scene, Recording) {
+    let mut listed = 0;
+    let (scene, recording, _) = settled_then(move |state, call| {
+        if reads(call, "pulls") {
+            listed += 1;
+            if listed == 2 {
+                state.pr(3).base_sha = "f".repeat(40);
+            }
+        }
+    });
+    (scene, recording)
+}
+
+#[test]
+fn a_verdict_equal_to_pythons_is_matched_though_a_sibling_moved() {
+    // 3 moved during the read; 2, by the same author, did not, and the live
+    // run decided it as Python did: that is evidence, and counts as matched.
+    let (mut scene, recording) = sibling_moving();
+    let live = live_run(
+        &recording,
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    assert_eq!(
+        described(&live, 1),
+        [
+            "live snapshot: matched",
+            "live verdict: matched",
+            "live writes: matched"
+        ],
+        "{:?}",
+        live.comparison
+    );
+    // 3's own first read is Python's: matched too, though its later reads
+    // show it moved.
+    assert_eq!(
+        &described(&live, 2)[..2],
+        ["live snapshot: matched", "live verdict: matched"],
+        "{:?}",
+        live.comparison
+    );
+    assert!(live.comparison.is_clean(), "{:?}", live.comparison);
+}
+
+#[test]
+fn a_verdict_that_differs_where_a_sibling_moved_is_still_moved() {
+    // Python's run decided 2 otherwise than the live run does, with 2's
+    // snapshot the same on both sides; its author's other pull request
+    // moved, which a verdict follows from, so the difference is put down to
+    // the move, as before. Where nothing moved, the same difference fails.
+    let with_other_state = |mut recording: Recording| {
+        if let PyValue::Dict(row) = &mut recording.verdicts[1] {
+            row.insert("state".into(), s("waiting-bots"));
+        }
+        recording
+    };
+    let (mut scene, recording) = sibling_moving();
+    let live = live_run(
+        &with_other_state(recording),
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    assert_eq!(
+        &described(&live, 1)[..2],
+        ["live snapshot: matched", "live verdict: moved"],
+        "{:?}",
+        live.comparison
+    );
+    let (mut scene, recording, _) = settled_then(|_, _| {});
+    let live = live_run(
+        &with_other_state(recording),
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    let verdict = live
+        .comparison
+        .checks
+        .iter()
+        .find(|check| check.layer == Layer::LiveVerdict && check.index == 1)
+        .expect("2's verdict");
+    assert!(!verdict.passed(), "{:?}", live.comparison);
 }

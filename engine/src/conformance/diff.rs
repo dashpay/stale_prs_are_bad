@@ -154,6 +154,12 @@ pub enum Kind {
     /// A write a live run would have made, named by its method and route
     /// with every part that is data written `*`. It was never sent.
     WouldBeWrite,
+    /// A read the live run asked that the read-only layer would not send,
+    /// named by its method and route with every part that is data `*`.
+    ReadRefused,
+    /// A read Python's run was answered that failed live, every time it
+    /// was asked, named by its class and route.
+    LiveReadFailed,
 }
 
 impl Kind {
@@ -168,6 +174,8 @@ impl Kind {
             Kind::ExceptionTextAbsent => "exception text on one side only",
             Kind::ExceptionTextOwnWords => "own words where Python raised",
             Kind::WouldBeWrite => "would-be write, not sent",
+            Kind::ReadRefused => "read refused by the read-only layer",
+            Kind::LiveReadFailed => "live read failed where Python's was answered",
         }
     }
 }

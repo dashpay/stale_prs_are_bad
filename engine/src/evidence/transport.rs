@@ -121,6 +121,34 @@ pub struct Failure {
     pub body: String,
     /// What the transport said about the failure.
     pub detail: String,
+    /// What kind of failure the transport saw, never what was said: what
+    /// the live comparison names a failure by.
+    pub class: FailureClass,
+}
+
+/// What kind of failure a transport saw, in words of its own, never what
+/// was said: so that a failure can be told apart and named without
+/// printing GitHub's message or answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FailureClass {
+    /// Not told apart: a recorded failure, or one a transport does not
+    /// class.
+    #[default]
+    Unclassed,
+    /// GitHub answered with this HTTP status. `rate_limited` where the
+    /// answer was a 403 or 429 carrying rate-limit headers.
+    Http { code: u16, rate_limited: bool },
+    /// No answer within the call's deadline.
+    Deadline,
+    /// No connection, or one lost before an answer began.
+    Connection,
+    /// An answer cut short, not UTF-8, or not JSON.
+    Body,
+    /// A GraphQL answer carrying errors.
+    Graphql,
+    /// The transport would not complete the call for a reason of its own:
+    /// no credentials, an answer larger than it reads.
+    Local,
 }
 
 impl Failure {
@@ -131,6 +159,7 @@ impl Failure {
             status: None,
             body: String::new(),
             detail: String::new(),
+            class: FailureClass::Unclassed,
         }
     }
 }

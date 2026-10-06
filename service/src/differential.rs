@@ -78,7 +78,11 @@ pub const CASES: &str = "Cases are indices into the `evaluations.jsonl` of the \
     neither run decided, 0. A would-be write is named by its method and route, every \
     part of the route that is data written `*`, and with its state and description where \
     a status carries only the engine's own words (a comment, where it is one); only the \
-    first to each pull request is named; none was sent.";
+    first to each pull request is named; none was sent. A status the engine posts because \
+    it could not reconcile a pull request says, after it, what led to it, by class: a read \
+    that failed (its HTTP status, a deadline, a connection, a body cut short, GraphQL \
+    errors) and its route, a read refused, a write not sent, or the engine itself. Where \
+    GitHub or the transport failed the read, the pull request's writes are not compared.";
 
 /// How many live reads a run may make, and which.
 #[derive(Debug, Clone, Copy)]
@@ -109,6 +113,9 @@ pub struct Outcome {
     /// What each sync of every pull request found, one line each, in
     /// counts: a repository's full coverage.
     pub full: Vec<String>,
+    /// Each recording not compared as a whole, GitHub or the transport
+    /// having failed a read Python's run was answered: its label and why.
+    pub not_compared: Vec<String>,
 }
 
 /// The line a sync of every pull request gets: how many pull requests
@@ -118,19 +125,25 @@ fn coverage(decided: usize, live: Option<&Live>) -> String {
     let Some(live) = live else {
         return format!("{decided} pull requests; not read live: over the live budget");
     };
+    // Said first and alone: a pass nothing of which was compared must
+    // never read as one that matched.
+    if let Some(why) = &live.not_compared {
+        return format!("{decided} pull requests; not compared: {why}");
+    }
     let layer = |layer: Layer| {
         let (matched, compared) = live.comparison.matched(layer);
         format!("{matched}/{compared}")
     };
     format!(
         "{decided} pull requests; snapshots {}, verdicts {}, no write {}; {} moved, {} \
-         explained, {} unsettled; {} differences",
+         explained, {} unsettled, {} not compared; {} differences",
         layer(Layer::LiveSnapshot),
         layer(Layer::LiveVerdict),
         layer(Layer::LiveWrites),
         live.moved,
         live.comparison.explained(),
         live.unsettled,
+        live.comparison.not_compared(),
         live.comparison.differences(),
     )
 }
@@ -151,15 +164,31 @@ impl Outcome {
     /// The report: the counts table, then the differences by category.
     pub fn printed(&self) -> String {
         format!(
-            "## Engine differential, live reads\n\n{} recording(s): {}.\n\n{}\n### Live differences by category\n\n{}",
+            "## Engine differential, live reads\n\n{} recording(s): {}.\n\n{}{}\n### Live differences by category\n\n{}",
             self.rows.len(),
-            if self.clean() {
+            if !self.clean() {
+                "the Rust engine differed"
+            } else if self.not_compared.is_empty() {
                 "the Rust engine matched every one read live"
             } else {
-                "the Rust engine differed"
+                "no difference, but not every one was compared"
             },
             self.table(),
+            self.not_compared_line(),
             categories(&self.rows, CASES)
+        )
+    }
+
+    /// The recordings not compared as a whole, one line, or nothing: said
+    /// beside every counts table, so that such a run never reads as one
+    /// that matched.
+    fn not_compared_line(&self) -> String {
+        if self.not_compared.is_empty() {
+            return String::new();
+        }
+        format!(
+            "\nNot compared as a whole: {}.\n",
+            self.not_compared.join("; ")
         )
     }
 
@@ -171,14 +200,15 @@ impl Outcome {
     /// The counts table for a job summary that gathers one per repository:
     /// [`TABLE`]'s columns, said once by whoever gathers them.
     pub fn summary(&self) -> String {
-        counts_table(
+        let table = counts_table(
             &self.rows,
             &Table {
                 intro: "Read live right after Python recorded; the record step's log has the \
                         categories.",
                 ..TABLE
             },
-        )
+        );
+        format!("{table}{}", self.not_compared_line())
     }
 }
 
@@ -247,6 +277,8 @@ struct Read {
     row: Row,
     cost: usize,
     coverage: Option<String>,
+    /// Why the whole recording was not compared, if it was not.
+    not_compared: Option<String>,
 }
 
 /// Read live what each recording under `dirs` read, while the budget
@@ -265,6 +297,7 @@ pub fn compare(dirs: &[PathBuf], own: &OwnWords, settings: Settings, reads: Read
     } = reads;
     let mut rows = Vec::new();
     let mut full = Vec::new();
+    let mut whole: Vec<(usize, String)> = Vec::new();
     let mut spent = 0;
     for dir in dirs {
         let directory = plain(&dir.file_name().unwrap_or_default().to_string_lossy());
@@ -281,6 +314,9 @@ pub fn compare(dirs: &[PathBuf], own: &OwnWords, settings: Settings, reads: Read
             Ok(None) => {}
             Ok(Some(read)) => {
                 spent += read.cost;
+                if let Some(why) = read.not_compared {
+                    whole.push((rows.len(), why));
+                }
                 rows.push(read.row);
                 full.extend(read.coverage);
             }
@@ -296,7 +332,16 @@ pub fn compare(dirs: &[PathBuf], own: &OwnWords, settings: Settings, reads: Read
         }
     }
     label_rows(&mut rows);
-    Outcome { rows, spent, full }
+    let not_compared = whole
+        .into_iter()
+        .map(|(at, why)| format!("{} ({why})", rows[at].label))
+        .collect();
+    Outcome {
+        rows,
+        spent,
+        full,
+        not_compared,
+    }
 }
 
 /// One recording's row, the requests its live reads made, and its full
@@ -325,6 +370,7 @@ fn one(
                 row,
                 cost: 0,
                 coverage: None,
+                not_compared: None,
             });
         }
     };
@@ -357,6 +403,7 @@ fn one(
             row: row(Ok(skipped)),
             cost: 0,
             coverage: full(None),
+            not_compared: None,
         });
     }
     let Ok(transport) = (reads.transport)() else {
@@ -366,6 +413,7 @@ fn one(
             cost: 0,
             coverage: (work == Work::All)
                 .then(|| format!("{decided} pull requests; could not be read live")),
+            not_compared: None,
         });
     };
     let live = match work {
@@ -380,6 +428,7 @@ fn one(
     };
     let coverage = full(Some(&live));
     let cost = live.requests;
+    let not_compared = live.not_compared.clone();
     let found = Found {
         counts: counts(&live, false),
         comparison: live.comparison,
@@ -388,6 +437,7 @@ fn one(
         row: row(Ok(found)),
         cost,
         coverage,
+        not_compared,
     })
 }
 

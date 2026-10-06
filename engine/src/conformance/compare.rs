@@ -148,10 +148,6 @@ pub enum Failure {
     /// A live run that evaluated other pull requests than Python's run, or
     /// in another order.
     OtherPullRequests,
-    /// A live read failed, every time it was asked, where Python's same
-    /// read was answered: GitHub failed it, or the transport did. Nothing
-    /// after it compares the two engines.
-    LiveReadFailed,
 }
 
 impl fmt::Display for Failure {
@@ -185,7 +181,6 @@ impl fmt::Display for Failure {
             Failure::OtherPullRequests => {
                 f.write_str("live run evaluated other pull requests than Python's")
             }
-            Failure::LiveReadFailed => f.write_str("live read failed where Python's was answered"),
         }
     }
 }
@@ -328,6 +323,12 @@ pub enum Outcome {
         differences: Vec<Difference>,
         why: WhyNot,
     },
+    /// Not compared, for a reason that is neither engine's: GitHub or the
+    /// transport failing a read. `why` is the tool's own words and classes,
+    /// never what was read. Counted, and not a failure.
+    NotCompared {
+        why: String,
+    },
 }
 
 /// One snapshot, evaluation or verdict, by its index in its file.
@@ -372,7 +373,10 @@ impl Check {
     pub fn passed(&self) -> bool {
         matches!(
             self.outcome,
-            Outcome::Matched | Outcome::Explained { .. } | Outcome::Moved
+            Outcome::Matched
+                | Outcome::Explained { .. }
+                | Outcome::Moved
+                | Outcome::NotCompared { .. }
         )
     }
 }
@@ -401,7 +405,10 @@ impl Comparison {
         self.checks
             .iter()
             .map(|check| match &check.outcome {
-                Outcome::Matched | Outcome::Explained { .. } | Outcome::Moved => 0,
+                Outcome::Matched
+                | Outcome::Explained { .. }
+                | Outcome::Moved
+                | Outcome::NotCompared { .. } => 0,
                 Outcome::Differs(found)
                 | Outcome::Unexplained {
                     differences: found, ..
@@ -416,6 +423,15 @@ impl Comparison {
         self.checks
             .iter()
             .filter(|c| matches!(c.outcome, Outcome::Explained { .. }))
+            .count()
+    }
+
+    /// How many checks were not compared, as GitHub or the transport failed
+    /// a read.
+    pub fn not_compared(&self) -> usize {
+        self.checks
+            .iter()
+            .filter(|c| matches!(c.outcome, Outcome::NotCompared { .. }))
             .count()
     }
 

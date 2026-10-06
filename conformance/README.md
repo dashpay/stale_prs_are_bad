@@ -605,8 +605,10 @@ there the clock carries the admission instant. A difference that then
 vanishes — for a write, from that pull request — is *explained*, by the
 fewest of those inputs that do it, and is no failure.
 
-A pull request *moved during the read*, counted and no failure, when
-between Python's reads and the live ones:
+Every snapshot and verdict is compared first: one equal to Python's is
+*matched*, whatever moved, since it is evidence either way. Only one that
+differs is put down to a move. A pull request *moved during the read*,
+counted and no failure, when between Python's reads and the live ones:
 
 - its own read answered another update time, head, base, base commit,
   draft or open state: everything about it is excused;
@@ -663,12 +665,40 @@ GitHub's routes disagreeing, or the port reading again differently from
 the first time — still fails, and names itself.
 
 A read that failed live, every time it was asked, where Python's same read
-was answered stops that recording's comparison and is named as such
-(*live read failed where Python's was answered*): GitHub failing it, or
-the transport. The other way round — Python's read failed where the live
+was answered stops that recording's comparison: nothing after it compares
+the two engines. It follows the same classes as a failure status (below):
+where GitHub or the transport failed it, the recording is *not compared:
+live read failed where Python's was answered (class on route)*, counted
+and no failure; any other 4xx, a refused read, or an error of the
+engine's fails, named by class and route. A recording not compared as a
+whole is said beside every counts table (*Not compared as a whole: …*),
+a full pass's coverage line says *not compared* and nothing else, and the
+job summary does not count that repository as covered that run; the job
+annotates it with a warning. The other way round — Python's read failed where the live
 one was answered — Python passed over a pull request it could not read,
 and the runs deciding different pull requests counts as moved. Every other
 difference fails.
+
+Where the engine could not reconcile a pull request it posts a failure
+status, *Policy reconciliation failed* or *Incomplete policy evidence*.
+Where that is a pull request's first would-be write, it is named with
+what led to it, in classes and the tool's own words: the latest read that
+failed every time it was asked — by its class (*HTTP N*, *after retry*
+where it was asked twice, *rate limited* where a 403 or 429 carried
+rate-limit headers, *deadline*, *connection*, *truncated or invalid body*,
+*GraphQL errors (TYPES)*) and its route with every part that is data
+written `*` — or a read refused, a write not sent just before, or, where
+no read failed, the engine itself (*engine error: GitHubError*). Where
+GitHub or the transport failed the read — a 5xx asked again (or on a
+GraphQL query, which the engine never asks twice), a rate-limited 403 or
+429, a deadline, a connection, a body cut short — nothing about the port
+is shown: the pull request's writes are *not compared: live read failed*,
+counted and no failure. Any other 4xx (a route the port built wrong), a
+refused read and an error of the engine's still fail, named by class. A
+read the read-only layer refuses stops the run, a failure named by its
+route. Transport failures say their class themselves
+(`evidence::FailureClass`); GitHub's message and answer are never read
+for it.
 
 Accepted residuals: a review thread resolved or unresolved, a thread's
 opening comment edited, or a collaborator's access changed between the
@@ -676,8 +706,9 @@ reads moves no time the snapshot carries, so it reads as a difference.
 
 A full pass reads its pull requests minutes after Python's — platform's
 takes Python about ten — so more of them read as moved than in a one-author
-run. A live read that failed twice stops the whole pass's comparison, as it
-does a one-author run's.
+run. A live read that failed twice where Python's was answered stops the
+whole pass's comparison, as it does a one-author run's, by the same
+classes.
 
 The live reads have their own budget, 1 600 requests, beside the
 recordings'. Each recording's reads are weighed before they are made: a
@@ -749,12 +780,17 @@ holds the counts tables only.
   - *Would-be write, not sent* under *live writes*: a sync wanted to write
     to a pull request nothing had changed on; the route says what. A route
     followed by *to a pull request neither run decided* is a write to one
-    outside the run's pull requests, where Python's run made none.
+    outside the run's pull requests, where Python's run made none. A
+    failure status followed by *after …* says what led to it (see above):
+    *HTTP 404 on GET …* is a route the port asked that GitHub does not
+    have; *engine error: GitHubError, no read failed* is the port's own
+    check failing on what it read.
   - *Live run evaluated other pull requests*: the live run decided another
     set than Python's, with none of the author's pull requests moved;
-    *live read refused by the read-only layer*: the port asked a read the
-    read-only layer does not let through; *live read failed where Python's
-    was answered*: see above.
+    *read refused by the read-only layer*, with the route as the field: the
+    port asked a read the read-only layer does not let through; *live read
+    failed where Python's was answered*, with its class and route as the
+    field: a 404 or another 4xx on a read Python made (see above).
   - A *live verdict* that none of Python's inputs explained has a line in
     a table under the categories saying why, input by input: not offered,
     and on what grounds (*the same instant*, *read on neither side*, *live

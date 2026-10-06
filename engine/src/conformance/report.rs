@@ -299,6 +299,10 @@ pub fn categories(rows: &[Row], cases: &str) -> String {
                 Outcome::Failed { failure, .. } => {
                     note(*layer, "—".into(), failure.to_string(), &row.label, *index);
                 }
+                Outcome::NotCompared { why } => {
+                    let kind = format!("not compared: {why}");
+                    note(*layer, "—".into(), kind, &row.label, *index);
+                }
             }
         }
     }

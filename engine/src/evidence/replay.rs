@@ -25,7 +25,7 @@
 
 use super::error::ReadError;
 use super::py::compiled;
-use super::transport::{Call, Failure, Method, Reply, Transport, TransportError};
+use super::transport::{Call, Failure, FailureClass, Method, Reply, Transport, TransportError};
 use crate::pycompat::text::py_lstrip;
 use crate::pycompat::{py_dumps, py_loads, PyDict, PyValue};
 use indexmap::IndexMap;
@@ -475,6 +475,7 @@ impl Transport for ReplayTransport {
                 status: Some(exit),
                 body: stdout,
                 detail: stderr,
+                class: FailureClass::Unclassed,
             }
             .into()),
         }
