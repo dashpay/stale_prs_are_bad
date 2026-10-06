@@ -635,6 +635,10 @@ pub struct Live {
     /// held to writing nothing to, as Python's own run wrote to them or did
     /// not run to its end. Each one held is a [`Layer::LiveWrites`] check.
     pub unsettled: usize,
+    /// Why the whole recording was not compared, where GitHub or the
+    /// transport failed a read Python's run was answered: classes and the
+    /// tool's own words, never what was read.
+    pub not_compared: Option<String>,
 }
 
 fn field<'a>(value: &'a PyValue, key: &str) -> Option<&'a PyValue> {
@@ -3578,6 +3582,58 @@ mod tests {
 
     fn at(instant: &str) -> Stopped {
         Stopped(PyDateTime::fromisoformat(instant).unwrap())
+    }
+
+    /// `sync-pr-2` read live, pull request 2's files, which Python read and
+    /// was answered, failing every time with HTTP `code`.
+    fn files_failing(code: u16) -> Live {
+        let recording = synthetic("sync-pr-2");
+        let mut github = as_recorded(&recording);
+        let files = read_of("repos/dashpay/platform/pulls/2/files?per_page=100", true);
+        let mut failure = failing(
+            &files,
+            FailureClass::Http {
+                code,
+                rate_limited: false,
+            },
+            "",
+        );
+        if let Err(TransportError::Failed(failed)) = &mut failure.answer {
+            failed.transient = code == 502;
+            failed.detail = format!("Quokka-Zanzibar says no (HTTP {code})");
+        }
+        github.answers.insert(files, (vec![failure.answer], 0));
+        live_run(
+            &recording,
+            github,
+            &mut at("2026-09-12T10:00:00+00:00"),
+            &mut || PyValue::None,
+            &own(),
+        )
+    }
+
+    #[test]
+    fn a_read_python_made_that_github_fails_live_leaves_the_recording_not_compared() {
+        // Asked, and asked again: GitHub failed it both times. Nothing after
+        // it compares the two engines, and nothing about the port is shown.
+        let live = files_failing(502);
+        assert_eq!(
+            outcomes(&live),
+            ["live snapshot 0: not compared: live read failed where Python's was answered (HTTP 502 after retry on GET repos/*/*/pulls/*/files)"]
+        );
+        assert!(live.comparison.is_clean());
+        assert!(live.not_compared.is_some());
+    }
+
+    #[test]
+    fn a_read_python_made_that_github_does_not_have_live_fails_named_by_its_class() {
+        let live = files_failing(404);
+        assert_eq!(
+            outcomes(&live),
+            ["live snapshot 0: differs: HTTP 404 on GET repos/*/*/pulls/*/files live read failed where Python's was answered"]
+        );
+        assert!(!live.comparison.is_clean());
+        assert!(live.not_compared.is_none());
     }
 
     #[test]

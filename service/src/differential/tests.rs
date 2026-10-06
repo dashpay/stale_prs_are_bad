@@ -1162,3 +1162,46 @@ async fn a_failure_status_after_a_rate_limited_or_refused_read_is_told_apart_by_
     assert!(!said.contains("Wallaby"), "{said}");
     no_content::assert_no_contents(&said, &recording, &sources());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_full_pass_github_failed_a_read_of_is_said_to_be_not_compared_and_never_green() {
+    // Python read pull request 2's files; live, GitHub fails that read
+    // twice. Nothing of the pass is compared: no failure, but the coverage
+    // line and the summary say so, in classes alone.
+    let recording = synthetic().join("sweep");
+    let answer = as_recorded(&read(&recording.join("calls.jsonl")));
+    let github = mock::serve(move |seen: &Seen| {
+        if seen.path() == "/repos/dashpay/platform/pulls/2/files" {
+            return (
+                StatusCode::BAD_GATEWAY,
+                serde_json::json!({ "message": REFUSAL }).to_string(),
+            )
+                .into_response();
+        }
+        if seen.path() == "/status.json" {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        answer(seen)
+    })
+    .await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let coverage = outcome.coverage().unwrap();
+    let summary = outcome.summary();
+    let said = format!("{}\n{summary}\n{coverage}", outcome.printed());
+    assert!(outcome.clean(), "{said}");
+    assert_eq!(
+        coverage,
+        "2 pull requests; not compared: live read failed where Python's was answered \
+         (HTTP 502 after retry on GET repos/*/*/pulls/*/files)"
+    );
+    assert!(
+        summary.contains(
+            "Not compared as a whole: dashpay/platform · sync (live read failed where Python's \
+             was answered (HTTP 502 after retry on GET repos/*/*/pulls/*/files))."
+        ),
+        "{summary}"
+    );
+    assert!(!said.contains("Wallaby"), "{said}");
+    only_reads(&github);
+    no_content::assert_no_contents(&said, &recording, &sources());
+}
