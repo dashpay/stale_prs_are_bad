@@ -373,13 +373,20 @@ def _files(files):
     return shown + (f' and {len(files) - 3} more' if len(files) > 3 else '')
 
 
+def status_description(result):
+    """The unmet review requirement, separate from automatic reviewer routing."""
+    if result['state'] == 'too-many-open-prs':
+        approvals = next(item for item in result['checklist'] if item['item'] == 'approvals')
+        return 'Human review unresolved' if approvals['awaiting'] else 'Missing human approval'
+    return result['state']
+
+
 def checklist_block(result):
     """The description's block: every requirement, met or not, checked when met.
 
-    One shape always. The state is the first unchecked line, which is what
-    the label and the status say too, so the three surfaces never disagree —
-    and an author with an approval in hand can see which files it did not
-    cover, before anyone has to ask.
+    Merge requirements are checkboxes; reviewer admission is informational.
+    An author with an approval in hand can see which files it did not cover,
+    before anyone has to ask.
     """
     items = {item['item']: item for item in result.get('checklist') or []}
     if not items:
@@ -411,10 +418,9 @@ def checklist_block(result):
         lines[-1] += (f' — {who} posted it. If you have taken this pull request over, '
                       'assign it to yourself and what you posted counts')
     slot = items['slot']
-    line = f"- {box(slot['done'])} Within your {slot['limit']} open PRs"
     if not slot['done']:
-        line += ' — this one is beyond the limit; it waits until one merges'
-    lines.append(line)
+        lines.append(f"- Reviewer requests paused — your {slot['limit']} review slots are occupied; "
+                     "this PR is excluded from reviewers' queues. Required approvals still count without a slot.")
     build = items['build']
     text = {'green': 'Build green', 'failed': 'Build failed', 'running': 'Build running'}.get(build['state'], f"Build {build['state']}")
     if build['latched'] and not build['done']:
@@ -440,7 +446,8 @@ def checklist_block(result):
         for objection in approvals['awaiting']:
             lines.append(f'  - [ ] {objection} — waiting for them to re-review or dismiss')
     lines.append('')
-    lines.append('When every box is checked the `PR Hygiene` check passes and this can merge.')
+    lines.append('When every merge requirement is met, the `PR Hygiene` check passes. '
+                 'Reviewer limits do not block merging; other required GitHub checks and protections still apply.')
     lines.append(CHECKLIST_END)
     return '\n'.join(lines)
 
@@ -498,7 +505,10 @@ def move_text(result):
         if items['bots']['skippable']:
             line += ' Wait for the missing reviews, or a writer can post `/skip-bots` to proceed without them; blocking findings still need addressing.'
     elif move == 'too-many-open-prs':
-        line = 'Waiting for an active PR slot — merge, close, or convert another active PR by this author to draft so this one can enter human review.'
+        line = (f"{status_description(result)}. Automatic reviewer requests are paused and this PR is excluded "
+                "from reviewers' queues. Merge, close, or draft another active PR by this author to free a "
+                "review slot. Required human review can be satisfied without a slot; once all merge "
+                "requirements are met, PR Hygiene passes.")
     elif move == 'waiting-self-review':
         # What actually blocks it, not what usually does. A bot's own finding
         # lands in this move too, and "bots are done, post /self-reviewed" is
@@ -651,7 +661,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if result['status'] == 'success' and check['status'] != 'success':
             api.post_status(pr['head'], 'pending', 'Policy changed; reconciliation required')
             return
-        api.post_status(pr['head'], result['status'], result['state'])
+        api.post_status(pr['head'], result['status'], status_description(result))
 
     ready = result['state'] == 'ready-for-human'
     requested = set(pr.get('requested_reviewers', []))
@@ -719,7 +729,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if actionable:
             finish(candidates)
         else:
-            api.post_status(pr['head'], result['status'], result['state'])
+            api.post_status(pr['head'], result['status'], status_description(result))
         return
 
     api.post_status(pr['head'], 'pending', 'Evaluating current review policy')
@@ -812,7 +822,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
 
     if not actionable:
         if identity_matches():
-            api.post_status(pr['head'], result['status'], result['state'])
+            api.post_status(pr['head'], result['status'], status_description(result))
         return desired
 
     # Review decisions and comments can change without changing the commit SHA.

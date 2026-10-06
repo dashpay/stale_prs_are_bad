@@ -1243,6 +1243,50 @@ fn the_status_never_depends_on_the_description_or_the_labels() {
 // StaleMarkTests: a pull request that left the governed set keeps no
 // verdict of the engine's — but keeps its record.
 
+#[test]
+fn missing_approval_is_shown_while_queued_and_approval_allows_merge_without_a_slot() {
+    let policy = fixture_policy();
+    let mut fake = Fake::new(LATER);
+    for n in 1..=6 {
+        fake.add(Pr::new(n, "reviewer", &format!("{n:040x}")));
+    }
+    let mut scene = Scene::new(fake);
+    let queued = scene.sync_pr(&policy, 6);
+    let queued_pr = queued
+        .verdicts
+        .iter()
+        .find(|result| matches!(field(result, "number"), PyValue::Int(n) if n.as_i64() == Some(6)))
+        .expect("the queued PR was reconciled");
+    assert_eq!(text(field(queued_pr, "state")), "too-many-open-prs");
+    assert_eq!(
+        scene.statuses().last().unwrap(),
+        &("pending".into(), "Missing human approval".into())
+    );
+    assert!(scene.fake.pr(6).requested_reviewers.is_empty());
+    assert!(scene.fake.pr(6).body.contains("- Reviewer requests paused"));
+    assert!(!scene.fake.pr(6).body.contains("Within your"));
+    scene.fake.pr(6).reviews.push(review(
+        40,
+        "owner",
+        "APPROVED",
+        &format!("{:040x}", 6),
+        NOW,
+        "",
+    ));
+    let approved = scene.sync_pr(&policy, 6);
+    let approved_pr = approved
+        .verdicts
+        .iter()
+        .find(|result| matches!(field(result, "number"), PyValue::Int(n) if n.as_i64() == Some(6)))
+        .expect("the approved PR was reconciled");
+    assert_eq!(text(field(approved_pr, "state")), "ready-to-merge");
+    assert!(matches!(field(approved_pr, "admitted_at"), PyValue::None));
+    assert_eq!(
+        scene.statuses().last().unwrap(),
+        &("success".into(), "ready-to-merge".into())
+    );
+}
+
 const AWAY: i64 = 4660;
 
 /// Pull request 4660 on `base`, wearing `labels`, its description `body`,

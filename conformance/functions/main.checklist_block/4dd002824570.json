@@ -1,0 +1,147 @@
+{
+ "function": "main.checklist_block",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "shumkov",
+   "title": "title",
+   "url": "url",
+   "state": "too-many-open-prs",
+   "status": "pending",
+   "blockers": [
+    "Human review is still required; automatic reviewer requests are paused until a review slot is available",
+    "Proceeded without coderabbitai: skipped by @shumkov",
+    "Proceeded without thepastaclaw: skipped by @shumkov"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "rs-drive-abci",
+    "rust-sdk",
+    "swift-sdk"
+   ],
+   "ready_since": null,
+   "admitted_at": null,
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": "2026-09-11T11:00:00Z",
+   "nudge": [],
+   "waived": [
+    "coderabbitai",
+    "thepastaclaw"
+   ],
+   "approvals": [
+    {
+     "area": "rs-drive-abci",
+     "files": [
+      "packages/rs-drive-abci/src/execution/platform_events/core_based_updates/update_masternode_list/mod.rs"
+     ],
+     "approvers": [],
+     "approved_by": [],
+     "owned": true
+    },
+    {
+     "area": "rust-sdk",
+     "files": [
+      "packages/rs-sdk/tests/vectors/test_identity_read_v1/identity.bin"
+     ],
+     "approvers": [],
+     "approved_by": [],
+     "owned": true
+    },
+    {
+     "area": "swift-sdk",
+     "files": [
+      "packages/swift-sdk/SwiftTests/SwiftDashSDKTests/DashModelMigrationTests.swift",
+      "packages/swift-sdk/SwiftTests/SwiftDashSDKTests/SDKMethodTests.swift"
+     ],
+     "approvers": [
+      "llbartekll",
+      "romchornyi"
+     ],
+     "approved_by": [],
+     "owned": false
+    }
+   ],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": true,
+     "lines": [
+      "coderabbitai skipped by shumkov",
+      "thepastaclaw skipped by shumkov"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": true,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": false,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "rs-drive-abci",
+       "files": [
+        "packages/rs-drive-abci/src/execution/platform_events/core_based_updates/update_masternode_list/mod.rs"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      },
+      {
+       "area": "rust-sdk",
+       "files": [
+        "packages/rs-sdk/tests/vectors/test_identity_read_v1/identity.bin"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      },
+      {
+       "area": "swift-sdk",
+       "files": [
+        "packages/swift-sdk/SwiftTests/SwiftDashSDKTests/DashModelMigrationTests.swift",
+        "packages/swift-sdk/SwiftTests/SwiftDashSDKTests/SDKMethodTests.swift"
+       ],
+       "approvers": [
+        "llbartekll",
+        "romchornyi"
+       ],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {},
+   "skipped_by": "shumkov"
+  }
+ },
+ "output": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai skipped by shumkov · thepastaclaw skipped by shumkov\n- [x] Self-review — posted; again after any push\n- Reviewer requests paused — your 5 review slots are occupied; this PR is excluded from reviewers' queues. Required approvals still count without a slot.\n- [x] Build green\n- Approvals\n  - [x] `rs-drive-abci` — you own it\n  - [x] `rust-sdk` — you own it\n  - [ ] `swift-sdk` (`packages/swift-sdk/SwiftTests/SwiftDashSDKTests/DashModelMigrationTests.swift`, `packages/swift-sdk/SwiftTests/SwiftDashSDKTests/SDKMethodTests.swift`) — llbartekll or romchornyi\n\nWhen every merge requirement is met, the `PR Hygiene` check passes. Reviewer limits do not block merging; other required GitHub checks and protections still apply.\n<!-- pr-hygiene:end -->",
+ "tests": [
+  "test_checklist.PublishTests.test_platform_5228_reports_missing_swift_approval_without_requesting_reviewers"
+ ],
+ "python": "3.12"
+}

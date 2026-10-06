@@ -41,7 +41,7 @@ def first_unchecked(block):
 
 
 class ChecklistTests(unittest.TestCase):
-    def test_every_requirement_is_shown_and_the_first_unchecked_is_the_state(self):
+    def test_every_merge_requirement_is_shown_with_self_review_first(self):
         policy, pr = bartek()
         result = evaluate(policy, pr, NOW, LATER)
         block = main.checklist_block(result)
@@ -57,7 +57,7 @@ class ChecklistTests(unittest.TestCase):
         self.assertIn('  - [ ] files with no dedicated owner (`.editorconfig`, `AGENTS.md`) — QuantumExplorer or shumkov', block)
         self.assertIn('  - [ ] `github` (`.github/workflows/swift-sdk-build.yml`, `.github/workflows/tests.yml`) '
                       '— ktechmidas or shumkov', block)
-        self.assertIn('- [x] Within your 5 open PRs', block)
+        self.assertNotIn('Within your 5 open PRs', block)
         self.assertTrue(first_unchecked(block).startswith('- [ ] Self-review'), 'the state is the first unchecked line')
         self.assertNotIn('@', block, 'a mention from this bot notifies')
         self.assertNotIn('\n- [ ] Approvals', block, 'a task parent would double-count beside its children')
@@ -177,14 +177,17 @@ class ChecklistTests(unittest.TestCase):
         self.assertIn('  - [ ] owner left a review thread unresolved — waiting for them to re-review or dismiss', block)
         self.assertIn('- [x] Self-review — posted', block)
 
-    def test_beyond_the_limit_is_said_positively_and_unchecked(self):
+    def test_review_slot_is_information_while_missing_approval_blocks_merging(self):
         policy, pr = fixture()
         pr['author'] = pr['comments'][0]['user'] = 'reviewer'
         result = evaluate(policy, pr, None, NOW)
         self.assertEqual(result['state'], 'too-many-open-prs')
         block = main.checklist_block(result)
-        self.assertIn('- [ ] Within your 5 open PRs — this one is beyond the limit; it waits until one merges', block)
-        self.assertTrue(first_unchecked(block).startswith('- [ ] Within'))
+        self.assertIn('- Reviewer requests paused', block)
+        self.assertNotIn('Within your', block)
+        self.assertTrue(first_unchecked(block).startswith('- [ ] `drive`'))
+        self.assertIn('Reviewer limits do not block merging', block)
+        self.assertNotIn('waits until one merges', str(result['blockers']))
 
     def test_the_skip_is_offered_only_while_a_bot_is_still_owed(self):
         policy, pr = bartek()
@@ -337,6 +340,101 @@ class PublishTests(unittest.TestCase):
     def setUp(self):
         self.policy, self.pr = bartek()
         self.pr['controller_state'] = None
+
+    def test_platform_5228_reports_missing_swift_approval_without_requesting_reviewers(self):
+        self.policy = platform_policy()
+        _, pr = fixture()
+        for area in self.policy['areas']:
+            if area['id'] == 'rs-drive-abci':
+                area.update(owners=['QuantumExplorer', 'shumkov'], reviewers=[])
+        pr.update(author='shumkov', base='v5.0-dev', head_seen_at='2026-09-11T09:00:00Z',
+                  files=[{'filename': path} for path in (
+                      'packages/rs-drive-abci/src/execution/platform_events/core_based_updates/update_masternode_list/mod.rs',
+                      'packages/rs-sdk/tests/vectors/test_identity_read_v1/identity.bin',
+                      'packages/swift-sdk/SwiftTests/SwiftDashSDKTests/DashModelMigrationTests.swift',
+                      'packages/swift-sdk/SwiftTests/SwiftDashSDKTests/SDKMethodTests.swift')],
+                  comments=[dict(id=1, user='shumkov', body='/skip-bots', created_at='2026-09-11T10:00:00Z',
+                                 updated_at='2026-09-11T10:00:00Z'),
+                            dict(id=2, user='shumkov', body='/self-reviewed', created_at='2026-09-11T11:00:00Z',
+                                 updated_at='2026-09-11T11:00:00Z')],
+                  reviews=[], permissions={login: 'write' for login in
+                      ('QuantumExplorer', 'shumkov', 'lklimek', 'llbartekll', 'romchornyi')})
+        result = evaluate(self.policy, pr, None, NOW)
+        self.assertEqual(result['state'], 'too-many-open-prs')
+        self.assertEqual(result['reviewers'], [])
+        self.assertEqual(main.selected_rows([dict(result, author='shumkov')], 'romchornyi'), [])
+        api = self.run_publish(pr, result)
+        self.assertEqual(api.post_status.call_args.args[1:], ('pending', 'Missing human approval'))
+        api.request_reviewers.assert_not_called()
+        block = main.checklist_block(result)
+        self.assertTrue(first_unchecked(block).startswith('- [ ] `swift-sdk`'))
+        self.assertNotIn('Within your', block)
+
+    def test_queued_status_is_refreshed_even_when_other_surfaces_are_current(self):
+        self.policy, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        result = evaluate(self.policy, pr, None, NOW)
+        record = main.state_record(pr, result, 'c' * 64)
+        pr.update(body=main.checklist_block(result), labels=['too-many-open-prs'],
+                  controller_state=record, controller_comment_id=50)
+        pr['comments'].append(dict(id=50, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+            body=GitHub.state_comment_body(record, main.move_text(result))))
+        api = self.run_publish(pr, result)
+        api.upsert_state.assert_not_called()
+        api.request_reviewers.assert_not_called()
+        self.assertEqual(api.post_status.call_args.args[1:], ('pending', 'Missing human approval'))
+        pr['comments'][-1]['body'] = GitHub.state_comment_body(record,
+            f'{MOVE_MARKER} state=too-many-open-prs sha={HEAD} -->\nWaiting for an active PR slot.')
+        api = self.run_publish(pr, result)
+        self.assertEqual(api.upsert_state.call_args.args[3], 50)
+        self.assertIn('Missing human approval', api.upsert_state.call_args.args[2])
+        api.request_reviewers.assert_not_called()
+
+    def test_nonqueued_status_descriptions_keep_their_existing_meaning(self):
+        for state in ('draft', 'waiting-bots', 'waiting-build', 'waiting-self-review',
+                      'waiting-author', 'ready-for-human', 'ready-to-merge', 'configuration-error'):
+            with self.subTest(state=state):
+                self.assertEqual(main.status_description({'state': state}), state)
+
+    def test_queued_status_distinguishes_objections_from_missing_area_approval(self):
+        self.policy, pr = fixture()
+        pr['threads'] = [dict(id=9, author='reviewer', is_resolved=False,
+                              created_at='2026-09-11T09:30:00Z')]
+        for author in ('owner', 'reviewer'):
+            with self.subTest(author=author):
+                pr['author'] = pr['comments'][0]['user'] = author
+                pr['threads'][0]['author'] = 'reviewer' if author == 'owner' else 'owner'
+                result = evaluate(self.policy, pr, None, NOW)
+                self.assertEqual(result['state'], 'too-many-open-prs')
+                self.assertEqual(result['objectors'], [])
+                self.assertEqual(main.status_description(result), 'Human review unresolved')
+                self.assertEqual(self.run_publish(pr, result).post_status.call_args.args[1:],
+                                 ('pending', 'Human review unresolved'))
+
+    def test_approval_allows_success_without_a_review_slot(self):
+        self.policy, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['reviews'].append(dict(id=4, user='owner', state='APPROVED', commit_id=HEAD,
+                                  submitted_at=NOW, body=''))
+        result = evaluate(self.policy, pr, None, NOW)
+        self.assertEqual((result['state'], result['status']), ('ready-to-merge', 'success'))
+        self.assertEqual(main.status_description(result), 'ready-to-merge')
+        result = evaluate(self.policy, fixture()[1], None, NOW)
+        self.assertEqual(main.status_description(result), 'ready-to-merge')
+
+    def test_queued_ci_still_has_to_pass_after_approval(self):
+        self.policy, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        for build in ('failed', 'running'):
+            with self.subTest(build=build):
+                pr['build'] = build
+                result = evaluate(self.policy, pr, None, NOW)
+                self.assertEqual(main.status_description(result), 'Missing human approval')
+                self.assertIn('- [ ] Build ' + build, main.checklist_block(result))
+                approved = copy.deepcopy(pr)
+                approved['reviews'].append(dict(id=4, user='owner', state='APPROVED', commit_id=HEAD,
+                                                submitted_at=NOW, body=''))
+                self.assertEqual(evaluate(self.policy, approved, None, NOW)['state'], 'waiting-build')
 
     def test_platform_5014_bot_wait_replaces_obsolete_author_instructions(self):
         old = evaluate(self.policy, self.pr, NOW, LATER)

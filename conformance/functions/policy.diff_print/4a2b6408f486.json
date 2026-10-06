@@ -59,6 +59,7 @@
  },
  "output": null,
  "tests": [
+  "test_checklist.PublishTests.test_queued_ci_still_has_to_pass_after_approval",
   "test_policy.PolicyTests.test_a_human_is_not_asked_until_the_build_is_green"
  ],
  "python": "3.12"

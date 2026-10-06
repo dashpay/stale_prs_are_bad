@@ -59,6 +59,7 @@
  },
  "output": null,
  "tests": [
+  "test_checklist.PublishTests.test_approval_allows_success_without_a_review_slot",
   "test_multi_repo_main.MultiRepositoryTests.test_same_pr_number_in_different_repositories_keeps_identity",
   "test_multi_repo_main.MultiRepositoryTests.test_shared_engine_reads_registered_policy_and_checks_target_tree",
   "test_multi_repo_main.MultiRepositoryTests.test_shared_evaluation_preserves_ambiguous_head_blocker",

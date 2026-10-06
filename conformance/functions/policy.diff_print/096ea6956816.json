@@ -67,7 +67,7 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.ChecklistTests.test_every_requirement_is_shown_and_the_first_unchecked_is_the_state",
+  "test_checklist.ChecklistTests.test_every_merge_requirement_is_shown_with_self_review_first",
   "test_checklist.PublishTests.test_a_bot_reporting_with_nothing_to_answer_is_not_announced_again",
   "test_checklist.PublishTests.test_a_description_too_long_is_a_warning_not_an_error",
   "test_checklist.PublishTests.test_a_hand_ticked_box_or_a_wiped_block_is_repaired",

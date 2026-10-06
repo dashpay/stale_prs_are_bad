@@ -8,14 +8,15 @@ use crate::support::*;
 use pr_hygiene_engine::evidence::records::state_comment_body;
 use pr_hygiene_engine::reconcile::telemetry::head_state;
 use pr_hygiene_engine::reconcile::{
-    admission_conflicts, checklist_block, diff_record, move_text, state_record,
+    admission_conflicts, checklist_block, diff_record, move_text, state_record, status_description,
 };
 use std::collections::BTreeSet;
 
 /// The case directories this gate runs, relative to `conformance/`.
-const GATED: [&str; 7] = [
+const GATED: [&str; 8] = [
     "functions/main.checklist_block",
     "functions/main.move_text",
+    "functions/main.status_description",
     "functions/github.GitHub.state_comment_body",
     "functions/main.state_record",
     "functions/main.diff_record",
@@ -36,6 +37,9 @@ fn answer(function: &str, inputs: &PyValue) -> Result<PyValue, String> {
             optional(checklist_block(input("result")).map_err(|e| raised(&e))?)
         }
         "main.move_text" => optional(move_text(input("result")).map_err(|e| raised(&e))?),
+        "main.status_description" => {
+            PyValue::Str(status_description(input("result")).map_err(|e| raised(&e))?)
+        }
         "github.GitHub.state_comment_body" => {
             let diff = match input("diff") {
                 PyValue::None => None,

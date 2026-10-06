@@ -1,0 +1,39 @@
+{
+ "function": "main.status_description",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "draft",
+   "status": "pending",
+   "blockers": [
+    "Draft PR does not occupy a review slot"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": null,
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [],
+   "approvals": [],
+   "objections": [],
+   "checklist": [],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {}
+  }
+ },
+ "output": "draft",
+ "tests": [
+  "test_checklist.SecondReviewTests.test_a_pull_request_back_in_draft_loses_the_stale_block"
+ ],
+ "python": "3.12"
+}

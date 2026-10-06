@@ -59,8 +59,9 @@
  },
  "output": null,
  "tests": [
-  "test_checklist.ChecklistTests.test_beyond_the_limit_is_said_positively_and_unchecked",
+  "test_checklist.ChecklistTests.test_review_slot_is_information_while_missing_approval_blocks_merging",
   "test_checklist.PublishTests.test_admission_wait_explains_how_to_free_a_slot",
+  "test_checklist.PublishTests.test_queued_status_is_refreshed_even_when_other_surfaces_are_current",
   "test_checklist.PublishTests.test_waiting_announcements_are_quiet_until_the_details_change",
   "test_policy.PolicyTests.test_a_human_is_not_asked_until_the_build_is_green",
   "test_policy.PolicyTests.test_a_machine_author_does_not_spend_a_review_slot",

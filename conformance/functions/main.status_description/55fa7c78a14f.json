@@ -1,0 +1,13 @@
+{
+ "function": "main.status_description",
+ "inputs": {
+  "result": {
+   "state": "waiting-bots"
+  }
+ },
+ "output": "waiting-bots",
+ "tests": [
+  "test_checklist.PublishTests.test_nonqueued_status_descriptions_keep_their_existing_meaning"
+ ],
+ "python": "3.12"
+}

@@ -4,6 +4,7 @@
 
 use super::publish::Publication;
 use super::state::{admission_fingerprint, context_fingerprint, same_admissions};
+use super::text::status_description;
 use super::values::{list, lower, number, s, text};
 use super::{ClockSite, Reconciler};
 use crate::evidence::{ReadError, Transport};
@@ -132,15 +133,15 @@ impl<T: Transport> Reconciler<'_, T> {
         self.post_verdict(&head, result)
     }
 
-    /// `api.post_status(pr['head'], result['status'], result['state'])`.
+    /// Publish the verdict with its human-readable review requirement.
     pub(super) fn post_verdict(&mut self, head: &str, result: &PyValue) -> Result<(), ReadError> {
         // `post_status` refuses a state it does not know before it reads
         // the description, as Python's does.
         let PyValue::Str(status) = getitem(result, "status")? else {
             return Err(ReadError::GitHub("Invalid commit status state".into()));
         };
-        let state = text(getitem(result, "state")?, "state")?;
-        self.api.post_status(head, status, state, None)?;
+        let description = status_description(result)?;
+        self.api.post_status(head, status, &description, None)?;
         Ok(())
     }
 }
