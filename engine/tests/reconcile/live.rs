@@ -345,6 +345,7 @@ fn writes_of(live: &Live) -> Vec<(usize, String)> {
                 Outcome::Matched => "matched".to_owned(),
                 Outcome::Moved => "moved".to_owned(),
                 Outcome::Differs(found) => found[0].path.clone(),
+                Outcome::NotCompared { why } => format!("not compared: {why}"),
                 other => format!("{other:?}"),
             };
             (check.index, said)
@@ -675,7 +676,9 @@ fn a_comment_added_between_the_reads_moved_its_pull_request() {
     let checks = described(&live, 1);
     assert_eq!(
         &checks[..2],
-        ["live snapshot: moved", "live verdict: moved"],
+        // The verdict, compared first, is Python's: a comment that says
+        // nothing the engine reads leaves it as it was.
+        ["live snapshot: moved", "live verdict: matched"],
         "{:?}",
         live.comparison
     );
@@ -702,7 +705,9 @@ fn a_comment_github_no_longer_has_was_deleted_between_the_reads() {
     let checks = described(&live, 1);
     assert_eq!(
         &checks[..2],
-        ["live snapshot: moved", "live verdict: moved"],
+        // The verdict, compared first, is Python's: a comment that says
+        // nothing the engine reads leaves it as it was.
+        ["live snapshot: moved", "live verdict: matched"],
         "{:?}",
         live.comparison
     );
@@ -908,14 +913,21 @@ fn a_verdict_equal_to_pythons_is_matched_though_a_sibling_moved() {
 
 #[test]
 fn a_verdict_that_differs_where_a_sibling_moved_is_still_moved() {
-    // The same, read two days later: 2's verdict differs from Python's by
-    // the instant, and its author's other pull request moved, so the
-    // difference is put down to the move, as before.
+    // Python's run decided 2 otherwise than the live run does, with 2's
+    // snapshot the same on both sides; its author's other pull request
+    // moved, which a verdict follows from, so the difference is put down to
+    // the move, as before. Where nothing moved, the same difference fails.
+    let with_other_state = |mut recording: Recording| {
+        if let PyValue::Dict(row) = &mut recording.verdicts[1] {
+            row.insert("state".into(), s("waiting-bots"));
+        }
+        recording
+    };
     let (mut scene, recording) = sibling_moving();
     let live = live_run(
-        &recording,
+        &with_other_state(recording),
         &mut scene.fake,
-        &mut at("2026-09-13T14:00:00Z"),
+        &mut at(LATER),
         &mut || PyValue::None,
         &own(),
     );
@@ -925,4 +937,19 @@ fn a_verdict_that_differs_where_a_sibling_moved_is_still_moved() {
         "{:?}",
         live.comparison
     );
+    let (mut scene, recording, _) = settled_then(|_, _| {});
+    let live = live_run(
+        &with_other_state(recording),
+        &mut scene.fake,
+        &mut at(LATER),
+        &mut || PyValue::None,
+        &own(),
+    );
+    let verdict = live
+        .comparison
+        .checks
+        .iter()
+        .find(|check| check.layer == Layer::LiveVerdict && check.index == 1)
+        .expect("2's verdict");
+    assert!(!verdict.passed(), "{:?}", live.comparison);
 }

@@ -78,7 +78,11 @@ pub const CASES: &str = "Cases are indices into the `evaluations.jsonl` of the \
     neither run decided, 0. A would-be write is named by its method and route, every \
     part of the route that is data written `*`, and with its state and description where \
     a status carries only the engine's own words (a comment, where it is one); only the \
-    first to each pull request is named; none was sent.";
+    first to each pull request is named; none was sent. A status the engine posts because \
+    it could not reconcile a pull request says, after it, what led to it, by class: a read \
+    that failed (its HTTP status, a deadline, a connection, a body cut short, GraphQL \
+    errors) and its route, a read refused, a write not sent, or the engine itself. Where \
+    GitHub or the transport failed the read, the pull request's writes are not compared.";
 
 /// How many live reads a run may make, and which.
 #[derive(Debug, Clone, Copy)]
@@ -124,13 +128,14 @@ fn coverage(decided: usize, live: Option<&Live>) -> String {
     };
     format!(
         "{decided} pull requests; snapshots {}, verdicts {}, no write {}; {} moved, {} \
-         explained, {} unsettled; {} differences",
+         explained, {} unsettled, {} not compared; {} differences",
         layer(Layer::LiveSnapshot),
         layer(Layer::LiveVerdict),
         layer(Layer::LiveWrites),
         live.moved,
         live.comparison.explained(),
         live.unsettled,
+        live.comparison.not_compared(),
         live.comparison.differences(),
     )
 }

@@ -1187,6 +1187,45 @@ mod tests {
             };
             assert_eq!(failure.transient, transient, "{code}");
             assert_eq!(failure.status, Some(1));
+            assert_eq!(
+                failure.class,
+                FailureClass::Http {
+                    code,
+                    rate_limited: false
+                },
+                "no rate-limit headers"
+            );
+        }
+    }
+
+    /// A 403 or 429 carrying rate-limit headers is GitHub's limit, told
+    /// apart from a refusal of what was asked; GitHub's words are not read.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refusal_carrying_rate_limit_headers_is_classed_rate_limited() {
+        for (code, header, rate_limited) in [
+            (403, ("x-ratelimit-remaining", "0"), true),
+            (429, ("retry-after", "60"), true),
+            (403, ("x-ratelimit-remaining", "12"), false),
+            (404, ("retry-after", "60"), false),
+        ] {
+            let github = mock::serve(move |_: &Seen| {
+                let mut response = (Code::from_u16(code).unwrap(), "{}").into_response();
+                response
+                    .headers_mut()
+                    .insert(header.0, header.1.parse().unwrap());
+                response
+            })
+            .await;
+            let Err(TransportError::Failed(failure)) =
+                call(transport(&github.url), get("repos/a/b/pulls/1")).await
+            else {
+                panic!("{code} succeeded")
+            };
+            assert_eq!(
+                failure.class,
+                FailureClass::Http { code, rate_limited },
+                "{code} {header:?}"
+            );
         }
     }
 
@@ -1203,6 +1242,7 @@ mod tests {
             panic!("{reply:?}")
         };
         assert!(failure.transient, "{failure:?}");
+        assert_eq!(failure.class, FailureClass::Body);
         let before = raw.connections();
         let error = run(transport(&raw.url), |client| {
             client.request(Method::Get, "repos/a/b/pulls/1", None)
@@ -1223,6 +1263,7 @@ mod tests {
             panic!("{reply:?}")
         };
         assert!(failure.transient, "{failure:?}");
+        assert_eq!(failure.class, FailureClass::Connection);
         assert_eq!(failure.status, Some(1));
     }
 
@@ -1314,6 +1355,7 @@ mod tests {
         };
         assert!(failure.transient, "{failure:?}");
         assert_eq!(failure.status, Some(1), "a completed failure: asked again");
+        assert_eq!(failure.class, FailureClass::Deadline);
     }
 
     /// A connection that cannot be made is not a flaky answer.
@@ -1328,6 +1370,7 @@ mod tests {
             panic!("{reply:?}")
         };
         assert!(!failure.transient, "{failure:?}");
+        assert_eq!(failure.class, FailureClass::Connection);
         assert!(
             !failure.detail.contains("127.0.0.1"),
             "no URL: {}",

@@ -651,7 +651,7 @@ async fn a_sync_of_every_pull_request_read_live_as_recorded_matches_and_sends_no
     assert_eq!(
         coverage,
         "2 pull requests; snapshots 2/2, verdicts 2/2, no write 0/0; 0 moved, 0 explained, \
-         2 unsettled; 0 differences"
+         2 unsettled, 0 not compared; 0 differences"
     );
     let to_github = github
         .seen()
@@ -687,7 +687,9 @@ async fn in_a_sync_of_every_pull_request_each_one_python_wrote_nothing_to_is_hel
     );
     let coverage = outcome.coverage().unwrap();
     assert!(
-        coverage.ends_with("no write 0/1; 0 moved, 0 explained, 1 unsettled; 1 differences"),
+        coverage.ends_with(
+            "no write 0/1; 0 moved, 0 explained, 1 unsettled, 0 not compared; 1 differences"
+        ),
         "{coverage}"
     );
     // The status is named by the engine's own words; what it would write
@@ -1039,5 +1041,124 @@ async fn a_comment_deleted_between_the_reads_is_proven_by_one_more_read_and_neve
         .count();
     assert_eq!(outcome.spent, to_github, "the asking counted with the rest");
     only_reads(&github);
+    no_content::assert_no_contents(&said, &recording, &sources());
+}
+
+/// `calls` without any read of `route`: a read Python's run never made.
+fn without_reads_of(calls: &str, route: &str) -> String {
+    calls
+        .lines()
+        .filter(|line| {
+            let PyValue::Dict(entry) = py_loads(line).unwrap() else {
+                panic!("a call")
+            };
+            !matches!(entry.get("args"), Some(PyValue::List(args))
+                if args.iter().any(|a| matches!(a, PyValue::Str(a)
+                    if a.split('?').next() == Some(route))))
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+/// The synthetic sweep, in which Python wrote nothing to pull request 2
+/// and never read its timeline, served as live, the timeline answered with
+/// `status`, GitHub's `message` and the headers of `headers`.
+async fn timeline_answered(
+    into: &Path,
+    status: StatusCode,
+    message: &'static str,
+    headers: &'static [(&'static str, &'static str)],
+) -> (PathBuf, Mock) {
+    let recording = copy("sweep", into);
+    let calls = without(
+        &read(&recording.join("calls.jsonl")),
+        &[36, 39, 41, 43, 45, 58],
+    );
+    let calls = without_reads_of(&calls, "repos/dashpay/platform/issues/2/timeline");
+    std::fs::write(recording.join("calls.jsonl"), &calls).unwrap();
+    let answer = as_recorded(&calls);
+    let github = mock::serve(move |seen: &Seen| {
+        if seen.path() == "/repos/dashpay/platform/issues/2/timeline" {
+            let mut response = (
+                status,
+                serde_json::json!({ "message": message }).to_string(),
+            )
+                .into_response();
+            for (name, value) in headers {
+                response.headers_mut().insert(*name, value.parse().unwrap());
+            }
+            return response;
+        }
+        if seen.path() == "/status.json" {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        answer(seen)
+    })
+    .await;
+    (recording, github)
+}
+
+/// What GitHub says when it refuses: text only it holds, never printed.
+const REFUSAL: &str = "Wallaby-Pumpernickel-3318 cannot have this";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failure_status_after_github_failed_a_read_twice_is_not_compared_and_never_says_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let (recording, github) =
+        timeline_answered(dir.path(), StatusCode::BAD_GATEWAY, REFUSAL, &[]).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = format!("{}\n{}", outcome.printed(), outcome.coverage().unwrap());
+    assert!(outcome.clean(), "{said}");
+    assert!(
+        said.contains(
+            "| live writes | — | not compared: live read failed (HTTP 502 after retry on GET repos/*/*/issues/*/timeline) | 1 | dashpay/platform · sync: 0 |"
+        ),
+        "{said}"
+    );
+    assert!(said.contains(", 1 not compared; 0 differences"), "{said}");
+    let asked = github
+        .seen()
+        .iter()
+        .filter(|seen| seen.path() == "/repos/dashpay/platform/issues/2/timeline")
+        .count();
+    assert_eq!(asked, 2, "asked, and asked again");
+    assert!(!said.contains("Wallaby"), "{said}");
+    only_reads(&github);
+    no_content::assert_no_contents(&said, &recording, &sources());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failure_status_after_a_rate_limited_or_refused_read_is_told_apart_by_its_class() {
+    // A 403 carrying rate-limit headers is GitHub's limit: not compared.
+    let dir = tempfile::tempdir().unwrap();
+    let (recording, github) = timeline_answered(
+        dir.path(),
+        StatusCode::FORBIDDEN,
+        REFUSAL,
+        &[("x-ratelimit-remaining", "0")],
+    )
+    .await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(outcome.clean(), "{said}");
+    assert!(
+        said.contains("not compared: live read failed (HTTP 403, rate limited on GET repos/*/*/issues/*/timeline)"),
+        "{said}"
+    );
+    // A 403 without them is a refusal of what the port asked: it fails,
+    // named by its class and route, and GitHub's words are never said.
+    let dir = tempfile::tempdir().unwrap();
+    let (recording, github) =
+        timeline_answered(dir.path(), StatusCode::FORBIDDEN, REFUSAL, &[]).await;
+    let outcome = live(&github, &recording, RECORDED, usize::MAX).await;
+    let said = outcome.printed();
+    assert!(!outcome.clean(), "{said}");
+    assert!(
+        said.contains(
+            r#"| live writes | `POST repos/*/*/statuses/* error "Policy reconciliation failed; inspect workflow log", after HTTP 403 on GET repos/*/*/issues/*/timeline` | would-be write, not sent | 1 | dashpay/platform · sync: 0 |"#
+        ),
+        "{said}"
+    );
+    assert!(!said.contains("Wallaby"), "{said}");
     no_content::assert_no_contents(&said, &recording, &sources());
 }
