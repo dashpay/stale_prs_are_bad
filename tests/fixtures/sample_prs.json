@@ -7,6 +7,7 @@
           {
             "id": "PR_kw_1234",
             "number": 1234, "baseRefName": "master",
+            "milestone": { "title": "v5.0.0" },
             "title": "Add foo support",
             "url": "https://github.com/dashpay/platform/pull/1234",
             "isDraft": false,
@@ -133,6 +134,7 @@
           {
             "id": "PR_kw_1240",
             "number": 1240, "baseRefName": "master",
+            "milestone": null,
             "title": "Refactor scheduler",
             "url": "https://github.com/dashpay/platform/pull/1240",
             "isDraft": false,
@@ -181,6 +183,7 @@
             "isDraft": false,
             "mergeable": "MERGEABLE",
             "baseRefName": "master",
+            "milestone": null,
             "createdAt": "2026-04-25T00:00:00Z",
             "updatedAt": "2026-05-12T00:00:00Z",
             "author": { "login": "carol", "__typename": "User", "databaseId": 3003 },
@@ -228,6 +231,7 @@
             "isDraft": false,
             "mergeable": "MERGEABLE",
             "baseRefName": "master",
+            "milestone": null,
             "createdAt": "2026-05-10T00:00:00Z",
             "updatedAt": "2026-05-18T00:00:00Z",
             "author": { "login": "carol" },
@@ -257,6 +261,7 @@
             "isDraft": false,
             "mergeable": "MERGEABLE",
             "baseRefName": "master",
+            "milestone": null,
             "createdAt": "2026-04-01T00:00:00Z",
             "updatedAt": "2026-05-18T00:00:00Z",
             "author": { "login": "thepastaclaw" },
@@ -286,6 +291,7 @@
           {
             "id": "PR_kw_2001",
             "number": 2001, "baseRefName": "master",
+            "milestone": null,
             "title": "Bump grpc-tonic to 0.12",
             "url": "https://github.com/dashpay/platform/pull/2001",
             "isDraft": false,
@@ -329,6 +335,7 @@
           {
             "id": "PR_kw_3000",
             "number": 3000, "baseRefName": "master",
+            "milestone": null,
             "title": "Docs: clarify mempool ordering",
             "url": "https://github.com/dashpay/platform/pull/3000",
             "files": { "totalCount": 1, "nodes": [{ "path": "docs/mempool.md" }] },
@@ -362,6 +369,7 @@
           {
             "id": "PR_kw_5000",
             "number": 5000, "baseRefName": "master",
+            "milestone": null,
             "title": "Postpone wallet migration",
             "url": "https://github.com/dashpay/platform/pull/5000",
             "isDraft": false,
@@ -405,6 +413,7 @@
           {
             "id": "PR_kw_9999",
             "number": 9999, "baseRefName": "master",
+            "milestone": null,
             "title": "WIP: experiment branch",
             "url": "https://github.com/dashpay/platform/pull/9999",
             "isDraft": false,
@@ -432,6 +441,7 @@
           {
             "id": "PR_kw_6000",
             "number": 6000, "baseRefName": "master",
+            "milestone": null,
             "title": "Draft: rework cache layer",
             "url": "https://github.com/dashpay/platform/pull/6000",
             "isDraft": true,
@@ -464,6 +474,7 @@
             "isDraft": false,
             "mergeable": "MERGEABLE",
             "baseRefName": "v3.0",
+            "milestone": { "title": "v3.0.0" },
             "createdAt": "2026-03-20T00:00:00Z",
             "updatedAt": "2026-05-15T00:00:00Z",
             "author": { "login": "PastaPastaPasta" },
@@ -494,6 +505,7 @@
           {
             "id": "PR_kw_4001",
             "number": 4001, "baseRefName": "master",
+            "milestone": null,
             "title": "Bump serde to 1.0.220",
             "url": "https://github.com/dashpay/platform/pull/4001",
             "isDraft": false,

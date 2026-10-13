@@ -220,6 +220,9 @@ fn pr(p: &PrOut, known: &impl Fn(&str) -> bool) -> Result<(), Invalid> {
     if let Some(base) = &p.base {
         text(&at(), "base", base, 255)?;
     }
+    if let Some(Some(milestone)) = &p.milestone {
+        text(&at(), "milestone", milestone, MAX_TITLE)?;
+    }
     if let Some(state) = &p.engine_state {
         if state.is_empty()
             || state.len() > 64
@@ -430,6 +433,15 @@ mod tests {
         let pr = &mut d.prs[0];
         pr.repo = "Dashpay/Platform".into();
         pr.key = format!("Dashpay/Platform#{}", pr.number);
+        assert!(validate(&d, d.generated_at).is_err());
+    }
+
+    #[test]
+    fn a_milestone_title_is_bounded_like_a_pr_title() {
+        let mut d = crate::testdata::fixture();
+        d.prs[0].milestone = Some(Some("v5.0.0".into()));
+        assert!(validate(&d, d.generated_at).is_ok());
+        d.prs[0].milestone = Some(Some("x".repeat(MAX_TITLE + 1)));
         assert!(validate(&d, d.generated_at).is_err());
     }
 

@@ -71,11 +71,15 @@ pub enum Verdict {
 }
 
 /// What GitHub attaches to an open PR itself that the board's own analysis
-/// does not use: the author's account id and the decisive reviews.
+/// does not use: the author's account id, the decisive reviews and the
+/// milestone.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PrFacts {
     pub author_id: Option<u64>,
     pub reviews: Vec<DecisiveReview>,
+    /// The milestone's title, `Some(None)` for none; `None` when GitHub's
+    /// answer did not say.
+    pub milestone: Option<Option<String>>,
 }
 
 /// A PR merged or closed within the run's window.
@@ -310,6 +314,25 @@ pub struct PrOut {
     /// `fetcher::DECISIVE_REVIEWS` of them when it has more.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviews: Vec<DecisiveReview>,
+    /// The title of the milestone GitHub files it under, `null` for none.
+    /// Absent when the PR was not in GitHub's list of open PRs when it was
+    /// read, so a PR not read is never said to have no milestone.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub milestone: Option<Option<String>>,
+}
+
+/// A field that is present, `null` included; one left out is `None` by
+/// `#[serde(default)]`.
+fn present<'de, D, T>(d: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(d).map(Some)
 }
 
 /// One area of one PR that a person may approve, and who else may instead.
@@ -494,6 +517,7 @@ fn tracked_pr(s: &ScoredPr, inp: &Inputs<'_>) -> PrOut {
         tracked: true,
         author_id: facts.author_id,
         reviews: facts.reviews,
+        milestone: facts.milestone,
     }
 }
 
@@ -551,6 +575,7 @@ fn engine_only_pr(repo: &str, number: u64, state: &PolicyState, inp: &Inputs<'_>
         tracked: false,
         author_id: facts.author_id,
         reviews: facts.reviews,
+        milestone: facts.milestone,
     }
 }
 
@@ -1593,7 +1618,7 @@ mod tests {
                     1,
                     PrFacts {
                         author_id: Some(1001),
-                        reviews: vec![],
+                        ..PrFacts::default()
                     },
                 ),
                 (
@@ -1601,6 +1626,7 @@ mod tests {
                     PrFacts {
                         author_id: Some(7007),
                         reviews: vec![approval.clone()],
+                        ..PrFacts::default()
                     },
                 ),
             ]),
@@ -1624,6 +1650,50 @@ mod tests {
         assert!(!d.prs[1].tracked);
         assert_eq!(d.prs[1].author_id, Some(7007));
         assert_eq!(d.prs[1].reviews, vec![approval]);
+    }
+
+    /// A PR's milestone is written as GitHub files it, `null` for none, and
+    /// left out for a PR GitHub was not read for, so the page never files an
+    /// unread PR under "no milestone". `null` reads back as none, not unread.
+    #[test]
+    fn a_milestone_none_and_unread_are_written_apart_and_read_back() {
+        let milestone = |m: Option<&str>| PrFacts {
+            milestone: Some(m.map(str::to_string)),
+            ..PrFacts::default()
+        };
+        let facts = HashMap::from([(
+            REPO.to_string(),
+            HashMap::from([(1, milestone(Some("v5.0.0"))), (2, milestone(None))]),
+        )]);
+        let engine = HashMap::from([(
+            REPO.to_string(),
+            HashMap::from([(77, ready(&["bob"], vec![], "2026-09-30T12:00:00Z"))]),
+        )]);
+        let cfg = Config::default();
+        let d = build(&Inputs {
+            scored: &[
+                scored(1, "alice", "v5.0-dev", None),
+                scored(2, "alice", "v5.0-dev", None),
+            ],
+            engine: &engine,
+            evidence: &HashMap::new(),
+            facts: &facts,
+            closed: &HashMap::new(),
+            policies: &policies(),
+            repos: &[],
+            cfg: &cfg,
+            now: now(),
+            commit: None,
+        });
+        let json = serde_json::to_value(&d).unwrap();
+        assert_eq!(json["prs"][0]["milestone"], "v5.0.0");
+        assert_eq!(json["prs"][1]["milestone"], serde_json::Value::Null);
+        assert!(json["prs"][1].get("milestone").is_some());
+        assert_eq!(json["prs"][2]["number"], 77);
+        assert!(json["prs"][2].get("milestone").is_none());
+        let read: Dashboard = serde_json::from_value(json).unwrap();
+        let read: Vec<_> = read.prs.iter().map(|p| p.milestone.clone()).collect();
+        assert_eq!(read, vec![Some(Some("v5.0.0".into())), Some(None), None]);
     }
 
     /// The closed PRs of a repository that could not be read are said to be
@@ -1684,6 +1754,7 @@ mod tests {
         assert!(json.get("closed").is_none());
         assert!(json["prs"][0].get("author_id").is_none());
         assert!(json["prs"][0].get("reviews").is_none());
+        assert!(json["prs"][0].get("milestone").is_none());
         let read: Dashboard = serde_json::from_value(json).unwrap();
         assert!(read.closed.is_empty());
         assert_eq!(read.prs[0].author_id, None);

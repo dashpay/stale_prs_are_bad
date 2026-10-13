@@ -155,7 +155,8 @@ expression: board
           "state": "changes-requested",
           "at": "2026-04-25T15:00:00Z"
         }
-      ]
+      ],
+      "milestone": "v5.0.0"
     },
     {
       "key": "dashpay/platform#1240",
@@ -183,7 +184,8 @@ expression: board
       "ci_failing": false,
       "merge_conflict": true,
       "changes_requested": false,
-      "tracked": true
+      "tracked": true,
+      "milestone": null
     },
     {
       "key": "dashpay/platform#2001",
@@ -211,7 +213,8 @@ expression: board
       "ci_failing": false,
       "merge_conflict": false,
       "changes_requested": false,
-      "tracked": true
+      "tracked": true,
+      "milestone": null
     },
     {
       "key": "dashpay/platform#2988",
@@ -241,7 +244,8 @@ expression: board
       "ci_failing": false,
       "merge_conflict": false,
       "changes_requested": false,
-      "tracked": true
+      "tracked": true,
+      "milestone": "v3.0.0"
     },
     {
       "key": "dashpay/platform#3000",
@@ -287,7 +291,8 @@ expression: board
       "ci_failing": false,
       "merge_conflict": false,
       "changes_requested": false,
-      "tracked": true
+      "tracked": true,
+      "milestone": null
     },
     {
       "key": "dashpay/platform#3001",
@@ -317,7 +322,8 @@ expression: board
       "ci_failing": false,
       "merge_conflict": false,
       "changes_requested": false,
-      "tracked": true
+      "tracked": true,
+      "milestone": null
     },
     {
       "key": "dashpay/platform#5000",
@@ -345,7 +351,8 @@ expression: board
       "ci_failing": false,
       "merge_conflict": false,
       "changes_requested": false,
-      "tracked": true
+      "tracked": true,
+      "milestone": null
     },
     {
       "key": "dashpay/platform#6000",
@@ -373,7 +380,8 @@ expression: board
       "ci_failing": false,
       "merge_conflict": false,
       "changes_requested": false,
-      "tracked": true
+      "tracked": true,
+      "milestone": null
     },
     {
       "key": "dashpay/platform#7000",
@@ -403,7 +411,8 @@ expression: board
       "ci_failing": true,
       "merge_conflict": false,
       "changes_requested": false,
-      "tracked": true
+      "tracked": true,
+      "milestone": null
     },
     {
       "key": "dashpay/platform#8000",
@@ -440,7 +449,8 @@ expression: board
           "state": "changes-requested",
           "at": "2026-05-05T00:00:00Z"
         }
-      ]
+      ],
+      "milestone": null
     },
     {
       "key": "dashpay/platform#9100",
@@ -509,7 +519,8 @@ expression: board
       "ci_failing": false,
       "merge_conflict": false,
       "changes_requested": false,
-      "tracked": true
+      "tracked": true,
+      "milestone": null
     },
     {
       "key": "dashpay/rust-dashcore#102",
@@ -539,7 +550,8 @@ expression: board
       "ci_failing": false,
       "merge_conflict": false,
       "changes_requested": false,
-      "tracked": true
+      "tracked": true,
+      "milestone": null
     }
   ],
   "people": [
