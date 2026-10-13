@@ -26,10 +26,13 @@ export function botMark() {
   return h("span", { class: "bot", title: "bot account", "aria-label": "bot" }, BOT);
 }
 
-/** A person's name linking to their page; a bot gets the robot mark. */
-export function personLink(login, isBot, { withAvatar = false } = {}) {
+/**
+ * A person's name linking to their page, in the view's milestone when it is
+ * filtered to one; a bot gets the robot mark.
+ */
+export function personLink(login, isBot, { withAvatar = false, milestone = "" } = {}) {
   if (login === null || login === undefined) return h("span", { class: "muted" }, "unknown");
-  const href = personHref(login);
+  const href = personHref(login, milestone);
   const name = href ? h("a", { href }, login) : h("span", {}, String(login));
   return h("span", { class: "person" }, withAvatar ? avatar(login) : null, name, isBot ? [" ", botMark()] : null);
 }

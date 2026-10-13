@@ -216,8 +216,8 @@ function confirmButton({ id, label, question, yes, working, action, rerender, da
   return box;
 }
 
-/** Me: the picker where there is no sign-in, else signed out or in. */
-export function meRoute(data, route, rerender, picker) {
+/** Me: the picker where there is no sign-in, else signed out or in; `milestone` scopes your page. */
+export function meRoute(data, route, milestone, rerender, picker) {
   if (account.state === "unknown") checkSession(rerender);
   const top = [];
   if (notice) top.push(h("p", { class: "notice", id: "me-notice", role: "status", tabindex: "-1" }, notice));
@@ -227,7 +227,7 @@ export function meRoute(data, route, rerender, picker) {
       h("a", { href: "#/me" }, "Dismiss")));
   }
   switch (account.state) {
-    case "in": return [...top, ...signedIn(data, account.me, rerender)];
+    case "in": return [...top, ...signedIn(data, account.me, milestone, rerender)];
     case "out": return [...top, ...signedOut(data)];
     case "none": return [...top, account.why ? h("p", { class: "notice" }, account.why) : null, ...picker()];
     default: return [section("Me", h("p", { class: "muted", role: "status" }, "Checking whether you are signed in…"))];
@@ -253,7 +253,7 @@ function signedOut(data) {
   ];
 }
 
-function signedIn(data, me, rerender) {
+function signedIn(data, me, milestone, rerender) {
   const note = h("div", { class: "sub me-note" }, "Signed in with GitHub. ",
     confirmButton({
       id: "act-logout", label: "Sign out", question: "Sign out of this browser?", yes: "Sign out",
@@ -261,7 +261,7 @@ function signedIn(data, me, rerender) {
     }));
   const person = findPerson(data, me.login);
   const page = person
-    ? personView(data, person.login, { isMe: true, note })
+    ? personView(data, person.login, { isMe: true, note, milestone })
     : [h("section", { class: "card person-head" },
       h("div", { class: "person-title" }, avatar(me.login), h("h2", { id: "person-name", tabindex: "-1" }, me.login)),
       note,

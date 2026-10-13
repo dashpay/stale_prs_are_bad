@@ -19,7 +19,7 @@ export function teamView(data, f) {
     tiles(data, forTiles, f),
     section("How long each PR has been in its stage", agingPlot(data, visible, empty)),
     section(`Open PRs (${visible.length})`, prTable(data, visible, f, empty)),
-    reviveSection(data, visible),
+    reviveSection(data, visible, f),
   ];
 }
 
@@ -246,7 +246,7 @@ function prTable(data, prs, f, empty) {
   const columns = [
     { key: "repo", label: "Repo", className: "col-repo", sort: (p) => [p.repo, p.number ?? 0], cell: (p) => shortRepo(p.repo) },
     { key: "pr", label: "PR", sort: (p) => [p.title], cell: (p) => prCell(p) },
-    { key: "author", label: "Author", sort: (p) => [p.author ?? ""], cell: (p) => personLink(p.author, p.isBot) },
+    { key: "author", label: "Author", sort: (p) => [p.author ?? ""], cell: (p) => personLink(p.author, p.isBot, { milestone: f.milestone }) },
     { key: "stage", label: "Stage", sort: (p) => [data.stage[p.stage].order, -(p.ageMs ?? -1)], cell: (p) => stageChip(data, p.stage) },
     {
       // The default order: the review flow before parked work, late first, then longest.
@@ -274,13 +274,13 @@ function prCell(p) {
     p.tracked ? null : h("span", { class: "basis", title: "Known only from the review engine; the board's own filters left it out" }, "engine only"));
 }
 
-function reviveSection(data, prs) {
+function reviveSection(data, prs, f) {
   const rows = closeOrRevive(prs);
   const idle = idleWords(data);
   const table = sortableTable({
     columns: [
       { key: "pr", label: "PR", cell: (r) => prCell(r.pr) },
-      { key: "author", label: "Author", cell: (r) => personLink(r.pr.author, r.pr.isBot) },
+      { key: "author", label: "Author", cell: (r) => personLink(r.pr.author, r.pr.isBot, { milestone: f.milestone }) },
       { key: "stage", label: "Stage", cell: (r) => stageChip(data, r.pr.stage) },
       { key: "updated", label: "Last update", numeric: true, cell: (r) => r.pr.updatedAgoMs === null ? "—" : `${formatDuration(r.pr.updatedAgoMs)} ago` },
       { key: "why", label: "Why", cell: (r) => [r.idle ? idle : null, r.conflict ? "merge conflict" : null].filter(Boolean).join(" · ") },

@@ -38,6 +38,7 @@ query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: 
       nodes {
         id number title url isDraft mergeable createdAt updatedAt
         baseRefName
+        milestone { title }
         files(first: 50) { totalCount pageInfo { endCursor hasNextPage } nodes { path } }
         author { login __typename ... on User { databaseId } ... on Bot { databaseId } }
         labels(first: 20) { nodes { name } }
@@ -936,6 +937,12 @@ pub fn parse_pr_node(node: &Value, repo: &str) -> Result<ParsedPr> {
     let facts = PrFacts {
         author_id: node.get("author").and_then(actor_id),
         reviews: decisive_reviews(node, repo, number),
+        // `null` is no milestone; a node without the field did not say.
+        milestone: node.get("milestone").map(|m| {
+            m.get("title")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        }),
     };
 
     Ok(ParsedPr {
@@ -2223,6 +2230,25 @@ mod tests {
                 "both account kinds give their id"
             );
         }
+    }
+
+    /// A PR filed under no milestone says so with `null`; one whose node does
+    /// not carry the field is not said to have none.
+    #[test]
+    fn a_milestone_is_read_by_its_title_and_none_is_told_from_unread() {
+        let milestone = |node: &Value| {
+            parse_pr_node(node, "dashpay/platform")
+                .unwrap()
+                .facts
+                .milestone
+        };
+        let mut node = open_node(user("alice", 1001), vec![]);
+        assert_eq!(milestone(&node), None);
+        node["milestone"] = Value::Null;
+        assert_eq!(milestone(&node), Some(None));
+        node["milestone"] = json!({ "title": "v5.0.0" });
+        assert_eq!(milestone(&node), Some(Some("v5.0.0".to_string())));
+        assert!(asks(PR_LIST_QUERY, "milestone { title }"));
     }
 
     /// Whether a query holds `selection`, however either is laid out.

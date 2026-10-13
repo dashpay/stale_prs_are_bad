@@ -2,7 +2,7 @@
 // the page re-renders from it.
 
 import { h } from "./dom.js";
-import { areaLabel, ownerLabel, shortRepo } from "./model.js";
+import { NO_MILESTONE, areaLabel, milestoneLabel, ownerLabel, shortRepo } from "./model.js";
 import { buildHash, setFilters } from "./state.js";
 
 /** Which PRs or people a view shows when the URL does not say. */
@@ -18,6 +18,12 @@ export function matchesText(pr, q) {
   return hay.some((s) => s.includes(needle));
 }
 
+/** Whether a PR is in milestone `m`; a PR GitHub was not read for is in none of them. */
+export function matchesMilestone(pr, m) {
+  if (!m) return true;
+  return m === NO_MILESTONE ? pr.milestoneRead && pr.milestone === null : pr.milestone === m;
+}
+
 /**
  * PRs left after the filters. By default the Team view keeps what people must
  * act on: humans' PRs, and bots' PRs waiting on reviewers or maintainers.
@@ -27,6 +33,7 @@ export function filterPrs(prs, f, { ignoreOwner = false } = {}) {
   const who = effectiveWho(f, "people");
   return prs.filter((p) =>
     (!f.repo || p.repo === f.repo) &&
+    matchesMilestone(p, f.milestone) &&
     (!f.area || p.areas.includes(f.area)) &&
     (!f.stage || p.stage === f.stage) &&
     (ignoreOwner || !f.owner || p.owner === f.owner) &&
@@ -43,8 +50,9 @@ const WHO_OPTIONS = {
 };
 
 /**
- * The filter row. `path` is the view's route; `show` lists the controls that
- * mean something on this view; `whoDefault` is what an empty "who" means here.
+ * The filter row, or null when none of its controls has anything to offer.
+ * `path` is the view's route; `show` lists the controls that mean something
+ * on this view; `whoDefault` is what an empty "who" means here.
  */
 export function filterBar(data, path, f, { show, whoDefault, onText, searchHint }) {
   const go = (change) => setFilters(path, f, change, { keepSort: true });
@@ -54,6 +62,11 @@ export function filterBar(data, path, f, { show, whoDefault, onText, searchHint 
     controls.push(field("Repository", "f-repo", select("f-repo",
       [["", "All repositories"], ...[...data.repoSet].map((r) => [r, shortRepo(r)])],
       f.repo, (v) => go({ repo: v }))));
+  }
+  if (show.includes("milestone") && data.milestonesRead) {
+    controls.push(field("Milestone", "f-milestone", select("f-milestone",
+      [["", "All milestones"], ...data.milestones.map((m) => [m, milestoneLabel(m)]), [NO_MILESTONE, milestoneLabel(NO_MILESTONE)]],
+      f.milestone, (v) => go({ milestone: v }))));
   }
   if (show.includes("area") && data.areas.length) {
     controls.push(field("Area", "f-area", select("f-area",
@@ -98,6 +111,7 @@ export function filterBar(data, path, f, { show, whoDefault, onText, searchHint 
       h("span", { class: "chip" }, `Whose move: ${ownerLabel(f.owner)} `,
         h("a", { href: buildHash(path, { ...f, owner: "" }), "aria-label": "clear whose-move filter" }, "✕"))));
   }
+  if (!controls.length) return null;
   return h("form", { class: "filters", role: "search", on: { submit: (e) => e.preventDefault() } }, controls);
 }
 

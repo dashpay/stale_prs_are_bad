@@ -15,6 +15,7 @@
             "createdAt": "2026-04-20T00:00:00Z",
             "updatedAt": "2026-05-10T00:00:00Z",
             "baseRefName": "dev",
+            "milestone": null,
             "author": { "login": "bob" },
             "labels": { "nodes": [] },
             "files": {
@@ -51,6 +52,7 @@
             "createdAt": "2026-04-22T00:00:00Z",
             "updatedAt": "2026-05-12T00:00:00Z",
             "baseRefName": "dev",
+            "milestone": null,
             "author": { "login": "alice" },
             "labels": { "nodes": [] },
             "files": {

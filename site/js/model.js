@@ -60,6 +60,19 @@ export function areaLabel(area) {
   return area === "fallback" ? "files with no dedicated owner" : String(area);
 }
 
+// The milestone filter's value for PRs filed under none. A milestone that is
+// itself titled so is listed under "All milestones" only, never mistaken for none.
+export const NO_MILESTONE = "none";
+
+export function milestoneLabel(m) {
+  return m === NO_MILESTONE ? "No milestone" : String(m);
+}
+
+/** "in v5.0.0", "without a milestone": a milestone filter in a heading or a sentence. */
+export function milestoneWords(m) {
+  return m === NO_MILESTONE ? "without a milestone" : `in ${m}`;
+}
+
 /** The PR's GitHub page, built only from a known repository and a positive integer. */
 export function prUrl(data, repo, number) {
   if (!data.repoSet.has(repo) || !REPO_RE.test(repo)) return null;
@@ -73,11 +86,11 @@ export function avatarUrl(login) {
     : null;
 }
 
-/** The internal person page, for logins that look like GitHub logins. */
-export function personHref(login) {
-  return typeof login === "string" && LOGIN_RE.test(login)
-    ? `#/people/${encodeURIComponent(login)}`
-    : null;
+/** The internal person page, for logins that look like GitHub logins, in `milestone` when one is given. */
+export function personHref(login, milestone = "") {
+  if (typeof login !== "string" || !LOGIN_RE.test(login)) return null;
+  const q = milestone ? `?${new URLSearchParams({ milestone })}` : "";
+  return `#/people/${encodeURIComponent(login)}${q}`;
 }
 
 export function shortRepo(repo) {
@@ -196,6 +209,9 @@ export function prepare(raw) {
     const repo = str(p.repo);
     const number = Number.isSafeInteger(p.number) ? p.number : null;
     const isBot = p.author_kind === "bot";
+    // The title, or null for none. The data leaves it out for a PR GitHub
+    // was not read for, which then matches no milestone, "No milestone" included.
+    const milestone = typeof p.milestone === "string" && p.milestone ? p.milestone : null;
     return {
       key: str(p.key),
       repo,
@@ -225,12 +241,18 @@ export function prepare(raw) {
       changes_requested: p.changes_requested === true,
       tracked: p.tracked !== false,
       idle: p.idle === true,
+      milestone,
+      milestoneRead: milestone !== null || p.milestone === null,
       url: prUrl(data, repo, number),
     };
   });
   data.prByKey = new Map(data.prs.map((p) => [p.key, p]));
   data.areas = [...new Set(data.prs.flatMap((p) => p.areas))]
     .sort((a, b) => (a === "fallback") - (b === "fallback") || a.localeCompare(b));
+  // Version order, so "v5.1.0" follows "v5.0.0" and "v10" follows "v9".
+  data.milestones = [...new Set(data.prs.map((p) => p.milestone).filter((m) => m && m !== NO_MILESTONE))]
+    .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+  data.milestonesRead = data.prs.some((p) => p.milestoneRead);
 
   data.people = raw.people.filter(isObj).map((person) => {
     const owes = list(person.owes).filter(isObj).map((o) => ({

@@ -169,7 +169,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": "v5.0.0"
   },
   {
    "key": "example/alpha#102",
@@ -208,7 +209,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": "v5.1.0"
   },
   {
    "key": "example/alpha#103",
@@ -248,7 +250,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": "v5.0.0"
   },
   {
    "key": "example/alpha#104",
@@ -281,7 +284,8 @@
    "ci_failing": true,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": null
   },
   {
    "key": "example/alpha#105",
@@ -313,7 +317,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": null
   },
   {
    "key": "example/alpha#106",
@@ -343,7 +348,8 @@
    "ci_failing": false,
    "merge_conflict": true,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": null
   },
   {
    "key": "example/alpha#107",
@@ -375,7 +381,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": null
   },
   {
    "key": "example/alpha#108",
@@ -405,7 +412,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": "v5.1.0"
   },
   {
    "key": "example/alpha#109",
@@ -437,7 +445,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": "v10.0.0"
   },
   {
    "key": "example/alpha#110",
@@ -467,7 +476,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": "v5.0.0"
   },
   {
    "key": "example/alpha#111",
@@ -499,7 +509,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": null
   },
   {
    "key": "example/alpha#112",
@@ -529,7 +540,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": null
   },
   {
    "key": "example/alpha#113",
@@ -562,7 +574,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": true,
-   "tracked": true
+   "tracked": true,
+   "milestone": "v5.1.0"
   },
   {
    "key": "example/alpha#115",
@@ -597,7 +610,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": null
   },
   {
    "key": "example/alpha#116",
@@ -636,7 +650,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": "v5.0.0"
   },
   {
    "key": "example/alpha#200",
@@ -696,7 +711,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": "none"
   },
   {
    "key": "example/alpha#114",
@@ -726,7 +742,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": "\"><svg onload=alert(5)>"
   },
   {
    "key": "example/gamma#7",
@@ -756,7 +773,8 @@
    "ci_failing": false,
    "merge_conflict": false,
    "changes_requested": false,
-   "tracked": true
+   "tracked": true,
+   "milestone": null
   },
   {
    "key": "evil/\"><script>alert(3)</script>#1",

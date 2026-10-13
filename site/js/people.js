@@ -2,9 +2,9 @@
 // describe current state; lateness colour stays on PRs and never ranks people.
 
 import { h } from "./dom.js";
-import { LOGIN_RE, has, findPerson, formatDuration, personHref, shortRepo } from "./model.js";
+import { LOGIN_RE, has, findPerson, formatDuration, milestoneWords, personHref, shortRepo } from "./model.js";
 import { setFilters } from "./state.js";
-import { effectiveWho } from "./filters.js";
+import { effectiveWho, matchesMilestone } from "./filters.js";
 import {
   prLink, personLink, avatar, botMark, stageChip, timeCell, badges, section, sortableTable, areaName, asksList,
 } from "./ui.js";
@@ -13,17 +13,22 @@ const ME_KEY = "pr-hygiene:dashboard:me";
 
 const ROLE_LABEL = { "author-bot": "opens PRs", "review-bot": "reviews PRs" };
 
-/** One person's numbers, limited to a repository when the filter names one. */
-function summarize(data, person, repo) {
+/**
+ * One person's numbers, limited to a repository and a milestone when the
+ * filters name them. Review slots are per repository whatever the milestone,
+ * so a milestone leaves them as they are.
+ */
+function summarize(data, person, { repo, milestone }) {
   const inRepo = (r) => !repo || r === repo;
-  const owes = person.owesList.filter((o) => inRepo(o.prData ? o.prData.repo : o.pr.split("#")[0]));
+  const owes = person.owesList.filter((o) => inRepo(o.prData ? o.prData.repo : o.pr.split("#")[0]) &&
+    (!milestone || (o.prData && matchesMilestone(o.prData, milestone))));
   // The longest wait among owed PRs, and whether that is a recorded wait or
   // only the PR's age.
   const oldest = owes
     .map((o) => o.prData)
     .filter((p) => p && p.ageMs !== null)
     .reduce((a, p) => (!a || p.ageMs > a.ageMs ? p : a), null);
-  const prs = person.authoredPrs.filter((p) => inRepo(p.repo));
+  const prs = person.authoredPrs.filter((p) => inRepo(p.repo) && matchesMilestone(p, milestone));
   // [repo, open PRs, that repository's slot limit]
   const wip = person.wip.filter(([r]) => inRepo(r)).map(([r, n]) => [r, n, data.slotLimit(r)]);
   return {
@@ -43,7 +48,7 @@ export function peopleView(data, f) {
   const q = f.q.trim().toLowerCase();
   const rows = data.people
     .filter((p) => !q || String(p.login).toLowerCase().includes(q))
-    .map((p) => summarize(data, p, f.repo));
+    .map((p) => summarize(data, p, f));
   const maxPrs = Math.max(1, ...rows.map((r) => r.prs.length));
   const out = [];
   if (who !== "bot") {
@@ -56,7 +61,8 @@ export function peopleView(data, f) {
   }
   out.push(h("p", { class: "sub" },
     "Reviews owed: PRs ready for review that wait on the person, with how long the oldest has waited. ",
-    "WIP: open, non-draft PRs on governed branches per repository, against that repository's review-slot limit; ▲ marks one over it."));
+    "WIP: open, non-draft PRs on governed branches per repository, against that repository's review-slot limit; ▲ marks one over it.",
+    f.milestone ? " WIP counts every milestone." : ""));
   return out;
 }
 
@@ -64,7 +70,7 @@ function peopleTable(data, rows, f, maxPrs, bots) {
   const columns = [
     {
       key: "name", label: bots ? "Bot" : "Person", sort: (r) => [String(r.person.login)],
-      cell: (r) => personLink(r.person.login, r.person.isBot, { withAvatar: true }),
+      cell: (r) => personLink(r.person.login, r.person.isBot, { withAvatar: true, milestone: f.milestone }),
     },
     bots ? { key: "roles", label: "Roles", cell: (r) => roles(r.person) } : null,
     {
@@ -114,14 +120,18 @@ function wipChips(wip) {
       `${shortRepo(repo)} ${n}${n > limit ? " ▲" : ""}`)));
 }
 
-/** One person's page; on Me, `note` says how the page knows it is you. */
-export function personView(data, login, { isMe = false, note = null } = {}) {
+/**
+ * One person's page; on Me, `note` says how the page knows it is you. With
+ * `milestone`, the reviews and PRs are only those in it.
+ */
+export function personView(data, login, { isMe = false, note = null, milestone = "" } = {}) {
   const person = findPerson(data, login);
   if (!person) {
     return [section("Person not found",
       h("p", {}, "Nobody with that login is in this data. ", h("a", { href: "#/people" }, "See everyone"), "."))];
   }
-  const s = summarize(data, person, "");
+  const s = summarize(data, person, { repo: "", milestone });
+  const scope = milestone ? ` ${milestoneWords(milestone)}` : "";
   const header = h("section", { class: "card person-head" },
     h("div", { class: "person-title" }, avatar(person.login),
       h("h2", { id: "person-name", tabindex: "-1" }, person.login),
@@ -131,9 +141,12 @@ export function personView(data, login, { isMe = false, note = null } = {}) {
     areasList(person, isMe));
   return [
     header,
-    section(`${isMe ? "Reviews you owe" : "Reviews owed"} (${s.owes.length})`, owedTable(data, s.owes, person.login, isMe)),
-    section(`${isMe ? "Your PRs" : "Their PRs"} (${s.prs.length})`, ownTable(data, s.prs)),
-    section("Review slots per repository", wipList(s.wip)),
+    section(`${isMe ? "Reviews you owe" : "Reviews owed"}${scope} (${s.owes.length})`,
+      owedTable(data, s.owes, person.login, isMe, milestone)),
+    section(`${isMe ? "Your PRs" : "Their PRs"}${scope} (${s.prs.length})`,
+      ownTable(data, s.prs, milestone)),
+    section("Review slots per repository", wipList(s.wip),
+      milestone ? h("p", { class: "sub" }, "Slots count every open PR on governed branches, whatever its milestone.") : null),
   ];
 }
 
@@ -156,20 +169,20 @@ function yourPart(o, login, isMe) {
   return h("ul", { class: "part" }, items);
 }
 
-function owedTable(data, owes, login, isMe) {
+function owedTable(data, owes, login, isMe, milestone) {
   const rows = [...owes].sort((a, b) => (b.prData?.ageMs ?? -1) - (a.prData?.ageMs ?? -1));
   return sortableTable({
     columns: [
       { key: "pr", label: "PR", cell: (o) => o.prData ? prLink(o.prData) : String(o.pr) },
-      { key: "author", label: "Author", cell: (o) => o.prData ? personLink(o.prData.author, o.prData.isBot) : "—" },
+      { key: "author", label: "Author", cell: (o) => o.prData ? personLink(o.prData.author, o.prData.isBot, { milestone }) : "—" },
       { key: "part", label: isMe ? "Your part" : "Their part", cell: (o) => yourPart(o, login, isMe) },
       { key: "wait", label: "Waiting", cell: (o) => o.prData ? timeCell(o.prData) : "—" },
     ],
-    rows, empty: "Nothing to review right now.",
+    rows, empty: milestone ? `Nothing to review ${milestoneWords(milestone)}.` : "Nothing to review right now.",
   });
 }
 
-function ownTable(data, prs) {
+function ownTable(data, prs, milestone) {
   const rows = [...prs].sort((a, b) => data.stage[a.stage].order - data.stage[b.stage].order || (b.ageMs ?? -1) - (a.ageMs ?? -1));
   return sortableTable({
     columns: [
@@ -179,7 +192,7 @@ function ownTable(data, prs) {
       { key: "next", label: "Next action", cell: (p) => nextAndBlockers(p) },
       { key: "flags", label: "Flags", cell: (p) => badges(p) },
     ],
-    rows, empty: "No open PRs.",
+    rows, empty: milestone ? `No open PRs ${milestoneWords(milestone)}.` : "No open PRs.",
   });
 }
 
@@ -241,7 +254,7 @@ function forgetMe() {
   }
 }
 
-export function meView(data, rerender, picked) {
+export function meView(data, rerender, picked, milestone) {
   const stored = picked ? { person: picked, missing: null } : storedMe(data);
   const me = stored.person;
   if (me) {
@@ -251,6 +264,7 @@ export function meView(data, rerender, picked) {
     };
     return personView(data, me.login, {
       isMe: true,
+      milestone,
       note: h("p", { class: "sub" }, "Kept in this browser only. ",
         h("button", { type: "button", class: "linkish", on: { click: change } }, "Not you? Change")),
     });

@@ -1253,6 +1253,7 @@ mod tests {
             tracked: true,
             author_id: Some(ALICE),
             reviews: vec![],
+            milestone: None,
         }
     }
 
