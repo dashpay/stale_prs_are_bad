@@ -28,8 +28,9 @@ The deliverable is an interactive GitHub Pages site — the static page in
 `site/` reading `dashboard.json`, which the analyzer writes with `--json-out` —
 regenerated and re-deployed every 6 hours. It shows where each PR is late and
 whose move it is (Team), what every person and bot owes and holds (People),
-and one person's own queue with the areas they are asked to review (Me). URL
-pattern:
+and one person's own queue with the areas they are asked to review (Me). Each
+view can be narrowed to one GitHub milestone, or to PRs with none
+(`?milestone=v5.0.0`, `?milestone=none`). URL pattern:
 
 ```
 https://<owner>.github.io/<repo>/

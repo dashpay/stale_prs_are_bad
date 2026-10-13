@@ -2,7 +2,7 @@
 // the view the URL hash names. No build step; d3 and Plot are vendored globals.
 
 import { h } from "./js/dom.js";
-import { prepare, STALE_HOURS, formatDuration } from "./js/model.js";
+import { prepare, STALE_HOURS, findPerson, formatDuration } from "./js/model.js";
 import { parseHash, buildHash } from "./js/state.js";
 import { filterBar } from "./js/filters.js";
 import { teamView } from "./js/team.js";
@@ -61,7 +61,7 @@ function nav(route, f) {
   ];
   return h("nav", { "aria-label": "Views" }, links.map(([view, path, label]) => {
     const current = route.view === view || (view === "people" && route.view === "person");
-    const href = view === "me" ? "#/me" : buildHash(path, { ...f, q: "" }, { keepSort: false });
+    const href = view === "me" ? buildHash(path, { milestone: f.milestone }) : buildHash(path, { ...f, q: "" }, { keepSort: false });
     return h("a", { href, "aria-current": current ? "page" : null }, label);
   }));
 }
@@ -130,23 +130,26 @@ function draw() {
   let content;
   if (route.view === "team") {
     bar = filterBar(data, "/", f, {
-      show: ["repo", "area", "stage", "who", "late", "q", "owner"], whoDefault: "people", onText: render,
+      show: ["repo", "milestone", "area", "stage", "who", "late", "q", "owner"], whoDefault: "people", onText: render,
       searchHint: "author, reviewer or title",
     });
     content = teamView(data, f);
   } else if (route.view === "people") {
-    bar = filterBar(data, "/people", f, { show: ["repo", "who", "q"], whoDefault: "all", onText: render, searchHint: "login" });
+    bar = filterBar(data, "/people", f, { show: ["repo", "milestone", "who", "q"], whoDefault: "all", onText: render, searchHint: "login" });
     content = peopleView(data, f);
   } else if (route.view === "person") {
-    content = personView(data, route.login);
+    const person = findPerson(data, route.login);
+    if (person) bar = filterBar(data, `/people/${encodeURIComponent(person.login)}`, f, { show: ["milestone"] });
+    content = personView(data, route.login, { milestone: f.milestone });
   } else if (route.view === "privacy") {
     content = privacyView();
   } else {
     // Where there is no sign-in, Me is the login picker kept in this browser.
-    content = meRoute(data, route, render, () => meView(data, (p) => {
+    bar = filterBar(data, "/me", f, { show: ["milestone"] });
+    content = meRoute(data, route, f.milestone, render, () => meView(data, (p) => {
       pickedMe = p;
       render();
-    }, pickedMe));
+    }, pickedMe, f.milestone));
   }
   document.title = route.view === "person" && route.login ? `${route.login} · PR Hygiene`
     : route.view === "privacy" ? "Privacy · PR Hygiene" : "PR Hygiene";

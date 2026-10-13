@@ -1,11 +1,11 @@
 // The URL hash is the page's whole state, so every view and filter is a link
 // someone can share: "#/people/alice", "#/?repo=dashpay/platform&late=1".
 
-import { LOGIN_RE } from "./model.js";
+import { LOGIN_RE, NO_MILESTONE } from "./model.js";
 
 const WHO = new Set(["people", "human", "all", "bot"]);
 const DIRS = new Set(["asc", "desc"]);
-const FILTER_KEYS = ["repo", "area", "stage", "owner", "who", "late", "q"];
+const FILTER_KEYS = ["repo", "milestone", "area", "stage", "owner", "who", "late", "q"];
 
 export function parseHash(hash, data) {
   const raw = hash.replace(/^#/, "");
@@ -30,8 +30,10 @@ export function parseHash(hash, data) {
   // The service sends a failed sign-in back to "#/me?signin=failed".
   if (route.view === "me") route.signinFailed = q.get("signin") === "failed";
   const get = (k) => q.get(k) ?? "";
+  const milestone = get("milestone");
   const f = {
     repo: data.repoSet.has(get("repo")) ? get("repo") : "",
+    milestone: data.milestones.includes(milestone) || (milestone === NO_MILESTONE && data.milestonesRead) ? milestone : "",
     area: data.areas.includes(get("area")) ? get("area") : "",
     stage: Object.hasOwn(data.stage, get("stage")) ? get("stage") : "",
     owner: data.owners.some((o) => o.key === get("owner")) ? get("owner") : "",
