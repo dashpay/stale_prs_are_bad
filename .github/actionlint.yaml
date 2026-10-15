@@ -1,4 +1,0 @@
-self-hosted-runner:
-  # Org runner groups from dashpay/dash-ci-pool.
-  labels:
-    - dash-x64-light
