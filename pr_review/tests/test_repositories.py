@@ -90,7 +90,9 @@ class RepositoryConfigurationTests(unittest.TestCase):
         # person can approve, so a change to CI never waits on one account.
         # Tenderdash's maintainer co-owns it there: its routine Go and
         # dependency bumps touch workflows, and they waited on one account.
-        co_owners = {'tenderdash': ['lklimek']}
+        # So does Dash Evo Tool's: its workflows (Flatpak, release, the Rust
+        # toolchain they install) change together with the app's own code.
+        co_owners = {'tenderdash': ['lklimek'], 'dash-evo-tool': ['lklimek']}
         for name, policy in self.policies.items():
             with self.subTest(repository=name):
                 areas = [area for area in policy['areas'] if area['id'] == 'github']
