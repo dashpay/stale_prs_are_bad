@@ -23,7 +23,8 @@
         ".github/"
       ],
       "owners": [
-        "ktechmidas"
+        "ktechmidas",
+        "lklimek"
       ],
       "reviewers": [
         "shumkov"
