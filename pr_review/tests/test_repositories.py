@@ -88,12 +88,15 @@ class RepositoryConfigurationTests(unittest.TestCase):
         # CI, release workflows and the PR Hygiene caller itself live under
         # .github/, in every repository, so one person owns them all. A second
         # person can approve, so a change to CI never waits on one account.
+        # Tenderdash's maintainer co-owns it there: its routine Go and
+        # dependency bumps touch workflows, and they waited on one account.
+        co_owners = {'tenderdash': ['lklimek']}
         for name, policy in self.policies.items():
             with self.subTest(repository=name):
                 areas = [area for area in policy['areas'] if area['id'] == 'github']
                 self.assertEqual(len(areas), 1)
                 self.assertEqual((areas[0]['paths'], areas[0]['owners'], areas[0]['reviewers']),
-                                 (['.github/'], ['ktechmidas'], ['shumkov']))
+                                 (['.github/'], ['ktechmidas'] + co_owners.get(name.split('/')[-1], []), ['shumkov']))
                 _, pr = fixture()
                 pr.update(base=policy['target_branches'][0], author='someone',
                           files=[{'filename': '.github/workflows/ci.yml'}, {'filename': 'README.md'}], comments=[])
