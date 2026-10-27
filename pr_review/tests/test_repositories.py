@@ -106,9 +106,24 @@ class RepositoryConfigurationTests(unittest.TestCase):
                                           ['ktechmidas', 'shumkov'] + policy['fallback']['owners'] + policy['fallback']['reviewers']})
                 result = evaluate(policy, pr, NOW, NOW)
                 self.assertNotEqual(result['state'], 'configuration-error', result)
-                # The workflow is ktechmidas's to approve; the rest of the
+                # The workflow is the github area's to approve; the rest of the
                 # repository is still whoever owned it before.
                 self.assertEqual(result['areas'], ['fallback', 'github'])
+
+    def test_dash_evo_tool_maintainer_approval_satisfies_the_github_area(self):
+        policy = self.policies['dashpay/dash-evo-tool']
+        for approver, state in (('lklimek', 'ready-to-merge'), ('nobody', 'ready-for-human')):
+            with self.subTest(approver=approver):
+                _, pr = fixture()
+                pr.update(base=policy['target_branches'][0], author='someone',
+                          files=[{'filename': '.github/workflows/flatpak.yml'}])
+                pr['comments'] = [dict(id=3, user='someone', body=f'/self-reviewed {pr["head"]}',
+                                       created_at=NOW, updated_at=NOW)]
+                pr['permissions'].update({handle: 'admin' for handle in ['ktechmidas', 'shumkov', 'lklimek']})
+                pr['reviews'].append(dict(id=9, user=approver, state='APPROVED', commit_id=pr['head'],
+                                          submitted_at=NOW, body=''))
+                result = evaluate(policy, pr, NOW, NOW)
+                self.assertEqual((result['areas'], result['state']), (['github'], state), result)
 
     def test_fallbacks_name_each_repository_owner_not_platform_leads(self):
         expected = {'platform': (['QuantumExplorer', 'shumkov'], []),
