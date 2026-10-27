@@ -3,6 +3,9 @@
   "repository": "dashpay/platform",
   "max_active_prs": 5,
   "bot_authors": ["infraclaw-dash", "DCG-Claude", "Claudius-Maginificent"],
+  "required_bots": [
+    "thepastaclaw"
+  ],
   "bot_timeouts": {
     "nudge_after_hours": 6,
     "waive_after_hours": 16
