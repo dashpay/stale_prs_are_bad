@@ -44,7 +44,7 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertTrue(all(governs(policy, name) for name in names), names)
 
     def test_external_whole_repository_roles_do_not_promote_contributors(self):
-        expected = {'tenderdash': ('v1.8-dev', ['lklimek'], ['shumkov']),
+        expected = {'tenderdash': ('dev', ['lklimek'], ['shumkov']),
                     'grovedb': ('develop', ['QuantumExplorer'], []),
                     'dash-evo-tool': ('v1.0-dev', ['lklimek'], [])}
         for name, (branch, owners, reviewers) in expected.items():
