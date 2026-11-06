@@ -4,7 +4,7 @@
   "max_active_prs": 5,
   "bot_authors": ["Claudius-Maginificent"],
   "target_branches": [
-    "v1.8-dev"
+    "dev"
   ],
   "required_bots": [
     "thepastaclaw"
