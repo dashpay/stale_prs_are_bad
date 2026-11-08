@@ -1,16 +1,16 @@
 ---
 ---
 # PR Hygiene Report
-*Last updated: 2026-11-08 12:10 UTC · commit b100b61*
+*Last updated: 2026-11-08 18:09 UTC · commit b100b61*
 
 ## Summary
-- Open PRs: **168** (25 clean · 12 CI failing · 14 changes requested · 25 unresolved comments · 7 deferred · 38 draft · 47 stale)
-- PRs needing author action: **44**
-- Total unresolved comments: **201**
-- dashpay/platform: **116** open (18 clean · 6 CI failing · 7 changes requested · 19 unresolved comments · 7 deferred · 22 draft · 37 stale) · engine: 23 draft · 8 ready-for-human · 2 ready-to-merge · 5 too-many-open-prs · 23 waiting-author · 1 waiting-bots · 3 waiting-build · 16 waiting-self-review · 35 no verdict
-- dashpay/rust-dashcore: **21** open (3 clean · 2 CI failing · 5 changes requested · 2 unresolved comments · 0 deferred · 9 draft · 0 stale) · engine: 9 draft · 2 ready-for-human · 2 waiting-author · 1 waiting-build · 7 waiting-self-review
+- Open PRs: **170** (24 clean · 12 CI failing · 15 changes requested · 26 unresolved comments · 7 deferred · 38 draft · 48 stale)
+- PRs needing author action: **45**
+- Total unresolved comments: **203**
+- dashpay/platform: **117** open (17 clean · 6 CI failing · 8 changes requested · 19 unresolved comments · 7 deferred · 22 draft · 38 stale) · engine: 23 draft · 8 ready-for-human · 2 ready-to-merge · 5 too-many-open-prs · 24 waiting-author · 3 waiting-build · 17 waiting-self-review · 35 no verdict
+- dashpay/rust-dashcore: **21** open (4 clean · 1 CI failing · 5 changes requested · 2 unresolved comments · 0 deferred · 9 draft · 0 stale) · engine: 9 draft · 2 ready-for-human · 1 ready-to-merge · 2 waiting-author · 7 waiting-self-review
 - dashpay/tenderdash: **10** open (1 clean · 0 CI failing · 1 changes requested · 3 unresolved comments · 0 deferred · 4 draft · 1 stale) · engine: 4 draft · 3 waiting-author · 2 waiting-self-review · 1 no verdict
-- dashpay/grovedb: **2** open (1 clean · 0 CI failing · 0 changes requested · 0 unresolved comments · 0 deferred · 1 draft · 0 stale) · engine: 1 draft · 1 waiting-self-review
+- dashpay/grovedb: **3** open (0 clean · 1 CI failing · 0 changes requested · 1 unresolved comments · 0 deferred · 1 draft · 0 stale) · engine: 1 draft · 2 waiting-bots
 - dashpay/dash-evo-tool: **19** open (2 clean · 4 CI failing · 1 changes requested · 1 unresolved comments · 0 deferred · 2 draft · 9 stale) · engine: 2 draft · 7 ready-for-human · 1 waiting-author · 9 no verdict
 
 ## Scoreboard
@@ -18,17 +18,17 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 | Author | Open | Clean | CI failing | Unresolved Comments | Changes Requested | Deferred | Draft | Stale | Needs action | Ready for human | Total Unresolved Comments | Ready for Review | Δ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [@QuantumExplorer](#quantumexplorer) | [33](#quantumexplorer-open) | [4](#quantumexplorer-clean) | [1](#quantumexplorer-ci-failing) | [7](#quantumexplorer-unresolved-comments) | [1](#quantumexplorer-changes-requested) | — | [7](#quantumexplorer-draft) | [13](#quantumexplorer-stale) | [9](#quantumexplorer-needs-action) | — | [52](#quantumexplorer-unresolved-comments) | [7](#quantumexplorer-ready-for-review) | ↑ 3 |
+| [@QuantumExplorer](#quantumexplorer) | [35](#quantumexplorer-open) | [2](#quantumexplorer-clean) | [2](#quantumexplorer-ci-failing) | [8](#quantumexplorer-unresolved-comments) | [2](#quantumexplorer-changes-requested) | — | [7](#quantumexplorer-draft) | [14](#quantumexplorer-stale) | [10](#quantumexplorer-needs-action) | — | [57](#quantumexplorer-unresolved-comments) | [8](#quantumexplorer-ready-for-review) | ↑ 4 |
 | [@Claudius-Maginificent](#claudius-maginificent) | [39](#claudius-maginificent-open) | [2](#claudius-maginificent-clean) | [5](#claudius-maginificent-ci-failing) | [5](#claudius-maginificent-unresolved-comments) | [2](#claudius-maginificent-changes-requested) | [3](#claudius-maginificent-deferred) | [4](#claudius-maginificent-draft) | [18](#claudius-maginificent-stale) | [9](#claudius-maginificent-needs-action) | [8](#claudius-maginificent-ready-for-human) | [23](#claudius-maginificent-unresolved-comments) | — | ↓ 5 |
 | [@PastaPastaPasta](#pastapastapasta) | [25](#pastapastapasta-open) | [6](#pastapastapasta-clean) | — | [2](#pastapastapasta-unresolved-comments) | [4](#pastapastapasta-changes-requested) | — | [11](#pastapastapasta-draft) | [2](#pastapastapasta-stale) | [6](#pastapastapasta-needs-action) | [2](#pastapastapasta-ready-for-human) | [42](#pastapastapasta-unresolved-comments) | [1](#pastapastapasta-ready-for-review) | ↓ 2 |
-| [@shumkov](#shumkov) | [11](#shumkov-open) | [3](#shumkov-clean) | [1](#shumkov-ci-failing) | [2](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | — | [1](#shumkov-draft) | [3](#shumkov-stale) | [4](#shumkov-needs-action) | — | [26](#shumkov-unresolved-comments) | [7](#shumkov-ready-for-review) | ↓ 3 |
+| [@shumkov](#shumkov) | [11](#shumkov-open) | [3](#shumkov-clean) | [1](#shumkov-ci-failing) | [2](#shumkov-unresolved-comments) | [1](#shumkov-changes-requested) | — | [1](#shumkov-draft) | [3](#shumkov-stale) | [4](#shumkov-needs-action) | — | [26](#shumkov-unresolved-comments) | [6](#shumkov-ready-for-review) | ↓ 3 |
 | [@romchornyi](#romchornyi) | [10](#romchornyi-open) | [1](#romchornyi-clean) | — | [2](#romchornyi-unresolved-comments) | [1](#romchornyi-changes-requested) | — | [4](#romchornyi-draft) | [2](#romchornyi-stale) | [3](#romchornyi-needs-action) | [1](#romchornyi-ready-for-human) | [17](#romchornyi-unresolved-comments) | [5](#romchornyi-ready-for-review) | ↓ 1 |
-| [@HashEngineering](#hashengineering) | [5](#hashengineering-open) | [1](#hashengineering-clean) | — | [2](#hashengineering-unresolved-comments) | — | — | [1](#hashengineering-draft) | [1](#hashengineering-stale) | [2](#hashengineering-needs-action) | [1](#hashengineering-ready-for-human) | [16](#hashengineering-unresolved-comments) | [5](#hashengineering-ready-for-review) | ↑ 1 |
+| [@HashEngineering](#hashengineering) | [5](#hashengineering-open) | [1](#hashengineering-clean) | — | [2](#hashengineering-unresolved-comments) | — | — | [1](#hashengineering-draft) | [1](#hashengineering-stale) | [2](#hashengineering-needs-action) | [1](#hashengineering-ready-for-human) | [13](#hashengineering-unresolved-comments) | [5](#hashengineering-ready-for-review) | ↑ 1 |
 | [@bfoss765](#bfoss765) | [2](#bfoss765-open) | — | — | [2](#bfoss765-unresolved-comments) | — | — | — | — | [2](#bfoss765-needs-action) | — | [11](#bfoss765-unresolved-comments) | — | — |
-| [@lklimek](#lklimek) | [11](#lklimek-open) | [1](#lklimek-clean) | — | [1](#lklimek-unresolved-comments) | [2](#lklimek-changes-requested) | [4](#lklimek-deferred) | [2](#lklimek-draft) | [1](#lklimek-stale) | [3](#lklimek-needs-action) | — | [8](#lklimek-unresolved-comments) | [9](#lklimek-ready-for-review) | — |
-| [@xdustinface](#xdustinface) | [9](#xdustinface-open) | — | [1](#xdustinface-ci-failing) | [1](#xdustinface-unresolved-comments) | [1](#xdustinface-changes-requested) | — | [6](#xdustinface-draft) | — | [2](#xdustinface-needs-action) | — | [2](#xdustinface-unresolved-comments) | [3](#xdustinface-ready-for-review) | ↑ 2 |
+| [@lklimek](#lklimek) | [11](#lklimek-open) | [1](#lklimek-clean) | — | [1](#lklimek-unresolved-comments) | [2](#lklimek-changes-requested) | [4](#lklimek-deferred) | [2](#lklimek-draft) | [1](#lklimek-stale) | [3](#lklimek-needs-action) | — | [8](#lklimek-unresolved-comments) | [8](#lklimek-ready-for-review) | — |
+| [@xdustinface](#xdustinface) | [9](#xdustinface-open) | [1](#xdustinface-clean) | — | [1](#xdustinface-unresolved-comments) | [1](#xdustinface-changes-requested) | — | [6](#xdustinface-draft) | — | [2](#xdustinface-needs-action) | [1](#xdustinface-ready-for-human) | [2](#xdustinface-unresolved-comments) | [3](#xdustinface-ready-for-review) | ↑ 2 |
 | [@llbartekll](#llbartekll) | [2](#llbartekll-open) | — | [1](#llbartekll-ci-failing) | [1](#llbartekll-unresolved-comments) | — | — | — | — | [1](#llbartekll-needs-action) | [1](#llbartekll-ready-for-human) | [3](#llbartekll-unresolved-comments) | [7](#llbartekll-ready-for-review) | — |
-| [@ZocoLini](#zocolini) | [7](#zocolini-open) | [2](#zocolini-clean) | [1](#zocolini-ci-failing) | — | [2](#zocolini-changes-requested) | — | [2](#zocolini-draft) | — | [2](#zocolini-needs-action) | — | — | [7](#zocolini-ready-for-review) | — |
+| [@ZocoLini](#zocolini) | [7](#zocolini-open) | [2](#zocolini-clean) | [1](#zocolini-ci-failing) | — | [2](#zocolini-changes-requested) | — | [2](#zocolini-draft) | — | [2](#zocolini-needs-action) | — | — | [8](#zocolini-ready-for-review) | — |
 | [@ktechmidas](#ktechmidas) | [6](#ktechmidas-open) | [2](#ktechmidas-clean) | — | — | — | — | — | [4](#ktechmidas-stale) | [1](#ktechmidas-needs-action) | — | [1](#ktechmidas-unresolved-comments) | [2](#ktechmidas-ready-for-review) | — |
 | [@DCG-Claude](#dcg-claude) | [6](#dcg-claude-open) | [1](#dcg-claude-clean) | [2](#dcg-claude-ci-failing) | — | — | — | — | [3](#dcg-claude-stale) | — | [4](#dcg-claude-ready-for-human) | — | — | ↓ 1 |
 | [@thepastaclaw](#thepastaclaw) | [2](#thepastaclaw-open) | [2](#thepastaclaw-clean) | — | — | — | — | — | — | — | [2](#thepastaclaw-ready-for-human) | — | — | ↓ 1 |
@@ -38,7 +38,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 <a id="quantumexplorer"></a>
 ### @QuantumExplorer
 <a id="quantumexplorer-open"></a>
-#### Open (33)
+#### Open (35)
 - [dashpay/rust-dashcore#1078 feat(key-wallet)!: lock masternode collateral out of coin selection](https://github.com/dashpay/rust-dashcore/pull/1078) — 8 unresolved (8 human) · 39 days stale · ⚠ merge conflict · ✋ changes requested · areas: key-wallet, key-wallet-manager · Policy: waiting-self-review
   - Top thread: "This sets the state by hand, and together with the serde round-trip it is the only coverage of the refresh inside \`updat…" — 39 days old
   - Blocker: Author must post /self-reviewed 44a9a010500fbd44aba09111b4c53a28b88e8073
@@ -67,16 +67,25 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "🔴 Blocking: Version the consensus order-ID derivation through platform-version tables**" — 14 days old
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
   - Blocker: thepastaclaw left review threads unresolved; resolve them
-- [dashpay/platform#5530 feat(platform)!: token marketplace offers (PV15)](https://github.com/dashpay/platform/pull/5530) — 1 unresolved (1 bot) · 8 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets claude/token-market-listings · areas: rs-drive, rs-drive-abci, dpp, rs-platform-wallet, fallback
-  - Top thread: "🔴 Blocking: Bound bid escrow by a buyer-signed credit limit**" — 8 days old
+- [dashpay/platform#5530 feat(platform)!: token marketplace offers (PV15)](https://github.com/dashpay/platform/pull/5530) — 1 unresolved (1 bot) · 9 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets claude/token-market-listings · areas: rs-drive, rs-drive-abci, dpp, rs-platform-wallet, fallback
+  - Top thread: "🔴 Blocking: Bound bid escrow by a buyer-signed credit limit**" — 9 days old
+- [dashpay/grovedb#1001 feat(batch)!: opt-in settlement of storage owner changes](https://github.com/dashpay/grovedb/pull/1001) — 2 unresolved (2 bot) · 0 days stale · ✋ changes requested · 🔴 CI failing · areas: fallback · Policy: waiting-bots
+  - Top thread: "🟡 Suggestion: Assert that each estimate baseline actually settles ownership**" — 0 days old
+  - Blocker: coderabbitai has not reported for the current head
+  - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+  - Blocker: thepastaclaw left review threads unresolved; resolve them
+- [dashpay/platform#5810 feat(platform-wallet): send, receive and accept DashPay private contact requests](https://github.com/dashpay/platform/pull/5810) — 2 unresolved (2 bot) · 0 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets feat/sdk-private-documents-send-and-scan · areas: rs-platform-wallet
+  - Top thread: "🟡 Suggestion: Report committed requests rather than pre-ingest candidates**" — 0 days old
 - [dashpay/tenderdash#1596 fix(p2p): trim the simple priority queue on every push](https://github.com/dashpay/tenderdash/pull/1596) — 1 unresolved (1 bot) · 3 days stale · areas: fallback · Policy: waiting-self-review
   - Top thread: "🟡 Suggestion: Avoid whole-queue sorting for each overflowing push**" — 3 days old
   - Blocker: Author must post /self-reviewed 4599c6a9e7d0f21c8ff0ead2413fa64dab4856d2
 - [dashpay/tenderdash#1582 feat(abci)!: add the ApplyBlockRandomness method and commit beacon fields](https://github.com/dashpay/tenderdash/pull/1582) — 1 unresolved (1 bot) · 2 days stale · areas: fallback · Policy: waiting-author
   - Top thread: "✅ **Resolved** at \`cd6b4ec8\`; see the replies below." — 2 days old
   - Blocker: thepastaclaw left review threads unresolved; resolve them
-- [dashpay/grovedb#1001 feat(batch)!: opt-in settlement of storage owner changes](https://github.com/dashpay/grovedb/pull/1001) — ⚠ merge conflict · areas: fallback · Policy: waiting-self-review
-  - Blocker: Author must post /self-reviewed 814dfc765747cec0beb7a39e1cdf04d301ce9ac3
+- [dashpay/platform#5813 feat(kotlin-sdk): send, receive and accept DashPay private contact requests](https://github.com/dashpay/platform/pull/5813) — 1 unresolved (1 bot) · 0 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets feat/ffi-swift-private-contact-requests · areas: kotlin-sdk, fallback
+  - Top thread: "🔴 Blocking: Retain unresolved private acceptances in wallet-owned state**" — 0 days old
+- [dashpay/grovedb#1033 feat(storage-flags): let the new flags decide who owns an updated element](https://github.com/dashpay/grovedb/pull/1033) — 🔴 CI failing · areas: fallback · Policy: waiting-bots
+  - Blocker: thepastaclaw has not reported for the current head
 - [dashpay/platform#4519 feat(platform-wallet): rotate a masternode's keys into the wallet — ProUpRegTx orchestration, FFI, Swift](https://github.com/dashpay/platform/pull/4519) — ⚠ merge conflict · 🔴 CI failing · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 92a3ebe17adc12432fb756c63f172c663809007d
   - Blocker: Proceeded without thepastaclaw: no review within the configured window
@@ -95,13 +104,13 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
 - [dashpay/platform#5807 feat(platform)!: a private type's update may only add properties after its existing ones (PV15)](https://github.com/dashpay/platform/pull/5807) — areas: dpp, fallback · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 1d71edd0abf6fa2383e3ddd5c4c22866b29f9789
-- [dashpay/platform#5809 feat(sdk): send, scan and read DashPay private contact requests](https://github.com/dashpay/platform/pull/5809) — areas: rust-sdk, fallback · Policy: waiting-bots
-  - Blocker: thepastaclaw has not reported for the current head
-  - Blocker: coderabbitai left review threads unresolved; resolve them
-- [dashpay/platform#5810 feat(platform-wallet): send, receive and accept DashPay private contact requests](https://github.com/dashpay/platform/pull/5810) — 🐢 targets feat/sdk-private-documents-send-and-scan · areas: rs-platform-wallet
-- [dashpay/platform#5811 feat(wasm-sdk): seal and scan DashPay private contact requests](https://github.com/dashpay/platform/pull/5811) — 🐢 targets feat/sdk-private-documents-send-and-scan · areas: js-wasm-sdk
+- [dashpay/platform#5809 feat(sdk): send, scan and read DashPay private contact requests](https://github.com/dashpay/platform/pull/5809) — ✋ changes requested · areas: dpp, rust-sdk, js-wasm-sdk, fallback · Policy: waiting-author
+  - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+  - Blocker: thepastaclaw left review threads unresolved; resolve them
+- [dashpay/platform#5811 feat(wasm-sdk): seal and scan DashPay private contact requests](https://github.com/dashpay/platform/pull/5811) — ✋ changes requested · 🐢 targets feat/sdk-private-documents-send-and-scan · areas: js-wasm-sdk
 - [dashpay/platform#5812 feat(swift-sdk): send, receive and accept DashPay private contact requests](https://github.com/dashpay/platform/pull/5812) — 🐢 targets feat/platform-wallet-private-contact-requests · areas: rs-platform-wallet-ffi, swift-sdk, rust-sdk-ffi
-- [dashpay/platform#5813 feat(kotlin-sdk): send, receive and accept DashPay private contact requests](https://github.com/dashpay/platform/pull/5813) — 🐢 targets feat/ffi-swift-private-contact-requests · areas: kotlin-sdk, fallback
+- [dashpay/platform#5814 fix(kotlin-sdk): release contact request handles after a sync](https://github.com/dashpay/platform/pull/5814) — 🐢 targets v5.0-dev · areas: fallback · Policy: waiting-self-review
+  - Blocker: Author must post /self-reviewed 11a87dd08ae4e8ae2a464442a9ee15753e4073e9
 - [dashpay/tenderdash#1583 feat(consensus)!: recover a beacon from prevotes and sign precommits over the randomness-applied app hash](https://github.com/dashpay/tenderdash/pull/1583) — 📝 draft · areas: fallback · Policy: draft
   - Blocker: Draft PR does not occupy a review slot
 - [dashpay/tenderdash#1584 fix(statesync): restore LastAppHash of the snapshot height, not the next one](https://github.com/dashpay/tenderdash/pull/1584) — areas: fallback · Policy: waiting-self-review
@@ -111,7 +120,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 - [dashpay/tenderdash#1597 fix(p2p): trim the simple priority queue below its limit](https://github.com/dashpay/tenderdash/pull/1597) — 📝 draft · 🐢 targets test/p2p-shared-queue-ceiling · areas: fallback
 
 <a id="quantumexplorer-needs-action"></a>
-#### Needs action (9)
+#### Needs action (10)
 - [dashpay/rust-dashcore#1078 feat(key-wallet)!: lock masternode collateral out of coin selection](https://github.com/dashpay/rust-dashcore/pull/1078) — 8 unresolved (8 human) · 39 days stale · ⚠ merge conflict · ✋ changes requested · areas: key-wallet, key-wallet-manager · Policy: waiting-self-review
   - Top thread: "This sets the state by hand, and together with the serde round-trip it is the only coverage of the refresh inside \`updat…" — 39 days old
   - Blocker: Author must post /self-reviewed 44a9a010500fbd44aba09111b4c53a28b88e8073
@@ -127,22 +136,28 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "🔴 Blocking: Version the consensus order-ID derivation through platform-version tables**" — 14 days old
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
   - Blocker: thepastaclaw left review threads unresolved; resolve them
+- [dashpay/grovedb#1001 feat(batch)!: opt-in settlement of storage owner changes](https://github.com/dashpay/grovedb/pull/1001) — 2 unresolved (2 bot) · 0 days stale · ✋ changes requested · 🔴 CI failing · areas: fallback · Policy: waiting-bots
+  - Top thread: "🟡 Suggestion: Assert that each estimate baseline actually settles ownership**" — 0 days old
+  - Blocker: coderabbitai has not reported for the current head
+  - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+  - Blocker: thepastaclaw left review threads unresolved; resolve them
 - [dashpay/tenderdash#1596 fix(p2p): trim the simple priority queue on every push](https://github.com/dashpay/tenderdash/pull/1596) — 1 unresolved (1 bot) · 3 days stale · areas: fallback · Policy: waiting-self-review
   - Top thread: "🟡 Suggestion: Avoid whole-queue sorting for each overflowing push**" — 3 days old
   - Blocker: Author must post /self-reviewed 4599c6a9e7d0f21c8ff0ead2413fa64dab4856d2
 - [dashpay/tenderdash#1582 feat(abci)!: add the ApplyBlockRandomness method and commit beacon fields](https://github.com/dashpay/tenderdash/pull/1582) — 1 unresolved (1 bot) · 2 days stale · areas: fallback · Policy: waiting-author
   - Top thread: "✅ **Resolved** at \`cd6b4ec8\`; see the replies below." — 2 days old
   - Blocker: thepastaclaw left review threads unresolved; resolve them
-- [dashpay/grovedb#1001 feat(batch)!: opt-in settlement of storage owner changes](https://github.com/dashpay/grovedb/pull/1001) — ⚠ merge conflict · areas: fallback · Policy: waiting-self-review
-  - Blocker: Author must post /self-reviewed 814dfc765747cec0beb7a39e1cdf04d301ce9ac3
 - [dashpay/platform#4519 feat(platform-wallet): rotate a masternode's keys into the wallet — ProUpRegTx orchestration, FFI, Swift](https://github.com/dashpay/platform/pull/4519) — ⚠ merge conflict · 🔴 CI failing · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 92a3ebe17adc12432fb756c63f172c663809007d
   - Blocker: Proceeded without thepastaclaw: no review within the configured window
 - [dashpay/platform#5798 feat(platform): price storage refunds at the storing epoch's rate and drop the fee history map](https://github.com/dashpay/platform/pull/5798) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · areas: rs-drive, rs-drive-abci, dpp, fallback · Policy: waiting-author
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+- [dashpay/platform#5809 feat(sdk): send, scan and read DashPay private contact requests](https://github.com/dashpay/platform/pull/5809) — ✋ changes requested · areas: dpp, rust-sdk, js-wasm-sdk, fallback · Policy: waiting-author
+  - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+  - Blocker: thepastaclaw left review threads unresolved; resolve them
 
 <a id="quantumexplorer-unresolved-comments"></a>
-#### Unresolved Comments (7)
+#### Unresolved Comments (8)
 - [dashpay/rust-dashcore#1078 feat(key-wallet)!: lock masternode collateral out of coin selection](https://github.com/dashpay/rust-dashcore/pull/1078) — 8 unresolved (8 human) · 39 days stale · ⚠ merge conflict · ✋ changes requested · areas: key-wallet, key-wallet-manager · Policy: waiting-self-review
   - Top thread: "This sets the state by hand, and together with the serde round-trip it is the only coverage of the refresh inside \`updat…" — 39 days old
   - Blocker: Author must post /self-reviewed 44a9a010500fbd44aba09111b4c53a28b88e8073
@@ -161,6 +176,11 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "🔴 Blocking: Version the consensus order-ID derivation through platform-version tables**" — 14 days old
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
   - Blocker: thepastaclaw left review threads unresolved; resolve them
+- [dashpay/grovedb#1001 feat(batch)!: opt-in settlement of storage owner changes](https://github.com/dashpay/grovedb/pull/1001) — 2 unresolved (2 bot) · 0 days stale · ✋ changes requested · 🔴 CI failing · areas: fallback · Policy: waiting-bots
+  - Top thread: "🟡 Suggestion: Assert that each estimate baseline actually settles ownership**" — 0 days old
+  - Blocker: coderabbitai has not reported for the current head
+  - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+  - Blocker: thepastaclaw left review threads unresolved; resolve them
 - [dashpay/tenderdash#1596 fix(p2p): trim the simple priority queue on every push](https://github.com/dashpay/tenderdash/pull/1596) — 1 unresolved (1 bot) · 3 days stale · areas: fallback · Policy: waiting-self-review
   - Top thread: "🟡 Suggestion: Avoid whole-queue sorting for each overflowing push**" — 3 days old
   - Blocker: Author must post /self-reviewed 4599c6a9e7d0f21c8ff0ead2413fa64dab4856d2
@@ -169,12 +189,17 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: thepastaclaw left review threads unresolved; resolve them
 
 <a id="quantumexplorer-changes-requested"></a>
-#### Changes Requested (1)
+#### Changes Requested (2)
 - [dashpay/platform#5798 feat(platform): price storage refunds at the storing epoch's rate and drop the fee history map](https://github.com/dashpay/platform/pull/5798) — ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · areas: rs-drive, rs-drive-abci, dpp, fallback · Policy: waiting-author
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+- [dashpay/platform#5809 feat(sdk): send, scan and read DashPay private contact requests](https://github.com/dashpay/platform/pull/5809) — ✋ changes requested · areas: dpp, rust-sdk, js-wasm-sdk, fallback · Policy: waiting-author
+  - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+  - Blocker: thepastaclaw left review threads unresolved; resolve them
 
 <a id="quantumexplorer-ci-failing"></a>
-#### CI Failing (1)
+#### CI Failing (2)
+- [dashpay/grovedb#1033 feat(storage-flags): let the new flags decide who owns an updated element](https://github.com/dashpay/grovedb/pull/1033) — 🔴 CI failing · areas: fallback · Policy: waiting-bots
+  - Blocker: thepastaclaw has not reported for the current head
 - [dashpay/platform#4519 feat(platform-wallet): rotate a masternode's keys into the wallet — ProUpRegTx orchestration, FFI, Swift](https://github.com/dashpay/platform/pull/4519) — ⚠ merge conflict · 🔴 CI failing · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 92a3ebe17adc12432fb756c63f172c663809007d
   - Blocker: Proceeded without thepastaclaw: no review within the configured window
@@ -199,38 +224,37 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Draft PR does not occupy a review slot
 
 <a id="quantumexplorer-stale"></a>
-#### Stale (13)
+#### Stale (14)
 - [dashpay/platform#5750 feat(platform)!: random token transfer and mint amounts](https://github.com/dashpay/platform/pull/5750) — 7 unresolved (7 bot) · 5 days stale · 🐢 targets claude/platform-tenderdash-randomness-149e4e · areas: rs-drive, dpp, rs-platform-wallet, rust-sdk, rust-sdk-ffi, fallback
   - Top thread: "✅ **Resolved** at \`f8fcc8fd\`; see the replies below." — 5 days old
 - [dashpay/platform#5753 feat(drive-abci)!: apply block randomness through the ApplyBlockRandomness ABCI method](https://github.com/dashpay/platform/pull/5753) — 5 unresolved (5 bot) · 4 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets claude/random-token-amounts · areas: rs-drive, rs-drive-abci, dpp, fallback
   - Top thread: "🟡 Suggestion: Exercise the protocol upgrade with signed commits**" — 4 days old
-- [dashpay/platform#5530 feat(platform)!: token marketplace offers (PV15)](https://github.com/dashpay/platform/pull/5530) — 1 unresolved (1 bot) · 8 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets claude/token-market-listings · areas: rs-drive, rs-drive-abci, dpp, rs-platform-wallet, fallback
-  - Top thread: "🔴 Blocking: Bound bid escrow by a buyer-signed credit limit**" — 8 days old
+- [dashpay/platform#5530 feat(platform)!: token marketplace offers (PV15)](https://github.com/dashpay/platform/pull/5530) — 1 unresolved (1 bot) · 9 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets claude/token-market-listings · areas: rs-drive, rs-drive-abci, dpp, rs-platform-wallet, fallback
+  - Top thread: "🔴 Blocking: Bound bid escrow by a buyer-signed credit limit**" — 9 days old
+- [dashpay/platform#5810 feat(platform-wallet): send, receive and accept DashPay private contact requests](https://github.com/dashpay/platform/pull/5810) — 2 unresolved (2 bot) · 0 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets feat/sdk-private-documents-send-and-scan · areas: rs-platform-wallet
+  - Top thread: "🟡 Suggestion: Report committed requests rather than pre-ingest candidates**" — 0 days old
+- [dashpay/platform#5813 feat(kotlin-sdk): send, receive and accept DashPay private contact requests](https://github.com/dashpay/platform/pull/5813) — 1 unresolved (1 bot) · 0 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets feat/ffi-swift-private-contact-requests · areas: kotlin-sdk, fallback
+  - Top thread: "🔴 Blocking: Retain unresolved private acceptances in wallet-owned state**" — 0 days old
 - [dashpay/platform#4776 feat(platform-wallet)!: let contract updates clear the description through the FFI](https://github.com/dashpay/platform/pull/4776) — 🔴 CI failing · 🐢 targets feat/delta-contract-update-pv15 · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk, kotlin-sdk, fallback
 - [dashpay/platform#5113 feat(platform-wallet)!: keep masternode collateral out of coin selection](https://github.com/dashpay/platform/pull/5113) — ⚠ merge conflict · 🔴 CI failing · 📝 draft · 🐢 targets chore/bump-rust-dashcore-secp-033 · areas: rs-platform-wallet, rs-platform-wallet-ffi, wallet-storage, swift-sdk, fallback
 - [dashpay/platform#5531 feat(platform)!: record token marketplace events in token history (PV15)](https://github.com/dashpay/platform/pull/5531) — 🔴 CI failing · 🐢 targets claude/token-market-offers · areas: rs-drive, rs-drive-abci, dpp, system-contracts, fallback
 - [dashpay/platform#5532 feat(platform)!: destroy a frozen identity's escrowed listings with its funds (PV15)](https://github.com/dashpay/platform/pull/5532) — 🔴 CI failing · 🐢 targets claude/token-market-history · areas: rs-drive, rs-drive-abci, fallback
 - [dashpay/platform#5751 feat(sdk): random token amounts in wasm-sdk and js-evo-sdk](https://github.com/dashpay/platform/pull/5751) — 🐢 targets claude/random-token-amounts · areas: js-wasm-sdk
-- [dashpay/platform#5810 feat(platform-wallet): send, receive and accept DashPay private contact requests](https://github.com/dashpay/platform/pull/5810) — 🐢 targets feat/sdk-private-documents-send-and-scan · areas: rs-platform-wallet
-- [dashpay/platform#5811 feat(wasm-sdk): seal and scan DashPay private contact requests](https://github.com/dashpay/platform/pull/5811) — 🐢 targets feat/sdk-private-documents-send-and-scan · areas: js-wasm-sdk
+- [dashpay/platform#5811 feat(wasm-sdk): seal and scan DashPay private contact requests](https://github.com/dashpay/platform/pull/5811) — ✋ changes requested · 🐢 targets feat/sdk-private-documents-send-and-scan · areas: js-wasm-sdk
 - [dashpay/platform#5812 feat(swift-sdk): send, receive and accept DashPay private contact requests](https://github.com/dashpay/platform/pull/5812) — 🐢 targets feat/platform-wallet-private-contact-requests · areas: rs-platform-wallet-ffi, swift-sdk, rust-sdk-ffi
-- [dashpay/platform#5813 feat(kotlin-sdk): send, receive and accept DashPay private contact requests](https://github.com/dashpay/platform/pull/5813) — 🐢 targets feat/ffi-swift-private-contact-requests · areas: kotlin-sdk, fallback
+- [dashpay/platform#5814 fix(kotlin-sdk): release contact request handles after a sync](https://github.com/dashpay/platform/pull/5814) — 🐢 targets v5.0-dev · areas: fallback · Policy: waiting-self-review
+  - Blocker: Author must post /self-reviewed 11a87dd08ae4e8ae2a464442a9ee15753e4073e9
 - [dashpay/tenderdash#1597 fix(p2p): trim the simple priority queue below its limit](https://github.com/dashpay/tenderdash/pull/1597) — 📝 draft · 🐢 targets test/p2p-shared-queue-ceiling · areas: fallback
 
 <a id="quantumexplorer-clean"></a>
-#### Clean (4)
-- [dashpay/grovedb#1001 feat(batch)!: opt-in settlement of storage owner changes](https://github.com/dashpay/grovedb/pull/1001) — ⚠ merge conflict · areas: fallback · Policy: waiting-self-review
-  - Blocker: Author must post /self-reviewed 814dfc765747cec0beb7a39e1cdf04d301ce9ac3
+#### Clean (2)
 - [dashpay/platform#5807 feat(platform)!: a private type's update may only add properties after its existing ones (PV15)](https://github.com/dashpay/platform/pull/5807) — areas: dpp, fallback · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 1d71edd0abf6fa2383e3ddd5c4c22866b29f9789
-- [dashpay/platform#5809 feat(sdk): send, scan and read DashPay private contact requests](https://github.com/dashpay/platform/pull/5809) — areas: rust-sdk, fallback · Policy: waiting-bots
-  - Blocker: thepastaclaw has not reported for the current head
-  - Blocker: coderabbitai left review threads unresolved; resolve them
 - [dashpay/tenderdash#1584 fix(statesync): restore LastAppHash of the snapshot height, not the next one](https://github.com/dashpay/tenderdash/pull/1584) — areas: fallback · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 23c1443e4077c7c7dfedf00f9446c762e669660f
 
 <a id="quantumexplorer-ready-for-review"></a>
-#### Ready for Review (7)
+#### Ready for Review (8)
 - [dashpay/platform#4298 fix(dashmate): load ZeroSSL config in force mode](https://github.com/dashpay/platform/pull/4298) — by @thepastaclaw · areas: dashmate · Policy: ready-for-human
   - Blocker: Human approval or objection resolution is required
 - [dashpay/platform#4706 feat(platform)!: require fee history for storage refunds and credit their recorded owners](https://github.com/dashpay/platform/pull/4706) — by @DCG-Claude · areas: rs-drive, rs-drive-abci, fallback · Policy: ready-for-human
@@ -245,6 +269,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Author must post /self-reviewed 6f206d482d38def57b866f9dae1a6e98f84d25a9
 - [dashpay/rust-dashcore#1359 refactor!: detect bloom filter staleness with a hash of what the filter watches](https://github.com/dashpay/rust-dashcore/pull/1359) — by @ZocoLini · areas: dash-spv, key-wallet, key-wallet-manager · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 64189725fb5874d7530e83f6e830c0cc07f3f1a1
+- [dashpay/rust-dashcore#1365 fix(dash-spv): route block requests to the shortest queue](https://github.com/dashpay/rust-dashcore/pull/1365) — by @xdustinface · areas: dash-spv · Policy: ready-to-merge
+  - Blocker: All policy requirements are satisfied
 
 <a id="claudius-maginificent"></a>
 ### @Claudius-Maginificent
@@ -674,12 +700,12 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 214 days old
   - Blocker: coderabbitai requested changes on this head; dismiss the review or push a fix
   - Blocker: coderabbitai left review threads unresolved; resolve them
-- [dashpay/platform#4660 feat(sdk): expose the document erase and history lifecycle on mobile and FFI](https://github.com/dashpay/platform/pull/4660) — 2 unresolved (2 bot) · 46 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets keep-history-lifecycle · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk, rust-sdk-ffi, kotlin-sdk, fallback
-  - Top thread: "🟡 Suggestion: Validate history selector discriminant at the C boundary**" — 46 days old
-- [dashpay/platform#4657 feat(platform)!: delete and erase lifecycle for keep-history documents](https://github.com/dashpay/platform/pull/4657) — 2 unresolved (2 bot) · 46 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · 🐢 targets keep-history-storage-v2 · areas: rs-drive, rs-drive-abci, dpp, rust-sdk, js-wasm-sdk, fallback
-  - Top thread: "🟡 Suggestion: Deduplicate lifecycle containers at the Drive batch boundary**" — 46 days old
-- [dashpay/platform#4652 feat(drive)!: preserve composite document history across protocol activation](https://github.com/dashpay/platform/pull/4652) — 1 unresolved (1 bot) · 17 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · areas: rs-drive, rs-drive-abci, rust-sdk, js-wasm-sdk, fallback · Policy: waiting-author
-  - Top thread: "🔴 Blocking: Bound or stage the attacker-inflatable activation migration**" — 17 days old
+- [dashpay/platform#4660 feat(sdk): expose the document erase and history lifecycle on mobile and FFI](https://github.com/dashpay/platform/pull/4660) — 2 unresolved (2 bot) · 47 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets keep-history-lifecycle · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk, rust-sdk-ffi, kotlin-sdk, fallback
+  - Top thread: "🟡 Suggestion: Validate history selector discriminant at the C boundary**" — 47 days old
+- [dashpay/platform#4657 feat(platform)!: delete and erase lifecycle for keep-history documents](https://github.com/dashpay/platform/pull/4657) — 2 unresolved (2 bot) · 47 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · 🐢 targets keep-history-storage-v2 · areas: rs-drive, rs-drive-abci, dpp, rust-sdk, js-wasm-sdk, fallback
+  - Top thread: "🟡 Suggestion: Deduplicate lifecycle containers at the Drive batch boundary**" — 47 days old
+- [dashpay/platform#4652 feat(drive)!: preserve composite document history across protocol activation](https://github.com/dashpay/platform/pull/4652) — 1 unresolved (1 bot) · 18 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · areas: rs-drive, rs-drive-abci, rust-sdk, js-wasm-sdk, fallback · Policy: waiting-author
+  - Top thread: "🔴 Blocking: Bound or stage the attacker-inflatable activation migration**" — 18 days old
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
   - Blocker: thepastaclaw left review threads unresolved; resolve them
 - [dashpay/platform#5656 fix(dashmate): build local images for every group node that builds any](https://github.com/dashpay/platform/pull/5656) — 1 unresolved (1 bot) · 9 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets fix/dashmate/update-path-bugs · areas: dashmate
@@ -704,8 +730,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 214 days old
   - Blocker: coderabbitai requested changes on this head; dismiss the review or push a fix
   - Blocker: coderabbitai left review threads unresolved; resolve them
-- [dashpay/platform#4652 feat(drive)!: preserve composite document history across protocol activation](https://github.com/dashpay/platform/pull/4652) — 1 unresolved (1 bot) · 17 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · areas: rs-drive, rs-drive-abci, rust-sdk, js-wasm-sdk, fallback · Policy: waiting-author
-  - Top thread: "🔴 Blocking: Bound or stage the attacker-inflatable activation migration**" — 17 days old
+- [dashpay/platform#4652 feat(drive)!: preserve composite document history across protocol activation](https://github.com/dashpay/platform/pull/4652) — 1 unresolved (1 bot) · 18 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · areas: rs-drive, rs-drive-abci, rust-sdk, js-wasm-sdk, fallback · Policy: waiting-author
+  - Top thread: "🔴 Blocking: Bound or stage the attacker-inflatable activation migration**" — 18 days old
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
   - Blocker: thepastaclaw left review threads unresolved; resolve them
 - [dashpay/platform#5654 fix(dashmate): restrict a gateway TLS private key an older version left readable](https://github.com/dashpay/platform/pull/5654) — ✋ changes requested · 🔴 CI failing · areas: dashmate · Policy: waiting-author
@@ -719,8 +745,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Top thread: "_⚠️ Potential issue_ \| _🟡 Minor_" — 214 days old
   - Blocker: coderabbitai requested changes on this head; dismiss the review or push a fix
   - Blocker: coderabbitai left review threads unresolved; resolve them
-- [dashpay/platform#4652 feat(drive)!: preserve composite document history across protocol activation](https://github.com/dashpay/platform/pull/4652) — 1 unresolved (1 bot) · 17 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · areas: rs-drive, rs-drive-abci, rust-sdk, js-wasm-sdk, fallback · Policy: waiting-author
-  - Top thread: "🔴 Blocking: Bound or stage the attacker-inflatable activation migration**" — 17 days old
+- [dashpay/platform#4652 feat(drive)!: preserve composite document history across protocol activation](https://github.com/dashpay/platform/pull/4652) — 1 unresolved (1 bot) · 18 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · areas: rs-drive, rs-drive-abci, rust-sdk, js-wasm-sdk, fallback · Policy: waiting-author
+  - Top thread: "🔴 Blocking: Bound or stage the attacker-inflatable activation migration**" — 18 days old
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
   - Blocker: thepastaclaw left review threads unresolved; resolve them
 
@@ -742,10 +768,10 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="shumkov-stale"></a>
 #### Stale (3)
-- [dashpay/platform#4660 feat(sdk): expose the document erase and history lifecycle on mobile and FFI](https://github.com/dashpay/platform/pull/4660) — 2 unresolved (2 bot) · 46 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets keep-history-lifecycle · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk, rust-sdk-ffi, kotlin-sdk, fallback
-  - Top thread: "🟡 Suggestion: Validate history selector discriminant at the C boundary**" — 46 days old
-- [dashpay/platform#4657 feat(platform)!: delete and erase lifecycle for keep-history documents](https://github.com/dashpay/platform/pull/4657) — 2 unresolved (2 bot) · 46 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · 🐢 targets keep-history-storage-v2 · areas: rs-drive, rs-drive-abci, dpp, rust-sdk, js-wasm-sdk, fallback
-  - Top thread: "🟡 Suggestion: Deduplicate lifecycle containers at the Drive batch boundary**" — 46 days old
+- [dashpay/platform#4660 feat(sdk): expose the document erase and history lifecycle on mobile and FFI](https://github.com/dashpay/platform/pull/4660) — 2 unresolved (2 bot) · 47 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets keep-history-lifecycle · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk, rust-sdk-ffi, kotlin-sdk, fallback
+  - Top thread: "🟡 Suggestion: Validate history selector discriminant at the C boundary**" — 47 days old
+- [dashpay/platform#4657 feat(platform)!: delete and erase lifecycle for keep-history documents](https://github.com/dashpay/platform/pull/4657) — 2 unresolved (2 bot) · 47 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · 🐢 targets keep-history-storage-v2 · areas: rs-drive, rs-drive-abci, dpp, rust-sdk, js-wasm-sdk, fallback
+  - Top thread: "🟡 Suggestion: Deduplicate lifecycle containers at the Drive batch boundary**" — 47 days old
 - [dashpay/platform#5656 fix(dashmate): build local images for every group node that builds any](https://github.com/dashpay/platform/pull/5656) — 1 unresolved (1 bot) · 9 days stale · ✋ changes requested · 🔴 CI failing · 🐢 targets fix/dashmate/update-path-bugs · areas: dashmate
   - Top thread: "🔴 Blocking: Build the shared base image before dependent service images across group configurations**" — 9 days old
 
@@ -759,7 +785,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Author must post /self-reviewed a20b9e4c96d411f861872fc944f4da0aca55c470
 
 <a id="shumkov-ready-for-review"></a>
-#### Ready for Review (7)
+#### Ready for Review (6)
 - [dashpay/platform#4298 fix(dashmate): load ZeroSSL config in force mode](https://github.com/dashpay/platform/pull/4298) — by @thepastaclaw · areas: dashmate · Policy: ready-for-human
   - Blocker: Human approval or objection resolution is required
 - [dashpay/platform#4706 feat(platform)!: require fee history for storage refunds and credit their recorded owners](https://github.com/dashpay/platform/pull/4706) — by @DCG-Claude · areas: rs-drive, rs-drive-abci, fallback · Policy: ready-for-human
@@ -770,9 +796,6 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Human approval or objection resolution is required
 - [dashpay/platform#5807 feat(platform)!: a private type's update may only add properties after its existing ones (PV15)](https://github.com/dashpay/platform/pull/5807) — by @QuantumExplorer · areas: dpp, fallback · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 1d71edd0abf6fa2383e3ddd5c4c22866b29f9789
-- [dashpay/platform#5809 feat(sdk): send, scan and read DashPay private contact requests](https://github.com/dashpay/platform/pull/5809) — by @QuantumExplorer · areas: rust-sdk, fallback · Policy: waiting-bots
-  - Blocker: thepastaclaw has not reported for the current head
-  - Blocker: coderabbitai left review threads unresolved; resolve them
 - [dashpay/tenderdash#1584 fix(statesync): restore LastAppHash of the snapshot height, not the next one](https://github.com/dashpay/tenderdash/pull/1584) — by @QuantumExplorer · areas: fallback · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 23c1443e4077c7c7dfedf00f9446c762e669660f
 
@@ -878,17 +901,17 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @HashEngineering
 <a id="hashengineering-open"></a>
 #### Open (5)
-- [dashpay/platform#5796 refactor(platform-wallet): own the TXO reconcile policy in the wallet](https://github.com/dashpay/platform/pull/5796) — 13 unresolved (7 CodeRabbit, 6 bot) · 1 days stale · 🔴 CI failing · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk · Policy: waiting-author
-  - Top thread: "&lt;picture&gt;&lt;img src="https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/major-16.svg" width="…" — 1 days old
+- [dashpay/platform#5796 refactor(platform-wallet): own the TXO reconcile policy in the wallet](https://github.com/dashpay/platform/pull/5796) — 8 unresolved (3 CodeRabbit, 5 bot) · 2 days stale · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk · Policy: waiting-author
+  - Top thread: "&lt;picture&gt;&lt;img src="https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/major-16.svg" width="…" — 2 days old
+  - Blocker: coderabbitai left review threads unresolved; resolve them
+  - Blocker: thepastaclaw left review threads unresolved; resolve them
+- [dashpay/platform#5797 feat(kotlin-sdk): bind fund_from_asset_lock_external (Core → third-party Platform address)](https://github.com/dashpay/platform/pull/5797) — 4 unresolved (2 CodeRabbit, 2 bot) · 1 days stale · 🔴 CI failing · areas: kotlin-sdk, fallback · Policy: waiting-author
+  - Top thread: "✅ **Resolved** at \`cc385095\`; see the replies below." — 1 days old
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
   - Blocker: coderabbitai left review threads unresolved; resolve them
   - Blocker: thepastaclaw left review threads unresolved; resolve them
-- [dashpay/platform#5797 feat(kotlin-sdk): bind fund_from_asset_lock_external (Core → third-party Platform address)](https://github.com/dashpay/platform/pull/5797) — 2 unresolved (2 bot) · 0 days stale · ✋ changes requested · 🔴 CI failing · areas: kotlin-sdk, fallback · Policy: waiting-author
-  - Top thread: "🟡 Suggestion: Exercise the asset-lock-built callback across JNI**" — 0 days old
-  - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
-  - Blocker: thepastaclaw left review threads unresolved; resolve them
-- [dashpay/platform#5259 fix(kotlin-sdk): port #4638 to Android — credit verdicts at save time and the post-sync TXO reconcile](https://github.com/dashpay/platform/pull/5259) — 1 unresolved (1 bot) · 4 days stale · ⚠ merge conflict · 🔴 CI failing · 📝 draft · areas: rs-platform-wallet, rs-platform-wallet-ffi, wallet-storage, swift-sdk, kotlin-sdk, fallback · Policy: draft
-  - Top thread: "🔴 Blocking: Invalidate restorations when a later truncation removes their funding**" — 4 days old
+- [dashpay/platform#5259 fix(kotlin-sdk): port #4638 to Android — credit verdicts at save time and the post-sync TXO reconcile](https://github.com/dashpay/platform/pull/5259) — 1 unresolved (1 bot) · 5 days stale · ⚠ merge conflict · 🔴 CI failing · 📝 draft · areas: rs-platform-wallet, rs-platform-wallet-ffi, wallet-storage, swift-sdk, kotlin-sdk, fallback · Policy: draft
+  - Top thread: "🔴 Blocking: Invalidate restorations when a later truncation removes their funding**" — 5 days old
   - Blocker: Draft PR does not occupy a review slot
 - [dashpay/platform#5479 feat(platform-wallet-storage): persist DashPay backfill coverage and outbound-account markers](https://github.com/dashpay/platform/pull/5479) — areas: rs-platform-wallet, wallet-storage · Policy: ready-for-human
   - Blocker: Human approval or objection resolution is required
@@ -896,14 +919,14 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="hashengineering-needs-action"></a>
 #### Needs action (2)
-- [dashpay/platform#5796 refactor(platform-wallet): own the TXO reconcile policy in the wallet](https://github.com/dashpay/platform/pull/5796) — 13 unresolved (7 CodeRabbit, 6 bot) · 1 days stale · 🔴 CI failing · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk · Policy: waiting-author
-  - Top thread: "&lt;picture&gt;&lt;img src="https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/major-16.svg" width="…" — 1 days old
-  - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+- [dashpay/platform#5796 refactor(platform-wallet): own the TXO reconcile policy in the wallet](https://github.com/dashpay/platform/pull/5796) — 8 unresolved (3 CodeRabbit, 5 bot) · 2 days stale · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk · Policy: waiting-author
+  - Top thread: "&lt;picture&gt;&lt;img src="https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/major-16.svg" width="…" — 2 days old
   - Blocker: coderabbitai left review threads unresolved; resolve them
   - Blocker: thepastaclaw left review threads unresolved; resolve them
-- [dashpay/platform#5797 feat(kotlin-sdk): bind fund_from_asset_lock_external (Core → third-party Platform address)](https://github.com/dashpay/platform/pull/5797) — 2 unresolved (2 bot) · 0 days stale · ✋ changes requested · 🔴 CI failing · areas: kotlin-sdk, fallback · Policy: waiting-author
-  - Top thread: "🟡 Suggestion: Exercise the asset-lock-built callback across JNI**" — 0 days old
+- [dashpay/platform#5797 feat(kotlin-sdk): bind fund_from_asset_lock_external (Core → third-party Platform address)](https://github.com/dashpay/platform/pull/5797) — 4 unresolved (2 CodeRabbit, 2 bot) · 1 days stale · 🔴 CI failing · areas: kotlin-sdk, fallback · Policy: waiting-author
+  - Top thread: "✅ **Resolved** at \`cc385095\`; see the replies below." — 1 days old
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+  - Blocker: coderabbitai left review threads unresolved; resolve them
   - Blocker: thepastaclaw left review threads unresolved; resolve them
 
 <a id="hashengineering-ready-for-human"></a>
@@ -913,20 +936,20 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="hashengineering-unresolved-comments"></a>
 #### Unresolved Comments (2)
-- [dashpay/platform#5796 refactor(platform-wallet): own the TXO reconcile policy in the wallet](https://github.com/dashpay/platform/pull/5796) — 13 unresolved (7 CodeRabbit, 6 bot) · 1 days stale · 🔴 CI failing · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk · Policy: waiting-author
-  - Top thread: "&lt;picture&gt;&lt;img src="https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/major-16.svg" width="…" — 1 days old
-  - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+- [dashpay/platform#5796 refactor(platform-wallet): own the TXO reconcile policy in the wallet](https://github.com/dashpay/platform/pull/5796) — 8 unresolved (3 CodeRabbit, 5 bot) · 2 days stale · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk · Policy: waiting-author
+  - Top thread: "&lt;picture&gt;&lt;img src="https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/major-16.svg" width="…" — 2 days old
   - Blocker: coderabbitai left review threads unresolved; resolve them
   - Blocker: thepastaclaw left review threads unresolved; resolve them
-- [dashpay/platform#5797 feat(kotlin-sdk): bind fund_from_asset_lock_external (Core → third-party Platform address)](https://github.com/dashpay/platform/pull/5797) — 2 unresolved (2 bot) · 0 days stale · ✋ changes requested · 🔴 CI failing · areas: kotlin-sdk, fallback · Policy: waiting-author
-  - Top thread: "🟡 Suggestion: Exercise the asset-lock-built callback across JNI**" — 0 days old
+- [dashpay/platform#5797 feat(kotlin-sdk): bind fund_from_asset_lock_external (Core → third-party Platform address)](https://github.com/dashpay/platform/pull/5797) — 4 unresolved (2 CodeRabbit, 2 bot) · 1 days stale · 🔴 CI failing · areas: kotlin-sdk, fallback · Policy: waiting-author
+  - Top thread: "✅ **Resolved** at \`cc385095\`; see the replies below." — 1 days old
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
+  - Blocker: coderabbitai left review threads unresolved; resolve them
   - Blocker: thepastaclaw left review threads unresolved; resolve them
 
 <a id="hashengineering-draft"></a>
 #### Draft (1)
-- [dashpay/platform#5259 fix(kotlin-sdk): port #4638 to Android — credit verdicts at save time and the post-sync TXO reconcile](https://github.com/dashpay/platform/pull/5259) — 1 unresolved (1 bot) · 4 days stale · ⚠ merge conflict · 🔴 CI failing · 📝 draft · areas: rs-platform-wallet, rs-platform-wallet-ffi, wallet-storage, swift-sdk, kotlin-sdk, fallback · Policy: draft
-  - Top thread: "🔴 Blocking: Invalidate restorations when a later truncation removes their funding**" — 4 days old
+- [dashpay/platform#5259 fix(kotlin-sdk): port #4638 to Android — credit verdicts at save time and the post-sync TXO reconcile](https://github.com/dashpay/platform/pull/5259) — 1 unresolved (1 bot) · 5 days stale · ⚠ merge conflict · 🔴 CI failing · 📝 draft · areas: rs-platform-wallet, rs-platform-wallet-ffi, wallet-storage, swift-sdk, kotlin-sdk, fallback · Policy: draft
+  - Top thread: "🔴 Blocking: Invalidate restorations when a later truncation removes their funding**" — 5 days old
   - Blocker: Draft PR does not occupy a review slot
 
 <a id="hashengineering-stale"></a>
@@ -987,8 +1010,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 ### @lklimek
 <a id="lklimek-open"></a>
 #### Open (11)
-- [dashpay/platform#5528 fix(platform-wallet): retain drain operation history through funding conflicts](https://github.com/dashpay/platform/pull/5528) — 7 unresolved (7 bot) · 17 days stale · ✋ changes requested · 📝 draft · 🐢 targets feat/sqlite-wallet-restore · areas: rs-platform-wallet, rs-platform-wallet-ffi, wallet-storage, swift-sdk, kotlin-sdk
-  - Top thread: "🟡 Suggestion: Retain diagnostics for malformed FFI operation snapshots**" — 17 days old
+- [dashpay/platform#5528 fix(platform-wallet): retain drain operation history through funding conflicts](https://github.com/dashpay/platform/pull/5528) — 7 unresolved (7 bot) · 18 days stale · ✋ changes requested · 📝 draft · 🐢 targets feat/sqlite-wallet-restore · areas: rs-platform-wallet, rs-platform-wallet-ffi, wallet-storage, swift-sdk, kotlin-sdk
+  - Top thread: "🟡 Suggestion: Retain diagnostics for malformed FFI operation snapshots**" — 18 days old
 - [dashpay/platform#5323 refactor: reject legacy BLS storage formats](https://github.com/dashpay/platform/pull/5323) — 1 unresolved (1 bot) · 4 days stale · ⚠ merge conflict · ✋ changes requested · 🔴 CI failing · areas: rs-drive-abci, github, fallback · Policy: waiting-author
   - Top thread: "🔴 Blocking: Update storage-fetch tests that still require retired formats**" — 4 days old
   - Blocker: thepastaclaw requested changes on this head; dismiss the review or push a fix
@@ -1055,8 +1078,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="lklimek-stale"></a>
 #### Stale (1)
-- [dashpay/platform#5528 fix(platform-wallet): retain drain operation history through funding conflicts](https://github.com/dashpay/platform/pull/5528) — 7 unresolved (7 bot) · 17 days stale · ✋ changes requested · 📝 draft · 🐢 targets feat/sqlite-wallet-restore · areas: rs-platform-wallet, rs-platform-wallet-ffi, wallet-storage, swift-sdk, kotlin-sdk
-  - Top thread: "🟡 Suggestion: Retain diagnostics for malformed FFI operation snapshots**" — 17 days old
+- [dashpay/platform#5528 fix(platform-wallet): retain drain operation history through funding conflicts](https://github.com/dashpay/platform/pull/5528) — 7 unresolved (7 bot) · 18 days stale · ✋ changes requested · 📝 draft · 🐢 targets feat/sqlite-wallet-restore · areas: rs-platform-wallet, rs-platform-wallet-ffi, wallet-storage, swift-sdk, kotlin-sdk
+  - Top thread: "🟡 Suggestion: Retain diagnostics for malformed FFI operation snapshots**" — 18 days old
 
 <a id="lklimek-clean"></a>
 #### Clean (1)
@@ -1064,7 +1087,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Author must post /self-reviewed 6f206d482d38def57b866f9dae1a6e98f84d25a9
 
 <a id="lklimek-ready-for-review"></a>
-#### Ready for Review (9)
+#### Ready for Review (8)
 - [dashpay/dash-evo-tool#1159 fix(app): keep a previous network's background events and a request's progress where they belong](https://github.com/dashpay/dash-evo-tool/pull/1159) — by @Claudius-Maginificent · areas: fallback · Policy: ready-for-human
   - Blocker: Human approval or objection resolution is required
   - Blocker: Proceeded without coderabbitai: it reported a rate limit and did not return
@@ -1080,9 +1103,6 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Human review is still required; automatic reviewer requests are paused until a review slot is available
 - [dashpay/platform#5794 feat(platform-wallet-storage): read one asset lock's status by outpoint](https://github.com/dashpay/platform/pull/5794) — by @PastaPastaPasta · areas: wallet-storage · Policy: too-many-open-prs
   - Blocker: Human review is still required; automatic reviewer requests are paused until a review slot is available
-- [dashpay/platform#5809 feat(sdk): send, scan and read DashPay private contact requests](https://github.com/dashpay/platform/pull/5809) — by @QuantumExplorer · areas: rust-sdk, fallback · Policy: waiting-bots
-  - Blocker: thepastaclaw has not reported for the current head
-  - Blocker: coderabbitai left review threads unresolved; resolve them
 - [dashpay/tenderdash#1584 fix(statesync): restore LastAppHash of the snapshot height, not the next one](https://github.com/dashpay/tenderdash/pull/1584) — by @QuantumExplorer · areas: fallback · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 23c1443e4077c7c7dfedf00f9446c762e669660f
 
@@ -1097,9 +1117,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Draft PR does not occupy a review slot
 - [dashpay/rust-dashcore#803 feat(dash-spv): block locator + staged fork detection](https://github.com/dashpay/rust-dashcore/pull/803) — ⚠ merge conflict · 📝 draft · areas: dash-spv, fallback · Policy: draft
   - Blocker: Draft PR does not occupy a review slot
-- [dashpay/rust-dashcore#1344 fix(dash-spv): skip re-applying blocks on rescan](https://github.com/dashpay/rust-dashcore/pull/1344) — ✋ changes requested · 🔴 CI failing · areas: dash-spv · Policy: waiting-self-review
-  - Blocker: Author must post /self-reviewed d481dbfd6e4e14bfbe07ecf6daaed1e038659c0e
-  - Blocker: Proceeded without coderabbitai: it reported a rate limit and did not return
+- [dashpay/rust-dashcore#1344 fix(dash-spv): skip re-applying blocks on rescan](https://github.com/dashpay/rust-dashcore/pull/1344) — ✋ changes requested · areas: dash-spv, key-wallet-manager · Policy: waiting-self-review
+  - Blocker: Author must post /self-reviewed 385939002ec03752d363c7fa7fb1ad24427e4bd4
 - [dashpay/rust-dashcore#1345 fix(dash-spv): stop a shared stall from emptying the peer set](https://github.com/dashpay/rust-dashcore/pull/1345) — 📝 draft · areas: dash-spv · Policy: draft
   - Blocker: Draft PR does not occupy a review slot
 - [dashpay/rust-dashcore#1355 fix(dash-spv): build the header storage sentinels once](https://github.com/dashpay/rust-dashcore/pull/1355) — 📝 draft · areas: dash-spv · Policy: draft
@@ -1108,17 +1127,21 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Draft PR does not occupy a review slot
 - [dashpay/rust-dashcore#1358 refactor(dashcore): probe \`match_any\` instead of sorting](https://github.com/dashpay/rust-dashcore/pull/1358) — 📝 draft · areas: fallback · Policy: draft
   - Blocker: Draft PR does not occupy a review slot
-- [dashpay/rust-dashcore#1365 fix(dash-spv): route block requests to the shortest queue](https://github.com/dashpay/rust-dashcore/pull/1365) — 🔴 CI failing · areas: dash-spv · Policy: waiting-build
-  - Blocker: The build must pass before this can merge
+- [dashpay/rust-dashcore#1365 fix(dash-spv): route block requests to the shortest queue](https://github.com/dashpay/rust-dashcore/pull/1365) — areas: dash-spv · Policy: ready-to-merge
+  - Blocker: All policy requirements are satisfied
 
 <a id="xdustinface-needs-action"></a>
 #### Needs action (2)
 - [dashpay/platform#5791 fix(platform-wallet): refuse a quorum type that does not fit a byte](https://github.com/dashpay/platform/pull/5791) — 2 unresolved (1 CodeRabbit, 1 bot) · 2 days stale · areas: rs-platform-wallet · Policy: waiting-author
   - Top thread: "&lt;picture&gt;&lt;img src="https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/amber-16.svg" width="…" — 2 days old
   - Blocker: coderabbitai left review threads unresolved; resolve them
-- [dashpay/rust-dashcore#1344 fix(dash-spv): skip re-applying blocks on rescan](https://github.com/dashpay/rust-dashcore/pull/1344) — ✋ changes requested · 🔴 CI failing · areas: dash-spv · Policy: waiting-self-review
-  - Blocker: Author must post /self-reviewed d481dbfd6e4e14bfbe07ecf6daaed1e038659c0e
-  - Blocker: Proceeded without coderabbitai: it reported a rate limit and did not return
+- [dashpay/rust-dashcore#1344 fix(dash-spv): skip re-applying blocks on rescan](https://github.com/dashpay/rust-dashcore/pull/1344) — ✋ changes requested · areas: dash-spv, key-wallet-manager · Policy: waiting-self-review
+  - Blocker: Author must post /self-reviewed 385939002ec03752d363c7fa7fb1ad24427e4bd4
+
+<a id="xdustinface-ready-for-human"></a>
+#### Ready for human (1)
+- [dashpay/rust-dashcore#1365 fix(dash-spv): route block requests to the shortest queue](https://github.com/dashpay/rust-dashcore/pull/1365) — areas: dash-spv · Policy: ready-to-merge
+  - Blocker: All policy requirements are satisfied
 
 <a id="xdustinface-unresolved-comments"></a>
 #### Unresolved Comments (1)
@@ -1128,14 +1151,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
 
 <a id="xdustinface-changes-requested"></a>
 #### Changes Requested (1)
-- [dashpay/rust-dashcore#1344 fix(dash-spv): skip re-applying blocks on rescan](https://github.com/dashpay/rust-dashcore/pull/1344) — ✋ changes requested · 🔴 CI failing · areas: dash-spv · Policy: waiting-self-review
-  - Blocker: Author must post /self-reviewed d481dbfd6e4e14bfbe07ecf6daaed1e038659c0e
-  - Blocker: Proceeded without coderabbitai: it reported a rate limit and did not return
-
-<a id="xdustinface-ci-failing"></a>
-#### CI Failing (1)
-- [dashpay/rust-dashcore#1365 fix(dash-spv): route block requests to the shortest queue](https://github.com/dashpay/rust-dashcore/pull/1365) — 🔴 CI failing · areas: dash-spv · Policy: waiting-build
-  - Blocker: The build must pass before this can merge
+- [dashpay/rust-dashcore#1344 fix(dash-spv): skip re-applying blocks on rescan](https://github.com/dashpay/rust-dashcore/pull/1344) — ✋ changes requested · areas: dash-spv, key-wallet-manager · Policy: waiting-self-review
+  - Blocker: Author must post /self-reviewed 385939002ec03752d363c7fa7fb1ad24427e4bd4
 
 <a id="xdustinface-draft"></a>
 #### Draft (6)
@@ -1151,6 +1168,11 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Draft PR does not occupy a review slot
 - [dashpay/rust-dashcore#1358 refactor(dashcore): probe \`match_any\` instead of sorting](https://github.com/dashpay/rust-dashcore/pull/1358) — 📝 draft · areas: fallback · Policy: draft
   - Blocker: Draft PR does not occupy a review slot
+
+<a id="xdustinface-clean"></a>
+#### Clean (1)
+- [dashpay/rust-dashcore#1365 fix(dash-spv): route block requests to the shortest queue](https://github.com/dashpay/rust-dashcore/pull/1365) — areas: dash-spv · Policy: ready-to-merge
+  - Blocker: All policy requirements are satisfied
 
 <a id="xdustinface-ready-for-review"></a>
 #### Ready for Review (3)
@@ -1274,7 +1296,7 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Author must post /self-reviewed 64189725fb5874d7530e83f6e830c0cc07f3f1a1
 
 <a id="zocolini-ready-for-review"></a>
-#### Ready for Review (7)
+#### Ready for Review (8)
 - [dashpay/platform#5277 perf(platform-wallet): don't hold the shielded store lock across sync network I/O](https://github.com/dashpay/platform/pull/5277) — by @PastaPastaPasta · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk, kotlin-sdk · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed c93ca64d4f5c72bef5ab96d236de12671e3d8a63
 - [dashpay/platform#5280 perf(platform-wallet)!: reuse a recent recorded-anchor set on the shielded spend path](https://github.com/dashpay/platform/pull/5280) — by @PastaPastaPasta · areas: rs-platform-wallet, rs-platform-wallet-ffi, swift-sdk · Policy: waiting-self-review
@@ -1289,6 +1311,8 @@ _Sort: unresolved-comments desc → needs-action desc → ready-for-review desc.
   - Blocker: Human review is still required; automatic reviewer requests are paused until a review slot is available
 - [dashpay/rust-dashcore#1336 fix(wallet)!: authenticate pending spends and InstantLock evidence](https://github.com/dashpay/rust-dashcore/pull/1336) — by @lklimek · areas: dash-spv, key-wallet, fallback · Policy: waiting-self-review
   - Blocker: Author must post /self-reviewed 6f206d482d38def57b866f9dae1a6e98f84d25a9
+- [dashpay/rust-dashcore#1365 fix(dash-spv): route block requests to the shortest queue](https://github.com/dashpay/rust-dashcore/pull/1365) — by @xdustinface · areas: dash-spv · Policy: ready-to-merge
+  - Blocker: All policy requirements are satisfied
 
 <a id="ktechmidas"></a>
 ### @ktechmidas
