@@ -286,7 +286,7 @@ def outputs_for(engine, policy, context, pr, result):
     marks gets no write, and the ordered writes say which were sent.
     """
     from . import github
-    from .policy import LABEL_FOR_STATE, diff_print, machine_author, receipt_print
+    from .policy import LABEL_FOR_STATE, NO_CHECKLIST_STATES, diff_print, machine_author, receipt_print
     state = result['state']
     record = engine.state_record(pr, result, engine.context_fingerprint(context, pr['author']))
     carried = engine.diff_record(pr, result)
@@ -315,7 +315,7 @@ def outputs_for(engine, policy, context, pr, result):
         'number': pr['number'], 'head': pr['head'],
         'status': {'state': result['status'], 'context': 'PR Hygiene', 'description': engine.status_description(result)[:140]},
         'labels': sorted(labels),
-        'checklist': None if state == 'draft' else engine.checklist_block(result),
+        'checklist': None if state in NO_CHECKLIST_STATES else engine.checklist_block(result),
         'move': move_body,
         'record': found.group(1) if found else None,
         'diff': diff_found.group(1) if diff_found else None,

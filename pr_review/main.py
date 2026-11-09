@@ -14,8 +14,8 @@ import sys
 from . import telemetry
 from .github import (DIFF_MARKER, STATE_MARKER, STATE_PATTERN, GitHub, GitHubError, current_checklist,
                      parse_controller_diff, parse_controller_state)
-from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
-                     STATE_LABELS, admit, codeowners, diff_print, effective_admission, evaluate,
+from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NO_CHECKLIST_STATES, NUDGE_MARKER, RETIRED_LABELS,
+                     STATE_LABELS, admit, codeowners, diff_print, effective_admission, evaluate, exempt_author,
                      fingerprint, governs, is_engine, machine_author, missing_paths, validate_policy)
 from .registry import POLICIES, entry_for, load_registry, policy_path
 
@@ -677,7 +677,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
     # still writing it, and nobody reviews a draft). A description with no room
     # for it is left alone, and not fought over on every run.
     body_now = pr.get('body') or ''
-    block = None if result['state'] == 'draft' else checklist_block(result)
+    block = None if result['state'] in NO_CHECKLIST_STATES else checklist_block(result)
     fits = block is None or len(body_now) - len(current_checklist(body_now) or '') + len(block) + 2 <= 65536
     stale_block = block is None and current_checklist(body_now) is not None
     block_correct = not stale_block and (block is None or not fits or _same(current_checklist(body_now), block))

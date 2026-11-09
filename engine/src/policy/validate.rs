@@ -99,10 +99,16 @@ pub fn validate_policy(policy: &PyValue) -> Result<(), PyErr> {
     let allowed: Vec<&str> = KEYS
         .iter()
         .copied()
-        .chain(["required_bots", "bot_timeouts", "bot_authors"])
+        .chain([
+            "required_bots",
+            "bot_timeouts",
+            "bot_authors",
+            "exempt_authors",
+        ])
         .collect();
     fields(policy, &allowed, &KEYS)?;
     handles(get_or(policy, "bot_authors", &EMPTY_LIST)?, false)?;
+    handles(get_or(policy, "exempt_authors", &EMPTY_LIST)?, false)?;
 
     let timeouts = get_or(policy, "bot_timeouts", &PyValue::None)?;
     if !matches!(timeouts, PyValue::None) {
@@ -264,6 +270,16 @@ pub fn validate_policy(policy: &PyValue) -> Result<(), PyErr> {
     if !both.is_empty() {
         return Err(invalid(&format!(
             "A machine author cannot own or review: {}",
+            both.join(", ")
+        )));
+    }
+    // An exemption is a person's word that their pull requests need no gate.
+    // A machine has no word to give, and would merge with nobody having read it.
+    let exempt = handle_set(get_or(policy, "exempt_authors", &EMPTY_LIST)?)?;
+    let both: Vec<&str> = machines.intersection(&exempt).map(String::as_str).collect();
+    if !both.is_empty() {
+        return Err(invalid(&format!(
+            "A machine author cannot be exempt: {}",
             both.join(", ")
         )));
     }

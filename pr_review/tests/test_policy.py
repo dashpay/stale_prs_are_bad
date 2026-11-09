@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import unittest
 
-from pr_review.policy import admit, codeowners, evaluate, fingerprint, governs, validate_policy
+from pr_review.policy import admit, codeowners, evaluate, exempt_author, fingerprint, governs, validate_policy
 
 
 HEAD = 'a' * 40
@@ -241,6 +241,63 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(result['reviewers'], 'a human is asked, not an attestation')
         pr['reviews'].append(dict(id=4, user='owner', state='APPROVED', commit_id=HEAD, submitted_at=NOW, body=''))
         self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'ready-to-merge')
+
+    def test_an_exempt_author_passes_with_nothing_asked_of_them(self):
+        p, pr = fixture()
+        pr.update(comments=[], reviews=[])
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'pending')
+        p['exempt_authors'] = ['OWNER']
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual((result['state'], result['status']), ('exempt', 'success'))
+        self.assertEqual((result['blockers'], result['reviewers'], result['nudge'], result['checklist']),
+                         ([], [], [], []))
+
+    def test_an_exempt_authors_draft_still_reports_a_status_that_passes(self):
+        p, pr = fixture()
+        p['exempt_authors'] = ['owner']
+        pr['draft'] = True
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['state'], 'exempt')
+
+    def test_an_exemption_covers_only_the_author_it_names(self):
+        p, pr = fixture()
+        p['exempt_authors'] = ['owner']
+        pr.update(author='reviewer', assignees=['owner'], comments=[])
+        self.assertNotEqual(evaluate(p, pr, NOW, NOW)['state'], 'exempt')
+
+    def test_a_malformed_author_is_not_exempt(self):
+        p, pr = fixture()
+        p['exempt_authors'] = ['owner']
+        for bad in (True, ['owner'], None):
+            pr['author'] = bad
+            self.assertFalse(exempt_author(p, pr), repr(bad))
+
+    def test_an_exempt_author_off_the_governed_branches_is_not_passed(self):
+        p, pr = fixture()
+        p['exempt_authors'] = ['owner']
+        pr['base'] = 'elsewhere'
+        self.assertEqual(evaluate(p, pr, NOW, NOW)['status'], 'pending')
+
+    def test_an_exempt_author_takes_no_review_slot(self):
+        p, pr = fixture()
+        self.assertEqual(set(admit(p, [pr], NOW)), {pr['number']})
+        p['exempt_authors'] = ['Owner']
+        self.assertEqual(admit(p, [pr], NOW), {})
+
+    def test_an_exempt_author_is_a_github_handle_like_any_other(self):
+        p, _ = fixture()
+        p['exempt_authors'] = ['owner']
+        validate_policy(p)
+        for bad in ('not a handle', '', '-leading', 'a' * 40, 1, ['x']):
+            p['exempt_authors'] = [bad]
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                validate_policy(p)
+
+    def test_a_machine_author_cannot_be_exempt(self):
+        p, _ = fixture()
+        p['bot_authors'] = ['infraclaw-dash']
+        p['exempt_authors'] = ['INFRACLAW-DASH']
+        with self.assertRaises(ValueError):
+            validate_policy(p)
 
     def test_target_branches_are_patterns_like_the_repositorys_branch_rules(self):
         # Platform protects its development branches as `v*-dev` and renames

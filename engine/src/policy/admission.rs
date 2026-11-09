@@ -1,6 +1,7 @@
 //! Review slots: each author holds at most five pull requests in review at
 //! once, the ones admitted longest ago first.
 
+use super::exempt_author;
 use super::validate::{governs, validate_policy};
 use super::values::{lower, time, Instant};
 use crate::pycompat::object::{get, get_or, getitem, iterate, or, EMPTY_DICT, NONE};
@@ -45,6 +46,7 @@ pub fn admit(
         if py_eq_str(getitem(pr, "state")?, "open")
             && !getitem(pr, "draft")?.truthy()
             && governs(policy, getitem(pr, "base")?)?
+            && !exempt_author(policy, pr)?
         {
             grouped
                 .entry(lower(getitem(pr, "author")?)?)

@@ -12,8 +12,8 @@ use super::{except_github, Reconciler, WAIVED_LABEL};
 use crate::evidence::records::{current_checklist, DIFF_MARKER, STATE_MARKER};
 use crate::evidence::{ReadError, Transport};
 use crate::policy::{
-    fingerprint, machine_author, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
-    STATE_LABELS,
+    fingerprint, machine_author, LABEL_FOR_STATE, MOVE_MARKER, NO_CHECKLIST_STATES, NUDGE_MARKER,
+    RETIRED_LABELS, STATE_LABELS,
 };
 use crate::pycompat::object::{get, get_or, getitem, iterate, or, EMPTY_LIST, NONE};
 use crate::pycompat::ops::{py_compare, py_contains, py_eq, py_eq_str, Compare};
@@ -194,7 +194,7 @@ impl<T: Transport> Reconciler<'_, T> {
             PyValue::None => s(""),
             body => body.clone(),
         };
-        let block = if py_eq_str(state, "draft") {
+        let block = if one_of(state, &NO_CHECKLIST_STATES)?.is_some() {
             None
         } else {
             checklist_block(result)?

@@ -42,6 +42,9 @@ LABEL_FOR_STATE = {'waiting-bots': 'waiting-bots',
 STATE_LABELS = tuple(dict.fromkeys(LABEL_FOR_STATE.values()))
 # Labels this controller used to set. Cleared wherever still seen, so a
 # repository that has not deleted them yet does not show two states at once.
+# Nobody reads a checklist on these: a draft's author is still writing it, and
+# an exempt author's pull request has no requirements to list.
+NO_CHECKLIST_STATES = ('draft', 'exempt')
 RETIRED_LABELS = ('waiting-slot', 'waiting-build', 'waiting-author', 'ready-to-merge')
 MOVE_MARKER = '<!-- pr-hygiene:move'
 CHECKLIST_START = '<!-- pr-hygiene:start -->'
@@ -80,8 +83,9 @@ def missing_paths(policy, root: Path):
 
 def validate_policy(policy, root: Path | None = None):
     keys = {'version', 'repository', 'fallback', 'max_active_prs', 'target_branches', 'areas'}
-    _fields(policy, keys | {'required_bots', 'bot_timeouts', 'bot_authors'}, keys)
+    _fields(policy, keys | {'required_bots', 'bot_timeouts', 'bot_authors', 'exempt_authors'}, keys)
     _handles(policy.get('bot_authors', []))
+    _handles(policy.get('exempt_authors', []))
     timeouts = policy.get('bot_timeouts')
     if timeouts is not None:
         _fields(timeouts, {'nudge_after_hours', 'waive_after_hours'}, {'nudge_after_hours', 'waive_after_hours'})
@@ -147,6 +151,11 @@ def validate_policy(policy, root: Path | None = None):
               for handle in area['owners'] + area['reviewers']}
     if machines & named:
         raise ValueError('A machine author cannot own or review: ' + ', '.join(sorted(machines & named)))
+    # An exemption is a person's word that their pull requests need no gate.
+    # A machine has no word to give, and would merge with nobody having read it.
+    exempt = {handle.lower() for handle in policy.get('exempt_authors', [])}
+    if machines & exempt:
+        raise ValueError('A machine author cannot be exempt: ' + ', '.join(sorted(machines & exempt)))
 
 
 def codeowners(policy):
@@ -185,7 +194,8 @@ def admit(policy, prs, nowISO):
     _time(nowISO)
     grouped = defaultdict(list)
     for pr in prs:
-        if pr['state'] == 'open' and not pr['draft'] and governs(policy, pr['base']):
+        if (pr['state'] == 'open' and not pr['draft'] and governs(policy, pr['base'])
+                and not exempt_author(policy, pr)):
             grouped[pr['author'].lower()].append(pr)
     result = {}
     for candidates in grouped.values():
@@ -554,6 +564,12 @@ def machine_author(policy, pr):
     return author in BOTS or author in {h.lower() for h in policy.get('bot_authors', [])}
 
 
+def exempt_author(policy, pr):
+    """Whether the policy names this pull request's author under `exempt_authors`."""
+    author = pr.get('author')
+    return isinstance(author, str) and author.lower() in {h.lower() for h in policy.get('exempt_authors', [])}
+
+
 def _hours(stamp, nowISO):
     return (_time(nowISO) - _time(stamp)).total_seconds() / 3600
 
@@ -737,6 +753,10 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             return stop('configuration-error', 'Invalid head SHA', status='error')
         if pr['state'] != 'open' or not governs(policy, pr['base']):
             return stop('configuration-error', 'PR is outside the active policy scope')
+        # Still a passing status, not silence: the check is required, and a
+        # head that never receives one can never merge.
+        if exempt_author(policy, pr):
+            return stop('exempt', status='success')
         if pr['draft']:
             return stop('draft', 'Draft PR does not occupy a review slot')
         if admitted_at:

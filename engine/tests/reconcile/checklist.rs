@@ -1193,6 +1193,41 @@ fn a_pull_request_back_in_draft_loses_the_stale_block() {
 }
 
 #[test]
+fn an_exempt_author_passes_and_loses_every_mark() {
+    let (policy, fake) = bartek();
+    let mut scene = Scene::new(fake);
+    let result = scene.verdict(&policy, 1, &s(NOW));
+    let mut exempt = policy.clone();
+    if let PyValue::Dict(fields) = &mut exempt {
+        fields.insert(
+            "exempt_authors".into(),
+            PyValue::List(vec![s("llbartekll")].into()),
+        );
+    }
+    scene.fake.pr(1).body = format!("text\n\n{}", block_of(&result));
+    scene.fake.pr(1).labels = vec!["waiting-bots".into(), "nonsense".into()];
+    scene.fake.forget_calls();
+    scene.sync_pr(&exempt, 1);
+    let described = scene.wrote(Method::Patch, "pulls/1");
+    assert_eq!(described.len(), 1, "removed, not rewritten");
+    assert_eq!(text(described[0].field("body")), "text");
+    assert_eq!(
+        scene
+            .wrote(Method::Delete, "issues/1/labels/waiting-bots")
+            .len(),
+        1,
+        "the engine's label goes"
+    );
+    assert!(scene
+        .wrote(Method::Delete, "issues/1/labels/nonsense")
+        .is_empty());
+    assert_eq!(
+        scene.statuses().last().expect("a status"),
+        &("success".to_string(), "exempt".to_string())
+    );
+}
+
+#[test]
 fn the_status_never_depends_on_the_description_or_the_labels() {
     // At capacity, labels refused, description refused: the check is still
     // what the evidence says.

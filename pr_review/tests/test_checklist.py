@@ -1248,6 +1248,17 @@ class SecondReviewTests(unittest.TestCase):
         api.remove_checklist.assert_called_once_with(pr['number'])
         api.set_checklist.assert_not_called()
 
+    def test_an_exempt_author_passes_and_loses_every_mark(self):
+        result = evaluate(self.policy, self.pr, NOW, LATER)
+        pr = dict(self.pr, body='text\n\n' + main.checklist_block(result), labels=['waiting-bots', 'nonsense'])
+        self.policy = dict(self.policy, exempt_authors=[pr['author']])
+        api = self.publish(pr, evaluate(self.policy, pr, NOW, LATER))
+        api.remove_checklist.assert_called_once_with(pr['number'])
+        api.set_checklist.assert_not_called()
+        api.request_reviewers.assert_not_called()
+        api.set_state_label.assert_called_once_with(pr['number'], 'exempt', pr['labels'])
+        api.post_status.assert_called_with(pr['head'], 'success', 'exempt')
+
     def test_the_status_never_depends_on_the_description_or_the_labels(self):
         # At capacity, labels refused, description refused: the check is still
         # what the evidence says.

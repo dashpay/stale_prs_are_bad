@@ -179,6 +179,40 @@ fn a_machine_author_is_a_github_handle_like_any_other() {
 }
 
 #[test]
+fn an_exempt_author_is_a_github_handle_like_any_other() {
+    let (mut p, _) = fixture();
+    set(&mut p, &["exempt_authors"], strs(&["owner"]));
+    validate_policy(&p).unwrap();
+    let long = "a".repeat(40);
+    for bad in [
+        json!("not a handle"),
+        json!(""),
+        json!("-leading"),
+        json!(long),
+        json!(1),
+        json!(["x"]),
+    ] {
+        set(&mut p, &["exempt_authors"], value(json!([bad])));
+        assert!(is_value_error(validate_policy(&p)), "{bad}");
+    }
+}
+
+#[test]
+fn a_machine_author_cannot_be_exempt() {
+    let (mut p, _) = fixture();
+    set(&mut p, &["bot_authors"], strs(&["infraclaw-dash"]));
+    set(&mut p, &["exempt_authors"], strs(&["INFRACLAW-DASH"]));
+    assert!(is_value_error(validate_policy(&p)));
+}
+
+#[test]
+fn an_exempt_author_takes_no_review_slot() {
+    let (mut p, pr) = fixture();
+    set(&mut p, &["exempt_authors"], strs(&["Owner"]));
+    assert!(slots(&p, numbered(&pr, 6)).is_empty());
+}
+
+#[test]
 fn a_machine_author_that_owns_an_area_is_refused_by_the_policy() {
     // It would need neither an attestation nor an approval: the owner
     // exemption and the stand-in together merge a pull request nobody has

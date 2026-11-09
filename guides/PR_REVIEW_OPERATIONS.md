@@ -102,6 +102,8 @@ The incident combined a current reusable workflow with an older engine selected 
 
 Do not disable the required status to hide the incident. Restore independently reviewed native approval/routing protection first if removing PR Hygiene is the chosen rollback.
 
+`exempt_authors` names people whose pull requests this controller does not check. Each head still receives a passing `PR Hygiene` status with the description `exempt`, because the check is required; no requirement is evaluated, no reviewer is requested, the checklist and state labels are removed, and no review slot is taken. Where branch protection requires no approvals, an exempt author can merge with nobody having reviewed. Machine accounts cannot be exempt.
+
 Edit seed ownership manifests and regenerate CODEOWNERS deliberately. An empty owner list is permitted only when the named area carries an explicit unresolved configuration blocker. It never grants owner powers to its reviewers.
 
 The Actions solution assumes trusted repository writers. It shares an app identity across workflows, and GitHub offers no atomic read-and-publish transaction. Existing administrator bypass remains. These limitations are not solved by adding a shared collector.
