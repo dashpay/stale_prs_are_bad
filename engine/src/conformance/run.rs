@@ -28,7 +28,10 @@ use crate::evidence::{
     Call, Client, GitHub, NoSleep, ReadError, ReplayTransport, Reply, Transport, TransportError,
     WriteCheck,
 };
-use crate::policy::{diff_print, machine_author, receipt_print, validate_policy, LABEL_FOR_STATE};
+use crate::policy::{
+    diff_print, machine_author, receipt_print, validate_policy, LABEL_FOR_STATE,
+    NO_CHECKLIST_STATES,
+};
 use crate::pycompat::text::py_slice;
 use crate::pycompat::{py_dumps, py_loads, PyDateTime, PyDict, PyInt, PyList, PyValue};
 use crate::reconcile::{
@@ -297,7 +300,7 @@ fn outputs_for(
         PyValue::Str(state) => state.as_str(),
         _ => return Err("a verdict without a state".into()),
     };
-    let checklist = if state_text == "draft" {
+    let checklist = if NO_CHECKLIST_STATES.contains(&state_text) {
         PyValue::None
     } else {
         checklist_block(result)

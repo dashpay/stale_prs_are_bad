@@ -107,6 +107,13 @@ class NotificationsTests(unittest.TestCase):
             handler.redirect_request(request, io.BytesIO(b''), 302, 'Found', http.client.HTTPMessage(), 'http://evil.example/steal')
         self.assertNotIn('secret', str(raised.exception))
 
+    def test_an_exempt_pull_request_is_nobodys_blocker(self):
+        data = snapshot()
+        data['pull_requests'][1]['state'] = 'exempt'
+        plan = n.build_delivery_plan(data, self.config())
+        self.assertNotIn('Author action needed', str(plan['messages'][0]))
+        self.assertNotIn('Your PR blockers', str(plan['messages']))
+
     def test_empty_personal_digest_is_skipped(self):
         data = snapshot()
         data['pull_requests'] = []

@@ -93,7 +93,8 @@
  },
  "tests": [
   "test_multi_repo_main.MultiRepositoryTests.test_same_pr_number_in_different_repositories_keeps_identity",
-  "test_multi_repo_main.MultiRepositoryTests.test_shared_evaluation_preserves_ambiguous_head_blocker"
+  "test_multi_repo_main.MultiRepositoryTests.test_shared_evaluation_preserves_ambiguous_head_blocker",
+  "test_policy.PolicyTests.test_an_exempt_author_takes_no_review_slot"
  ],
  "python": "3.12"
 }

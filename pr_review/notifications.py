@@ -83,7 +83,7 @@ def build_delivery_plan(snapshot, config):
     if not queue:
         queue = ['No known PRs currently ready for human review.']
     blocked = [pr_text(r, now, True) for r in rows
-               if r['state'] not in {'draft', 'ready-for-human', 'ready-to-merge'}]
+               if r['state'] not in {'draft', 'exempt', 'ready-for-human', 'ready-to-merge'}]
     if blocked:
         blocked.insert(0, 'Author action needed — these PRs are not ready for human review')
     if unenrolled:
@@ -95,7 +95,7 @@ def build_delivery_plan(snapshot, config):
         reviews = [r for r in rows if r['state'] == 'ready-for-human'
                    and logins.intersection(u.lower() for u in r.get('reviewers', []))]
         own = [r for r in rows if r['author'].lower() in logins
-               and r['state'] not in {'draft', 'ready-for-human', 'ready-to-merge'}]
+               and r['state'] not in {'draft', 'exempt', 'ready-for-human', 'ready-to-merge'}]
         if not reviews and not own and not unavailable:
             continue
         sections = [mode_note, *unavailable]

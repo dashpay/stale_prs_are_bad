@@ -42,6 +42,7 @@ pub use validate::{governs, validate_policy};
 
 use crate::pycompat::object::{get, get_or, getitem, iterate, or, EMPTY_LIST, EMPTY_STR, NONE};
 use crate::pycompat::ops::py_in_str_set;
+use crate::pycompat::text::py_lower;
 use crate::pycompat::{PyDict, PyErr, PyValue};
 use std::collections::BTreeSet;
 use values::lower;
@@ -88,6 +89,9 @@ pub const RETIRED_LABELS: [&str; 4] = [
     "waiting-author",
     "ready-to-merge",
 ];
+/// States whose description carries no checklist: a draft's author is still
+/// writing it, and an exempt author's pull request has no requirements to list.
+pub const NO_CHECKLIST_STATES: [&str; 2] = ["draft", "exempt"];
 /// The marker the move comment starts with.
 pub const MOVE_MARKER: &str = "<!-- pr-hygiene:move";
 /// Where this controller's checklist starts in a description.
@@ -210,6 +214,21 @@ pub fn machine_author(policy: &PyValue, pr: &PyValue) -> Result<bool, PyErr> {
     }
     let author = lower(or(get(pr, "author")?, &EMPTY_STR))?;
     Ok(BOTS.contains(&author.as_str()) || bot_authors(policy)?.contains(&author))
+}
+
+/// `exempt_author(policy, pr)`: whether the policy names this pull request's
+/// author under `exempt_authors`.
+pub fn exempt_author(policy: &PyValue, pr: &PyValue) -> Result<bool, PyErr> {
+    let author = match get(pr, "author")? {
+        Some(PyValue::Str(author)) => py_lower(author),
+        _ => return Ok(false),
+    };
+    for handle in iterate(get_or(policy, "exempt_authors", &EMPTY_LIST)?)? {
+        if lower(&handle)? == author {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// `_may_object(permissions, user)`: whether this person's objection counts.

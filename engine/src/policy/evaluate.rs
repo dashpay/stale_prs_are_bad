@@ -19,7 +19,7 @@ use super::validate::{governs, required_bots, validate_policy};
 use super::values::{
     dict, earliest, latest, lower, re_text, s, string, strings, strs, time, upper, upper_in,
 };
-use super::{holders, machine_author, may_object, BOTS, WRITE};
+use super::{exempt_author, holders, machine_author, may_object, BOTS, WRITE};
 use crate::pycompat::object::{
     get, get_or, getitem, iterate, no_attribute, or, py_str, str_method, EMPTY_DICT, EMPTY_STR,
     NONE,
@@ -47,6 +47,14 @@ impl Stop {
         Stop {
             state,
             status: "pending",
+            reasons,
+        }
+    }
+
+    fn success(state: &'static str, reasons: Vec<String>) -> Self {
+        Stop {
+            state,
+            status: "success",
             reasons,
         }
     }
@@ -248,6 +256,11 @@ fn decide(
             "configuration-error",
             vec!["PR is outside the active policy scope".into()],
         ));
+    }
+    // Still a passing status, not silence: the check is required, and a head
+    // that never receives one can never merge.
+    if exempt_author(policy, pr)? {
+        return Ok(Stop::success("exempt", Vec::new()));
     }
     if getitem(pr, "draft")?.truthy() {
         return Ok(Stop::pending(
@@ -1033,11 +1046,10 @@ fn decide(
 
     Ok(match first {
         Some((state, reasons)) => Stop::pending(state, reasons),
-        None => Stop {
-            state: "ready-to-merge",
-            status: "success",
-            reasons: vec!["All policy requirements are satisfied".into()],
-        },
+        None => Stop::success(
+            "ready-to-merge",
+            vec!["All policy requirements are satisfied".into()],
+        ),
     })
 }
 

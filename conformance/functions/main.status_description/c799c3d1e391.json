@@ -1,0 +1,37 @@
+{
+ "function": "main.status_description",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "exempt",
+   "status": "success",
+   "blockers": [],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": null,
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [],
+   "approvals": [],
+   "objections": [],
+   "checklist": [],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {}
+  }
+ },
+ "output": "exempt",
+ "tests": [
+  "test_checklist.SecondReviewTests.test_an_exempt_author_passes_and_loses_every_mark"
+ ],
+ "python": "3.12"
+}

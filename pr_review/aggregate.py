@@ -41,7 +41,8 @@ def collect_snapshot(registry, policies_root=POLICIES, api_factory=GitHub):
             rows = main.evaluate_snapshots(policy, context, candidates, snapshots, now)
             result['pull_requests'].extend(rows)
             counts = Counter(p['author'].lower() for p in context if p['state'] == 'open'
-                             and not p['draft'] and main.governs(policy, p['base']))
+                             and not p['draft'] and main.governs(policy, p['base'])
+                             and not main.exempt_author(policy, p))
             for author, count in counts.items():
                 workloads.setdefault(author, {})[repo] = count
             info['complete'] = True

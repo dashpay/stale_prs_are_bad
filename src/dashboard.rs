@@ -599,6 +599,7 @@ pub fn stage(
     };
     match state.state.as_str() {
         "draft" => Stage::Draft,
+        "exempt" => Stage::NotGoverned,
         "waiting-bots" => Stage::Bots,
         "waiting-author" | "waiting-self-review" => Stage::SelfReview,
         // A failed build is the author's to fix; a running one is nobody's.
@@ -1006,6 +1007,7 @@ mod tests {
         };
         let cases = [
             ("draft", Stage::Draft),
+            ("exempt", Stage::NotGoverned),
             ("waiting-bots", Stage::Bots),
             ("waiting-author", Stage::SelfReview),
             ("waiting-self-review", Stage::SelfReview),

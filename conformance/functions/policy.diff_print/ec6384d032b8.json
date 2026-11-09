@@ -60,6 +60,7 @@
  "output": null,
  "tests": [
   "test_checklist.ChecklistTests.test_a_draft_gets_no_block",
+  "test_policy.PolicyTests.test_an_exempt_authors_draft_still_reports_a_status_that_passes",
   "test_policy.PolicyTests.test_only_a_satisfied_policy_passes_the_check",
   "test_policy.PolicyTests.test_the_check_passes_in_exactly_one_state"
  ],

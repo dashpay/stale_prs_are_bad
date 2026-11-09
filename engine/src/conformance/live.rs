@@ -158,8 +158,9 @@ const OWN_DESCRIPTIONS: [&str; 7] = [
 
 /// The states a verdict can reach, which its status carries as its
 /// description.
-const OWN_STATES: [&str; 10] = [
+const OWN_STATES: [&str; 11] = [
     "draft",
+    "exempt",
     "configuration-error",
     "waiting-bots",
     "waiting-self-review",
