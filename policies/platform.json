@@ -270,7 +270,8 @@
     {
       "id": "kotlin-sdk",
       "paths": [
-        "packages/kotlin-sdk/"
+        "packages/kotlin-sdk/",
+        "packages/rs-unified-sdk-jni/"
       ],
       "owners": [
         "HashEngineering"
@@ -289,6 +290,20 @@
       }
     },
     {
+      "id": "sdk-parity",
+      "paths": [
+        "docs/sdk/"
+      ],
+      "owners": [
+        "QuantumExplorer",
+        "shumkov",
+        "llbartekll",
+        "romchornyi",
+        "HashEngineering"
+      ],
+      "reviewers": []
+    },
+    {
       "id": "github",
       "paths": [
         ".github/"
@@ -299,6 +314,18 @@
       "reviewers": [
         "shumkov"
       ]
+    },
+    {
+      "id": "claude",
+      "paths": [
+        ".claude/"
+      ],
+      "owners": [
+        "shumkov",
+        "QuantumExplorer",
+        "lklimek"
+      ],
+      "reviewers": []
     }
   ]
 }
