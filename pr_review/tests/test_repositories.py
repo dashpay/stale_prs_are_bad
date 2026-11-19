@@ -125,6 +125,49 @@ class RepositoryConfigurationTests(unittest.TestCase):
                 result = evaluate(policy, pr, NOW, NOW)
                 self.assertEqual((result['areas'], result['state']), (['github'], state), result)
 
+    def test_platform_sdk_owners_merge_their_own_bridge_and_parity_manifest(self):
+        # The Kotlin JNI bridge and the Kotlin/Swift parity manifest change
+        # together with the SDK code they serve. Left to the fallback, an SDK
+        # owner's pull request that touched nothing but their own SDK waited
+        # on QuantumExplorer or shumkov.
+        policy = self.policies['dashpay/platform']
+        for author, files, areas in (
+                ('HashEngineering', ['packages/kotlin-sdk/sdk/Sdk.kt', 'packages/rs-unified-sdk-jni/src/lib.rs'],
+                 ['kotlin-sdk']),
+                ('romchornyi', ['packages/swift-sdk/Sources/Sdk.swift', 'docs/sdk/sdk-parity-manifest.json'],
+                 ['sdk-parity', 'swift-sdk'])):
+            with self.subTest(author=author):
+                _, pr = fixture()
+                pr.update(base=policy['target_branches'][0], author=author,
+                          files=[{'filename': path} for path in files])
+                pr['comments'] = [dict(id=3, user=author, body=f'/self-reviewed {pr["head"]}',
+                                       created_at=NOW, updated_at=NOW)]
+                pr['permissions'].update({handle: 'write' for area in policy['areas']
+                                          for handle in area['owners'] + area['reviewers']})
+                result = evaluate(policy, pr, NOW, NOW)
+                self.assertEqual((result['areas'], result['state']), (areas, 'ready-to-merge'), result)
+
+    def test_platform_agent_skills_need_one_of_their_three_owners(self):
+        # Skills steer every agent that works in the repository, so they are
+        # not anyone's to change alone; the three people who keep them can,
+        # and any one of them approves the others' changes.
+        policy = self.policies['dashpay/platform']
+        for author, approver, state in (('lklimek', None, 'ready-to-merge'),
+                                        ('llbartekll', None, 'ready-for-human'),
+                                        ('llbartekll', 'lklimek', 'ready-to-merge')):
+            with self.subTest(author=author, approver=approver):
+                _, pr = fixture()
+                pr.update(base=policy['target_branches'][0], author=author,
+                          files=[{'filename': '.claude/skills/review/SKILL.md'}])
+                pr['comments'] = [dict(id=3, user=author, body=f'/self-reviewed {pr["head"]}',
+                                       created_at=NOW, updated_at=NOW)]
+                pr['permissions'].update({handle: 'write' for handle in ['shumkov', 'QuantumExplorer', 'lklimek']})
+                if approver:
+                    pr['reviews'].append(dict(id=9, user=approver, state='APPROVED', commit_id=pr['head'],
+                                              submitted_at=NOW, body=''))
+                result = evaluate(policy, pr, NOW, NOW)
+                self.assertEqual((result['areas'], result['state']), (['claude'], state), result)
+
     def test_fallbacks_name_each_repository_owner_not_platform_leads(self):
         expected = {'platform': (['QuantumExplorer', 'shumkov'], []),
                     'rust-dashcore': (['QuantumExplorer', 'xdustinface'], ['ZocoLini']),
