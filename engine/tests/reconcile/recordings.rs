@@ -386,6 +386,45 @@ fn the_synthetic_recordings_walk_the_write_paths_they_are_named_for() {
             "{name}"
         );
     }
+    // A history query that times out. The event's pull request alone is
+    // marked, not its author's other one; the batch writes nothing. Both
+    // runs fail. Each recording tells the narrow marking from the wide one
+    // only while the failed query names a pull request that marking it
+    // all would reach: the author's other one, and the batch's own.
+    for (name, named) in [
+        ("history-unreadable-pr", "pr3: pullRequest(number:3)"),
+        ("history-unreadable-batch", "pr1: pullRequest(number:1)"),
+    ] {
+        let whole = load(&synthetic(name));
+        assert_eq!(
+            text(field(field(&whole.recording.meta, "outcome"), "raised")),
+            "GitHubError",
+            "{name}"
+        );
+        let failed: Vec<&str> = whole
+            .recording
+            .calls
+            .lines()
+            .filter(|line| line.contains(r#""exit":1"#))
+            .collect();
+        assert_eq!(failed.len(), 1, "{name}: {failed:?}");
+        assert!(
+            failed[0].contains(r#""POST","graphql""#)
+                && failed[0].contains("fragment history")
+                && failed[0].contains(named)
+                && failed[0].contains("HTTP 504"),
+            "{name}: {}",
+            failed[0]
+        );
+    }
+    let marked = writes("history-unreadable-pr");
+    assert_eq!(marked.len(), 1, "{marked:?}");
+    assert!(marked[0].contains(&format!(
+        r#""POST","repos/dashpay/platform/statuses/{}""#,
+        "c".repeat(40)
+    )));
+    assert!(marked[0].contains("Incomplete policy evidence; reconciliation required"));
+    assert_eq!(writes("history-unreadable-batch"), Vec::<String>::new());
     // The report, filtered to one person's pull requests.
     let report = py_loads(&load(&synthetic("report-json")).files.printed).expect("a JSON report");
     assert_eq!(items(field(&report, "pull_requests")).len(), 1);

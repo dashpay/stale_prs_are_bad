@@ -28,7 +28,8 @@ never show:
   asked once more and answered, and a call that runs out of Python's own
   sixty seconds, which is not.
 
-The rest walk write paths, and print the JSON report:
+The rest walk write paths, and print the JSON report when the run gets that
+far:
 
 - `sweep`: a full `sync`. One pull request's evidence cannot be read and
   only its head is marked; a draft loses the checklist its description still
@@ -49,6 +50,12 @@ The rest walk write paths, and print the JSON report:
 - `config-error`: a policy that does not validate, met by `sync --pr 2`: only
   that pull request's head is marked, after its identity is read twice and
   no other open pull request is found sharing it, and the run fails.
+- `history-unreadable-pr`: `sync --pr 2` while the history query every
+  candidate shares times out, as it would again if asked once more. Pull
+  request 2's author has another open pull request; only the one the event
+  names is marked, and the run fails.
+- `history-unreadable-batch`: the hourly batch meeting the same timeout:
+  nothing is written, and the run fails.
 
     uv run -q --python 3.12 --no-project --with pyyaml python conformance/synthetic/generate.py
 
@@ -432,10 +439,31 @@ def config_error():
     return gh, ['sync', '--pr', '2', '--format', 'json']
 
 
+# What gh says when GitHub gives up on a query at its ten seconds.
+GATEWAY_TIMEOUT = 'gh: HTTP 504: Gateway Timeout (https://api.github.com/graphql)'
+
+
+def history_unreadable_pr():
+    gh = Scenario()
+    # Pull request 2's author has another open pull request on its own head.
+    gh.prs[3] = _pr(3, 'reviewer', 'd' * 40, '2026-09-10T02:00:00Z')
+    gh.reviews[3] = []
+    gh.history[3] = []
+    gh.failing_at[('POST', 'graphql')] = {1: GATEWAY_TIMEOUT, 2: GATEWAY_TIMEOUT}
+    return gh, ['sync', '--pr', '2', '--format', 'json']
+
+
+def history_unreadable_batch():
+    gh = Scenario()
+    gh.failing_at[('POST', 'graphql')] = {1: GATEWAY_TIMEOUT, 2: GATEWAY_TIMEOUT}
+    return gh, ['sync', '--batch-size', '1', '--format', 'json']
+
+
 SCENARIOS = {'report': report, 'sync-pr-2': sync_pr_2, 'rich-evidence': rich_evidence, 'long-history': long_history,
              'edited-record': edited_record, 'partial-answer': partial_answer, 'transient-retry': transient_retry,
              'sweep': sweep, 'batch': batch, 'nudge': nudge, 'failing-publish': failing_publish,
-             'report-json': report_json, 'config-error': config_error}
+             'report-json': report_json, 'config-error': config_error,
+             'history-unreadable-pr': history_unreadable_pr, 'history-unreadable-batch': history_unreadable_batch}
 
 
 def record(name, destination):

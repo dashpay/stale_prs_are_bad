@@ -79,7 +79,7 @@ fn every_synthetic_recording_matches_and_is_counted() {
     let (output, said) = run(&[&synthetic()]);
     assert!(output.status.success(), "{said}");
     assert!(
-        said.contains("13 recording(s): the Rust engine matched every one."),
+        said.contains("15 recording(s): the Rust engine matched every one."),
         "{said}"
     );
     assert!(
@@ -90,7 +90,7 @@ fn every_synthetic_recording_matches_and_is_counted() {
     );
     assert!(
         said.contains(
-            "| **all** (13 recordings) | 18/18 | 18/18 | 15/15 | 25/25 | 15/15 | 68/68 | 15/15 | 4/4 | 13/13 | 13/13 | 0 | 439 | 0 |"
+            "| **all** (15 recordings) | 18/18 | 18/18 | 15/15 | 29/29 | 15/15 | 69/69 | 15/15 | 4/4 | 15/15 | 15/15 | 0 | 445 | 0 |"
         ),
         "{said}"
     );

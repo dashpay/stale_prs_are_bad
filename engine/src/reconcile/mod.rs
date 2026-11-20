@@ -66,6 +66,9 @@ pub enum Selection<'s> {
     /// The pull requests `choose` picks from the open ones the policy
     /// governs, each with the rest of its author's as candidates: Python's
     /// rotating `--batch-size` sweep, with the choice left to the caller.
+    /// Being chosen says nothing about what changed, so when the history
+    /// every candidate shares cannot be read, a batch marks nothing: a run
+    /// aimed at one pull request is `Pr`, whose own head is marked then.
     Batch(&'s mut dyn FnMut(&[PyValue]) -> Vec<PyValue>),
 }
 

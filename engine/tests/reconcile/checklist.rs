@@ -1091,8 +1091,8 @@ fn a_foreign_bot_comment_quoting_the_marker_is_left_alone_and_fails_the_history(
     // Python's test hands `publish` a pull request whose record was not read
     // from these comments. Read from them, the newest record of the
     // engine's identity names another pull request: the admission history
-    // is refused, every candidate's head is marked, and the comment itself
-    // is neither edited nor deleted.
+    // is refused, the head of the pull request asked for is marked, and the
+    // comment itself is neither edited nor deleted.
     let (policy, fake) = bartek();
     let mut scene = Scene::new(fake);
     let (_, record) = announced(&policy, &mut scene);

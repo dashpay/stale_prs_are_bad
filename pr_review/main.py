@@ -177,9 +177,31 @@ def collect(api, policy, number=None, apply=False, reconcile_author=False, batch
         return prs, candidates, snapshots
     except GitHubError:
         if apply:
-            # Admission depends on all candidates, so incomplete history invalidates
-            # every known active head, even when only one PR was requested.
-            for pr in selected:
+            # A read the whole selection depends on failed: the history every
+            # candidate shares, or the build scan's status read for a head
+            # with no record. The run cannot go on, and what that leaves
+            # untrustworthy depends on why it was started. An event says this
+            # pull request's evidence changed: the status it carries may be
+            # stale and must not stay green. Its author's other pull requests
+            # had no event, and a slot only decides whether reviewers are
+            # asked, never whether a pull request passes, so the verdicts
+            # they carry are as good as before. A sweep or a build scan picks
+            # its pull requests by the clock or by their record, not because
+            # any of them changed: the work did not happen, and the failed
+            # job says so. The scan looks again at its next run, and the
+            # rotation comes back to the sweep's batch. Marking everything
+            # they selected would turn one timed-out query into a repository
+            # of red heads, each unmergeable until the rotation reached it. A
+            # full pass exists to replace every head's status with one
+            # computed now, so when it cannot read, no earlier verdict is
+            # trusted.
+            if number is not None:
+                unreadable = [p for p in selected if p['number'] == number]
+            elif batch_size is not None or waiting_on_build:
+                unreadable = []
+            else:
+                unreadable = selected
+            for pr in unreadable:
                 _mark_unreadable(api, policy, pr)
         raise
 
