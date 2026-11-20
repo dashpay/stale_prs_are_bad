@@ -159,11 +159,13 @@ jobs:
             --query Command.CommandId --output text)
           echo "command: $command_id"
 
-          # The host gives a new image 90 seconds to become ready, then as
-          # long again to the one it goes back to.
+          # The host's worst case is 7 minutes: pull, start and 90 seconds of
+          # readiness checks for the new image, then start and readiness
+          # again for the one it goes back to. Its own deadline is 10
+          # minutes; this waits a little longer than that.
           status=Pending
           targets=0
-          for _ in $(seq 1 72); do
+          for _ in $(seq 1 132); do
             sleep 5
             # A failed poll keeps the last answer and tries again.
             read -r status targets < <(aws ssm list-commands --command-id "$command_id" \
