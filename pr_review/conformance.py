@@ -853,7 +853,8 @@ def case_name(case):
 # the name within it. Each is harvested like `evaluate`, into a directory of
 # that name: what another engine writes and reads back has to come out of
 # these byte for byte, and a whole run is a poor place to find which one did not.
-FUNCTIONS = ('main.checklist_block', 'main.move_text', 'main.status_description', 'github.GitHub.state_comment_body', 'main.state_record',
+FUNCTIONS = ('main.checklist_block', 'main.move_text', 'main.status_description', 'main.asks', 'main.your_part',
+             'github.GitHub.state_comment_body', 'main.state_record',
              'main.diff_record', 'policy.admit', 'main.admission_conflicts', 'policy.receipt_print',
              'policy.diff_print', 'telemetry.head_state')
 FUNCTION_CASE_FILE = re.compile(r'[0-9a-f]{12}\.json')

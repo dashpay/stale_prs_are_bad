@@ -158,6 +158,52 @@ Lines are cut as follows:
 | waiting-self-review | 16 of 43 | none |
 | ready-for-human | 9 of 19 | none |
 
+## Objector wording
+
+Added to the same PR after platform #5460 (2026-10-29). A reviewer left a
+thread, and the author answered in it without resolving it. The reviewer
+then approved, and the author posted `/self-reviewed`. The move comment and
+the new status said "Ready for review — re-review or resolve: shumkov". It
+read as though the approval had been ignored. Order did not matter: an
+unresolved thread is an objection, and an approval does not withdraw it.
+
+The owner's decision is to **keep the rule** and make every surface say
+what is actually needed:
+
+| Objector | `asks` (move comment, status, report) | `your_part` | Checklist line |
+|---|---|---|---|
+| Requested changes | `re-review or resolve: lklimek` (unchanged) | `re-review or resolve your objection` (unchanged) | `lklimek requested changes — waiting for them to re-review or dismiss` (unchanged) |
+| Thread only, approved | `resolve every review thread shumkov left open (their approval counts)` | `resolve every review thread you left open (your approval counts)` | `shumkov left a review thread unresolved — resolve every thread they left open (their approval counts)` |
+| Thread only, not approved | `resolve every review thread shumkov left open` | `resolve every review thread you left open` | `shumkov left a review thread unresolved — resolve every thread they left open` |
+
+- **"Every review thread X left open"**, not "X's thread": `evaluate`
+  counts anyone who spoke in a thread, including a reply in the author's
+  own, and writes one line per objector however many threads they hold.
+  "Every" stays true for one thread or several, and does not send the
+  author looking for a thread X opened.
+- **The ask comes first and the approval after it.** A long ready-for-human
+  status is cut at 140 characters, and a cut has to keep what is asked.
+  The report also joins the asks after "needs" and separates its parts
+  with `; `, so an ask must neither read as "needs shumkov approved" nor
+  carry a `;` of its own.
+- **No new verdict field.** `evaluate` writes one objection line per
+  objector: `<login> requested changes`, or else `<login>` +
+  `THREAD_LEFT_OPEN` (` left a review thread unresolved`). `policy.py` and
+  `engine/src/policy` define that constant once, and both `evaluate` and
+  the wording use it. "Approved" means the objector is in some area's
+  `approved_by`, the approvals that count on this head. An approval that
+  counts for nothing is not mentioned.
+- **The fallback is today's wording.** A line the wording does not
+  recognise asks for a re-review. It claims no approval and never drops
+  the objector. A test pins both phrases `evaluate` writes, so rewording
+  either one fails loudly instead of falling back silently.
+- **Not changed here:** the dashboard and service (`src/dashboard.rs`,
+  `service/src/digest.rs`, `site/js/`). They receive only the objectors'
+  names, so they keep "re-review or resolve" for everyone. Making the same
+  distinction there needs new fields in `dashboard.json` and the service
+  API, which is a follow-up. The service's guard test pins the new
+  `main.py` fragment.
+
 ## Alternatives rejected
 
 - **Hand-written short phrases per state.** That is a second wording to

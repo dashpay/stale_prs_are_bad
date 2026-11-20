@@ -123,14 +123,101 @@ class ChecklistTests(unittest.TestCase):
     def test_an_objector_is_asked_to_re_review_by_name(self):
         policy, pr = fixture()
         pr['author'] = pr['comments'][0]['user'] = 'reviewer'
-        pr['threads'] = [dict(id=9, author='owner', is_resolved=False, created_at='2026-09-11T09:30:00Z',
-                              voices=[dict(user='owner', created_at='2026-09-11T09:30:00Z')])]
+        pr['reviews'].append(dict(id=4, user='owner', state='CHANGES_REQUESTED', commit_id=HEAD,
+                                  submitted_at='2026-09-11T09:30:00Z', body=''))
         result = evaluate(policy, pr, NOW, NOW)
         self.assertEqual(result['state'], 'ready-for-human')
         self.assertEqual(result['objectors'], ['owner'])
         self.assertIn(' · re-review or resolve: owner.', main.move_text(result))
         self.assertTrue(main.your_part(result, ['Owner']).endswith('re-review or resolve your objection'))
         self.assertNotIn('re-review', main.your_part(result, ['stranger']), 'only the objector owes it')
+        self.assertIn('  - [ ] owner requested changes — waiting for them to re-review or dismiss',
+                      main.checklist_block(result))
+
+    def test_a_reviewer_who_approved_is_not_asked_to_re_review_their_open_thread(self):
+        # A reviewer left a thread, the author answered in it without
+        # resolving it, the reviewer approved and the author attested. The
+        # open thread still holds the pull request, which is the rule; asking
+        # the reviewer to re-review read as though their approval was lost.
+        policy, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['threads'] = [dict(id=9, author='owner', is_resolved=False, created_at='2026-09-11T07:57:00Z',
+                              voices=[dict(user='owner', created_at='2026-09-11T07:57:00Z'),
+                                      dict(user='reviewer', created_at='2026-09-11T09:00:00Z')])]
+        pr['reviews'].append(dict(id=4, user='owner', state='APPROVED', commit_id=HEAD,
+                                  submitted_at='2026-09-11T10:51:00Z', body=''))
+        pr['comments'][0].update(created_at='2026-09-11T10:52:00Z', updated_at='2026-09-11T10:52:00Z')
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual((result['state'], result['objectors']), ('ready-for-human', ['owner']))
+        self.assertEqual(main.move_text(result).splitlines()[1],
+                         'Ready for review — resolve every review thread owner left open (their approval counts).')
+        self.assertEqual(main.status_description(result),
+                         'ready-for-human: Ready for review - resolve every review thread owner left open '
+                         '(their approval counts).')
+        self.assertEqual(main.your_part(result, ['owner']), 'resolve every review thread you left open (your approval counts)')
+        block = main.checklist_block(result)
+        self.assertIn('  - [x] `drive` (`packages/drive/a.rs`) — approved by owner', block)
+        self.assertIn('  - [ ] owner left a review thread unresolved — resolve every thread they left open '
+                      '(their approval counts)', block)
+        for said in (main.move_text(result), main.status_description(result), main.your_part(result, ['owner']), block):
+            self.assertNotIn('re-review', said)
+
+    def test_an_open_thread_is_asked_to_be_resolved_not_re_reviewed(self):
+        # Anybody who may resolve the thread can: the author can, on their
+        # own pull request. A reviewer who has not approved is still asked
+        # for the area as well, and no approval is claimed for them.
+        policy, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['threads'] = [dict(id=9, author='owner', is_resolved=False, created_at='2026-09-11T09:30:00Z',
+                              voices=[dict(user='owner', created_at='2026-09-11T09:30:00Z')])]
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(result['state'], 'ready-for-human')
+        self.assertEqual(main.move_text(result).splitlines()[1],
+                         'Ready for review — `drive`: owner · resolve every review thread owner left open.')
+        self.assertEqual(main.your_part(result, ['Owner']), '`drive` · resolve every review thread you left open')
+        self.assertIn('  - [ ] owner left a review thread unresolved — resolve every thread they left open',
+                      main.checklist_block(result))
+        self.assertNotIn('approved', main.move_text(result))
+
+    def test_the_wording_reads_the_objection_lines_evaluate_writes(self):
+        # What an objector is asked for is told from the line `evaluate`
+        # wrote for them, so the two phrases are pinned here: rewording
+        # either in the policy must fail this, not quietly ask every thread
+        # to be re-reviewed.
+        policy, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['reviews'].append(dict(id=4, user='owner', state='CHANGES_REQUESTED', commit_id=HEAD,
+                                  submitted_at='2026-09-11T09:30:00Z', body=''))
+        pr['threads'] = [dict(id=9, author='Fallback', is_resolved=False, created_at='2026-09-11T09:30:00Z')]
+        result = evaluate(policy, pr, NOW, NOW)
+        self.assertEqual(result['objections'], ['owner requested changes', 'Fallback left a review thread unresolved'])
+        self.assertEqual(main.THREAD_LEFT_OPEN, ' left a review thread unresolved')
+        self.assertEqual(result['objectors'], ['fallback', 'owner'])
+        self.assertEqual(main.asks(result), ['`drive`: owner', 're-review or resolve: owner',
+                                             'resolve every review thread fallback left open'])
+        self.assertEqual(main.your_part(result, ['fallback']), 'resolve every review thread you left open')
+        self.assertEqual(main.your_part(result, ['owner']), '`drive` · re-review or resolve your objection')
+
+    def test_an_objection_worded_otherwise_keeps_the_old_ask(self):
+        # Whatever the line, the objector is still named and still asked,
+        # and nobody is said to have approved on the strength of a line the
+        # wording does not know.
+        policy, pr = fixture()
+        pr['author'] = pr['comments'][0]['user'] = 'reviewer'
+        pr['threads'] = [dict(id=9, author='owner', is_resolved=False, created_at='2026-09-11T07:57:00Z')]
+        pr['reviews'].append(dict(id=4, user='owner', state='APPROVED', commit_id=HEAD,
+                                  submitted_at='2026-09-11T10:51:00Z', body=''))
+        result = evaluate(policy, pr, NOW, NOW)
+        reworded = copy.deepcopy(result)
+        reworded['objections'] = ['owner left a thread open']
+        for item in reworded['checklist']:
+            if item['item'] == 'approvals':
+                item['awaiting'] = ['owner left a thread open']
+        self.assertEqual(main.asks(reworded), ['re-review or resolve: owner'])
+        self.assertEqual(main.your_part(reworded, ['owner']), 're-review or resolve your objection')
+        self.assertIn('  - [ ] owner left a thread open — waiting for them to re-review or dismiss',
+                      main.checklist_block(reworded))
+        self.assertNotIn('approval counts', main.move_text(reworded))
 
     def test_an_area_nobody_may_approve_is_said_so(self):
         # Everyone who could approve it attested instead. An empty ask must not
@@ -174,7 +261,7 @@ class ChecklistTests(unittest.TestCase):
         result = evaluate(policy, pr, NOW, NOW)
         self.assertEqual(result['state'], 'ready-for-human')
         block = main.checklist_block(result)
-        self.assertIn('  - [ ] owner left a review thread unresolved — waiting for them to re-review or dismiss', block)
+        self.assertIn('  - [ ] owner left a review thread unresolved — resolve every thread they left open', block)
         self.assertIn('- [x] Self-review — posted', block)
 
     def test_review_slot_is_information_while_missing_approval_blocks_merging(self):

@@ -19,7 +19,7 @@ use super::validate::{governs, required_bots, validate_policy};
 use super::values::{
     dict, earliest, latest, lower, re_text, s, string, strings, strs, time, upper, upper_in,
 };
-use super::{holders, machine_author, may_object, BOTS, WRITE};
+use super::{holders, machine_author, may_object, BOTS, THREAD_LEFT_OPEN, WRITE};
 use crate::pycompat::object::{
     get, get_or, getitem, iterate, no_attribute, or, py_str, str_method, EMPTY_DICT, EMPTY_STR,
     NONE,
@@ -761,7 +761,7 @@ fn decide(
             }
             if !objectors.contains_key(&user) {
                 objection_lines.push(format!(
-                    "{} left a review thread unresolved",
+                    "{}{THREAD_LEFT_OPEN}",
                     py_str(getitem(voice, "user")?)
                 ));
             }

@@ -2,10 +2,10 @@
 //! description, the move comment, and what a pull request still needs.
 //! Each reads a verdict as `evaluate` returns it.
 
-use super::values::{join, one_of, prefix, shown, text};
+use super::values::{join, lower, one_of, prefix, shown, text};
 use super::writes::STATUS_DESCRIPTION;
-use crate::policy::{CHECKLIST_END, CHECKLIST_START, MOVE_MARKER};
-use crate::pycompat::object::{get, getitem, iterate, or, EMPTY_LIST};
+use crate::policy::{CHECKLIST_END, CHECKLIST_START, MOVE_MARKER, THREAD_LEFT_OPEN};
+use crate::pycompat::object::{get, getitem, iterate, or, str_method, EMPTY_LIST};
 use crate::pycompat::ops::{py_eq_str, py_hashable};
 use crate::pycompat::text::{py_len, py_lower, py_slice};
 use crate::pycompat::{PyErr, PyValue};
@@ -310,10 +310,23 @@ pub fn checklist_block(result: &PyValue) -> Result<Option<String>, PyErr> {
             }
         }
         for objection in iterate(getitem(approvals, "awaiting")?)? {
-            lines.push(format!(
-                "  - [ ] {} — waiting for them to re-review or dismiss",
-                shown(&objection)
-            ));
+            match thread_objector(&objection)? {
+                None => lines.push(format!(
+                    "  - [ ] {} — waiting for them to re-review or dismiss",
+                    shown(&objection)
+                )),
+                Some(who) => {
+                    let said = if approved(areas)?.contains(&who) {
+                        " (their approval counts)"
+                    } else {
+                        ""
+                    };
+                    lines.push(format!(
+                        "  - [ ] {} — resolve every thread they left open{said}",
+                        shown(&objection)
+                    ));
+                }
+            }
         }
     }
     lines.push(String::new());
@@ -324,10 +337,52 @@ pub fn checklist_block(result: &PyValue) -> Result<Option<String>, PyErr> {
     Ok(Some(lines.join("\n")))
 }
 
+/// `_thread_objector(objection)`: whose objection this line is, lowercased,
+/// when all it holds is a review thread nobody has resolved.
+fn thread_objector(objection: &PyValue) -> Result<Option<String>, PyErr> {
+    Ok(str_method(objection, "endswith")?
+        .strip_suffix(THREAD_LEFT_OPEN)
+        .map(py_lower))
+}
+
+/// `_threads_only(result)`: the objectors, lowercased, holding the pull
+/// request only by a review thread nobody has resolved. `evaluate` writes
+/// one line per objector — changes requested, or else a thread left open —
+/// and one worded any other way is not taken for a thread: its objector is
+/// asked to re-review, as every objector used to be.
+fn threads_only(result: &PyValue) -> Result<Vec<String>, PyErr> {
+    let mut who = Vec::new();
+    for objection in iterate(or(get(result, "objections")?, &EMPTY_LIST))? {
+        if let Some(login) = thread_objector(&objection)? {
+            who.push(login);
+        }
+    }
+    Ok(who)
+}
+
+/// `_approved(areas)`: everyone whose approval counts for one of these
+/// areas, lowercased.
+fn approved(areas: &PyValue) -> Result<Vec<String>, PyErr> {
+    let mut who = Vec::new();
+    for area in iterate(areas)? {
+        if get(&area, "owned")?.is_some_and(PyValue::truthy) {
+            continue;
+        }
+        for name in iterate(getitem(&area, "approved_by")?)? {
+            who.push(lower(&name)?);
+        }
+    }
+    Ok(who)
+}
+
 /// `asks(result, code)`: what review a pull request still waits for — each
 /// area nobody has approved, then the objectors. An area lists everyone who
 /// may approve it, any one of them enough, and one nobody may approve says
-/// so, so an empty ask never reads as a met one.
+/// so, so an empty ask never reads as a met one. An objector who requested
+/// changes is asked to re-review. One held only by a thread is asked for
+/// the thread, which anybody who may resolve it can do; their approval,
+/// where it counts, is said after it, so it never reads as lost, and a
+/// status cut short keeps the ask.
 pub fn asks(result: &PyValue, code: bool) -> Result<Vec<String>, PyErr> {
     let mut parts = Vec::new();
     for area in iterate(or(get(result, "approvals")?, &EMPTY_LIST))? {
@@ -344,17 +399,41 @@ pub fn asks(result: &PyValue, code: bool) -> Result<Vec<String>, PyErr> {
             ));
         }
     }
-    if get(result, "objectors")?.is_some_and(PyValue::truthy) {
-        parts.push(format!(
-            "re-review or resolve: {}",
-            join(", ", getitem(result, "objectors")?)?
-        ));
+    let objectors = or(get(result, "objectors")?, &EMPTY_LIST);
+    if objectors.truthy() {
+        let threads = threads_only(result)?;
+        let listed = iterate(objectors)?;
+        let mut rereview = Vec::new();
+        for objector in &listed {
+            if !threads.contains(&lower(objector)?) {
+                rereview.push(objector.clone().into_owned());
+            }
+        }
+        if !rereview.is_empty() {
+            parts.push(format!(
+                "re-review or resolve: {}",
+                join(", ", &PyValue::List(rereview.into()))?
+            ));
+        }
+        let approving = approved(or(get(result, "approvals")?, &EMPTY_LIST))?;
+        for objector in &listed {
+            let login = lower(objector)?;
+            if !threads.contains(&login) {
+                continue;
+            }
+            let mut part = format!("resolve every review thread {} left open", shown(objector));
+            if approving.contains(&login) {
+                part.push_str(" (their approval counts)");
+            }
+            parts.push(part);
+        }
     }
     Ok(parts)
 }
 
 /// `your_part(result, logins, code)`: the areas one person, under any of
-/// their logins, may approve and nobody has, and any re-review they owe.
+/// their logins, may approve and nobody has, and what their own objection
+/// needs.
 pub fn your_part(result: &PyValue, logins: &[&str], code: bool) -> Result<String, PyErr> {
     let mine: Vec<String> = logins.iter().map(|login| py_lower(login)).collect();
     let is_mine = |login: &PyValue| -> Result<bool, PyErr> {
@@ -389,12 +468,24 @@ pub fn your_part(result: &PyValue, logins: &[&str], code: bool) -> Result<String
         }
         parts.push(part);
     }
-    let mut objects = false;
+    let mut owed = Vec::new();
     for objector in iterate(or(get(result, "objectors")?, &EMPTY_LIST))? {
-        objects |= is_mine(&objector)?;
+        if is_mine(&objector)? {
+            owed.push(lower(&objector)?);
+        }
     }
-    if objects {
-        parts.push("re-review or resolve your objection".to_owned());
+    if !owed.is_empty() {
+        let threads = threads_only(result)?;
+        if owed.iter().all(|login| threads.contains(login)) {
+            let approving = approved(or(get(result, "approvals")?, &EMPTY_LIST))?;
+            let mut part = "resolve every review thread you left open".to_owned();
+            if owed.iter().all(|login| approving.contains(login)) {
+                part.push_str(" (your approval counts)");
+            }
+            parts.push(part);
+        } else {
+            parts.push("re-review or resolve your objection".to_owned());
+        }
     }
     Ok(parts.join(" · "))
 }

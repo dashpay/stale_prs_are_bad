@@ -1,24 +1,28 @@
 {
- "function": "main.checklist_block",
+ "function": "main.asks",
  "inputs": {
   "result": {
    "number": 1,
    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-   "author": "owner",
+   "author": "reviewer",
    "title": "title",
    "url": "url",
-   "state": "too-many-open-prs",
+   "state": "ready-for-human",
    "status": "pending",
    "blockers": [
-    "Human review is still required; automatic reviewer requests are paused until a review slot is available"
+    "Human approval or objection resolution is required"
    ],
-   "reviewers": [],
-   "objectors": [],
+   "reviewers": [
+    "owner"
+   ],
+   "objectors": [
+    "owner"
+   ],
    "areas": [
     "drive"
    ],
    "ready_since": null,
-   "admitted_at": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
    "bot_completed_at": "2026-09-11T10:00:00Z",
    "self_reviewed_at": "2026-09-11T11:00:00Z",
    "nudge": [],
@@ -29,13 +33,17 @@
      "files": [
       "packages/drive/a.rs"
      ],
-     "approvers": [],
-     "approved_by": [],
-     "owned": true
+     "approvers": [
+      "owner"
+     ],
+     "approved_by": [
+      "owner"
+     ],
+     "owned": false
     }
    ],
    "objections": [
-    "reviewer left a review thread unresolved"
+    "owner left a thread open"
    ],
    "checklist": [
     {
@@ -56,7 +64,7 @@
     },
     {
      "item": "slot",
-     "done": false,
+     "done": true,
      "limit": 5
     },
     {
@@ -74,13 +82,17 @@
        "files": [
         "packages/drive/a.rs"
        ],
-       "approvers": [],
-       "approved_by": [],
-       "owned": true
+       "approvers": [
+        "owner"
+       ],
+       "approved_by": [
+        "owner"
+       ],
+       "owned": false
       }
      ],
      "awaiting": [
-      "reviewer left a review thread unresolved"
+      "owner left a thread open"
      ]
     }
    ],
@@ -89,11 +101,14 @@
    ],
    "reviewed_since": null,
    "receipts": {}
-  }
+  },
+  "code": true
  },
- "output": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai ✓ · thepastaclaw ✓\n- [x] Self-review — posted; again after any push\n- Reviewer requests paused — your 5 review slots are occupied; this PR is excluded from reviewers' queues. Required approvals still count without a slot.\n- [x] Build green\n- Approvals\n  - [x] `drive` — you own it\n  - [ ] reviewer left a review thread unresolved — waiting for them to re-review or dismiss\n\nWhen every merge requirement is met, the `PR Hygiene` check passes. Reviewer limits do not block merging; other required GitHub checks and protections still apply.\n<!-- pr-hygiene:end -->",
+ "output": [
+  "re-review or resolve: owner"
+ ],
  "tests": [
-  "test_checklist.PublishTests.test_queued_status_distinguishes_objections_from_missing_area_approval"
+  "test_checklist.ChecklistTests.test_an_objection_worded_otherwise_keeps_the_old_ask"
  ],
  "python": "3.12"
 }

@@ -358,6 +358,11 @@ mod tests {
 
     /// The engine is the source of this wording; if it rewords, this
     /// service must follow, and this says so.
+    ///
+    /// The engine asks an objector held only by an open review thread to
+    /// have the thread resolved, and says when they have approved. This
+    /// service is given the objectors' names alone, so it asks each of them
+    /// what the engine asks of one who requested changes.
     #[test]
     fn the_engine_still_words_it_this_way() {
         let engine =
@@ -370,7 +375,7 @@ mod tests {
             "parts.append('re-review or resolve your objection')",
             "return ' · '.join(parts)",
             r#"parts.append(f"{area_name(area['area'], code)}: {' or '.join(area['approvers']) or 'nobody may approve'}")"#,
-            "parts.append('re-review or resolve: ' + ', '.join(result['objectors']))",
+            "parts.append('re-review or resolve: ' + ', '.join(rereview))",
             "return f'{hours // 24}d {hours % 24}h' if hours >= 24 else f'{hours}h'",
             "text = 'needs ' + (' · '.join(asks(row)) or 'an owner')",
             "return text + (f'; your part: {part}' if part else '')",

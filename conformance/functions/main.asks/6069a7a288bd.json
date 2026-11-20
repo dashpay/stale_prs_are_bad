@@ -1,5 +1,5 @@
 {
- "function": "main.checklist_block",
+ "function": "main.asks",
  "inputs": {
   "result": {
    "number": 1,
@@ -15,13 +15,11 @@
    "reviewers": [
     "owner"
    ],
-   "objectors": [
-    "owner"
-   ],
+   "objectors": [],
    "areas": [
     "drive"
    ],
-   "ready_since": null,
+   "ready_since": "2026-09-11T12:00:00Z",
    "admitted_at": "2026-09-11T12:00:00Z",
    "bot_completed_at": "2026-09-11T10:00:00Z",
    "self_reviewed_at": "2026-09-11T11:00:00Z",
@@ -40,9 +38,7 @@
      "owned": false
     }
    ],
-   "objections": [
-    "owner left a review thread unresolved"
-   ],
+   "objections": [],
    "checklist": [
     {
      "item": "bots",
@@ -87,9 +83,7 @@
        "owned": false
       }
      ],
-     "awaiting": [
-      "owner left a review thread unresolved"
-     ]
+     "awaiting": []
     }
    ],
    "reviewed_heads": [
@@ -97,11 +91,14 @@
    ],
    "reviewed_since": null,
    "receipts": {}
-  }
+  },
+  "code": true
  },
- "output": "<!-- pr-hygiene:start -->\n# PR Hygiene · `aaaaaaa`\n- [x] Bots — coderabbitai ✓ · thepastaclaw ✓\n- [x] Self-review — posted; again after any push\n- [x] Build green\n- Approvals\n  - [ ] `drive` (`packages/drive/a.rs`) — owner\n  - [ ] owner left a review thread unresolved — waiting for them to re-review or dismiss\n\nWhen every merge requirement is met, the `PR Hygiene` check passes. Reviewer limits do not block merging; other required GitHub checks and protections still apply.\n<!-- pr-hygiene:end -->",
+ "output": [
+  "`drive`: owner"
+ ],
  "tests": [
-  "test_checklist.ChecklistTests.test_an_answered_objection_waits_on_the_objector_under_approvals"
+  "test_main.PublicationTests.test_a_scan_can_carry_a_pull_request_out_of_waiting_for_a_build"
  ],
  "python": "3.12"
 }

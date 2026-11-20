@@ -1,5 +1,5 @@
 {
- "function": "main.move_text",
+ "function": "main.your_part",
  "inputs": {
   "result": {
    "number": 1,
@@ -41,7 +41,7 @@
     }
    ],
    "objections": [
-    "owner left a review thread unresolved"
+    "owner requested changes"
    ],
    "checklist": [
     {
@@ -88,7 +88,7 @@
       }
      ],
      "awaiting": [
-      "owner left a review thread unresolved"
+      "owner requested changes"
      ]
     }
    ],
@@ -97,9 +97,13 @@
    ],
    "reviewed_since": null,
    "receipts": {}
-  }
+  },
+  "logins": [
+   "stranger"
+  ],
+  "code": true
  },
- "output": "<!-- pr-hygiene:move state=ready-for-human sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nReady for review — `drive`: owner · re-review or resolve: owner.\nFull checklist in the description.",
+ "output": "",
  "tests": [
   "test_checklist.ChecklistTests.test_an_objector_is_asked_to_re_review_by_name"
  ],

@@ -8,15 +8,18 @@ use crate::support::*;
 use pr_hygiene_engine::evidence::records::state_comment_body;
 use pr_hygiene_engine::reconcile::telemetry::head_state;
 use pr_hygiene_engine::reconcile::{
-    admission_conflicts, checklist_block, diff_record, move_text, state_record, status_description,
+    admission_conflicts, asks, checklist_block, diff_record, move_text, state_record,
+    status_description, your_part,
 };
 use std::collections::BTreeSet;
 
 /// The case directories this gate runs, relative to `conformance/`.
-const GATED: [&str; 8] = [
+const GATED: [&str; 10] = [
     "functions/main.checklist_block",
     "functions/main.move_text",
     "functions/main.status_description",
+    "functions/main.asks",
+    "functions/main.your_part",
     "functions/github.GitHub.state_comment_body",
     "functions/main.state_record",
     "functions/main.diff_record",
@@ -39,6 +42,27 @@ fn answer(function: &str, inputs: &PyValue) -> Result<PyValue, String> {
         "main.move_text" => optional(move_text(input("result")).map_err(|e| raised(&e))?),
         "main.status_description" => {
             PyValue::Str(status_description(input("result")).map_err(|e| raised(&e))?)
+        }
+        "main.asks" => PyValue::List(
+            asks(
+                input("result"),
+                matches!(input("code"), PyValue::Bool(true)),
+            )
+            .map_err(|e| raised(&e))?
+            .into_iter()
+            .map(PyValue::Str)
+            .collect(),
+        ),
+        "main.your_part" => {
+            let logins: Vec<&str> = items(input("logins")).iter().map(text).collect();
+            PyValue::Str(
+                your_part(
+                    input("result"),
+                    &logins,
+                    matches!(input("code"), PyValue::Bool(true)),
+                )
+                .map_err(|e| raised(&e))?,
+            )
         }
         "github.GitHub.state_comment_body" => {
             let diff = match input("diff") {

@@ -46,6 +46,10 @@ RETIRED_LABELS = ('waiting-slot', 'waiting-build', 'waiting-author', 'ready-to-m
 MOVE_MARKER = '<!-- pr-hygiene:move'
 CHECKLIST_START = '<!-- pr-hygiene:start -->'
 CHECKLIST_END = '<!-- pr-hygiene:end -->'
+# An objection held only by a review thread nobody has resolved, after the
+# objector's login. Its words ask for the thread to be resolved, where
+# changes requested ask for a re-review, and they tell the two apart by this.
+THREAD_LEFT_OPEN = ' left a review thread unresolved'
 
 
 def _time(value):
@@ -1003,7 +1007,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 if user in BOTS or user == pr['author'].lower() or not _may_object(permissions, user):
                     continue
                 if user not in objectors:
-                    objection_lines.append(f"{voice['user']} left a review thread unresolved")
+                    objection_lines.append(f"{voice['user']}{THREAD_LEFT_OPEN}")
                 objectors[user] = max(objectors.get(user, voice['created_at']), voice['created_at'], key=_time)
         if first is None:
             result['objections'] = objection_lines
