@@ -45,9 +45,10 @@ pub use state::{
     same, state_record, visible,
 };
 pub use text::{
-    area_name, asks, checklist_block, move_state, move_text, review_text, status_description,
-    your_part, MOVE_STATES, POINTER,
+    area_name, asks, checklist_block, move_line, move_state, move_text, review_text,
+    status_description, your_part, MOVE_STATES, POINTER,
 };
+pub(crate) use writes::STATUS_DESCRIPTION;
 
 use crate::evidence::{GitHub, ReadError, Transport};
 use crate::pycompat::{PyInt, PyValue};

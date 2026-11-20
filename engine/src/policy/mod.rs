@@ -94,6 +94,11 @@ pub const MOVE_MARKER: &str = "<!-- pr-hygiene:move";
 pub const CHECKLIST_START: &str = "<!-- pr-hygiene:start -->";
 /// Where it ends.
 pub const CHECKLIST_END: &str = "<!-- pr-hygiene:end -->";
+/// `THREAD_LEFT_OPEN`: an objection held only by a review thread nobody
+/// has resolved, after the objector's login. Its words ask for the thread
+/// to be resolved, where changes requested ask for a re-review, and they
+/// tell the two apart by this.
+pub const THREAD_LEFT_OPEN: &str = " left a review thread unresolved";
 /// The marker a CodeRabbit receipt carries before the JSON naming the
 /// commit it covers.
 pub const RECEIPT_MARKER: &str = "final_review_risk_coverage";

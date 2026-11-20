@@ -1,0 +1,31 @@
+{
+ "function": "main.asks",
+ "inputs": {
+  "result": {
+   "repository": "dashpay/a",
+   "number": 1,
+   "author": "Bob",
+   "state": "ready-for-human",
+   "reviewers": [
+    "Alice"
+   ],
+   "title": "<!channel>",
+   "url": "https://github.com/dashpay/a/pull/1"
+  },
+  "code": false
+ },
+ "output": [],
+ "tests": [
+  "test_notifications.NotificationsTests.test_a_roster_member_absent_from_the_mapping_blocks_all_delivery",
+  "test_notifications.NotificationsTests.test_ambiguous_delivery_stops_without_retry_or_secret",
+  "test_notifications.NotificationsTests.test_channel_includes_author_blockers_without_review_invitation",
+  "test_notifications.NotificationsTests.test_delivery_disabled_by_default",
+  "test_notifications.NotificationsTests.test_enrolling_one_person_sends_only_to_them",
+  "test_notifications.NotificationsTests.test_one_dm_for_shared_identity_and_no_premature_invitation",
+  "test_notifications.NotificationsTests.test_partial_failure_shown_without_claiming_empty",
+  "test_notifications.NotificationsTests.test_preview_reviews_are_described_as_computed_not_requested",
+  "test_notifications.NotificationsTests.test_success_is_not_repeated_when_later_delivery_is_rejected",
+  "test_notifications.NotificationsTests.test_unconfigured_destinations_still_allow_reviewing_exact_message_text"
+ ],
+ "python": "3.12"
+}

@@ -89,6 +89,7 @@
  },
  "output": "ready-to-merge",
  "tests": [
+  "test_checklist.PublishTests.test_a_state_with_no_next_step_keeps_its_bare_name",
   "test_checklist.PublishTests.test_approval_allows_success_without_a_review_slot"
  ],
  "python": "3.12"

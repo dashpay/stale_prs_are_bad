@@ -265,7 +265,7 @@ class RecordAndReplayTests(RecordingCase):
             self.assertIsNotNone(output['diff_print'])
         self.assertEqual(outputs[2]['labels'], ['ready-for-human'])
         self.assertEqual(outputs[2]['status'], {'state': 'pending', 'context': 'PR Hygiene',
-                                                'description': 'ready-for-human'})
+                                                'description': 'ready-for-human: Ready for review - drive: owner.'})
 
     def test_a_flaky_read_is_recorded_with_its_retry(self):
         self.gh.flaky.add(('GET', f'repos/{REPO}/pulls/1'))
@@ -667,6 +667,25 @@ class FunctionCaseTests(unittest.TestCase):
                     patch.object(main, name, side_effect=lambda *a, real=real, **k: (real(*a, **k) or '') + ' '):
                 failed = self.replay(self.cases(function))
             self.assertTrue(failed and all(line.endswith('output differs') for line in failed), failed)
+
+    def test_every_status_the_corpus_holds_is_one_github_accepts(self):
+        # A status GitHub refuses is refused on every verdict post, and every
+        # governed pull request turns red: none may be longer than GitHub
+        # keeps, or outside ASCII, or carry a mention, which a status cannot
+        # deliver.
+        said = [json.loads(path.read_text())['output'] for path in self.cases('main.status_description')]
+        evaluated = Path(__file__).resolve().parents[2] / 'conformance' / 'evaluate'
+        said += [main.status_description(json.loads(path.read_text())['result']) for path in evaluated.glob('*.json')]
+        synthetic = Path(__file__).resolve().parents[2] / 'conformance' / 'synthetic'
+        said += [output['status']['description'] for path in synthetic.glob('*/outputs.json')
+                 for output in json.loads(path.read_text())]
+        self.assertGreater(len(said), 300)
+        self.assertTrue(any(': ' in text for text in said), 'the corpus holds a status that says the next step')
+        for text in said:
+            with self.subTest(text=text):
+                self.assertLessEqual(len(text), 140)
+                self.assertTrue(text.isascii())
+                self.assertNotIn('@', text)
 
     def test_an_edited_output_is_caught(self):
         source = next(p for p in self.cases('policy.admit') if len(json.loads(p.read_text())['output']) > 1)

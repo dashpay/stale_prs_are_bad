@@ -27,6 +27,9 @@ never show:
 - `transient-retry`: a 502 and an `i/o timeout` that `gh` reports, each
   asked once more and answered, and a call that runs out of Python's own
   sixty seconds, which is not.
+- `ready-latched`: a head a human was already asked to review, whose build
+  has failed since and whose record says something else: the engine's own
+  status, the state followed by what is owed, is all that keeps it ready.
 
 The rest walk write paths, and print the JSON report when the run gets that
 far:
@@ -304,7 +307,7 @@ def rich_evidence():
                  'createdAt': '2026-09-11T09:41:00Z'}], None)}
     engine = {'login': 'github-actions[bot]', 'type': 'Bot'}
     gh.statuses[OTHER_HEAD] = [
-        {'id': 3, 'context': 'PR Hygiene', 'state': 'pending', 'description': 'ready-for-human',
+        {'id': 3, 'context': 'PR Hygiene', 'state': 'pending', 'description': 'ready-for-human: Ready for review - drive: owner.',
          'created_at': '2026-09-11T12:00:00Z', 'creator': engine},
         {'id': 2, 'context': 'PR Hygiene', 'state': 'pending', 'description': 'waiting-bots',
          'created_at': '2026-09-11T09:00:00Z', 'creator': engine},
@@ -355,6 +358,20 @@ def transient_retry():
         'Get "https://api.github.com/repos/x/collaborators": dial tcp 140.82.112.6:443: i/o timeout')
     gh.timeouts.add(('GET', f'repos/{REPO}/collaborators/passerby/permission'))
     admitted(gh, '2026-09-10T00:00:00Z')
+    return gh, ['sync', '--pr', '2']
+
+
+def ready_latched():
+    gh = Scenario()
+    admitted(gh, '2026-09-10T00:00:00Z')
+    gh.rollups[2] = {None: ([{
+        '__typename': 'CheckRun', 'name': 'tests', 'conclusion': 'FAILURE', 'status': 'COMPLETED',
+        'startedAt': '2026-09-11T13:00:00Z', 'detailsUrl': 'https://github.com/dashpay/platform/actions/runs/1/job/2',
+        'checkSuite': {'workflowRun': {'workflow': {'resourcePath': '/dashpay/platform/actions/workflows/ci.yml'}}}}],
+        None)}
+    gh.statuses[OTHER_HEAD] = [
+        {'id': 7, 'context': 'PR Hygiene', 'state': 'pending', 'description': 'ready-for-human: Ready for review - drive: owner.',
+         'created_at': '2026-09-11T12:00:00Z', 'creator': {'login': 'github-actions[bot]', 'type': 'Bot'}}]
     return gh, ['sync', '--pr', '2']
 
 
@@ -461,8 +478,8 @@ def history_unreadable_batch():
 
 SCENARIOS = {'report': report, 'sync-pr-2': sync_pr_2, 'rich-evidence': rich_evidence, 'long-history': long_history,
              'edited-record': edited_record, 'partial-answer': partial_answer, 'transient-retry': transient_retry,
-             'sweep': sweep, 'batch': batch, 'nudge': nudge, 'failing-publish': failing_publish,
-             'report-json': report_json, 'config-error': config_error,
+             'ready-latched': ready_latched, 'sweep': sweep, 'batch': batch, 'nudge': nudge,
+             'failing-publish': failing_publish, 'report-json': report_json, 'config-error': config_error,
              'history-unreadable-pr': history_unreadable_pr, 'history-unreadable-batch': history_unreadable_batch}
 
 

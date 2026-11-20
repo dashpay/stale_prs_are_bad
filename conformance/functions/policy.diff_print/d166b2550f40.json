@@ -51,6 +51,8 @@
  },
  "output": null,
  "tests": [
+  "test_checklist.PublishTests.test_a_status_that_would_not_be_plain_text_says_the_state_alone",
+  "test_checklist.PublishTests.test_status_names_which_bots_are_missing",
   "test_policy.PolicyTests.test_repository_without_coderabbit_waits_only_for_the_bots_it_runs"
  ],
  "python": "3.12"

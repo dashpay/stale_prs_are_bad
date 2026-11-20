@@ -15,7 +15,7 @@ from . import telemetry
 from .github import (DIFF_MARKER, STATE_MARKER, STATE_PATTERN, GitHub, GitHubError, current_checklist,
                      parse_controller_diff, parse_controller_state)
 from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
-                     STATE_LABELS, admit, codeowners, diff_print, effective_admission, evaluate,
+                     STATE_LABELS, THREAD_LEFT_OPEN, admit, codeowners, diff_print, effective_admission, evaluate,
                      fingerprint, governs, is_engine, machine_author, missing_paths, validate_policy)
 from .registry import POLICIES, entry_for, load_registry, policy_path
 
@@ -395,14 +395,44 @@ def _files(files):
     return shown + (f' and {len(files) - 3} more' if len(files) > 3 else '')
 
 
+STATUS_LIMIT = 140
+# The move line's only characters outside ASCII, and the backticks GitHub
+# does not render in a status. A status is plain text; one GitHub refused
+# would be refused on every verdict and turn every pull request red.
+STATUS_FOLD = (('`', ''), ('—', '-'), ('·', '|'), ('✓', 'done'))
+
+
 def status_description(result):
-    """The unmet review requirement, separate from automatic reviewer routing."""
+    """The status's words: the state, then what is owed, as the move comment says it.
+
+    The state is what comes before the first `: ` — no state's name holds
+    one — so whatever reads the status back still finds it. The unmet review
+    requirement stays separate from automatic reviewer routing, and a state
+    nobody is told a move in, a green check, a bot author's self-review move
+    and a line that would not be plain printable ASCII say the state alone.
+    Cut at a word to what GitHub keeps.
+    """
     if result['state'] == 'too-many-open-prs':
         approvals = next(item for item in result['checklist'] if item['item'] == 'approvals')
         return 'Human review unresolved' if approvals['awaiting'] else 'Missing human approval'
-    if result['state'] == 'waiting-author':
-        return 'waiting-self-review'
-    return result['state']
+    token = 'waiting-self-review' if result['state'] == 'waiting-author' else result['state']
+    if result['state'] == 'ready-to-merge':
+        return token
+    line = move_line(result)
+    if line is None:
+        return token
+    if token == 'waiting-self-review' and _items(result)['self_review']['bot_author']:
+        return token
+    for unsafe, plain in STATUS_FOLD:
+        line = line.replace(unsafe, plain)
+    said = f'{token}: {line}'
+    # Anything else a line might come to hold — a character GitHub could
+    # refuse, a line break, a mention a status cannot deliver — is not sent.
+    if '@' in said or not all(' ' <= c <= '~' for c in said):
+        return token
+    if len(said) <= STATUS_LIMIT:
+        return said
+    return said[:STATUS_LIMIT - 2].rsplit(' ', 1)[0] + '...'
 
 
 def checklist_block(result):
@@ -468,7 +498,12 @@ def checklist_block(result):
                 who = ' or '.join(area['approvers']) or 'nobody may approve: everyone who could attested to it'
                 lines.append(f"  - [ ] {name} ({_files(area['files'])}) — {who}")
         for objection in approvals['awaiting']:
-            lines.append(f'  - [ ] {objection} — waiting for them to re-review or dismiss')
+            who = _thread_objector(objection)
+            if who is None:
+                lines.append(f'  - [ ] {objection} — waiting for them to re-review or dismiss')
+            else:
+                approved = ' (their approval counts)' if who in _approved(areas) else ''
+                lines.append(f'  - [ ] {objection} — resolve every thread they left open{approved}')
     lines.append('')
     lines.append('When every merge requirement is met, the `PR Hygiene` check passes. '
                  'Reviewer limits do not block merging; other required GitHub checks and protections still apply.')
@@ -482,23 +517,56 @@ def area_name(area, code=True):
     return f'`{area}`' if code else area
 
 
+def _thread_objector(objection):
+    """Whose objection this line is, lowercased, when all it holds is a review thread nobody has resolved."""
+    return objection[:-len(THREAD_LEFT_OPEN)].lower() if objection.endswith(THREAD_LEFT_OPEN) else None
+
+
+def _threads_only(result):
+    """The objectors, lowercased, holding the pull request only by a review thread nobody has resolved.
+
+    `evaluate` writes one line per objector: changes requested, or else a
+    thread left open. One worded any other way is not taken for a thread,
+    and its objector is asked to re-review, as every objector used to be.
+    """
+    return {who for who in map(_thread_objector, result.get('objections') or []) if who is not None}
+
+
+def _approved(areas):
+    """Everyone whose approval counts for one of these areas, lowercased."""
+    return {name.lower() for area in areas if not area.get('owned') for name in area['approved_by']}
+
+
 def asks(result, code=True):
     """What review a pull request still waits for: each area nobody has approved, then the objectors.
 
     An area lists everyone who may approve it — any one of them is enough —
     and one nobody may approve says so, so an empty ask never reads as a met one.
+    An objector who requested changes is asked to re-review. One held only by
+    a thread is asked for the thread, which anybody who may resolve it can
+    do; their approval, where it counts, is said after it, so it never reads
+    as lost, and a status cut short keeps the ask.
     """
     parts = []
     for area in result.get('approvals') or []:
         if not area.get('owned') and not area['approved_by']:
             parts.append(f"{area_name(area['area'], code)}: {' or '.join(area['approvers']) or 'nobody may approve'}")
-    if result.get('objectors'):
-        parts.append('re-review or resolve: ' + ', '.join(result['objectors']))
+    objectors = result.get('objectors') or []
+    if objectors:
+        threads = _threads_only(result)
+        rereview = [o for o in objectors if o.lower() not in threads]
+        if rereview:
+            parts.append('re-review or resolve: ' + ', '.join(rereview))
+        approved = _approved(result.get('approvals') or [])
+        for objector in objectors:
+            if objector.lower() in threads:
+                parts.append(f'resolve every review thread {objector} left open'
+                             + (' (their approval counts)' if objector.lower() in approved else ''))
     return parts
 
 
 def your_part(result, logins, code=True):
-    """The areas one person (all of their logins) may approve and nobody has, and any re-review they owe."""
+    """The areas one person (all of their logins) may approve and nobody has, and what their own objection needs."""
     mine = {login.lower() for login in logins}
     parts = []
     for area in result.get('approvals') or []:
@@ -506,8 +574,15 @@ def your_part(result, logins, code=True):
             continue
         others = [a for a in area['approvers'] if a.lower() not in mine]
         parts.append(area_name(area['area'], code) + (f" (you or {' or '.join(others)})" if others else ''))
-    if mine & {o.lower() for o in result.get('objectors') or []}:
-        parts.append('re-review or resolve your objection')
+    owed = [o for o in result.get('objectors') or [] if o.lower() in mine]
+    if owed:
+        threads = _threads_only(result)
+        if all(o.lower() in threads for o in owed):
+            approved = _approved(result.get('approvals') or [])
+            parts.append('resolve every review thread you left open'
+                         + (' (your approval counts)' if all(o.lower() in approved for o in owed) else ''))
+        else:
+            parts.append('re-review or resolve your objection')
     return ' · '.join(parts)
 
 
@@ -518,12 +593,24 @@ def review_text(row, user=None):
     return text + (f'; your part: {part}' if part else '')
 
 
+def _items(result):
+    return {item['item']: item for item in result.get('checklist') or []}
+
+
 def move_text(result):
+    """The move comment's words, under the marker that says which move and which head."""
+    line = move_line(result)
+    if line is None:
+        return None
+    return f"{MOVE_MARKER} state={MOVE_STATES[result['state']]} sha={result['head']} -->\n{line}\nFull checklist in the description."
+
+
+def move_line(result):
     """One line for the person whose move it now is. No mentions: the comment itself notifies."""
     move = MOVE_STATES.get(result['state'])
     if move is None:
         return None
-    items = {item['item']: item for item in result.get('checklist') or []}
+    items = _items(result)
     if move == 'waiting-bots':
         line = f"Waiting for bot review — {' · '.join(items['bots']['lines'])}."
         if items['bots']['skippable']:
@@ -552,7 +639,7 @@ def move_text(result):
         line = f"Ready for review — {' · '.join(asks(result)) or 'needs an owner'}."
     else:
         line = 'Policy satisfied — this can merge.'
-    return f"{MOVE_MARKER} state={move} sha={result['head']} -->\n{line}\nFull checklist in the description."
+    return line
 
 
 def _visible(comment_body):

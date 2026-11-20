@@ -1,0 +1,287 @@
+{
+ "function": "main.status_description",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "llbartekll",
+   "title": "title",
+   "url": "url",
+   "state": "ready-for-human",
+   "status": "pending",
+   "blockers": [
+    "Human approval or objection resolution is required",
+    "Proceeded without coderabbitai: skipped by @llbartekll",
+    "Proceeded without thepastaclaw: skipped by @llbartekll"
+   ],
+   "reviewers": [
+    "QuantumExplorer",
+    "ktechmidas",
+    "lklimek",
+    "shumkov"
+   ],
+   "objectors": [],
+   "areas": [
+    "dashmate",
+    "dpp",
+    "fallback",
+    "github",
+    "rs-drive",
+    "rs-drive-abci",
+    "rust-dapi",
+    "swift-sdk"
+   ],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": "2026-09-11T11:00:00Z",
+   "nudge": [],
+   "waived": [
+    "coderabbitai",
+    "thepastaclaw"
+   ],
+   "approvals": [
+    {
+     "area": "swift-sdk",
+     "files": [
+      "packages/swift-sdk/Sources/a.swift"
+     ],
+     "approvers": [],
+     "approved_by": [],
+     "owned": true
+    },
+    {
+     "area": "fallback",
+     "files": [
+      ".editorconfig",
+      "AGENTS.md"
+     ],
+     "approvers": [
+      "QuantumExplorer",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    },
+    {
+     "area": "github",
+     "files": [
+      ".github/workflows/swift-sdk-build.yml",
+      ".github/workflows/tests.yml"
+     ],
+     "approvers": [
+      "ktechmidas",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    },
+    {
+     "area": "rs-drive",
+     "files": [
+      "packages/rs-drive/a.rs"
+     ],
+     "approvers": [
+      "QuantumExplorer",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    },
+    {
+     "area": "rs-drive-abci",
+     "files": [
+      "packages/rs-drive-abci/a.rs"
+     ],
+     "approvers": [
+      "QuantumExplorer",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    },
+    {
+     "area": "dpp",
+     "files": [
+      "packages/rs-dpp/a.rs"
+     ],
+     "approvers": [
+      "QuantumExplorer",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    },
+    {
+     "area": "dashmate",
+     "files": [
+      "packages/dashmate/a.js"
+     ],
+     "approvers": [
+      "ktechmidas",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    },
+    {
+     "area": "rust-dapi",
+     "files": [
+      "packages/rs-dapi/a.rs"
+     ],
+     "approvers": [
+      "QuantumExplorer",
+      "lklimek",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    }
+   ],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": true,
+     "lines": [
+      "coderabbitai skipped by llbartekll",
+      "thepastaclaw skipped by llbartekll"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": true,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": true,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": false,
+     "areas": [
+      {
+       "area": "swift-sdk",
+       "files": [
+        "packages/swift-sdk/Sources/a.swift"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      },
+      {
+       "area": "fallback",
+       "files": [
+        ".editorconfig",
+        "AGENTS.md"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "github",
+       "files": [
+        ".github/workflows/swift-sdk-build.yml",
+        ".github/workflows/tests.yml"
+       ],
+       "approvers": [
+        "ktechmidas",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "rs-drive",
+       "files": [
+        "packages/rs-drive/a.rs"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "rs-drive-abci",
+       "files": [
+        "packages/rs-drive-abci/a.rs"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "dpp",
+       "files": [
+        "packages/rs-dpp/a.rs"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "dashmate",
+       "files": [
+        "packages/dashmate/a.js"
+       ],
+       "approvers": [
+        "ktechmidas",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      },
+      {
+       "area": "rust-dapi",
+       "files": [
+        "packages/rs-dapi/a.rs"
+       ],
+       "approvers": [
+        "QuantumExplorer",
+        "lklimek",
+        "shumkov"
+       ],
+       "approved_by": [],
+       "owned": false
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": "2026-09-11T09:00:00Z",
+   "receipts": {},
+   "skipped_by": "llbartekll"
+  }
+ },
+ "output": "ready-for-human: Ready for review - files with no dedicated owner: QuantumExplorer or shumkov | github: ktechmidas or shumkov | rs-drive:...",
+ "tests": [
+  "test_checklist.PublishTests.test_status_is_the_move_line_shortened"
+ ],
+ "python": "3.12"
+}

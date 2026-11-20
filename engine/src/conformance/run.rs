@@ -34,7 +34,7 @@ use crate::pycompat::{py_dumps, py_loads, PyDateTime, PyDict, PyInt, PyList, PyV
 use crate::reconcile::{
     checklist_block, context_fingerprint, diff_record, move_state, move_text, state_record,
     status_description, Clock, ClockSite, Command, Reconciler, Run, RunOptions, Selection, POINTER,
-    WAIVED_LABEL,
+    STATUS_DESCRIPTION, WAIVED_LABEL,
 };
 use regex::Regex;
 use std::cell::{Cell, RefCell};
@@ -315,7 +315,7 @@ fn outputs_for(
         s(py_slice(
             &status_description(result).map_err(|e| error(&e))?,
             None,
-            Some(140),
+            Some(STATUS_DESCRIPTION),
         )),
     );
     let optional = |text: Option<String>| text.map_or(PyValue::None, s);

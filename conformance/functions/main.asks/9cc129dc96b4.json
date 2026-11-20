@@ -1,0 +1,50 @@
+{
+ "function": "main.asks",
+ "inputs": {
+  "result": {
+   "repository": "dashpay/a",
+   "number": 1,
+   "author": "Bob",
+   "state": "ready-for-human",
+   "reviewers": [
+    "Alice",
+    "ALICE2",
+    "Carol"
+   ],
+   "title": "<!channel>",
+   "url": "https://github.com/dashpay/a/pull/1",
+   "approvals": [
+    {
+     "area": "dpp",
+     "files": [],
+     "approvers": [
+      "Alice",
+      "ALICE2",
+      "Carol"
+     ],
+     "approved_by": [],
+     "owned": false
+    },
+    {
+     "area": "drive",
+     "files": [],
+     "approvers": [
+      "Dave"
+     ],
+     "approved_by": [
+      "Dave"
+     ],
+     "owned": false
+    }
+   ]
+  },
+  "code": false
+ },
+ "output": [
+  "dpp: Alice or ALICE2 or Carol"
+ ],
+ "tests": [
+  "test_notifications.NotificationsTests.test_a_reviewer_is_told_their_part_and_the_channel_each_area"
+ ],
+ "python": "3.12"
+}

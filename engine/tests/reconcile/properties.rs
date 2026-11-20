@@ -148,9 +148,14 @@ fn a_first_admission_completes() {
     // The run admits the pull request, writes the record, reads it back in
     // the re-check before the success and finds its own admission there:
     // the verdict is published, not held as "reconciliation required".
-    for (author, status, state) in [
-        ("owner", "success", "ready-to-merge"),
-        ("reviewer", "pending", "ready-for-human"),
+    for (author, status, state, said) in [
+        ("owner", "success", "ready-to-merge", "ready-to-merge"),
+        (
+            "reviewer",
+            "pending",
+            "ready-for-human",
+            "ready-for-human: Ready for review - drive: owner.",
+        ),
     ] {
         let (policy, mut fake) = fixture();
         fake.pr(1).author = author.into();
@@ -162,7 +167,7 @@ fn a_first_admission_completes() {
         assert_eq!(text(field(&run.verdicts[0], "admitted_at")), LATER);
         assert_eq!(
             scene.statuses().last().expect("a status"),
-            &(status.to_owned(), state.to_owned()),
+            &(status.to_owned(), said.to_owned()),
             "{author}"
         );
         let record = field(&scene.snapshot(&policy, 1), "controller_state").clone();
@@ -236,7 +241,10 @@ fn a_reviewer_request_refused_with_422_does_not_stop_the_status() {
     );
     assert_eq!(
         scene.statuses().last().expect("a status"),
-        &("pending".to_owned(), "ready-for-human".to_owned())
+        &(
+            "pending".to_owned(),
+            "ready-for-human: Ready for review - drive: owner.".to_owned()
+        )
     );
 }
 

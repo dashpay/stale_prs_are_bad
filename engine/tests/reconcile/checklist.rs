@@ -312,7 +312,12 @@ fn the_second_verdict_sees_the_same_rate_limit_notice() {
     assert!(held.is_empty(), "{held:?}");
     assert_eq!(
         scene.statuses().last().expect("a status"),
-        &("pending".to_owned(), "ready-for-human".to_owned()),
+        &(
+            "pending".to_owned(),
+            "ready-for-human: Ready for review - files with no dedicated owner: \
+             QuantumExplorer or shumkov | github: ktechmidas or shumkov."
+                .to_owned()
+        ),
         "the verdict, published after the second read"
     );
 }

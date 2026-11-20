@@ -2,11 +2,12 @@
 //! description, the move comment, and what a pull request still needs.
 //! Each reads a verdict as `evaluate` returns it.
 
-use super::values::{join, one_of, prefix, shown, text};
-use crate::policy::{CHECKLIST_END, CHECKLIST_START, MOVE_MARKER};
-use crate::pycompat::object::{get, getitem, iterate, or, EMPTY_LIST};
+use super::values::{join, lower, one_of, prefix, shown, text};
+use super::writes::STATUS_DESCRIPTION;
+use crate::policy::{CHECKLIST_END, CHECKLIST_START, MOVE_MARKER, THREAD_LEFT_OPEN};
+use crate::pycompat::object::{get, getitem, iterate, or, str_method, EMPTY_LIST};
 use crate::pycompat::ops::{py_eq_str, py_hashable};
-use crate::pycompat::text::py_lower;
+use crate::pycompat::text::{py_len, py_lower, py_slice};
 use crate::pycompat::{PyErr, PyValue};
 use std::borrow::Cow;
 
@@ -127,8 +128,22 @@ pub fn area_name(area: &PyValue, code: bool) -> Cow<'_, str> {
     }
 }
 
-/// `status_description(result)`: the unmet review requirement, separate
-/// from automatic reviewer routing.
+/// `STATUS_FOLD`: the move line's only characters outside ASCII, and the
+/// backticks GitHub does not render in a status. A status is plain text;
+/// one GitHub refused would be refused on every verdict and turn every
+/// pull request red.
+const STATUS_FOLD: [(&str, &str); 4] = [("`", ""), ("—", "-"), ("·", "|"), ("✓", "done")];
+
+/// `status_description(result)`: the status's words — the state, then what
+/// is owed, as the move comment says it.
+///
+/// The state is what comes before the first `: ` — no state's name holds
+/// one — so whatever reads the status back still finds it. The unmet review
+/// requirement stays separate from automatic reviewer routing, and a state
+/// nobody is told a move in, a green check, a bot author's self-review move
+/// and a line that would not be plain printable ASCII say the state alone.
+/// Cut at a word to what GitHub keeps, counted in code points as Python
+/// counts.
 pub fn status_description(result: &PyValue) -> Result<String, PyErr> {
     let state = getitem(result, "state")?;
     if py_eq_str(state, "too-many-open-prs") {
@@ -141,10 +156,39 @@ pub fn status_description(result: &PyValue) -> Result<String, PyErr> {
         }
         .to_owned());
     }
-    if py_eq_str(state, "waiting-author") {
-        return Ok("waiting-self-review".to_owned());
+    let token = || -> Result<String, PyErr> {
+        if py_eq_str(state, "waiting-author") {
+            return Ok("waiting-self-review".to_owned());
+        }
+        Ok(text(state, "state")?.to_owned())
+    };
+    if py_eq_str(state, "ready-to-merge") {
+        return token();
     }
-    Ok(text(state, "state")?.to_owned())
+    let Some(mut line) = move_line(result)? else {
+        return token();
+    };
+    let token = token()?;
+    if token == "waiting-self-review"
+        && getitem(Items::of(result)?.get("self_review")?, "bot_author")?.truthy()
+    {
+        return Ok(token);
+    }
+    for (unsafe_text, plain) in STATUS_FOLD {
+        line = line.replace(unsafe_text, plain);
+    }
+    let said = format!("{token}: {line}");
+    // Anything else a line might come to hold — a character GitHub could
+    // refuse, a line break, a mention a status cannot deliver — is not sent.
+    if said.contains('@') || !said.chars().all(|c| (' '..='~').contains(&c)) {
+        return Ok(token);
+    }
+    if py_len(&said) <= STATUS_DESCRIPTION.unsigned_abs() {
+        return Ok(said);
+    }
+    let head = py_slice(&said, None, Some(STATUS_DESCRIPTION - 2));
+    let kept = head.rsplit_once(' ').map_or(head, |(kept, _)| kept);
+    Ok(format!("{kept}..."))
 }
 
 /// `checklist_block(result)`: the description's block, every requirement
@@ -266,10 +310,23 @@ pub fn checklist_block(result: &PyValue) -> Result<Option<String>, PyErr> {
             }
         }
         for objection in iterate(getitem(approvals, "awaiting")?)? {
-            lines.push(format!(
-                "  - [ ] {} — waiting for them to re-review or dismiss",
-                shown(&objection)
-            ));
+            match thread_objector(&objection)? {
+                None => lines.push(format!(
+                    "  - [ ] {} — waiting for them to re-review or dismiss",
+                    shown(&objection)
+                )),
+                Some(who) => {
+                    let said = if approved(areas)?.contains(&who) {
+                        " (their approval counts)"
+                    } else {
+                        ""
+                    };
+                    lines.push(format!(
+                        "  - [ ] {} — resolve every thread they left open{said}",
+                        shown(&objection)
+                    ));
+                }
+            }
         }
     }
     lines.push(String::new());
@@ -280,10 +337,52 @@ pub fn checklist_block(result: &PyValue) -> Result<Option<String>, PyErr> {
     Ok(Some(lines.join("\n")))
 }
 
+/// `_thread_objector(objection)`: whose objection this line is, lowercased,
+/// when all it holds is a review thread nobody has resolved.
+fn thread_objector(objection: &PyValue) -> Result<Option<String>, PyErr> {
+    Ok(str_method(objection, "endswith")?
+        .strip_suffix(THREAD_LEFT_OPEN)
+        .map(py_lower))
+}
+
+/// `_threads_only(result)`: the objectors, lowercased, holding the pull
+/// request only by a review thread nobody has resolved. `evaluate` writes
+/// one line per objector — changes requested, or else a thread left open —
+/// and one worded any other way is not taken for a thread: its objector is
+/// asked to re-review, as every objector used to be.
+fn threads_only(result: &PyValue) -> Result<Vec<String>, PyErr> {
+    let mut who = Vec::new();
+    for objection in iterate(or(get(result, "objections")?, &EMPTY_LIST))? {
+        if let Some(login) = thread_objector(&objection)? {
+            who.push(login);
+        }
+    }
+    Ok(who)
+}
+
+/// `_approved(areas)`: everyone whose approval counts for one of these
+/// areas, lowercased.
+fn approved(areas: &PyValue) -> Result<Vec<String>, PyErr> {
+    let mut who = Vec::new();
+    for area in iterate(areas)? {
+        if get(&area, "owned")?.is_some_and(PyValue::truthy) {
+            continue;
+        }
+        for name in iterate(getitem(&area, "approved_by")?)? {
+            who.push(lower(&name)?);
+        }
+    }
+    Ok(who)
+}
+
 /// `asks(result, code)`: what review a pull request still waits for — each
 /// area nobody has approved, then the objectors. An area lists everyone who
 /// may approve it, any one of them enough, and one nobody may approve says
-/// so, so an empty ask never reads as a met one.
+/// so, so an empty ask never reads as a met one. An objector who requested
+/// changes is asked to re-review. One held only by a thread is asked for
+/// the thread, which anybody who may resolve it can do; their approval,
+/// where it counts, is said after it, so it never reads as lost, and a
+/// status cut short keeps the ask.
 pub fn asks(result: &PyValue, code: bool) -> Result<Vec<String>, PyErr> {
     let mut parts = Vec::new();
     for area in iterate(or(get(result, "approvals")?, &EMPTY_LIST))? {
@@ -300,17 +399,41 @@ pub fn asks(result: &PyValue, code: bool) -> Result<Vec<String>, PyErr> {
             ));
         }
     }
-    if get(result, "objectors")?.is_some_and(PyValue::truthy) {
-        parts.push(format!(
-            "re-review or resolve: {}",
-            join(", ", getitem(result, "objectors")?)?
-        ));
+    let objectors = or(get(result, "objectors")?, &EMPTY_LIST);
+    if objectors.truthy() {
+        let threads = threads_only(result)?;
+        let listed = iterate(objectors)?;
+        let mut rereview = Vec::new();
+        for objector in &listed {
+            if !threads.contains(&lower(objector)?) {
+                rereview.push(objector.clone().into_owned());
+            }
+        }
+        if !rereview.is_empty() {
+            parts.push(format!(
+                "re-review or resolve: {}",
+                join(", ", &PyValue::List(rereview.into()))?
+            ));
+        }
+        let approving = approved(or(get(result, "approvals")?, &EMPTY_LIST))?;
+        for objector in &listed {
+            let login = lower(objector)?;
+            if !threads.contains(&login) {
+                continue;
+            }
+            let mut part = format!("resolve every review thread {} left open", shown(objector));
+            if approving.contains(&login) {
+                part.push_str(" (their approval counts)");
+            }
+            parts.push(part);
+        }
     }
     Ok(parts)
 }
 
 /// `your_part(result, logins, code)`: the areas one person, under any of
-/// their logins, may approve and nobody has, and any re-review they owe.
+/// their logins, may approve and nobody has, and what their own objection
+/// needs.
 pub fn your_part(result: &PyValue, logins: &[&str], code: bool) -> Result<String, PyErr> {
     let mine: Vec<String> = logins.iter().map(|login| py_lower(login)).collect();
     let is_mine = |login: &PyValue| -> Result<bool, PyErr> {
@@ -345,12 +468,24 @@ pub fn your_part(result: &PyValue, logins: &[&str], code: bool) -> Result<String
         }
         parts.push(part);
     }
-    let mut objects = false;
+    let mut owed = Vec::new();
     for objector in iterate(or(get(result, "objectors")?, &EMPTY_LIST))? {
-        objects |= is_mine(&objector)?;
+        if is_mine(&objector)? {
+            owed.push(lower(&objector)?);
+        }
     }
-    if objects {
-        parts.push("re-review or resolve your objection".to_owned());
+    if !owed.is_empty() {
+        let threads = threads_only(result)?;
+        if owed.iter().all(|login| threads.contains(login)) {
+            let approving = approved(or(get(result, "approvals")?, &EMPTY_LIST))?;
+            let mut part = "resolve every review thread you left open".to_owned();
+            if owed.iter().all(|login| approving.contains(login)) {
+                part.push_str(" (your approval counts)");
+            }
+            parts.push(part);
+        } else {
+            parts.push("re-review or resolve your objection".to_owned());
+        }
     }
     Ok(parts.join(" · "))
 }
@@ -376,10 +511,25 @@ pub fn review_text(row: &PyValue, user: Option<&str>) -> Result<String, PyErr> {
     Ok(out)
 }
 
-/// `move_text(result)`: one line for the person whose move it now is, under
-/// the marker that says which move and which head — or `None` where it is
-/// nobody's move. No mentions: the comment itself notifies.
+/// `move_text(result)`: the move comment's words, under the marker that
+/// says which move and which head — or `None` where it is nobody's move.
 pub fn move_text(result: &PyValue) -> Result<Option<String>, PyErr> {
+    let Some(line) = move_line(result)? else {
+        return Ok(None);
+    };
+    let Some(mv) = move_state(getitem(result, "state")?)? else {
+        return Ok(None);
+    };
+    Ok(Some(format!(
+        "{MOVE_MARKER} state={mv} sha={} -->\n{line}\nFull checklist in the description.",
+        shown(getitem(result, "head")?)
+    )))
+}
+
+/// `move_line(result)`: one line for the person whose move it now is, or
+/// `None` where it is nobody's move. No mentions: the comment itself
+/// notifies.
+pub fn move_line(result: &PyValue) -> Result<Option<String>, PyErr> {
     let Some(mv) = move_state(getitem(result, "state")?)? else {
         return Ok(None);
     };
@@ -442,10 +592,7 @@ pub fn move_text(result: &PyValue) -> Result<Option<String>, PyErr> {
         }
         _ => "Policy satisfied — this can merge.".to_owned(),
     };
-    Ok(Some(format!(
-        "{MOVE_MARKER} state={mv} sha={} -->\n{line}\nFull checklist in the description.",
-        shown(getitem(result, "head")?)
-    )))
+    Ok(Some(line))
 }
 
 #[cfg(test)]

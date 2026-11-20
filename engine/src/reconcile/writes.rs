@@ -17,7 +17,7 @@ use crate::pycompat::{PyDict, PyInt, PyList, PyValue};
 /// The context of the engine's commit status.
 pub const STATUS_CONTEXT: &str = "PR Hygiene";
 /// The longest description GitHub keeps on a status, in characters.
-const STATUS_DESCRIPTION: isize = 140;
+pub(crate) const STATUS_DESCRIPTION: isize = 140;
 /// The longest description GitHub keeps on a pull request, in characters.
 pub(crate) const BODY_LIMIT: usize = 65536;
 

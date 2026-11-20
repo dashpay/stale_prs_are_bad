@@ -1,0 +1,45 @@
+{
+ "function": "main.your_part",
+ "inputs": {
+  "result": {
+   "number": 2,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "bob",
+   "state": "ready-for-human",
+   "status": "success",
+   "blockers": [],
+   "reviewers": [
+    "alice",
+    "carol"
+   ],
+   "areas": [
+    "core"
+   ],
+   "admitted_at": "2026-09-11T00:00:00Z",
+   "ready_since": null,
+   "title": "Review PR",
+   "url": "v",
+   "approvals": [
+    {
+     "area": "core",
+     "files": [],
+     "approvers": [
+      "alice",
+      "carol"
+     ],
+     "approved_by": [],
+     "owned": false
+    }
+   ]
+  },
+  "logins": [
+   "alice"
+  ],
+  "code": true
+ },
+ "output": "`core` (you or carol)",
+ "tests": [
+  "test_main.PublicationTests.test_user_report_names_the_areas_the_user_is_asked_for"
+ ],
+ "python": "3.12"
+}

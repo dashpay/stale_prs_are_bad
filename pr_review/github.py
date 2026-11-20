@@ -1077,10 +1077,16 @@ class GitHub:
         it is rewritten on every run, so a pull request passing through any
         other state — an unresolved bot thread, a withdrawn objection, a
         transient configuration error — would lose the fact that it was ready.
+
+        The description is the state, then what is owed after `: `; one
+        posted before it said more than the state is the state alone.
         """
+        def ready(description):
+            return description == "ready-for-human" or (
+                isinstance(description, str) and description.startswith("ready-for-human: "))
         return any(item.get("context") == "PR Hygiene"
                    and is_engine((item.get("creator") or {}).get("login"))
-                   and item.get("description") == "ready-for-human"
+                   and ready(item.get("description"))
                    for item in self._head_statuses(head))
 
     def post_status(self, head, state, description, target_url=None):
