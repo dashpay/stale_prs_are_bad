@@ -156,20 +156,29 @@ jobs:
             --targets "$DEPLOY_TARGET" \
             --parameters "{\"digest\":[\"$DIGEST\"]}" \
             --comment "$GITHUB_REPOSITORY ${GITHUB_SHA:0:12}, run $GITHUB_RUN_ID" \
+            --timeout-seconds 60 \
             --query Command.CommandId --output text)
           echo "command: $command_id"
 
-          # The host's worst case is 7 minutes: pull, start and 90 seconds of
-          # readiness checks for the new image, then start and readiness
-          # again for the one it goes back to. Its own deadline is 10
-          # minutes; this waits a little longer than that.
+          # Three clocks, all bounded. Delivery: the host has 60 seconds to
+          # pick the command up (--timeout-seconds above; SSM's default is an
+          # hour). Execution: the host's worst case is 7 minutes (pull, start
+          # and 90 seconds of readiness checks for the new image, then start
+          # and readiness again for the one it goes back to), under a
+          # 10-minute deadline. This loop: 12 minutes, a little more than
+          # the two together.
           status=Pending
           targets=0
-          for _ in $(seq 1 132); do
+          for _ in $(seq 1 144); do
             sleep 5
-            # A failed poll keeps the last answer and tries again.
-            read -r status targets < <(aws ssm list-commands --command-id "$command_id" \
-              --query 'Commands[0].[Status,TargetCount]' --output text) || true
+            # A failed or malformed poll keeps the last answer and tries
+            # again.
+            if answer=$(aws ssm list-commands --command-id "$command_id" \
+                --query 'Commands[0].[Status,TargetCount]' --output text) \
+                && [[ "$answer" =~ ^([A-Za-z]+)[[:space:]]+([0-9]+)$ ]]; then
+              status=${BASH_REMATCH[1]}
+              targets=${BASH_REMATCH[2]}
+            fi
             case "$status" in
               Pending|InProgress|Delayed) ;;
               *) break ;;
