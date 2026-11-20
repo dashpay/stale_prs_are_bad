@@ -91,11 +91,22 @@ impl<T: Transport> Reconciler<'_, T> {
     /// `selection` names, then the full evidence of those asked for.
     ///
     /// Admission is decided from every candidate's history, so a history
-    /// that cannot be read leaves no slot knowable: under `apply` every
-    /// candidate's head is marked, and the error is raised on. Evidence
-    /// that cannot be read marks only the pull request it belongs to: one
-    /// rate-limited read used to mark everything selected, and a full pass
-    /// selects everything open.
+    /// that cannot be read leaves no slot knowable, and the error is raised
+    /// on. What `apply` marks first depends on why the run was started. A
+    /// run aimed at one pull request marks that one alone: its evidence
+    /// changed, so the status it carries may be stale. Its author's others
+    /// had no event, and a slot only decides whether reviewers are asked,
+    /// never whether a pull request passes, so the verdicts they carry are
+    /// as good as before. A batch marks nothing: it picks its pull requests
+    /// by the clock, not because any of them changed, the failed run says
+    /// the work did not happen, and the rotation comes back to them.
+    /// Marking what it selected would turn one timed-out query into a
+    /// repository of red heads, each unmergeable until the rotation reached
+    /// it. A full pass marks every candidate's head: it exists to replace
+    /// every status with one computed now, so no earlier verdict is trusted.
+    /// Evidence that cannot be read marks only the pull request it belongs
+    /// to: one rate-limited read used to mark everything selected, and a
+    /// full pass selects everything open.
     pub fn collect(
         &mut self,
         policy: &PyValue,
@@ -171,7 +182,21 @@ impl<T: Transport> Reconciler<'_, T> {
             }),
             Err(ReadError::GitHub(message)) => {
                 if apply {
-                    for pr in &selected {
+                    let unreadable = match selection {
+                        Selection::All => selected,
+                        Selection::Pr(n) => {
+                            let wanted = PyValue::Int(n.clone());
+                            let mut asked = Vec::new();
+                            for pr in selected {
+                                if py_eq(getitem(&pr, "number")?, &wanted) {
+                                    asked.push(pr);
+                                }
+                            }
+                            asked
+                        }
+                        Selection::Batch(_) => Vec::new(),
+                    };
+                    for pr in &unreadable {
                         self.mark_unreadable(policy, pr)?;
                     }
                 }

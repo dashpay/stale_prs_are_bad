@@ -228,7 +228,8 @@ fake (`FakeGh` in `pr_review/tests/test_conformance.py`) standing where `gh`
 does. Each is shaped to walk a read path a live recording may never show: a
 conversation longer than the batched window, a record a person edited, a
 GraphQL answer that fails with data, a transient failure and its retry, a
-call that ran out of Python's own time. `generate.py` says which recording
+call that ran out of Python's own time, a history query that times out and
+what an event run and a sweep then mark. `generate.py` says which recording
 covers what. They hold nothing private and are committed; the generator
 writes the same bytes on every run, and a test fails when the committed ones
 are not what it writes, so a change to what the engine reads carries the

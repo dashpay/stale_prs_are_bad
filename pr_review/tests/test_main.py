@@ -121,6 +121,80 @@ class PublicationTests(unittest.TestCase):
         errors = [c for c in self.api.post_status.call_args_list if c.args[1] == 'error']
         self.assertEqual([c.args[0] for c in errors], [self.pr['head']], 'only the unreadable head')
 
+    def unreadable_queue(self):
+        """Two authors' pull requests on their own heads, and a listing GitHub
+        answers while the history query every one of them shares times out."""
+        prs = [dict(self.pr, number=n, author=author, head=head)
+               for n, author, head in ((1, 'alice', 'a' * 40), (2, 'alice', 'b' * 40), (3, 'bob', 'c' * 40))]
+        self.api.open_prs.return_value = prs
+        self.api.pull.side_effect = lambda n: copy.deepcopy(next(p for p in prs if p['number'] == n))
+        self.api.histories.side_effect = GitHubError('HTTP 504: Gateway Timeout (https://api.github.com/graphql)')
+        return prs
+
+    def test_an_unreadable_history_in_a_sweep_or_build_scan_writes_no_status(self):
+        # A sweep or a build scan picks its pull requests by the clock or by
+        # their record, not because any of them changed. When a read the
+        # whole selection depends on fails, the work did not happen, and no
+        # pull request is known to carry a stale status. Marking everything
+        # it selected would turn one timed-out query into a repository of red
+        # heads, each unmergeable until the rotation reached it. The job
+        # still fails: that is the diagnostic.
+        self.unreadable_queue()
+        for selection in ({'batch_size': 6}, {'waiting_on_build': True}):
+            with self.subTest(**selection):
+                self.api.post_status.reset_mock()
+                with self.assertRaises(GitHubError):
+                    main.collect(self.api, self.policy, apply=True, reconcile_author=True, **selection)
+                self.api.post_status.assert_not_called()
+        with self.subTest('the build scan asks a head with no record for its last status, and cannot'):
+            self.api.post_status.reset_mock()
+            self.api.histories.side_effect = lambda numbers: {
+                number: {'comments': [], 'lifecycle_at': None} for number in numbers}
+            self.api.latest_state_from_status.side_effect = GitHubError('HTTP 502: Bad Gateway')
+            with self.assertRaises(GitHubError):
+                main.collect(self.api, self.policy, apply=True, reconcile_author=True, waiting_on_build=True)
+            self.api.post_status.assert_not_called()
+
+    def test_an_unreadable_history_marks_only_the_pull_request_the_event_names(self):
+        # The event says this pull request's evidence changed, so the status
+        # it carries may be stale and must not stay green. Its author's other
+        # pull requests had no event. What the failed read leaves unknown is
+        # their admission slots, and a slot only decides whether reviewers are
+        # asked, never whether a pull request passes, so the verdicts they
+        # carry are as good as they were before the run.
+        prs = self.unreadable_queue()
+        with self.subTest('its author has another open pull request'):
+            with self.assertRaises(GitHubError):
+                main.collect(self.api, self.policy, number=1, apply=True, reconcile_author=True)
+            self.assertEqual([c.args for c in self.api.post_status.call_args_list],
+                             [('a' * 40, 'error', 'Incomplete policy evidence; reconciliation required')])
+        with self.subTest('a draft is marked too: it cannot merge either way'):
+            self.api.post_status.reset_mock()
+            prs = self.unreadable_queue()
+            prs[0]['draft'] = True
+            with self.assertRaises(GitHubError):
+                main.collect(self.api, self.policy, number=1, apply=True, reconcile_author=True)
+            self.assertEqual([c.args[0] for c in self.api.post_status.call_args_list], ['a' * 40])
+        with self.subTest('a closed pull request cannot merge, so no status needs revoking'):
+            self.api.post_status.reset_mock()
+            prs = self.unreadable_queue()
+            self.api.open_prs.return_value = prs[1:]
+            closed = dict(prs[0], state='closed')
+            self.api.pull.side_effect = lambda n: copy.deepcopy(
+                closed if n == 1 else next(p for p in prs if p['number'] == n))
+            with self.assertRaises(GitHubError):
+                main.collect(self.api, self.policy, number=1, apply=True, reconcile_author=True)
+            self.api.post_status.assert_not_called()
+
+    def test_an_unreadable_history_in_a_full_pass_marks_every_governed_head(self):
+        # A full pass exists to replace every head's status with one computed
+        # now. When it cannot read, no earlier verdict is trusted, whoever's
+        # pull request it is.
+        self.unreadable_queue()
+        with self.assertRaises(GitHubError):
+            main.collect(self.api, self.policy, apply=True, reconcile_author=True)
+        self.assertEqual([c.args[0] for c in self.api.post_status.call_args_list], ['a' * 40, 'b' * 40, 'c' * 40])
+
     def test_a_surplus_of_admissions_is_detected(self):
         candidates = [dict(self.pr,number=n,controller_state={'admitted_at':NOW}) for n in range(1,7)]
         self.assertEqual(main.admission_conflicts(self.policy,candidates), {'alice'})

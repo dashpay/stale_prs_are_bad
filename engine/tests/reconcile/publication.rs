@@ -315,6 +315,85 @@ fn unreadable_evidence_marks_only_the_pull_request_it_belongs_to() {
     assert!(scene.said("PR #1: GitHub API command failed (exit 1): gh: API rate limit exceeded (HTTP 403); its status says so"));
 }
 
+/// Two authors' pull requests on their own heads, and the history query
+/// every one of them shares timing out.
+fn unreadable_queue() -> (PyValue, Fake) {
+    let (policy, mut fake) = fixture();
+    fake.add(Pr::new(2, "owner", &"b".repeat(40)));
+    fake.add(Pr::new(3, "reviewer", &"c".repeat(40)));
+    fake.refuse(
+        Method::Post,
+        "graphql",
+        Refusal::Http(504, "Gateway Timeout".into()),
+    );
+    (policy, fake)
+}
+
+#[test]
+fn an_unreadable_history_in_a_batch_writes_no_status() {
+    // A sweep picks its pull requests by the clock, not because any of them
+    // changed. When the read every candidate shares fails, the work did not
+    // happen, and no pull request is known to carry a stale status. Marking
+    // everything it selected would turn one timed-out query into a
+    // repository of red heads, each unmergeable until the rotation reached
+    // it. The run still fails: that is the diagnostic.
+    let (policy, fake) = unreadable_queue();
+    let mut scene = Scene::new(fake);
+    let mut choose = |prs: &[PyValue]| prs.to_vec();
+    let read = scene
+        .with(|engine| engine.collect(&policy, &mut Selection::Batch(&mut choose), true, true));
+    assert!(matches!(read, Err(ReadError::GitHub(_))), "{read:?}");
+    assert_eq!(scene.writes(), Vec::<String>::new());
+}
+
+#[test]
+fn an_unreadable_history_marks_only_the_pull_request_asked_for() {
+    // The event says this pull request's evidence changed, so the status it
+    // carries may be stale and must not stay green. Its author's other pull
+    // requests had no event. What the failed read leaves unknown is their
+    // admission slots, and a slot only decides whether reviewers are asked,
+    // never whether a pull request passes, so the verdicts they carry are as
+    // good as they were before the run.
+    let (policy, fake) = unreadable_queue();
+    let mut scene = Scene::new(fake);
+    let read = scene
+        .with(|engine| engine.collect(&policy, &mut Selection::Pr(PyInt::from(1)), true, true));
+    assert!(matches!(read, Err(ReadError::GitHub(_))), "{read:?}");
+    assert_eq!(scene.writes(), [format!("POST statuses/{HEAD}")]);
+    assert_eq!(
+        scene.statuses(),
+        [(
+            "error".to_owned(),
+            "Incomplete policy evidence; reconciliation required".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn an_unreadable_history_marks_the_pull_request_asked_for_even_as_a_draft() {
+    // A draft cannot merge either way, so the error costs nothing there.
+    let (policy, mut fake) = unreadable_queue();
+    fake.pr(1).draft = true;
+    let mut scene = Scene::new(fake);
+    let read = scene
+        .with(|engine| engine.collect(&policy, &mut Selection::Pr(PyInt::from(1)), true, true));
+    assert!(matches!(read, Err(ReadError::GitHub(_))), "{read:?}");
+    assert_eq!(scene.writes(), [format!("POST statuses/{HEAD}")]);
+}
+
+#[test]
+fn an_unreadable_history_marks_nothing_when_the_pull_request_asked_for_is_closed() {
+    // A closed pull request cannot merge, so no status needs revoking, and
+    // its author's others had no event of their own.
+    let (policy, mut fake) = unreadable_queue();
+    fake.pr(1).state = "closed".into();
+    let mut scene = Scene::new(fake);
+    let read = scene
+        .with(|engine| engine.collect(&policy, &mut Selection::Pr(PyInt::from(1)), true, true));
+    assert!(matches!(read, Err(ReadError::GitHub(_))), "{read:?}");
+    assert_eq!(scene.writes(), Vec::<String>::new());
+}
+
 #[test]
 fn a_surplus_of_admissions_is_detected() {
     let policy = fixture_policy();
