@@ -235,4 +235,22 @@ fn the_synthetic_recordings_walk_the_read_paths_they_are_named_for() {
         rich.evaluations.len() > rich.verdicts.len(),
         "a snapshot taken without the batched history, after the caches were dropped"
     );
+    // Only the engine's own status, the state followed by what is owed,
+    // says a human was asked: the build has failed since and the record
+    // says another state, so the reader alone keeps it ready.
+    let latched = load(&conformance().join("synthetic/ready-latched"));
+    assert!(latched
+        .calls
+        .contains(r#"\"description\": \"ready-for-human: Ready for review"#));
+    for evaluation in &latched.evaluations {
+        let pr = field(evaluation, "pr");
+        assert!(matches!(field(pr, "ready_published"), PyValue::Bool(true)));
+        assert!(matches!(field(pr, "build"), PyValue::Str(build) if build == "failed"));
+        assert!(
+            matches!(field(field(pr, "controller_state"), "state"), PyValue::Str(state) if state != "ready-for-human")
+        );
+    }
+    assert!(latched.verdicts.iter().all(
+        |verdict| matches!(field(verdict, "state"), PyValue::Str(state) if state == "ready-for-human")
+    ));
 }

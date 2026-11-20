@@ -1155,11 +1155,16 @@ impl<T: Transport> GitHub<T> {
     /// `GitHub.ready_published(head)`: whether a human has ever been asked
     /// to review this head — a record no later run can take back, unlike
     /// the record comment, which every run rewrites.
+    ///
+    /// The description is the state, then what is owed after `: `; one
+    /// posted before it said more than the state is the state alone.
     pub fn ready_published(&mut self, head: &str) -> Result<bool, ReadError> {
+        let ready = |description: &PyValue| {
+            py_eq_str(description, "ready-for-human")
+                || matches!(description, PyValue::Str(said) if said.starts_with("ready-for-human: "))
+        };
         for status in self.head_statuses(head)? {
-            if engine_status(status)?
-                && get(status, "description")?.is_some_and(|d| py_eq_str(d, "ready-for-human"))
-            {
+            if engine_status(status)? && get(status, "description")?.is_some_and(ready) {
                 return Ok(true);
             }
         }

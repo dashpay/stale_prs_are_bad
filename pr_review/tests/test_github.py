@@ -1267,6 +1267,25 @@ class GitHubTests(unittest.TestCase):
             # head does not re-read the commit's whole history.
             self.assertEqual(paged.call_count, 1)
 
+    def test_ready_published_reads_the_state_before_the_next_step(self):
+        # The status says the state and then what is owed. Asking a human
+        # latches the build, and a ready pull request whose build later fails
+        # must not fall back to waiting-build because the words grew.
+        engine, person = {"login": "github-actions[bot]"}, {"login": "mallory"}
+
+        def published(description, creator=engine):
+            status = {"context": "PR Hygiene", "state": "pending", "description": description, "creator": creator}
+            with patch.object(self.api, "_head_statuses", return_value=[status]):
+                return self.api.ready_published("a" * 40)
+
+        self.assertTrue(published("ready-for-human: Ready for review - drive: owner."))
+        self.assertFalse(published("ready-for-human: Ready for review - drive: owner.", person),
+                         "anybody can post a status under this context; only the engine's is its memory")
+        self.assertFalse(published("ready-for-humans"))
+        self.assertFalse(published("ready-for-human-x: Ready for review"))
+        self.assertFalse(published("waiting-bots: ready-for-human: no"))
+        self.assertTrue(published("ready-for-human"), "a status already posted cannot be rewritten, and still counts")
+
     def test_should_refuse_a_status_write_that_was_not_acknowledged(self):
         with patch.object(self.api, "pages", return_value=[]), \
                 patch.object(self.api, "request", return_value=None):

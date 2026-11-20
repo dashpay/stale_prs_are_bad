@@ -930,6 +930,47 @@ fn a_status_by_a_listed_identity_is_the_engines_own() {
 }
 
 #[test]
+fn ready_published_reads_the_state_before_the_next_step() {
+    // The status says the state and then what is owed. Asking a human
+    // latches the build, and a ready pull request whose build later fails
+    // must not fall back to waiting-build because the words grew.
+    let published = |description: Value, creator: &str| {
+        let statuses = json!([{"state": "pending", "context": "PR Hygiene", "description": description,
+                               "creator": {"login": creator}}]);
+        api(move |_| page(statuses.clone()))
+            .ready_published(&head())
+            .unwrap()
+    };
+    let engine = "github-actions[bot]";
+    assert!(published(
+        json!("ready-for-human: Ready for review - drive: owner."),
+        engine
+    ));
+    assert!(
+        !published(
+            json!("ready-for-human: Ready for review - drive: owner."),
+            "mallory"
+        ),
+        "anybody can post a status under this context; only the engine's is its memory"
+    );
+    assert!(!published(json!("ready-for-humans"), engine));
+    assert!(!published(
+        json!("ready-for-human-x: Ready for review"),
+        engine
+    ));
+    assert!(!published(
+        json!("waiting-bots: ready-for-human: no"),
+        engine
+    ));
+    assert!(!published(json!(null), engine));
+    assert!(!published(json!(["ready-for-human: "]), engine));
+    assert!(
+        published(json!("ready-for-human"), engine),
+        "a status already posted cannot be rewritten, and still counts"
+    );
+}
+
+#[test]
 fn the_latest_status_is_the_newest_the_engine_wrote_its_id_breaking_a_tie() {
     let engine = json!({"login": "github-actions[bot]"});
     let statuses = json!([
