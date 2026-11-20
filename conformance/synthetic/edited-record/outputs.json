@@ -5,7 +5,7 @@
   "status": {
    "state": "pending",
    "context": "PR Hygiene",
-   "description": "ready-for-human"
+   "description": "ready-for-human: Ready for review - drive: owner."
   },
   "labels": [
    "ready-for-human"

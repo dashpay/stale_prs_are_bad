@@ -1,0 +1,86 @@
+{
+ "function": "main.status_description",
+ "inputs": {
+  "result": {
+   "number": 1,
+   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "author": "owner",
+   "title": "title",
+   "url": "url",
+   "state": "waiting-author",
+   "status": "pending",
+   "blockers": [
+    "thepastaclaw requested changes on this head; dismiss the review or push a fix",
+    "thepastaclaw left review threads unresolved; resolve them"
+   ],
+   "reviewers": [],
+   "objectors": [],
+   "areas": [
+    "drive"
+   ],
+   "ready_since": null,
+   "admitted_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": null,
+   "nudge": [],
+   "waived": [],
+   "approvals": [],
+   "objections": [],
+   "checklist": [
+    {
+     "item": "bots",
+     "done": false,
+     "lines": [
+      "coderabbitai ✓",
+      "thepastaclaw requested changes — dismiss the review or push a fix, 1 thread unresolved — resolve it"
+     ],
+     "skippable": false
+    },
+    {
+     "item": "self_review",
+     "done": true,
+     "bot_author": false,
+     "on_their_behalf": [],
+     "address": []
+    },
+    {
+     "item": "slot",
+     "done": true,
+     "limit": 5
+    },
+    {
+     "item": "build",
+     "done": true,
+     "state": "green",
+     "latched": false
+    },
+    {
+     "item": "approvals",
+     "done": true,
+     "areas": [
+      {
+       "area": "drive",
+       "files": [
+        "packages/drive/a.rs"
+       ],
+       "approvers": [],
+       "approved_by": [],
+       "owned": true
+      }
+     ],
+     "awaiting": []
+    }
+   ],
+   "reviewed_heads": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ],
+   "reviewed_since": null,
+   "receipts": {}
+  }
+ },
+ "output": "waiting-self-review: Your move: thepastaclaw requested changes on this head; dismiss the review or push a fix; thepastaclaw left review...",
+ "tests": [
+  "test_checklist.PublishTests.test_status_is_the_move_line_shortened"
+ ],
+ "python": "3.12"
+}

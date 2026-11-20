@@ -7,7 +7,7 @@
  },
  "output": "configuration-error",
  "tests": [
-  "test_checklist.PublishTests.test_nonqueued_status_descriptions_keep_their_existing_meaning"
+  "test_checklist.PublishTests.test_a_state_with_no_next_step_keeps_its_bare_name"
  ],
  "python": "3.12"
 }

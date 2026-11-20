@@ -7,47 +7,34 @@
    "author": "reviewer",
    "title": "title",
    "url": "url",
-   "state": "ready-for-human",
+   "state": "waiting-bots",
    "status": "pending",
    "blockers": [
-    "Human approval or objection resolution is required"
+    "coderabbitai has not reported for the current head",
+    "thepastaclaw has not reported for the current head"
    ],
-   "reviewers": [
-    "owner"
-   ],
+   "reviewers": [],
    "objectors": [],
    "areas": [
     "drive"
    ],
-   "ready_since": "2026-09-11T12:00:00Z",
-   "admitted_at": "2026-09-11T12:00:00Z",
-   "bot_completed_at": "2026-09-11T10:00:00Z",
-   "self_reviewed_at": "2026-09-11T11:00:00Z",
+   "ready_since": null,
+   "admitted_at": null,
+   "bot_completed_at": null,
+   "self_reviewed_at": null,
    "nudge": [],
    "waived": [],
-   "approvals": [
-    {
-     "area": "drive",
-     "files": [
-      "packages/drive/a.rs"
-     ],
-     "approvers": [
-      "owner"
-     ],
-     "approved_by": [],
-     "owned": false
-    }
-   ],
+   "approvals": [],
    "objections": [],
    "checklist": [
     {
      "item": "bots",
-     "done": true,
+     "done": false,
      "lines": [
-      "coderabbitai ✓",
-      "thepastaclaw ✓"
+      "coderabbitai not yet",
+      "thepastaclaw not yet"
      ],
-     "skippable": false
+     "skippable": true
     },
     {
      "item": "self_review",
@@ -58,7 +45,7 @@
     },
     {
      "item": "slot",
-     "done": true,
+     "done": false,
      "limit": 5
     },
     {
@@ -93,9 +80,9 @@
    "receipts": {}
   }
  },
- "output": "ready-for-human",
+ "output": "waiting-bots: Waiting for bot review - coderabbitai not yet | thepastaclaw not yet. Wait for the missing reviews, or a writer can post...",
  "tests": [
-  "test_main.PublicationTests.test_a_scan_can_carry_a_pull_request_out_of_waiting_for_a_build"
+  "test_checklist.PublishTests.test_waiting_announcements_are_quiet_until_the_details_change"
  ],
  "python": "3.12"
 }

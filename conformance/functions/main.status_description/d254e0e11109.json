@@ -7,10 +7,10 @@
    "author": "llbartekll",
    "title": "title",
    "url": "url",
-   "state": "waiting-self-review",
+   "state": "waiting-author",
    "status": "pending",
    "blockers": [
-    "Author must post /self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "coderabbitai left review threads unresolved; resolve them",
     "Proceeded without thepastaclaw: skipped by @llbartekll"
    ],
    "reviewers": [],
@@ -22,7 +22,7 @@
    ],
    "ready_since": null,
    "admitted_at": "2026-09-11T12:00:00Z",
-   "bot_completed_at": "2026-09-11T12:00:00Z",
+   "bot_completed_at": "2026-09-11T12:30:00Z",
    "self_reviewed_at": null,
    "nudge": [],
    "waived": [
@@ -33,9 +33,9 @@
    "checklist": [
     {
      "item": "bots",
-     "done": true,
+     "done": false,
      "lines": [
-      "coderabbitai ✓",
+      "coderabbitai ✓, 1 thread unresolved — resolve it",
       "thepastaclaw skipped by llbartekll"
      ],
      "skippable": false
@@ -106,14 +106,14 @@
    ],
    "reviewed_since": "2026-09-11T09:00:00Z",
    "receipts": {
-    "4e425cdf0d54898b906b495844d743654cbe2ac91ba51dc900bda32efb78c108": "2026-09-11T12:00:00Z"
+    "f4e0a1d857e474fe0130c5e2542af4aa0c3b8835fea2b83d14ef6ccd73463118": "2026-09-11T12:30:00Z"
    },
    "skipped_by": "llbartekll"
   }
  },
- "output": "waiting-self-review",
+ "output": "waiting-self-review: Your move: coderabbitai left review threads unresolved; resolve them.",
  "tests": [
-  "test_checklist.PublishTests.test_what_the_bot_said_is_written_down_so_an_edit_can_be_told_from_a_report"
+  "test_checklist.PublishTests.test_only_a_bot_saying_something_new_tells_the_author_again"
  ],
  "python": "3.12"
 }

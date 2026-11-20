@@ -4,45 +4,92 @@
   "result": {
    "number": 1,
    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-   "author": "llbartekll",
+   "author": "owner-of-everything",
    "title": "title",
    "url": "url",
-   "state": "waiting-author",
+   "state": "ready-for-human",
    "status": "pending",
    "blockers": [
-    "coderabbitai left review threads unresolved; resolve them",
+    "Human approval or objection resolution is required",
+    "Proceeded without coderabbitai: skipped by @llbartekll",
     "Proceeded without thepastaclaw: skipped by @llbartekll"
    ],
-   "reviewers": [],
+   "reviewers": [
+    "QuantumExplorer",
+    "ktechmidas",
+    "shumkov"
+   ],
    "objectors": [],
    "areas": [
     "fallback",
     "github",
     "swift-sdk"
    ],
-   "ready_since": null,
+   "ready_since": "2026-09-11T14:00:00Z",
    "admitted_at": "2026-09-11T12:00:00Z",
-   "bot_completed_at": "2026-09-11T11:00:00Z",
-   "self_reviewed_at": null,
+   "bot_completed_at": "2026-09-11T10:00:00Z",
+   "self_reviewed_at": "2026-09-11T12:00:00Z",
    "nudge": [],
    "waived": [
+    "coderabbitai",
     "thepastaclaw"
    ],
-   "approvals": [],
+   "approvals": [
+    {
+     "area": "swift-sdk",
+     "files": [
+      "packages/swift-sdk/Sources/a.swift"
+     ],
+     "approvers": [
+      "llbartekll",
+      "romchornyi"
+     ],
+     "approved_by": [
+      "romchornyi"
+     ],
+     "owned": false
+    },
+    {
+     "area": "fallback",
+     "files": [
+      ".editorconfig",
+      "AGENTS.md"
+     ],
+     "approvers": [
+      "QuantumExplorer",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    },
+    {
+     "area": "github",
+     "files": [
+      ".github/workflows/swift-sdk-build.yml",
+      ".github/workflows/tests.yml"
+     ],
+     "approvers": [
+      "ktechmidas",
+      "shumkov"
+     ],
+     "approved_by": [],
+     "owned": false
+    }
+   ],
    "objections": [],
    "checklist": [
     {
      "item": "bots",
-     "done": false,
+     "done": true,
      "lines": [
-      "coderabbitai ✓, 1 thread unresolved — resolve it",
+      "coderabbitai skipped by llbartekll",
       "thepastaclaw skipped by llbartekll"
      ],
      "skippable": false
     },
     {
      "item": "self_review",
-     "done": false,
+     "done": true,
      "bot_author": false,
      "on_their_behalf": [],
      "address": []
@@ -67,9 +114,14 @@
        "files": [
         "packages/swift-sdk/Sources/a.swift"
        ],
-       "approvers": [],
-       "approved_by": [],
-       "owned": true
+       "approvers": [
+        "llbartekll",
+        "romchornyi"
+       ],
+       "approved_by": [
+        "romchornyi"
+       ],
+       "owned": false
       },
       {
        "area": "fallback",
@@ -105,15 +157,13 @@
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
    ],
    "reviewed_since": "2026-09-11T09:00:00Z",
-   "receipts": {
-    "4e425cdf0d54898b906b495844d743654cbe2ac91ba51dc900bda32efb78c108": "2026-09-11T11:00:00Z"
-   },
+   "receipts": {},
    "skipped_by": "llbartekll"
   }
  },
- "output": "waiting-self-review",
+ "output": "ready-for-human: Ready for review - files with no dedicated owner: QuantumExplorer or shumkov | github: ktechmidas or shumkov.",
  "tests": [
-  "test_checklist.PublishTests.test_only_a_bot_saying_something_new_tells_the_author_again"
+  "test_checklist.PublishTests.test_a_state_nobody_acts_on_and_back_does_not_announce_again"
  ],
  "python": "3.12"
 }

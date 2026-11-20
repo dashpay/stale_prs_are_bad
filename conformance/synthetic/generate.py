@@ -307,7 +307,7 @@ def rich_evidence():
                  'createdAt': '2026-09-11T09:41:00Z'}], None)}
     engine = {'login': 'github-actions[bot]', 'type': 'Bot'}
     gh.statuses[OTHER_HEAD] = [
-        {'id': 3, 'context': 'PR Hygiene', 'state': 'pending', 'description': 'ready-for-human',
+        {'id': 3, 'context': 'PR Hygiene', 'state': 'pending', 'description': 'ready-for-human: Ready for review - drive: owner.',
          'created_at': '2026-09-11T12:00:00Z', 'creator': engine},
         {'id': 2, 'context': 'PR Hygiene', 'state': 'pending', 'description': 'waiting-bots',
          'created_at': '2026-09-11T09:00:00Z', 'creator': engine},

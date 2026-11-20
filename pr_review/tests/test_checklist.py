@@ -390,20 +390,112 @@ class PublishTests(unittest.TestCase):
         self.assertIn('Missing human approval', api.upsert_state.call_args.args[2])
         api.request_reviewers.assert_not_called()
 
-    def test_nonqueued_status_descriptions_keep_their_existing_meaning(self):
-        for state in ('draft', 'waiting-bots', 'waiting-build', 'waiting-self-review',
-                      'ready-for-human', 'ready-to-merge', 'configuration-error'):
+    def test_a_state_with_no_next_step_keeps_its_bare_name(self):
+        # A draft, a build and a configuration error have no move line to
+        # carry; a green check is not bypassed, and "this can merge" would
+        # claim more than was checked.
+        for state in ('draft', 'waiting-build', 'configuration-error', 'ready-to-merge'):
             with self.subTest(state=state):
                 self.assertEqual(main.status_description({'state': state}), state)
+        self.policy, pr = fixture()
+        result = evaluate(self.policy, pr, None, NOW)
+        self.assertEqual((result['state'], main.status_description(result)), ('ready-to-merge', 'ready-to-merge'))
 
     def test_author_response_check_uses_the_self_review_name(self):
         self.policy, pr = fixture()
         pr['reviews'][-1]['state'] = 'CHANGES_REQUESTED'
         result = evaluate(self.policy, pr, None, NOW)
         self.assertEqual(result['state'], 'waiting-author')
-        self.assertEqual(main.status_description(result), 'waiting-self-review')
+        said = ('waiting-self-review: Your move: coderabbitai requested changes on this head; '
+                'dismiss the review or push a fix.')
+        self.assertEqual(main.status_description(result), said)
+        self.assertEqual(said.split(': ', 1)[0], 'waiting-self-review', 'the state is the text before the first ": "')
         api = self.run_publish(pr, result)
-        self.assertEqual(api.post_status.call_args.args[1:], ('pending', 'waiting-self-review'))
+        self.assertEqual(api.post_status.call_args.args[1:], ('pending', said))
+
+    def test_status_names_the_bot_finding_the_author_owes(self):
+        # The author has attested and a bot's threads are open. A status that
+        # names only the self-review step reads as a step not yet taken, and
+        # the PR looks stuck; what is owed is in the move comment's line.
+        self.policy, pr = fixture()
+        pr['threads'] = [dict(id=7, author='coderabbitai', is_resolved=False, created_at=NOW, severities=[])]
+        result = evaluate(self.policy, pr, None, NOW)
+        self.assertEqual(result['state'], 'waiting-author')
+        said = 'waiting-self-review: Your move: coderabbitai left review threads unresolved; resolve them.'
+        self.assertEqual(main.status_description(result), said)
+        api = self.run_publish(pr, result)
+        self.assertEqual(api.post_status.call_args.args[1:], ('pending', said))
+
+    def test_status_names_which_bots_are_missing(self):
+        # A bare waiting-bots does not say which bot the head waits for.
+        self.policy, pr = fixture()
+        pr['reviews'] = [review for review in pr['reviews'] if review['user'] != 'coderabbitai[bot]']
+        result = evaluate(self.policy, pr, None, NOW)
+        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertTrue(main.status_description(result).startswith(
+            'waiting-bots: Waiting for bot review - coderabbitai not yet | thepastaclaw done.'),
+            main.status_description(result))
+
+    def test_status_is_the_move_line_shortened(self):
+        # The status is plain text GitHub refuses past 140 characters, and a
+        # refused status turns the pull request red. What it says after the
+        # state is the move comment's own line, folded to ASCII, cut at a word.
+        def fold(line):
+            return line.replace('`', '').replace('—', '-').replace('·', '|').replace('✓', 'done')
+
+        attested = dict(id=2, user='llbartekll', body='/self-reviewed', created_at='2026-09-11T11:00:00Z',
+                        updated_at='2026-09-11T11:00:00Z')
+        unskipped = bartek()
+        unskipped[1]['comments'] = []
+        two_threads = bartek()
+        two_threads[1]['threads'] = [
+            dict(id=1, author='romchornyi', is_resolved=False, created_at='2026-09-11T10:40:00Z'),
+            dict(id=2, author='shumkov', is_resolved=False, created_at='2026-09-11T10:41:00Z')]
+        bot_objects = fixture()
+        bot_objects[1]['reviews'][0]['state'] = 'CHANGES_REQUESTED'
+        bot_objects[1]['threads'] = [dict(id=7, author='thepastaclaw', is_resolved=False, created_at=NOW, severities=[])]
+        six_areas = bartek()
+        six_areas[1]['files'] += [{'filename': f} for f in (
+            'packages/rs-drive/a.rs', 'packages/rs-drive-abci/a.rs', 'packages/rs-dpp/a.rs',
+            'packages/dashmate/a.js', 'packages/rs-dapi/a.rs')]
+        six_areas[1]['permissions']['lklimek'] = 'write'
+        six_areas[1]['comments'].append(attested)
+        cut = []
+        for (policy, pr), state in ((unskipped, 'waiting-bots'), (two_threads, 'waiting-self-review'),
+                                    (bot_objects, 'waiting-author'), (six_areas, 'ready-for-human')):
+            with self.subTest(state=state):
+                result = evaluate(policy, pr, NOW, LATER)
+                self.assertEqual(result['state'], state)
+                token = main.MOVE_STATES[state]
+                whole = f"{token}: {fold(main.move_text(result).splitlines()[1])}"
+                said = main.status_description(result)
+                self.assertLessEqual(len(said), 140)
+                self.assertTrue(said.isascii(), said)
+                self.assertNotIn('@', said)
+                self.assertEqual(said.split(': ', 1)[0], token)
+                if said == whole:
+                    self.assertLessEqual(len(whole), 140, 'only a text too long is cut')
+                    continue
+                cut.append(state)
+                self.assertTrue(said.endswith('...'), said)
+                kept = said[:-3]
+                self.assertTrue(whole.startswith(kept), (said, whole))
+                self.assertEqual(whole[len(kept)], ' ', f'cut at a word: {said}')
+        self.assertEqual(cut, ['waiting-bots', 'waiting-self-review', 'waiting-author', 'ready-for-human'])
+
+    def test_a_status_that_would_not_be_plain_text_says_the_state_alone(self):
+        # The fold knows the characters a move line holds today. Whatever a
+        # line might hold tomorrow, a character GitHub could refuse, a line
+        # break or a mention is never sent: the state alone is.
+        self.policy, pr = fixture()
+        pr['reviews'] = [review for review in pr['reviews'] if review['user'] != 'coderabbitai[bot]']
+        result = evaluate(self.policy, pr, None, NOW)
+        self.assertTrue(main.status_description(result).startswith('waiting-bots: '))
+        for line in ('coderabbitai not yet → soon', 'coderabbitai not yet\nthepastaclaw', 'coderabbitai asked @shumkov'):
+            with self.subTest(line=line):
+                changed = copy.deepcopy(result)
+                next(item for item in changed['checklist'] if item['item'] == 'bots')['lines'] = [line]
+                self.assertEqual(main.status_description(changed), 'waiting-bots')
 
     def test_queued_status_distinguishes_objections_from_missing_area_approval(self):
         self.policy, pr = fixture()
@@ -971,6 +1063,10 @@ class PublishTests(unittest.TestCase):
             main.publish(api, policy, pr, result, [pr], apply=True)
         posted = [c.args[2] for c in api.upsert_state.call_args_list]
         self.assertFalse([body for body in posted if 'your move' in body.lower()], posted)
+        # Nor by the status: it says what the comment would have, and there
+        # is no comment.
+        self.assertEqual(main.status_description(result), 'waiting-self-review')
+        self.assertEqual(api.post_status.call_args.args[1:], ('pending', 'waiting-self-review'))
         # The verdict is unaffected: what it is owed is still owed.
         self.assertIn('coderabbitai', ' '.join(result['blockers']))
 

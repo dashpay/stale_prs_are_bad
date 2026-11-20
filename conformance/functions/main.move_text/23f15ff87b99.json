@@ -1,48 +1,44 @@
 {
- "function": "main.status_description",
+ "function": "main.move_text",
  "inputs": {
   "result": {
    "number": 1,
    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-   "author": "llbartekll",
+   "author": "owner",
    "title": "title",
    "url": "url",
-   "state": "waiting-self-review",
+   "state": "waiting-author",
    "status": "pending",
    "blockers": [
-    "Author must post /self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "Proceeded without coderabbitai: skipped by @llbartekll",
-    "Proceeded without thepastaclaw: skipped by @llbartekll"
+    "thepastaclaw requested changes on this head; dismiss the review or push a fix",
+    "thepastaclaw left review threads unresolved; resolve them"
    ],
    "reviewers": [],
    "objectors": [],
    "areas": [
-    "swift-sdk"
+    "drive"
    ],
    "ready_since": null,
    "admitted_at": "2026-09-11T12:00:00Z",
    "bot_completed_at": "2026-09-11T10:00:00Z",
    "self_reviewed_at": null,
    "nudge": [],
-   "waived": [
-    "coderabbitai",
-    "thepastaclaw"
-   ],
+   "waived": [],
    "approvals": [],
    "objections": [],
    "checklist": [
     {
      "item": "bots",
-     "done": true,
+     "done": false,
      "lines": [
-      "coderabbitai skipped by llbartekll",
-      "thepastaclaw skipped by llbartekll"
+      "coderabbitai ✓",
+      "thepastaclaw requested changes — dismiss the review or push a fix, 1 thread unresolved — resolve it"
      ],
      "skippable": false
     },
     {
      "item": "self_review",
-     "done": false,
+     "done": true,
      "bot_author": false,
      "on_their_behalf": [],
      "address": []
@@ -63,9 +59,9 @@
      "done": true,
      "areas": [
       {
-       "area": "swift-sdk",
+       "area": "drive",
        "files": [
-        "packages/swift-sdk/Sources/a.swift"
+        "packages/drive/a.rs"
        ],
        "approvers": [],
        "approved_by": [],
@@ -78,15 +74,13 @@
    "reviewed_heads": [
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
    ],
-   "reviewed_since": "2026-09-11T09:00:00Z",
-   "receipts": {},
-   "skipped_by": "llbartekll"
+   "reviewed_since": null,
+   "receipts": {}
   }
  },
- "output": "waiting-self-review",
+ "output": "<!-- pr-hygiene:move state=waiting-self-review sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\nYour move: thepastaclaw requested changes on this head; dismiss the review or push a fix; thepastaclaw left review threads unresolved; resolve them.\nFull checklist in the description.",
  "tests": [
-  "test_checklist.PublishTests.test_a_comment_carrying_both_records_is_left_alone_when_it_agrees",
-  "test_checklist.PublishTests.test_the_diff_is_written_beside_the_record_not_inside_it"
+  "test_checklist.PublishTests.test_status_is_the_move_line_shortened"
  ],
  "python": "3.12"
 }

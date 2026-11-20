@@ -5,7 +5,7 @@
   "status": {
    "state": "pending",
    "context": "PR Hygiene",
-   "description": "waiting-bots"
+   "description": "waiting-bots: Waiting for bot review - coderabbitai not yet | thepastaclaw not yet. Wait for the missing reviews, or a writer can post..."
   },
   "labels": [
    "waiting-bots"

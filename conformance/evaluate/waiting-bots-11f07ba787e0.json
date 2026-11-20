@@ -471,6 +471,7 @@
  "tests": [
   "test_checklist.ChecklistTests.test_the_skip_is_offered_only_while_a_bot_is_still_owed",
   "test_checklist.PublishTests.test_a_record_line_somebody_truncated_does_not_wedge_the_pull_request",
+  "test_checklist.PublishTests.test_status_is_the_move_line_shortened",
   "test_checklist.RecordTests.test_two_standing_comments_converge_to_one"
  ],
  "python_exception_text": false,

@@ -459,7 +459,9 @@ class PublicationTests(unittest.TestCase):
             self.api.reset_mock()
             self.api.snapshot.return_value = copy.deepcopy(pr)
             self.api.pull.return_value = copy.deepcopy(pr)
-            with patch.object(main, 'move_text', return_value=None):
+            # The result carries no checklist, so neither the comment nor the
+            # status has a move line to say: only the labels are under test.
+            with patch.object(main, 'move_text', return_value=None), patch.object(main, 'move_line', return_value=None):
                 main.publish(self.api, self.policy, pr, result, [pr], apply=True)
             self.assertEqual(self.api.set_state_label.called, not correct, (state, waived, labels))
 

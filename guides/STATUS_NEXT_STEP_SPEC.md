@@ -225,7 +225,9 @@ Lines are cut as follows:
 Reader and writer go in **separate commits**, and the PR is merged with a
 merge commit, not squashed. This repository uses both styles (#112 and
 #115 were merged, #113 and #114 squashed). Keeping the commits lets the
-writer be reverted alone.
+status text be withdrawn without losing the reader: revert every commit
+after the reader, newest first. The writer cannot be reverted on its own
+once later commits build on it.
 
 - **Python, `main.py`.**
   - Extract `move_line`.
@@ -279,10 +281,10 @@ writer be reverted alone.
 
 | Risk | Effect | Guard |
 |---|---|---|
-| GitHub refuses a description | A 422 on every verdict, so everything turns red | ASCII-only text of 140 characters or fewer. A test asserts this for every description the corpus and the tests produce. |
+| GitHub refuses a description | A 422 on every verdict, so everything turns red | ASCII-only text of 140 characters or fewer. A line that would not be plain printable ASCII after the fold, or that holds `@`, gives the state alone, so this holds by construction. A test asserts it for every description the corpus and the tests produce. |
 | GitHub stores the text differently from what was sent | Dedup never matches, so every run writes one more status | Post-rollout checks below. The differential cannot see this. |
-| Only the writer is reverted | None. The readers accept both forms. | — |
-| The whole PR is reverted | Heads whose only `ready-for-human` status is new-format lose the build latch. They show `waiting-build` (pending) until the build is green. This fails closed, and the record comment still latches PRs that stayed ready. | Revert the writer commit only. Keep the reader while any open head carries a new-format status. |
+| The status text is withdrawn | None. The readers accept both forms. | Revert every commit after the reader, newest first, and keep the reader. A one-line hotfix that makes `status_description` return the token does the same. |
+| The whole PR is reverted | Heads whose only `ready-for-human` status is new-format lose the build latch. They show `waiting-build` (pending) until the build is green. This fails closed, and the record comment still latches PRs that stayed ready. | Withdraw the text as above instead. Keep the reader while any open head carries a new-format status. |
 | A reader is missed | It silently misreads the status | The consumer table above comes from a `git grep` of `description`, `_head_statuses`, `ready_published`, `latest_state_from_status` and `status_description` across `pr_review/`, `engine/`, `service/`, `src/`, `site/` and the workflows, done independently by two reviewers. |
 | A state is shown green or terminal without evaluation | — | The state still comes only from `result['status']`; only the text changes. |
 
@@ -334,18 +336,22 @@ and the Rust suite (`cargo test -p pr-hygiene-engine`).
 be updated:**
 
 - **Python, `test_checklist.py`**:
-  `test_author_response_check_uses_the_self_review_name` and
-  `test_the_status_never_depends_on_the_description_or_the_labels`
-  (`:1269`).
+  `test_author_response_check_uses_the_self_review_name`.
 - **Python, `test_main.py`**: `test_labels_read_like_the_status` patches
   `move_text` and passes a result with no checklist. It must also patch
   `move_line` or use a real checklist.
 - **Python, `test_conformance.py`**:
-  `test_the_outputs_are_the_bytes_the_write_path_sends` (`:267`).
-- **Rust**: `engine/tests/reconcile/checklist.rs:315,368,1239,1286` and
-  `properties.rs:139,204,239`.
+  `test_the_outputs_are_the_bytes_the_write_path_sends`.
+- **Rust**: `engine/tests/reconcile/checklist.rs`
+  (`the_second_verdict_sees_the_same_rate_limit_notice`) and
+  `properties.rs` (`a_first_admission_completes`,
+  `a_reviewer_request_refused_with_422_does_not_stop_the_status`); the
+  engine differential's totals, where the `ready-latched` verdict post is
+  now deduplicated.
 - **Not updated**: the fixtures in `engine/tests/evidence/reads.rs` stay
   bare, because they cover legacy statuses.
+  `test_the_status_never_depends_on_the_description_or_the_labels` pins
+  `ready-to-merge`, which stays bare.
 
 **After rollout (read-only):**
 

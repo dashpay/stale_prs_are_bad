@@ -4,14 +4,13 @@
   "result": {
    "number": 1,
    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-   "author": "reviewer",
+   "author": "owner",
    "title": "title",
    "url": "url",
    "state": "waiting-bots",
    "status": "pending",
    "blockers": [
-    "coderabbitai has not reported for the current head",
-    "thepastaclaw has not reported for the current head"
+    "coderabbitai has not reported for the current head"
    ],
    "reviewers": [],
    "objectors": [],
@@ -20,7 +19,7 @@
    ],
    "ready_since": null,
    "admitted_at": null,
-   "bot_completed_at": null,
+   "bot_completed_at": "2026-09-11T10:00:00Z",
    "self_reviewed_at": null,
    "nudge": [],
    "waived": [],
@@ -31,8 +30,7 @@
      "item": "bots",
      "done": false,
      "lines": [
-      "coderabbitai not yet",
-      "thepastaclaw not yet"
+      "coderabbitai asked @shumkov"
      ],
      "skippable": true
     },
@@ -45,7 +43,7 @@
     },
     {
      "item": "slot",
-     "done": false,
+     "done": true,
      "limit": 5
     },
     {
@@ -56,18 +54,16 @@
     },
     {
      "item": "approvals",
-     "done": false,
+     "done": true,
      "areas": [
       {
        "area": "drive",
        "files": [
         "packages/drive/a.rs"
        ],
-       "approvers": [
-        "owner"
-       ],
+       "approvers": [],
        "approved_by": [],
-       "owned": false
+       "owned": true
       }
      ],
      "awaiting": []
@@ -82,7 +78,7 @@
  },
  "output": "waiting-bots",
  "tests": [
-  "test_checklist.PublishTests.test_waiting_announcements_are_quiet_until_the_details_change"
+  "test_checklist.PublishTests.test_a_status_that_would_not_be_plain_text_says_the_state_alone"
  ],
  "python": "3.12"
 }

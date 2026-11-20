@@ -135,12 +135,14 @@ impl<T: Transport> Reconciler<'_, T> {
 
     /// Publish the verdict with its human-readable review requirement.
     pub(super) fn post_verdict(&mut self, head: &str, result: &PyValue) -> Result<(), ReadError> {
-        // `post_status` refuses a state it does not know before it reads
-        // the description, as Python's does.
-        let PyValue::Str(status) = getitem(result, "status")? else {
+        // Python works out the description as an argument, before
+        // `post_status` refuses a state it does not know: a description
+        // that cannot be worked out is the error, whatever the state.
+        let status = getitem(result, "status")?;
+        let description = status_description(result)?;
+        let PyValue::Str(status) = status else {
             return Err(ReadError::GitHub("Invalid commit status state".into()));
         };
-        let description = status_description(result)?;
         self.api.post_status(head, status, &description, None)?;
         Ok(())
     }

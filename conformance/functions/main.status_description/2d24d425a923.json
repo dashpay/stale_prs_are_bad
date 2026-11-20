@@ -7,10 +7,10 @@
    "author": "owner",
    "title": "title",
    "url": "url",
-   "state": "waiting-author",
+   "state": "waiting-bots",
    "status": "pending",
    "blockers": [
-    "coderabbitai requested changes on this head; dismiss the review or push a fix"
+    "coderabbitai has not reported for the current head"
    ],
    "reviewers": [],
    "objectors": [],
@@ -30,10 +30,9 @@
      "item": "bots",
      "done": false,
      "lines": [
-      "coderabbitai requested changes — dismiss the review or push a fix",
-      "thepastaclaw ✓"
+      "coderabbitai not yet → soon"
      ],
-     "skippable": false
+     "skippable": true
     },
     {
      "item": "self_review",
@@ -77,9 +76,9 @@
    "receipts": {}
   }
  },
- "output": "waiting-self-review",
+ "output": "waiting-bots",
  "tests": [
-  "test_checklist.PublishTests.test_author_response_check_uses_the_self_review_name"
+  "test_checklist.PublishTests.test_a_status_that_would_not_be_plain_text_says_the_state_alone"
  ],
  "python": "3.12"
 }

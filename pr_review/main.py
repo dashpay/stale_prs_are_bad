@@ -395,14 +395,44 @@ def _files(files):
     return shown + (f' and {len(files) - 3} more' if len(files) > 3 else '')
 
 
+STATUS_LIMIT = 140
+# The move line's only characters outside ASCII, and the backticks GitHub
+# does not render in a status. A status is plain text; one GitHub refused
+# would be refused on every verdict and turn every pull request red.
+STATUS_FOLD = (('`', ''), ('—', '-'), ('·', '|'), ('✓', 'done'))
+
+
 def status_description(result):
-    """The unmet review requirement, separate from automatic reviewer routing."""
+    """The status's words: the state, then what is owed, as the move comment says it.
+
+    The state is what comes before the first `: ` — no state's name holds
+    one — so whatever reads the status back still finds it. The unmet review
+    requirement stays separate from automatic reviewer routing, and a state
+    nobody is told a move in, a green check, a bot author's self-review move
+    and a line that would not be plain printable ASCII say the state alone.
+    Cut at a word to what GitHub keeps.
+    """
     if result['state'] == 'too-many-open-prs':
         approvals = next(item for item in result['checklist'] if item['item'] == 'approvals')
         return 'Human review unresolved' if approvals['awaiting'] else 'Missing human approval'
-    if result['state'] == 'waiting-author':
-        return 'waiting-self-review'
-    return result['state']
+    token = 'waiting-self-review' if result['state'] == 'waiting-author' else result['state']
+    if result['state'] == 'ready-to-merge':
+        return token
+    line = move_line(result)
+    if line is None:
+        return token
+    if token == 'waiting-self-review' and _items(result)['self_review']['bot_author']:
+        return token
+    for unsafe, plain in STATUS_FOLD:
+        line = line.replace(unsafe, plain)
+    said = f'{token}: {line}'
+    # Anything else a line might come to hold — a character GitHub could
+    # refuse, a line break, a mention a status cannot deliver — is not sent.
+    if '@' in said or not all(' ' <= c <= '~' for c in said):
+        return token
+    if len(said) <= STATUS_LIMIT:
+        return said
+    return said[:STATUS_LIMIT - 2].rsplit(' ', 1)[0] + '...'
 
 
 def checklist_block(result):
@@ -518,12 +548,24 @@ def review_text(row, user=None):
     return text + (f'; your part: {part}' if part else '')
 
 
+def _items(result):
+    return {item['item']: item for item in result.get('checklist') or []}
+
+
 def move_text(result):
+    """The move comment's words, under the marker that says which move and which head."""
+    line = move_line(result)
+    if line is None:
+        return None
+    return f"{MOVE_MARKER} state={MOVE_STATES[result['state']]} sha={result['head']} -->\n{line}\nFull checklist in the description."
+
+
+def move_line(result):
     """One line for the person whose move it now is. No mentions: the comment itself notifies."""
     move = MOVE_STATES.get(result['state'])
     if move is None:
         return None
-    items = {item['item']: item for item in result.get('checklist') or []}
+    items = _items(result)
     if move == 'waiting-bots':
         line = f"Waiting for bot review — {' · '.join(items['bots']['lines'])}."
         if items['bots']['skippable']:
@@ -552,7 +594,7 @@ def move_text(result):
         line = f"Ready for review — {' · '.join(asks(result)) or 'needs an owner'}."
     else:
         line = 'Policy satisfied — this can merge.'
-    return f"{MOVE_MARKER} state={move} sha={result['head']} -->\n{line}\nFull checklist in the description."
+    return line
 
 
 def _visible(comment_body):

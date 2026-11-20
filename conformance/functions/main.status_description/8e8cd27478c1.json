@@ -109,7 +109,7 @@
    "skipped_by": "llbartekll"
   }
  },
- "output": "waiting-self-review",
+ "output": "waiting-self-review: Your move: coderabbitai left review threads unresolved; resolve them.",
  "tests": [
   "test_checklist.PublishTests.test_a_second_bot_speaking_after_the_author_was_told_tells_them_again"
  ],

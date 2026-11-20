@@ -7,84 +7,42 @@
    "author": "llbartekll",
    "title": "title",
    "url": "url",
-   "state": "ready-for-human",
+   "state": "waiting-self-review",
    "status": "pending",
    "blockers": [
-    "Human approval or objection resolution is required",
-    "Proceeded without coderabbitai: skipped by @llbartekll",
+    "Author must post /self-reviewed aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "Proceeded without thepastaclaw: skipped by @llbartekll"
    ],
-   "reviewers": [
-    "QuantumExplorer",
-    "ktechmidas",
-    "shumkov"
-   ],
+   "reviewers": [],
    "objectors": [],
    "areas": [
     "fallback",
     "github",
     "swift-sdk"
    ],
-   "ready_since": "2026-09-11T15:00:00Z",
+   "ready_since": null,
    "admitted_at": "2026-09-11T12:00:00Z",
-   "bot_completed_at": "2026-09-11T10:00:00Z",
-   "self_reviewed_at": "2026-09-11T14:00:00Z",
+   "bot_completed_at": "2026-09-11T12:00:00Z",
+   "self_reviewed_at": null,
    "nudge": [],
    "waived": [
-    "coderabbitai",
     "thepastaclaw"
    ],
-   "approvals": [
-    {
-     "area": "swift-sdk",
-     "files": [
-      "packages/swift-sdk/Sources/a.swift"
-     ],
-     "approvers": [],
-     "approved_by": [],
-     "owned": true
-    },
-    {
-     "area": "fallback",
-     "files": [
-      ".editorconfig",
-      "AGENTS.md"
-     ],
-     "approvers": [
-      "QuantumExplorer",
-      "shumkov"
-     ],
-     "approved_by": [],
-     "owned": false
-    },
-    {
-     "area": "github",
-     "files": [
-      ".github/workflows/swift-sdk-build.yml",
-      ".github/workflows/tests.yml"
-     ],
-     "approvers": [
-      "ktechmidas",
-      "shumkov"
-     ],
-     "approved_by": [],
-     "owned": false
-    }
-   ],
+   "approvals": [],
    "objections": [],
    "checklist": [
     {
      "item": "bots",
      "done": true,
      "lines": [
-      "coderabbitai skipped by llbartekll",
+      "coderabbitai ✓",
       "thepastaclaw skipped by llbartekll"
      ],
      "skippable": false
     },
     {
      "item": "self_review",
-     "done": true,
+     "done": false,
      "bot_author": false,
      "on_their_behalf": [],
      "address": []
@@ -98,7 +56,7 @@
      "item": "build",
      "done": true,
      "state": "green",
-     "latched": true
+     "latched": false
     },
     {
      "item": "approvals",
@@ -147,14 +105,15 @@
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
    ],
    "reviewed_since": "2026-09-11T09:00:00Z",
-   "receipts": {},
+   "receipts": {
+    "4e425cdf0d54898b906b495844d743654cbe2ac91ba51dc900bda32efb78c108": "2026-09-11T12:00:00Z"
+   },
    "skipped_by": "llbartekll"
   }
  },
- "output": "ready-for-human",
+ "output": "waiting-self-review: Bots are done - your move: post /self-reviewed.",
  "tests": [
-  "test_checklist.RecordTests.test_ready_since_does_not_drift_between_announcements",
-  "test_checklist.RecordTests.test_the_first_pass_converts_a_standing_record_of_this_move_rather_than_announcing_it"
+  "test_checklist.PublishTests.test_what_the_bot_said_is_written_down_so_an_edit_can_be_told_from_a_report"
  ],
  "python": "3.12"
 }
