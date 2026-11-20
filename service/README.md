@@ -95,6 +95,29 @@ current. A full run then turns red and does not commit or deploy Pages; a
 quarter-hourly run stays green with a warning. Runs that only lack an
 engine export are posted too, and those repositories show as stale.
 
+### Deploys
+
+`.github/workflows/service-deploy.yml` builds the image from `master`
+whenever something the image is built from changes, pushes it to the
+service's ECR repository and has the host run it. It is dormant until the
+repository variable **`PR_HYGIENE_DEPLOY_ROLE_ARN`** is set to the AWS role
+infra created for it (`dashpay/infra`, `modules/pr-hygiene`).
+
+- The job runs in the **`production`** environment, which must be restricted
+  to `master` (Settings → Environments): the AWS role trusts
+  `repo:dashpay/stale_prs_are_bad:environment:production` and nothing else,
+  so that restriction is what keeps other branches from deploying.
+- It stores no secret. Its OIDC token buys a 30-minute role that can push to
+  that one ECR repository and run one SSM document on the service's host.
+- The document takes an image digest only. The host pulls that image,
+  restarts the service and waits up to 90 seconds for `/readyz`; if it does
+  not come up, the host goes back to the previous image and the job fails.
+- Images are tagged with the commit and the tags are immutable, so re-running
+  a deploy runs the image the commit's first run built.
+
+The host, the proxy in front of the service and the backups are described
+in `dashpay/infra`.
+
 ### In front of it
 
 The service limits each request to 30 seconds and each snapshot to the body
