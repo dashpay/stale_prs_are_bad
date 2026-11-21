@@ -18,6 +18,9 @@ use crate::stages::{
 
 const GITHUB_API: &str = "https://api.github.com/graphql";
 const USER_AGENT_STR: &str = concat!("pr-hygiene/", env!("CARGO_PKG_VERSION"));
+/// Open PRs per page of the list, while GitHub answers pages this size in
+/// time.
+const PRS_PER_PAGE: u32 = 50;
 const THREADS_PER_PAGE: u32 = 100;
 const COMMENTS_PER_THREAD: u32 = 50;
 const MAX_RETRIES: u32 = 5;
@@ -27,12 +30,12 @@ const FILES_PER_PAGE: u32 = 100;
 const MAX_CHANGED_FILES: usize = 3000;
 
 const PR_LIST_QUERY: &str = r#"
-query PrHygieneList($owner: String!, $name: String!, $cursor: String, $threads: Int!, $comments: Int!,
-                    $decisive: Int!) {
+query PrHygieneList($owner: String!, $name: String!, $cursor: String, $prs: Int!, $threads: Int!,
+                    $comments: Int!, $decisive: Int!) {
   rateLimit { remaining resetAt cost }
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
-    pullRequests(states: OPEN, first: 50, after: $cursor,
+    pullRequests(states: OPEN, first: $prs, after: $cursor,
                  orderBy: {field: UPDATED_AT, direction: DESC}) {
       pageInfo { endCursor hasNextPage }
       nodes {
@@ -222,6 +225,8 @@ query PrHygieneClosed($owner: String!, $name: String!, $cursor: String, $decisiv
 pub struct Fetcher {
     client: Client,
     endpoint: String,
+    /// What one second of a retry's backoff lasts: a second, except in tests.
+    backoff_unit: Duration,
     /// Rate-limit points GitHub charged for the queries answered so far.
     points: AtomicU64,
 }
@@ -244,6 +249,7 @@ impl Fetcher {
         Ok(Self {
             client,
             endpoint: GITHUB_API.to_string(),
+            backoff_unit: Duration::from_secs(1),
             points: AtomicU64::new(0),
         })
     }
@@ -257,6 +263,12 @@ impl Fetcher {
     #[allow(dead_code)]
     pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = endpoint.into();
+        self
+    }
+
+    #[cfg(test)]
+    pub fn without_backoff(mut self) -> Self {
+        self.backoff_unit = Duration::ZERO;
         self
     }
 
@@ -282,16 +294,26 @@ impl Fetcher {
         let mut cursor: Option<String> = None;
         let mut default_branch: Option<String> = None;
         let repo = format!("{owner}/{name}");
+        // A page GitHub cannot answer in time is asked again smaller, and
+        // the rest of the repository is read at the size it answered: a
+        // larger page would time out again wherever the PRs are as heavy,
+        // and each timeout costs seconds and rate-limit points.
+        let mut prs = PRS_PER_PAGE;
         loop {
             let vars = json!({
                 "owner": owner,
                 "name": name,
                 "cursor": cursor,
+                "prs": prs,
                 "threads": THREADS_PER_PAGE,
                 "comments": COMMENTS_PER_THREAD,
                 "decisive": DECISIVE_REVIEWS,
             });
-            let resp = self.execute(PR_LIST_QUERY, vars).await?;
+            let page = PageSize {
+                var: "prs",
+                size: &mut prs,
+            };
+            let resp = self.execute_page(PR_LIST_QUERY, vars, page).await?;
             if default_branch.is_none() {
                 default_branch = resp
                     .pointer("/data/repository/defaultBranchRef/name")
@@ -579,21 +601,46 @@ impl Fetcher {
     }
 
     async fn execute(&self, query: &str, variables: Value) -> Result<Value> {
-        self.request(query, variables, false).await
+        self.request(query, variables, false, None).await
     }
 
     /// As `execute`, for a `nodes(ids:)` query: a node deleted since its id
     /// was read comes back `null` with a NOT_FOUND error, which is an answer
     /// about that node, not a failed request.
     async fn execute_nodes(&self, query: &str, variables: Value) -> Result<Value> {
-        self.request(query, variables, true).await
+        self.request(query, variables, true, None).await
     }
 
-    async fn request(&self, query: &str, variables: Value, missing_ok: bool) -> Result<Value> {
-        let body = json!({ "query": query, "variables": variables });
+    /// As `execute`, for one page of a connection whose size is `page`.
+    /// Each time GitHub runs out of time on it, the same page is asked
+    /// again at half the size, down to one, from the same budget of
+    /// attempts and with the same backoff as any retry; `page` is left at
+    /// the size GitHub answered.
+    async fn execute_page(
+        &self,
+        query: &str,
+        variables: Value,
+        page: PageSize<'_>,
+    ) -> Result<Value> {
+        self.request(query, variables, false, Some(page)).await
+    }
+
+    async fn request(
+        &self,
+        query: &str,
+        variables: Value,
+        missing_ok: bool,
+        mut page: Option<PageSize<'_>>,
+    ) -> Result<Value> {
+        let mut body = json!({ "query": query, "variables": variables });
         let mut attempt: u32 = 0;
         loop {
             attempt += 1;
+            if let Some(page) = &page {
+                if let Some(vars) = body.get_mut("variables").and_then(Value::as_object_mut) {
+                    vars.insert(page.var.to_string(), json!(*page.size));
+                }
+            }
             // Bundle send + body-read so that mid-stream truncation (chunked
             // transfer cut by GitHub during a 502/503 storm) is treated as a
             // transient transport failure, same as a 5xx response.
@@ -606,7 +653,7 @@ impl Fetcher {
                     }
                     let sleep_secs = backoff_secs(attempt);
                     tracing::warn!(attempt, sleep_secs, "send failed: {e}; retrying");
-                    tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
+                    self.back_off(sleep_secs).await;
                     continue;
                 }
             };
@@ -633,7 +680,7 @@ impl Fetcher {
                         sleep_secs,
                         "body read failed (status {status}): {e}; retrying"
                     );
-                    tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
+                    self.back_off(sleep_secs).await;
                     continue;
                 }
             };
@@ -657,20 +704,37 @@ impl Fetcher {
                     sleep_secs,
                     "rate-limited (status {status}); sleeping then retrying"
                 );
-                tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
+                self.back_off(sleep_secs).await;
                 continue;
             }
             if status.is_server_error() {
                 if attempt > MAX_RETRIES {
-                    bail!("server error {status} after {MAX_RETRIES} retries: {text}");
+                    bail!(
+                        "server error {status} after {MAX_RETRIES} retries{}",
+                        excerpt(&text)
+                    );
                 }
                 let sleep_secs = backoff_secs(attempt);
-                tracing::warn!(attempt, sleep_secs, "server error {status}; retrying");
-                tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
+                // GitHub stops a query after ten seconds with a 502 or a 504.
+                let timed_out =
+                    status == StatusCode::BAD_GATEWAY || status == StatusCode::GATEWAY_TIMEOUT;
+                match page.as_mut() {
+                    Some(page) if timed_out => {
+                        page.halve();
+                        tracing::warn!(
+                            attempt,
+                            sleep_secs,
+                            "server error {status}; retrying at page size {}",
+                            page.size
+                        );
+                    }
+                    _ => tracing::warn!(attempt, sleep_secs, "server error {status}; retrying"),
+                }
+                self.back_off(sleep_secs).await;
                 continue;
             }
             if !status.is_success() {
-                bail!("HTTP {status}: {text}");
+                bail!("HTTP {status}{}", excerpt(&text));
             }
 
             // A success status with a body cut short — large pages are several
@@ -686,7 +750,7 @@ impl Fetcher {
                         bytes = text.len(),
                         "unparsable response body: {e}; retrying"
                     );
-                    tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
+                    self.back_off(sleep_secs).await;
                     continue;
                 }
                 Err(e) => {
@@ -704,19 +768,39 @@ impl Fetcher {
                     if is_rate && attempt <= MAX_RETRIES {
                         let sleep_secs = backoff_secs(attempt);
                         tracing::warn!(attempt, sleep_secs, "graphql RATE_LIMITED; retrying");
-                        tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
+                        self.back_off(sleep_secs).await;
                         continue;
+                    }
+                    if attempt <= MAX_RETRIES && says_timed_out(errors) {
+                        if let Some(page) = page.as_mut() {
+                            page.halve();
+                            let sleep_secs = backoff_secs(attempt);
+                            tracing::warn!(
+                                attempt,
+                                sleep_secs,
+                                "graphql timeout; retrying at page size {}",
+                                page.size
+                            );
+                            self.back_off(sleep_secs).await;
+                            continue;
+                        }
                     }
                     if missing_ok && only_missing_nodes(errors) {
                         self.charge(&value);
                         return Ok(value);
                     }
-                    bail!("graphql errors: {errors:?}");
+                    bail!("graphql errors{}", excerpt(&format!("{errors:?}")));
                 }
             }
             self.charge(&value);
             return Ok(value);
         }
+    }
+
+    /// Wait `secs` seconds of backoff before trying a request again.
+    async fn back_off(&self, secs: u64) {
+        let secs = u32::try_from(secs).unwrap_or(u32::MAX);
+        tokio::time::sleep(self.backoff_unit.saturating_mul(secs)).await;
     }
 
     /// Count what an answered query cost. One that does not ask its cost is
@@ -728,6 +812,42 @@ impl Fetcher {
             .unwrap_or(1);
         self.points.fetch_add(cost, Ordering::Relaxed);
     }
+}
+
+/// A connection's page size: the query variable `var` that holds it, and
+/// its value.
+struct PageSize<'a> {
+    var: &'static str,
+    size: &'a mut u32,
+}
+
+impl PageSize<'_> {
+    /// Half the size, down to one, for a page GitHub ran out of time on.
+    fn halve(&mut self) {
+        *self.size = (*self.size / 2).max(1);
+    }
+}
+
+/// Whether GitHub's errors say it ran out of time on the query. It gives
+/// that error no type, only a message: "Something went wrong while
+/// executing your query. This may be the result of a timeout, …".
+fn says_timed_out(errors: &[Value]) -> bool {
+    errors.iter().any(|e| {
+        e.get("message")
+            .and_then(|m| m.as_str())
+            .is_some_and(|m| m.to_ascii_lowercase().contains("timeout"))
+    })
+}
+
+/// What an error keeps of a failed response's body, to follow its status:
+/// nothing of an HTML error page, else `: ` and the body on one line, cut
+/// as a failed read's reason is. The error is published with the dashboard.
+fn excerpt(body: &str) -> String {
+    let line = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.is_empty() || line.starts_with('<') {
+        return String::new();
+    }
+    format!(": {}", shorten(line))
 }
 
 /// Whether every error says only that a node asked for by id no longer
@@ -1980,6 +2100,15 @@ mod tests {
     fn serve(
         answer: impl Fn(&Value) -> Value + Send + 'static,
     ) -> (String, std::sync::Arc<std::sync::Mutex<Vec<Value>>>) {
+        serve_http(move |request| (200, answer(request).to_string()))
+    }
+
+    /// As `serve`, with `answer` giving the status and the body; a body
+    /// that starts with `<` is sent as an HTML page, as GitHub sends its
+    /// error pages.
+    fn serve_http(
+        answer: impl Fn(&Value) -> (u16, String) + Send + 'static,
+    ) -> (String, std::sync::Arc<std::sync::Mutex<Vec<Value>>>) {
         use std::io::{BufRead, BufReader, Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/graphql", listener.local_addr().unwrap());
@@ -2002,11 +2131,20 @@ mod tests {
                 let mut body = vec![0; length];
                 reader.read_exact(&mut body).unwrap();
                 let request: Value = serde_json::from_slice(&body).unwrap();
-                let reply = answer(&request).to_string();
+                let (status, reply) = answer(&request);
                 log.lock().unwrap().push(request);
+                let reason = StatusCode::from_u16(status)
+                    .unwrap()
+                    .canonical_reason()
+                    .unwrap_or("");
+                let kind = if reply.starts_with('<') {
+                    "text/html"
+                } else {
+                    "application/json"
+                };
                 write!(
                     stream,
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+                    "HTTP/1.1 {status} {reason}\r\ncontent-type: {kind}\r\n\
                      content-length: {}\r\nconnection: close\r\n\r\n{reply}",
                     reply.len()
                 )
@@ -2485,5 +2623,311 @@ mod tests {
             MAX_REASON_CHARS + 1,
             "an error page is cut"
         );
+    }
+
+    /// The page GitHub sends when a query runs past the ten seconds it
+    /// allows one.
+    const TIMEOUT_PAGE: &str = "<!DOCTYPE html>\n<!--\n\nHello future GitHubber!\n-->\n\
+        <html>\n<head><title>Unicorn! &middot; GitHub</title></head>\n<body>\n\
+        <p>We couldn't respond to your request in time. Sorry about that.</p>\n</body>\n</html>\n";
+
+    /// The other way GitHub says it ran out of time on a query: a success
+    /// status, and an error with no type, only a message.
+    fn graphql_timeout() -> (u16, String) {
+        let message = "Something went wrong while executing your query. This may be the \
+                       result of a timeout, or it could be a GitHub bug. Please include \
+                       `C14F:0EF8:17D78D0:18750E1:62E6C8F7` when reporting this issue.";
+        let body = json!({ "data": null, "errors": [{ "message": message }] });
+        (200, body.to_string())
+    }
+
+    /// An open PR numbered `n`, with nothing attached.
+    fn list_node(n: u64) -> Value {
+        json!({
+            "id": format!("PR_{n}"), "number": n, "title": "t", "url": "u",
+            "createdAt": "2026-09-01T00:00:00Z", "updatedAt": "2026-09-02T00:00:00Z",
+            "reviewThreads": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+        })
+    }
+
+    /// The page size a list request asks for; fifty when it names none.
+    fn page_size(request: &Value) -> u64 {
+        request["variables"]["prs"].as_u64().unwrap_or(50)
+    }
+
+    /// The PR a list request's cursor names, 0 for none; GitHub's cursor
+    /// names a PR, not a page.
+    fn after(request: &Value) -> u64 {
+        request["variables"]["cursor"]
+            .as_str()
+            .map(|c| c.trim_start_matches("after:").parse().unwrap())
+            .unwrap_or(0)
+    }
+
+    /// The PRs after the one a list request's cursor names, as many as it
+    /// asks for, of an open list of PRs 1 to `count`, and the cursor of the
+    /// last of them.
+    fn list_page(request: &Value, count: u64) -> (u16, String) {
+        let after = after(request);
+        let last = (after + page_size(request)).min(count);
+        let nodes: Vec<Value> = (after + 1..=last).map(list_node).collect();
+        let body = json!({ "data": {
+            "rateLimit": { "remaining": 4999, "resetAt": "2026-09-10T00:00:00Z", "cost": 1 },
+            "repository": {
+                "defaultBranchRef": { "name": "master" },
+                "pullRequests": {
+                    "pageInfo": { "hasNextPage": last < count, "endCursor": format!("after:{last}") },
+                    "nodes": nodes
+                }
+            }
+        } });
+        (200, body.to_string())
+    }
+
+    /// GitHub's open list of PRs 1 to `count`, where a page of more than
+    /// `fits` PRs takes longer than GitHub allows and fails with `timeout`.
+    fn open_list(
+        count: u64,
+        fits: u64,
+        timeout: impl Fn() -> (u16, String) + Send + 'static,
+    ) -> (String, std::sync::Arc<std::sync::Mutex<Vec<Value>>>) {
+        serve_http(move |request| {
+            let after = after(request);
+            if (after + page_size(request)).min(count) - after > fits {
+                timeout()
+            } else {
+                list_page(request, count)
+            }
+        })
+    }
+
+    /// Each list request `seen`, as its cursor and page size.
+    fn asked(seen: &std::sync::Mutex<Vec<Value>>) -> Vec<String> {
+        seen.lock()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                let cursor = r["variables"]["cursor"].as_str().unwrap_or("start");
+                format!("{cursor}/{}", page_size(r))
+            })
+            .collect()
+    }
+
+    fn numbers(prs: &[RawPr]) -> Vec<u64> {
+        prs.iter().map(|p| p.number).collect()
+    }
+
+    /// A page of PRs too heavy for GitHub to answer in time is asked again
+    /// from the same cursor at half the size until GitHub answers it, and
+    /// the rest of the list is read at the size it answered: every PR once,
+    /// in GitHub's order.
+    #[tokio::test]
+    async fn a_page_too_heavy_to_answer_in_time_is_asked_again_smaller_from_the_same_cursor() {
+        let (url, seen) = open_list(7, 3, || (504, TIMEOUT_PAGE.to_string()));
+        let fetcher = Fetcher::new("t")
+            .unwrap()
+            .with_endpoint(url)
+            .without_backoff();
+        let (prs, ids, branch, facts) = fetcher
+            .fetch_all_open_prs("dashpay", "platform")
+            .await
+            .unwrap();
+        assert_eq!(numbers(&prs), (1..=7).collect::<Vec<_>>());
+        assert_eq!(ids.len(), 7);
+        assert_eq!(facts.len(), 7);
+        assert_eq!(branch.as_deref(), Some("master"));
+        assert_eq!(
+            asked(&seen),
+            [
+                "start/50",
+                "start/25",
+                "start/12",
+                "start/6",
+                "start/3",
+                "after:3/3",
+                "after:6/3"
+            ]
+        );
+    }
+
+    /// Part way down the list, a page GitHub runs out of time on is asked
+    /// again from its own cursor, and the smaller size holds through a retry
+    /// for another reason and for the pages after it.
+    #[tokio::test]
+    async fn a_page_part_way_down_the_list_keeps_its_cursor_and_its_smaller_size() {
+        let answered = std::sync::atomic::AtomicUsize::new(0);
+        let (url, seen) =
+            serve_http(
+                move |request| match answered.fetch_add(1, Ordering::Relaxed) {
+                    1 => graphql_timeout(),
+                    2 => (500, "{}".to_string()),
+                    _ => list_page(request, 120),
+                },
+            );
+        let fetcher = Fetcher::new("t")
+            .unwrap()
+            .with_endpoint(url)
+            .without_backoff();
+        let (prs, ..) = fetcher
+            .fetch_all_open_prs("dashpay", "platform")
+            .await
+            .unwrap();
+        assert_eq!(numbers(&prs), (1..=120).collect::<Vec<_>>());
+        assert_eq!(
+            asked(&seen),
+            [
+                "start/50",
+                "after:50/50",
+                "after:50/25",
+                "after:50/25",
+                "after:75/25",
+                "after:100/25"
+            ]
+        );
+    }
+
+    /// A 502 and a 504 are how GitHub's time limit arrives, and so is a
+    /// success status whose error says the query may have timed out: each
+    /// makes the page smaller. Another server error, or a rate limit, says
+    /// nothing about the page's size, which stays as it was.
+    #[tokio::test]
+    async fn only_running_out_of_time_makes_the_page_smaller() {
+        let secondary = json!({ "message": "You have exceeded a secondary rate limit. \
+                                            Please wait a few minutes before you try again." });
+        let cases = [
+            ("504", (504, TIMEOUT_PAGE.to_string()), "start/25"),
+            ("502", (502, TIMEOUT_PAGE.to_string()), "start/25"),
+            ("graphql timeout", graphql_timeout(), "start/25"),
+            ("500", (500, "{}".to_string()), "start/50"),
+            ("503", (503, "{}".to_string()), "start/50"),
+            (
+                "secondary rate limit",
+                (403, secondary.to_string()),
+                "start/50",
+            ),
+            ("429", (429, "{}".to_string()), "start/50"),
+        ];
+        for (case, failure, retried) in cases {
+            let failed = std::sync::atomic::AtomicBool::new(false);
+            let (url, seen) = serve_http(move |request| {
+                if failed.swap(true, Ordering::Relaxed) {
+                    list_page(request, 3)
+                } else {
+                    failure.clone()
+                }
+            });
+            let fetcher = Fetcher::new("t")
+                .unwrap()
+                .with_endpoint(url)
+                .without_backoff();
+            let (prs, ..) = fetcher
+                .fetch_all_open_prs("dashpay", "platform")
+                .await
+                .unwrap_or_else(|e| panic!("{case}: {e:#}"));
+            assert_eq!(numbers(&prs), [1, 2, 3], "{case}");
+            assert_eq!(asked(&seen), ["start/50", retried], "{case}");
+        }
+    }
+
+    /// A page GitHub cannot answer in time even one PR at a time fails the
+    /// repository after as many requests as any request that keeps failing,
+    /// in one short line: the error is published with the dashboard, and
+    /// GitHub's error page is no part of it.
+    #[tokio::test]
+    async fn a_page_never_answered_in_time_fails_after_the_usual_retries_in_one_short_line() {
+        let (url, seen) = open_list(7, 0, || (504, TIMEOUT_PAGE.to_string()));
+        let fetcher = Fetcher::new("t")
+            .unwrap()
+            .with_endpoint(url)
+            .without_backoff();
+        let error = fetcher
+            .fetch_all_open_prs("dashpay", "platform")
+            .await
+            .unwrap_err();
+        let sizes = [
+            "start/50", "start/25", "start/12", "start/6", "start/3", "start/1",
+        ];
+        assert_eq!(asked(&seen), sizes);
+        assert_eq!(sizes.len(), MAX_RETRIES as usize + 1);
+        assert_eq!(
+            format!("{error:#}"),
+            "server error 504 Gateway Timeout after 5 retries"
+        );
+
+        let (url, seen) = open_list(7, 0, graphql_timeout);
+        let fetcher = Fetcher::new("t")
+            .unwrap()
+            .with_endpoint(url)
+            .without_backoff();
+        let error = fetcher
+            .fetch_all_open_prs("dashpay", "platform")
+            .await
+            .unwrap_err();
+        assert_eq!(asked(&seen), sizes);
+        let error = format!("{error:#}");
+        assert!(error.starts_with("graphql errors: "), "{error}");
+        assert!(error.contains("may be the result of a timeout"), "{error}");
+        assert!(!error.contains('\n'), "{error}");
+        assert!(
+            error.chars().count() <= "graphql errors: ".len() + MAX_REASON_CHARS + 1,
+            "{error}"
+        );
+    }
+
+    /// While GitHub answers in time, every page asks for fifty PRs.
+    #[tokio::test]
+    async fn a_list_answered_in_time_is_read_fifty_prs_a_page() {
+        let (url, seen) = open_list(120, 50, || (504, TIMEOUT_PAGE.to_string()));
+        let fetcher = Fetcher::new("t")
+            .unwrap()
+            .with_endpoint(url)
+            .without_backoff();
+        let (prs, ..) = fetcher
+            .fetch_all_open_prs("dashpay", "platform")
+            .await
+            .unwrap();
+        assert_eq!(numbers(&prs), (1..=120).collect::<Vec<_>>());
+        assert_eq!(asked(&seen), ["start/50", "after:50/50", "after:100/50"]);
+        for request in seen.lock().unwrap().iter() {
+            assert_eq!(request["variables"]["prs"], 50, "the size is the query's");
+        }
+    }
+
+    /// A failed response leaves at most one short line in the error: a
+    /// JSON body on one line and cut, an HTML page nothing.
+    #[tokio::test]
+    async fn a_failed_response_leaves_at_most_one_short_line_in_the_error() {
+        let pretty = format!(
+            "{{\n  \"message\": \"Bad credentials\",\n  \"documentation_url\": \"{}\"\n}}",
+            "x".repeat(500)
+        );
+        let (url, _) = serve_http(move |_| (401, pretty.clone()));
+        let fetcher = Fetcher::new("t").unwrap().with_endpoint(url);
+        let error = format!(
+            "{:#}",
+            fetcher
+                .execute(PR_MERGEABLE_QUERY, json!({}))
+                .await
+                .unwrap_err()
+        );
+        assert!(
+            error.starts_with(r#"HTTP 401 Unauthorized: { "message": "Bad credentials","#),
+            "{error}"
+        );
+        assert!(!error.contains('\n'), "{error}");
+        assert!(error.ends_with('…'), "{error}");
+        assert_eq!(
+            error.chars().count(),
+            "HTTP 401 Unauthorized: ".len() + MAX_REASON_CHARS + 1,
+            "{error}"
+        );
+
+        let (url, _) = serve_http(|_| (404, TIMEOUT_PAGE.to_string()));
+        let fetcher = Fetcher::new("t").unwrap().with_endpoint(url);
+        let error = fetcher
+            .execute(PR_MERGEABLE_QUERY, json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!(format!("{error:#}"), "HTTP 404 Not Found");
     }
 }
