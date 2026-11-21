@@ -416,7 +416,9 @@ in the snapshot whose pushed verdict was read after its repository's
 `data_as_of`, the verdict decides its `engine_state`, `stage`, `draft`,
 `blockers`, `next_action`, `asks` and `objectors`, the reviews owed on it,
 and its author's `wip`; a stage change since the snapshot dates `since`
-(`since_basis: engine`) from the push that first showed it. A PR missing from
+(`since_basis: engine`) from the push that first showed it, except in a
+stage whose entry is never recorded (a running build), which is timed from
+the PR's opening as the analyzer does. A PR missing from
 an open list read after `data_as_of` is hidden, with the reviews owed on it
 and its place in its author's `authored` and `wip`. Everything else — titles,
 CI, threads, speed, stage history — stays the snapshot's, and the next

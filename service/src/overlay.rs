@@ -146,14 +146,21 @@ fn apply(
         None if stage == p.stage => None,
         None => Some(v.read_at),
     };
+    let out = stages.iter().find(|s| s.stage == stage);
     if let Some(since) = since {
-        let thresholds = stages
-            .iter()
-            .find(|s| s.stage == stage)
-            .and_then(|s| s.late_hours);
-        p.since = Some(since);
-        p.since_basis = Some(SinceBasis::Engine);
-        p.lateness = board::lateness_at(p.since, p.since_basis, thresholds, now);
+        if out.is_some_and(|s| s.entry_recorded) {
+            p.since = Some(since);
+            p.since_basis = Some(SinceBasis::Engine);
+            p.lateness =
+                board::lateness_at(p.since, p.since_basis, out.and_then(|s| s.late_hours), now);
+        } else {
+            // A stage whose entry is never recorded, such as a running
+            // build: dated from the PR's opening and never late, as the
+            // analyzer has it.
+            p.since = p.created_at;
+            p.since_basis = p.created_at.map(|_| SinceBasis::Opened);
+            p.lateness = None;
+        }
     }
     p.stage = stage;
     p.engine_state = Some(state.state.clone());

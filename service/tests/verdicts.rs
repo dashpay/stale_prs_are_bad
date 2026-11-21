@@ -635,3 +635,104 @@ async fn a_pushed_pr_not_in_the_snapshot_is_ignored() {
     .await;
     assert_eq!(dashboard(&app).await, before);
 }
+
+/// Still in the snapshot's stage, a PR keeps the snapshot's time in it.
+#[tokio::test]
+async fn a_push_in_the_snapshots_stage_keeps_its_since() {
+    let app = app();
+    ingest(&app, &snapshot(30)).await;
+    let before = pr(&dashboard(&app).await, "dashpay/platform#3000").clone();
+    push_platform(
+        &app,
+        &push(
+            PLATFORM,
+            minutes_ago(1),
+            &PLATFORM_OPEN,
+            &[(3000, in_review(&["QuantumExplorer", "alice"]))],
+        ),
+    )
+    .await;
+    let after = pr(&dashboard(&app).await, "dashpay/platform#3000").clone();
+    for field in ["since", "since_basis", "lateness"] {
+        assert_eq!(after[field], before[field], "{field}");
+    }
+}
+
+/// Later pushes in the same stage keep the time the PR moved, not their own.
+#[tokio::test]
+async fn a_later_push_in_the_same_stage_keeps_the_time_it_moved() {
+    let app = app();
+    ingest(&app, &snapshot(30)).await;
+    push_platform(
+        &app,
+        &push(
+            PLATFORM,
+            minutes_ago(20),
+            &PLATFORM_OPEN,
+            &[(3000, mergeable())],
+        ),
+    )
+    .await;
+    let back = minutes_ago(10);
+    let review = in_review(&["QuantumExplorer", "alice"]);
+    push_platform(
+        &app,
+        &push(PLATFORM, back, &PLATFORM_OPEN, &[(3000, review.clone())]),
+    )
+    .await;
+    push_platform(
+        &app,
+        &push(PLATFORM, minutes_ago(1), &PLATFORM_OPEN, &[(3000, review)]),
+    )
+    .await;
+    assert_eq!(
+        pr(&dashboard(&app).await, "dashpay/platform#3000")["since"],
+        json!(back)
+    );
+}
+
+/// Back to draft, a PR gives its author's slot back.
+#[tokio::test]
+async fn a_pr_turned_back_to_draft_frees_its_authors_slot() {
+    let app = app();
+    ingest(&app, &snapshot(30)).await;
+    assert_eq!(person(&dashboard(&app).await, "carol")["wip"][PLATFORM], 3);
+    let draft = json!({"state": "draft", "author": "carol"});
+    push_platform(
+        &app,
+        &push(PLATFORM, minutes_ago(1), &PLATFORM_OPEN, &[(3000, draft)]),
+    )
+    .await;
+    let d = dashboard(&app).await;
+    assert_eq!(pr(&d, "dashpay/platform#3000")["stage"], "draft");
+    assert_eq!(pr(&d, "dashpay/platform#3000")["draft"], true);
+    assert_eq!(person(&d, "carol")["wip"][PLATFORM], 2);
+}
+
+/// A running build's entry is never recorded, so the analyzer never calls
+/// it late; a pushed one is timed from the PR's opening, as there.
+#[tokio::test]
+async fn a_pr_moved_into_a_running_build_is_not_timed() {
+    let app = app();
+    ingest(&app, &snapshot(30)).await;
+    let created = pr(&dashboard(&app).await, "dashpay/platform#3000")["created_at"].clone();
+    let building = json!({
+        "state": "waiting-build", "author": "carol",
+        "checklist": [{"item": "build", "state": "running"}],
+    });
+    push_platform(
+        &app,
+        &push(
+            PLATFORM,
+            minutes_ago(1),
+            &PLATFORM_OPEN,
+            &[(3000, building)],
+        ),
+    )
+    .await;
+    let p = pr(&dashboard(&app).await, "dashpay/platform#3000").clone();
+    assert_eq!(p["stage"], "ci");
+    assert_eq!(p["since"], created);
+    assert_eq!(p["since_basis"], "opened");
+    assert_eq!(p["lateness"], Value::Null);
+}
