@@ -4,6 +4,8 @@ import re
 import tempfile
 import unittest
 
+import yaml
+
 from pr_review.rollout import caller_workflow, write_bundle
 from pr_review.main import run
 from pr_review import policy
@@ -151,6 +153,13 @@ class RolloutTests(unittest.TestCase):
             with self.subTest(revision=revision), tempfile.TemporaryDirectory() as folder:
                 with self.assertRaises(ValueError):
                     write_bundle('dashpay/tenderdash', revision, Path(folder) / 'packet')
+
+    def test_the_caller_grants_the_token_the_dashboard_post_needs(self):
+        # The reusable workflow declares no permissions of its own, so what
+        # the caller grants here is exactly what the engine's job holds.
+        grant = yaml.safe_load(caller_workflow('master'))['permissions']
+        self.assertEqual(grant, {'contents': 'read', 'pull-requests': 'write', 'issues': 'write',
+                                 'statuses': 'write', 'id-token': 'write'})
 
     def test_bundle_can_track_master(self):
         with tempfile.TemporaryDirectory() as folder:

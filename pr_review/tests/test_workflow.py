@@ -1,5 +1,12 @@
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import json
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -65,6 +72,113 @@ class TargetCheckoutTests(unittest.TestCase):
                          'a tree is handed to the engine on events that never cloned one')
         self.assertTrue(fallback.strip().endswith("|| ''"),
                         'the path must be empty on every other event, not merely wrong')
+
+
+class PermissionTests(unittest.TestCase):
+    """The reusable workflow takes exactly what its caller grants.
+
+    A called workflow that asks for a scope its caller did not grant fails to
+    start, and pull_request_target runs the caller from each pull request's
+    base branch: an old release branch's caller would then stop the gate on
+    every pull request into it. Declaring nothing inherits the caller's grant,
+    which is never more than a caller chose to give.
+    """
+
+    def test_neither_the_workflow_nor_its_job_asks_for_anything(self):
+        doc = yaml.safe_load(WORKFLOW.read_text())
+        self.assertNotIn('permissions', doc)
+        for name, job in doc['jobs'].items():
+            self.assertNotIn('permissions', job, name)
+
+
+class VerdictPostTests(unittest.TestCase):
+    """The last step hands this run's verdicts to the dashboard.
+
+    Every status is already written when it starts, so it can only ever warn:
+    it must never fail the job, hold it long, or print the token it mints.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.steps = yaml.safe_load(WORKFLOW.read_text())['jobs']['reconcile']['steps']
+        cls.step = cls.steps[-1]
+
+    def test_it_runs_last_and_whatever_happened_before_it(self):
+        self.assertEqual(self.step['name'], 'Post verdicts to the dashboard')
+        self.assertEqual(self.step['if'], 'always()')
+
+    def test_it_can_neither_fail_the_job_nor_hold_it(self):
+        self.assertIs(self.step['continue-on-error'], True)
+        self.assertLessEqual(self.step['timeout-minutes'], 2)
+        calls = re.findall(r'\bcurl\b[^\n]*(?:\\\n[^\n]*)*', self.step['run'])
+        self.assertEqual(len(calls), 2, 'one call mints the token, one posts')
+        for call in calls:
+            self.assertIn('--max-time 20', call)
+
+    def test_it_posts_to_the_one_service_over_tls(self):
+        self.assertEqual(self.step['env']['SERVICE_URL'], 'https://pr-hygiene.services.dash.org')
+        self.assertIn('/ingest/verdicts', self.step['run'])
+        self.assertIn("--proto '=https'", self.step['run'])
+
+    def post(self, environment, folder):
+        """Run the step's script as the runner would, with its default shell."""
+        bash = shutil.which('bash')
+        env = {'PATH': os.environ['PATH'], 'RUNNER_TEMP': folder,
+               'SERVICE_URL': self.step['env']['SERVICE_URL'], **environment}
+        done = subprocess.run([bash, '-e', '-c', self.step['run']], env=env, capture_output=True,
+                              text=True, timeout=60)
+        return done.returncode, done.stdout + done.stderr
+
+    def test_without_verdicts_it_does_nothing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(self.post({}, folder), (0, ''))
+
+    def test_a_caller_that_grants_no_token_gets_a_warning(self):
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, 'verdicts.json').write_text('{}')
+            code, output = self.post({}, folder)
+        self.assertEqual(code, 0)
+        self.assertIn('::warning::', output)
+
+    def test_a_failed_post_warns_and_never_prints_the_token(self):
+        secret = 'eyJ-the-minted-token'
+        request_token = 'the-request-token'
+        seen = []
+
+        class Mint(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append((self.path, self.headers.get('Authorization')))
+                body = json.dumps({'value': secret}).encode()
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(('127.0.0.1', 0), Mint)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, 'verdicts.json').write_text('{}')
+            for service in ('https://127.0.0.1:1', 'http://127.0.0.1:1'):
+                with self.subTest(service):
+                    code, output = self.post({
+                        'ACTIONS_ID_TOKEN_REQUEST_URL': f'http://127.0.0.1:{server.server_port}/token?x=1',
+                        'ACTIONS_ID_TOKEN_REQUEST_TOKEN': request_token,
+                        'SERVICE_URL': service}, folder)
+                    self.assertEqual(code, 0, output)
+                    self.assertIn('::warning::', output)
+                    self.assertIn(f'::add-mask::{secret}', output, 'masked before anything else can print it')
+                    self.assertNotIn(secret, output.replace(f'::add-mask::{secret}', ''))
+                    self.assertNotIn(request_token, output)
+            self.assertEqual(os.listdir(folder), ['verdicts.json'], 'no header file is left behind')
+        self.assertTrue(seen)
+        path, authorization = seen[0]
+        self.assertEqual(authorization, f'bearer {request_token}')
+        self.assertIn('audience=', path)
 
 
 class RepositoryRootTests(unittest.TestCase):
