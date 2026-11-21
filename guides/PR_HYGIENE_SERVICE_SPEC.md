@@ -5,7 +5,8 @@ and security reviews; the owner's decisions (**Rust**, a **public API**,
 **GitHub sign-in open to anyone** that personalises the page); then a
 Rust-port review and a public-API/privacy review. Replaces the delivery parts of `DASHBOARD_V2_SPEC.md`
 (static site, `data` branch); its product parts — stages, "your part",
-humans vs bots, lateness — carry over unchanged.
+humans vs bots, lateness — carry over unchanged. Revision 9, 2026-11-21:
+GitHub events drive the service read-only before the write cut-over (§6f).
 
 ## 1. Problem
 
@@ -224,7 +225,8 @@ GitHub ───▶ │ webhook receiver ─▶ durable queue (SQLite) │ ◀�
 
 ## 4. Requirements for infra
 
-One always-on container running two processes (front, worker); a persistent
+Two always-on containers from one image, `serve` (front) and `worker`
+(§6d, §6f), sharing the database volume; a persistent
 **local** volume for SQLite (not NFS) with daily backup; HTTPS on a dash.org subdomain (inbound
 from GitHub webhooks); outbound HTTPS to GitHub and Slack; secrets: App
 key (KMS if available), webhook secret, sign-in App client secret, session
@@ -270,7 +272,9 @@ engine's posted verdicts deliver value long before.
    (#68's logic). Live diff per (PR, head) against the Python engine's
    status, differences sorted into categories defined up front
    (clock-dependent timeouts, telemetry, admission time); any other
-   difference is a bug in the port.
+   difference is a bug in the port. GitHub's events reach the service
+   read-only first (§6f): the board follows a PR within seconds, and the
+   shadow soaks on the real event path before step 2.
 2. **Cut over writes, one repo at a time** (grovedb → dash-evo-tool →
    tenderdash → rust-dashcore → platform): turn Actions writes off with the
    repo variable (instant, every branch — deleting the caller would leave
@@ -782,6 +786,9 @@ So 1b-6 splits in two:
   measured headroom. If needed, the pass rotates across repositories.
 - This starts the three-to-four-week verdict clock for step 2 now, rather
   than when hosting arrives.
+- Built, then disabled by the owner: it overran the export App's rate
+  limit. §6f's soak on events, with its sweep, takes over full coverage and
+  restarts the clock.
 
 **1b-6b — the operational soak, hosted.** This tests what the job cannot:
 - an installation token minted and refreshed by the service
@@ -789,7 +796,8 @@ So 1b-6 splits in two:
 - a process that runs for weeks;
 - the event path.
 
-It is judged on operation, not on verdicts. 1b-6a carries the verdicts.
+It was to be judged on operation, with 1b-6a carrying the verdicts. With
+1b-6a disabled, it carries both (§6f).
 
 **1b-6b's design.**
 - **Process.**
@@ -810,13 +818,16 @@ It is judged on operation, not on verdicts. 1b-6a carries the verdicts.
 
   It holds no bodies, values, permission levels or listings, and rows go
   after 30 days.
-- **What drives it.**
-  - A serial loop sweeps each repository with `Selection::All`, dry, paced by
-    a request budget.
-  - From 6b's second stage, the reader App's webhook reaches the front
-    (receiver as in §2). The front writes `(repo, pr)` into a queue file the
-    worker reads; the details are settled when the front is hosted. The
-    worker runs `Selection::Pr(N)` per event, coalesced per author.
+
+  From §6f the worker also writes to the main database: queue leases and
+  each PR's public dashboard row (an overlay). Nothing private goes there.
+- **What drives it** (§6f has the detail).
+  - Events. The reader App's webhook reaches `serve`, which queues the PR in
+    the main database. The worker runs `Selection::Pr(N)` per PR, one at a
+    time.
+  - A sweep at the lowest priority, chunked per author, paced by a request
+    budget. Replaces the serial `Selection::All` loop, which would block
+    events for minutes on platform.
 - **Writes** are caught by the engine's `Observed` layer, as in 1b-5. Each one
   is answered as a GitHub failure, so the run goes on and every PR gets a
   verdict. `ReadOnly` sits below it as the guarantee. A refusal from
@@ -871,9 +882,9 @@ It is judged on operation, not on verdicts. 1b-6a carries the verdicts.
 
 **Owner actions.**
 - 1b-6a: none.
-- 1b-6b: the reader App (permissions in #92), its installation and key, and
-  a host for the second container.
-- Events: the service's public URL and a webhook secret.
+- 1b-6b and events: the reader App with its webhook, its installation, key
+  and secret (§6f has the exact settings); the host's second container is
+  an infra change (§6f).
 
 ## 6e. Step 2 in detail — push, not pull
 
@@ -884,6 +895,10 @@ often anyone polls. §2 gives the receiver, queue and worker; this section
 covers what changes in cost and state, and what has to hold for push to be
 as correct as today's polling. (Revised after a review of the push model's
 failure modes.)
+
+§6f brings the event path forward, read-only. It builds the receiver, the
+queue and its coalescing, the freshness check, delivery replay and the
+safety net there. What follows is what writing adds on top.
 
 **What reads the service instead of GitHub.** The dashboard, the `/prs`
 skill, the Slack digest and any Actions job read the public API, which
@@ -904,6 +919,9 @@ answers from the store and never reaches GitHub (§2). This removes:
     attestations, CodeRabbit's edited notice);
   - `status`, `check_run` and `check_suite`;
   - `push` to a governed base branch.
+
+  §6f starts without `check_run` and `push`. Step 2 adds them if the soak
+  shows a failed build or a base change noticed too late.
 
   An event enqueues `(repo, pr)`, and the worker reconciles that author with
   `Selection::Pr`. This was measured at 15–40 requests, against about 1 200
@@ -1041,7 +1059,7 @@ lets the engine trust the App.
 | What | When |
 |---|---|
 | The five repositories' hourly sweeps and quarter-hourly build scans in Actions | per repository at its cut-over (`PR_REVIEW_AUTOMATION_ENABLED`) |
-| The dashboard export through Actions and its post job | when the API serves every repository |
+| The dashboard export through Actions and its post job | slowed on §6f's evidence; retired once the worker's own full pass replaces it and the owner accepts Rust's verdicts on the board |
 | The engine differential job | after the last cut-over |
 | The Python engine and the callers | step 3 |
 
@@ -1066,6 +1084,585 @@ lets the engine trust the App.
 
   Step 2 starts only when these have been stable for the soak's duration.
 
+## 6f. Events first, read-only — before the write cut-over
+
+Goal: the dashboard, the API, the `/prs` skill and Slack follow a pull
+request within about half a minute of a change on GitHub, not up to 15
+minutes later. Nothing is written to GitHub. The Rust engine runs in shadow
+on the same events: this is 1b-6b's soak, and its clock restarts here for
+step 2. (Owner decision, 2026-11-21: a GitHub App webhook to the service,
+brought forward from step 2.)
+
+**In one paragraph.** A new read-only App sends its webhook to `serve`. The
+receiver checks the signature, records the delivery and enqueues the pull
+request in one transaction, and answers. A second container, `worker`,
+holds the App key. It takes each pull request off the queue, reads it once
+the way the analyzer does and runs the Rust engine's dry `Selection::Pr`
+over it, and writes one **overlay** row, the PR's dashboard row, into the
+database `serve` answers from. The 15-minute Actions run keeps posting full
+snapshots, which stay the base layer and the safety net. Read times decide
+which of the two is newer, so an older snapshot never overwrites a newer
+overlay, and an older overlay never outlives a newer snapshot.
+
+Rejected: governed repositories' Actions pushing their per-PR state to the
+API. That needs `id-token: write` in other teams' caller workflows. It gives
+a partial row, since the engine has verdicts and only the analyzer derives
+the dashboard's fields. And step 2 throws it away.
+
+### The App
+
+A **new, dedicated, read-only App**: the reader App 1b-6 already specifies
+(§6c), now with a webhook.
+
+Why not a webhook on the existing `pr-hygiene` App (id 4912985):
+- **Rate.** The export already spends about 2 400 of its 5 000 requests an
+  hour. The engine differential was disabled because it overran that budget.
+  Events and the soak need their own budget.
+- **Key.** Its key is an Actions secret. A second key of the same App on the
+  host would make a host compromise yield the export's identity as well.
+- **Permissions.** It has contents, issues, metadata and pull requests (read).
+  It lacks the statuses, checks and actions the engine reads
+  (`reader::app::PERMISSIONS`). Adding them needs the org owner's approval of
+  each new permission ([modifying an App](https://docs.github.com/en/apps/maintaining-github-apps/modifying-a-github-app-registration)),
+  the same work as installing a new App.
+
+At the write cut-over, a **separate writer App** is created (§6c). It is
+installed repository by repository, and its installation is the per-repo
+switch. The reader App keeps the webhook and every read. Rejected: giving
+the reader App write permissions then. That makes the long-lived,
+webhook-holding key a write key, and loses the per-repo switch. The writer
+App's own writes come back as events on the reader's webhook and are
+dropped by its bot's numeric id.
+
+**Settings, for the owner to enter** (*Register new GitHub App* under the
+dashpay organisation; nothing is created before this spec is agreed):
+
+| Field | Value |
+|---|---|
+| GitHub App name | `Dash PR Hygiene Reader` (≤ 34 characters, unique across GitHub; any free name will do) |
+| Description | "Read-only. Reads pull requests in the governed repositories and receives their events for the PR Hygiene service. Writes nothing." |
+| Homepage URL | `https://pr-hygiene.services.dash.org` |
+| Callback URL, Setup URL, Device Flow, Request user authorization during installation | empty / off |
+| Webhook **Active** | on |
+| Webhook URL | `https://pr-hygiene.services.dash.org/github/webhook` |
+| Webhook secret | 32 random bytes as hex (`openssl rand -hex 32`), never written anywhere but the App and SSM (below) |
+| SSL verification | enabled |
+| Repository permissions | Actions **Read-only**, Checks **Read-only**, Commit statuses **Read-only**, Contents **Read-only**, Issues **Read-only**, Metadata **Read-only** (mandatory), Pull requests **Read-only**; everything else No access |
+| Organization and account permissions | none |
+| Subscribe to events | Check suite, Issue comment, Pull request, Pull request review, Pull request review comment, Pull request review thread, Status |
+| Where can this GitHub App be installed? | **Only on this account** |
+| Installation | dashpay → **Only select repositories**: platform, rust-dashcore, tenderdash, grovedb, dash-evo-tool |
+
+Then the owner generates one private key, records the App id and the
+installation id, and hands both secrets to SSM (§ *Secrets*).
+
+- The permissions are exactly what `InstallationTokens` asks for. It asks
+  for each at `read` and refuses a token that grants more.
+- Each event needs a permission in this list
+  ([events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads)).
+  `installation` and `installation_repositories` arrive without a
+  subscription.
+- **Not subscribed at first:**
+  - `check_run`: about 25–30 runs per platform head, two or three deliveries
+    each, measured on two heads on 2026-11-21. Suites complete per workflow,
+    and suite completion is what the build state needs here.
+  - `push`: a base-branch push touches every PR on that base. That is left
+    to the full pass.
+  - Step 2 may add either. Checks read covers `check_run`, so no new
+    permission is needed.
+
+### Receiver, in `serve`
+
+`POST /github/webhook`. In order, cheapest first, nothing parsed before the
+signature holds:
+1. **Headers.** `X-GitHub-Event` is a subscribed event, `installation` or
+   `ping`; `X-GitHub-Delivery` is a GUID; `X-GitHub-Hook-Installation-Target-ID`
+   is the App id; `X-Hub-Signature-256` is `sha256=` and 64 hex digits.
+   Anything else gets 400 and is not read further. These headers are filters,
+   not proof.
+2. **Body.** Read to at most 1 MiB, the limit nginx also enforces; larger
+   gets 413. GitHub caps payloads at 25 MB, but every subscribed event is
+   bounded by two 65 536-character texts plus GitHub's objects.
+3. **Signature.** HMAC-SHA256 of the raw bytes with the webhook secret,
+   compared with `hmac`'s `verify_slice`, which runs in constant time
+   ([validating deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)).
+   During a rotation both the current and the next secret are tried.
+   Failure gets 401, and only a counter records it.
+4. **Scope.** The payload's `installation.id` is the configured installation.
+   The repository is a governed one by numeric id: the worker resolves the
+   registry's names to ids at start-up and writes them to the database. An
+   `issue_comment` counts only on a pull request (`issue.pull_request`
+   present), and `check_suite` only when `completed`. Anything else gets
+   **202 and is dropped**, never 4xx: a 4xx marks the delivery failed, and
+   the replay below would send it again.
+5. **Record and enqueue.** In one `BEGIN IMMEDIATE` transaction:
+   `INSERT OR IGNORE` the delivery id into `webhook_deliveries` (kept 7 days,
+   beyond GitHub's 3-day redelivery window); only if it is new, upsert the
+   queue entry (below). A repeat id gets 202 and changes nothing: a
+   redelivery carries the same `X-GitHub-Delivery`
+   ([best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks)).
+   Then 202.
+
+GitHub expects a 2xx within 10 seconds (same page). The route has its own
+8-second deadline and at most 32 requests in flight, so a flood cannot
+starve the API. A busy database or the deadline gets 503, and the replay
+recovers the delivery. Logs carry the delivery id, event, action,
+repository, PR number and outcome: never a body, a header value or a
+signature. Bodies are dropped after the transaction; only the facts below
+are kept.
+
+What the queue keeps from a payload is a **hint**, never evidence:
+- the pull request number, or the head SHA for a `status` event or a fork's
+  check suite, whose payload names no PR;
+- the facts the freshness check needs: the head SHA, the review or comment
+  id, and the PR's state (closed or draft).
+
+**Infra change to nginx** (infra owns it):
+
+```nginx
+limit_req_zone $binary_remote_addr zone=prh_hook:10m rate=20r/s;
+
+location = /github/webhook {
+    limit_except POST { deny all; }
+    client_max_body_size    1m;
+    client_body_buffer_size 1m;   # held in memory, never written to disk
+    limit_req zone=prh_hook burst=200 nodelay;
+    proxy_read_timeout 10s;
+    proxy_pass http://prh_service;
+}
+```
+
+The existing `prh` access log holds the path, status and size only, with no
+headers. No log format may name `$request_body` or `$http_x_hub_signature_256`.
+
+Rejected: allowing only GitHub's `hooks` ranges from `/meta`. A stale list
+silently drops real deliveries, the signature already authenticates, and a
+refused delivery is recovered by the replay.
+
+### Process and store
+
+Two containers from one image, as infra#92's README already plans:
+- **`serve`**: internet-facing. It holds the webhook secret and never the App
+  key, and it refuses to start with `PR_HYGIENE_READER_*` set (§6d).
+- **`worker`**: no port. It holds the App key and refuses to start with the
+  webhook secret set.
+
+Both open the **main database** on `/data`. The worker also keeps 1b-6b's
+private shadow database on a volume of its own, which `serve` never mounts
+and which is not backed up.
+
+Compared:
+
+| Option | For | Against |
+|---|---|---|
+| **Shared SQLite, WAL, two containers on one host** (chosen) | The queue's "record and enqueue" and the worker's lease are SQL transactions. There is no internal API to authenticate, version or bound. The same `Store` code is used by both, and the host's daily `sqlite3 VACUUM INTO` already opens this file from a second process. | Two writers. Writes are short `BEGIN IMMEDIATE` transactions with a 5 s busy timeout. Schema changes have one owner: `serve` migrates, and the worker waits until `user_version` equals its own. |
+| Worker writes through an internal endpoint of `serve` | One writer; `serve` could validate rows. | A second listener, its authentication and a wire format for rows and leases. It protects nothing: a compromised worker holds the key anyway, and a compromised `serve` can forge queue entries in both designs, because it holds the webhook secret. |
+| One process | Simplest to deploy. | Puts the App key in the internet-facing process (§3, §6d). Step 2 would have to split it again, with a write key. |
+
+WAL across containers works because both run on one kernel over a local
+ext4 volume, as the same uid (65532). The `-shm` file is shared through the
+bind mount. Never on NFS (§2).
+
+**What the worker trusts in the main database.** Only queue rows, as hints,
+and the base layer, to merge into. It decides the **policy commit** itself:
+- It reads master's head from GitHub, without a token. A row `serve` wrote
+  could otherwise point it at any commit in the repository's network.
+- It loads `policies/` and `.pr-hygiene.yml` at that commit, cached by
+  commit, after the ruleset check §6d makes.
+
+**Secrets.**
+- Two SSM Parameter Store `SecureString` parameters:
+  `/pr-hygiene/webhook-secret` and `/pr-hygiene/reader-app-key`, plus
+  `/pr-hygiene/webhook-secret-next` during a rotation.
+- Terraform creates the parameters with a placeholder value and
+  `ignore_changes = [value]`. The owner, or infra with the owner, puts the
+  real values with `aws ssm put-parameter`, then deletes the downloaded PEM.
+  Real values never enter Terraform state or a repository.
+- A host unit, run before `docker compose up` and by `pr-hygiene-deploy`,
+  reads them with the instance role. The role gets `ssm:GetParameter` on
+  exactly these ARNs. The unit writes them to `/run/pr-hygiene/secrets/`
+  (tmpfs, mode 0400, uid 65532).
+- Each is mounted read-only into one container only:
+  `PR_HYGIENE_WEBHOOK_SECRET_FILE` in `serve`,
+  `PR_HYGIENE_READER_APP_KEY_FILE` in `worker`.
+- Containers cannot reach the instance role (IMDSv2, hop limit 1), so a
+  compromised `serve` cannot fetch the key.
+- Rejected for now: signing the App JWT with a non-exportable KMS key. The
+  container would need AWS credentials, and the key is read-only. It is
+  required for the writer App at step 2 (§3).
+
+**Rotation.**
+- **Webhook secret:** put `-next`, restart `serve` (it accepts both), change
+  the secret in the App, promote `-next`, restart again.
+- **App key:** GitHub allows up to 25 keys per App
+  ([private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)).
+  Generate the new key, put it in SSM, restart the worker, then delete the
+  old key on GitHub.
+
+### Queue and coalescing
+
+`refresh_queue` is keyed by (repository, PR), or (repository, head SHA)
+until the worker resolves the SHA.
+- **Upsert.** It merges the hints, keeps the first enqueue time, and sets
+  `due_at`:
+  - PR, review and comment events: 5 s after the last event, at most 30 s
+    after the first;
+  - check suites and statuses: 30 s after the last, at most 120 s after the
+    first.
+- **The queue is bounded by the open PRs, not by the deliveries.** A burst of
+  check events is one entry.
+- **One worker loop, serial.** That keeps the engine's per-author
+  serialisation trivially (§2). It **leases** the earliest due entry with a
+  `leased_until`, so a crash returns the entry when the lease expires.
+- **An event during a run.** It bumps the entry's generation. When the run
+  ends, the entry is deleted only if its generation is unchanged; otherwise
+  it is re-armed (§6e's "followed by another").
+- **One PR is refreshed at most once every 20 s,** which bounds what a flood
+  or a replayed delivery can cost.
+- **An entry whose last event predates its repository's latest base
+  `reads_from` is dropped.** The full pass has already seen it, so a backlog
+  after an outage drains to what is still new.
+- **Head index.** The worker keeps (repository, PR, head) in its own tables
+  to resolve SHA entries. It fills the index from refreshes and from a
+  **conditional poll of each repository's open-PR list** every 5 minutes:
+  `GET /pulls?state=open`, one or two pages, with an ETag, so mostly 304s.
+  The same poll enqueues:
+  - any PR whose head changed or whose `updated_at` is later than its last
+    read;
+  - any PR on the board that the list no longer has, and any PR in the list
+    the board lacks.
+  That catches most missed deliveries within 5 minutes, at almost no cost.
+  §6e's pagination rule for 304s applies.
+
+### Per-PR refresh
+
+For one PR, in one blocking task:
+1. **The analyzer's read, for one PR.** A new
+   `Fetcher::fetch_pr(owner, name, number)`, as one GraphQL query:
+   - `repository { defaultBranchRef pullRequest(number:) { … } }` with the
+     list query's node selection, shared as one fragment, plus `state` and
+     `headRefOid`;
+   - `parse_pr_node`;
+   - the existing per-node follow-ups for threads and files;
+   - `recheck_mergeable`;
+   - `fetch_stage_evidence` for this node.
+
+   About 3–5 GraphQL points.
+2. **Freshness.** The read must show what the queued events reported: the
+   head SHA, the review or comment id, closed or draft. A read that predates
+   its event is retried after 2, 5, 15 and 60 s. Then it is dropped and
+   counted, and left to the poll and the full pass (§6e).
+3. **The engine, dry.** `Reconciler::run` with `Command::Sync`,
+   `apply: false`, `Selection::Pr(n)`, over `Observed<ReadOnly<HttpTransport>>`
+   (§6d), at the worker's policy commit. About 15–40 REST requests, as
+   measured for a one-author sync.
+   - Its report row has the shape Python's `report --format json` exports. It
+     is read into the analyzer's `PolicyState` exactly as the exported file
+     is.
+   - Its would-be writes feed the shadow comparison (below). **One run serves
+     both.**
+4. **Derivation**, using the analyzer's own code:
+   - `analyzer::analyze` with the PR alone (exclusions are pure
+     configuration);
+   - `scorer::score_prs` and `attach_engine_state`;
+   - a new `dashboard::pr_part`, shared with `dashboard::build`, which gives
+     the `PrOut` and the PR's **person contributions**: the author's
+     `authored` key, and each reviewer's `Owed` from `dashboard::part`.
+   - The grace period needs the analyzer's author cache, which lives on the
+     `data` branch. A PR already on the board keeps its `tracked`. A new PR
+     is tracked if its author has a tracked PR on the board, and otherwise
+     waits for the full pass.
+5. **A closed or merged PR** gives a **tombstone** overlay, and leaves the
+   board.
+
+An engine read that fails (403/429 not retried, as in §6d) writes no
+overlay. The entry is retried with backoff, then dropped and counted. There
+are no half-rows.
+
+**Whose verdict.** Overlays show the **Rust port's** verdict. Full snapshots
+show **Python's** (its `report`, re-evaluated in Actions, which is what the
+board has always shown, not the posted status). This departs from §2's
+"Python's, as posted" during shadow, and needs the owner (report, decision
+1). It is limited three ways:
+- stage B below gates it on the overturn rate;
+- each overlay names its source;
+- the kill switch removes every overlay within one full pass.
+
+The alternative refreshes only GitHub's own fields per event and keeps the
+engine's fields from the snapshot. Stage, reviews owed and "whose move"
+would then still lag by up to 15 minutes: most of what the owner asked for.
+
+### Merging with the full snapshot
+
+- **Read times, not arrival times.**
+  - An overlay's `read_from` is the worker's clock just before its first
+    read.
+  - A snapshot's `reads_from` is its run's start, before the engine export.
+    It is a new additive field, set by the workflow's first step and checked
+    on ingest like `generated_at`: no later than `generated_at`, no earlier
+    than the token's `iat` minus the job timeout.
+  - A snapshot without it counts as `generated_at` minus the job timeout,
+    the conservative side.
+- **For each PR of a repository, the base wins only if
+  `reads_from ≥ read_from + 60 s`.** The margin covers the clock skew
+  between runner and host. Otherwise the overlay stands. The consequences:
+  - an older snapshot never replaces a newer row;
+  - its absence of a newer PR deletes nothing;
+  - its listing of a PR an overlay closed does not bring it back.
+
+  At ingest, overlays the base has overtaken are deleted, tombstones
+  included. A reopened PR returns through its event or the next snapshot.
+- **Stale repositories.** The base keeps its last good data, and overlays
+  keep it current; `/api/v1/repos` gains `refreshed_at`. Overlays apply only
+  to repositories that have a base.
+- **People.**
+  - A repository's people are its base people parts, minus every entry keyed
+    by an overlaid PR (owes and authored are keyed by PR; `service/src/view.rs`), plus the
+    overlays' contributions.
+  - `wip` is recounted from the final rows with the analyzer's own rule
+    (`counts_toward_wip`, extracted from `dashboard::people`).
+  - Areas come from the policies, and nothing per PR changes them.
+  - `view::merge_people` then does what it does today.
+- **Stage history.**
+  - A worker write records stage changes from overlays, with `observed_at`
+    set to `read_from`.
+  - An ingest records none for PRs where an overlay still wins, so history
+    never steps back to an older read.
+  - `stage_changes.snapshot_id` becomes nullable, with an `overlay_id`
+    beside it.
+- **Speed inputs and the closed list** come from full snapshots only, as
+  today: monthly medians do not need seconds.
+- **Version.** `view.version` becomes a sequence that every assembly bumps
+  (ingest or overlay), so `serve`'s cached view and the ETags follow. Stage
+  changes carry the sequence they were written at.
+- **Kill switch.** `PR_HYGIENE_OVERLAYS=off` on the worker: at start it
+  deletes every overlay and writes no new ones. The next assembly serves
+  full snapshots only.
+
+### Shadow engine on the same events (1b-6b)
+
+- **Events.** Each refresh's dry run is compared as §6d describes: Rust's
+  state against the posted record, and would-be writes where the record
+  agrees. The result goes to the private shadow table.
+  - Python's own `report` arrives every 15 minutes in the full snapshot.
+  - Each overlay is also compared with the next snapshot that started after
+    it, for the same PR and head with no event in between: the **overturn
+    rate**.
+- **Sweep.** §6d's sweep runs at the lowest priority. It is chunked as
+  `Selection::Batch` of one author's PRs at a time, so a due event waits at
+  most one chunk (about 10–20 s).
+  - It pauses while any queue entry is due, and while the installation's
+    remaining REST is under a reserve of 1 500.
+  - It covers every PR about every 2 hours, about 300 requests an hour.
+- **Priority:**
+  1. event refreshes and their retries;
+  2. the delivery replay and the open-PR poll;
+  3. the sweep.
+
+### Recovering lost deliveries
+
+GitHub does not redeliver failed deliveries
+([handling failed deliveries](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)).
+Failures can be redelivered for 3 days
+([redelivering](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks)).
+
+The worker holds the key, so it replays them:
+- Every 5 minutes, with the App's JWT, it reads
+  `GET /app/hook/deliveries?per_page=100` (cursor-paged, newest first) back
+  to its last high-water mark.
+- For each `failure` whose GUID is not in `webhook_deliveries`, it sends
+  `POST /app/hook/deliveries/{id}/attempts` (202)
+  ([App webhook API](https://docs.github.com/en/rest/apps/webhooks)).
+- 413s and payloads for ungoverned repositories are not replayed. A delivery
+  that fails twice more is left to the safety net.
+
+The **safety net** is the open-PR poll every 5 minutes and the full pass
+every 15. The latter is also the only one for inputs no event reports:
+time-driven waivers and nudges, permission changes and the status page
+(§6e).
+
+### Full reconciliation cadence
+
+- **The 15-minute Actions pass stays** as the base and as Python's verdicts.
+- **Hourly** (a cron change in `pr-hygiene.yml`) once stage C has run 7
+  days with:
+  - drift of at most 1% of rows per pass, each explained. Drift is a full
+    pass changing a row with no event since the overlay, excluding
+    lateness and idle, which move with time.
+  - no failed delivery left unrecovered;
+  - the worker's sweep running.
+- **Every 6 hours** only once the read-only `next_change` timers (§6e)
+  enqueue time-driven transitions, and the sweep covers every PR hourly.
+- **Retiring the export** comes when the worker's own full pass replaces
+  it. That means the board shows Rust's verdicts everywhere, and is the
+  owner's call after the soak (§6e's table).
+
+### Rate budget
+
+**Reader App** (new; 5 000 REST an hour and 5 000 GraphQL points an hour
+per installation, separate pools;
+[REST](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api),
+[GraphQL](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api)):
+
+| Use | REST / hour | GraphQL points / hour |
+|---|---|---|
+| Event refreshes, 15–40 an hour (estimate below) × ~25 | 400–1 000 | 50–200 |
+| Shadow sweep, all PRs every ~2 h | ~300 | — |
+| Open-PR poll, 5 repos × 12, mostly 304 | ≤ 60 | — |
+| Policy commit and files (tokenless) | 0 | — |
+| **Total** | **≈ 750–1 400** (peak ≈ 2 500) | ≤ 200 |
+
+The delivery replay goes through the App's JWT, outside the installation's
+budget: about 12 requests an hour.
+
+The estimate:
+- The repositories' public event feeds over the last days give about 22
+  PR-related events an hour across the five. That is a lower bound: the feed
+  omits statuses, checks and many actions.
+- Check suites add about 9–16 per platform head.
+- Coalescing turns these into one refresh per PR per burst.
+- The soak measures the real figure. A reserve of 1 500 is always held for
+  events.
+
+**`pr-hygiene` App** (export): unchanged at about 2 400 an hour while the
+cadence is 15 minutes; about 600 hourly, about 100 every six hours. The
+headroom that frees can bring back the 1b-5 differential (disabled by the
+owner for budget).
+
+### Failure modes
+
+| Case | What happens |
+|---|---|
+| Delivery lost (host down, 429, 5xx, timeout) | Replayed from the delivery log within 5 minutes, while under 3 days old; otherwise the poll (5 min) or the full pass (15 min) |
+| Delivery duplicated | Same GUID: 202, nothing enqueued; refreshes are idempotent anyway |
+| Events out of order | Payloads are hints; the worker reads the present; read times order rows |
+| Read older than its event | Freshness check, bounded backoff, then poll and full pass (counted) |
+| Receiver up, worker down | Deliveries are acknowledged and queued, so none is lost; the board ages to the 15-minute pass; restart drains one refresh per PR; alert at worker heartbeat > 5 min or oldest due entry > 10 min |
+| Backlog | Bounded by the open PRs; entries the base has overtaken are dropped |
+| Secret or key rotation | Two secrets accepted during a webhook-secret change; overlapping App keys |
+| Captured delivery replayed | GUID kept 7 days; later replays only enqueue a refresh of a real PR, at most every 20 s; nothing in a payload reaches the board |
+| Flood on the public route | nginx per-client rate and connection limits, 1 MiB body, header timeouts; in the service, cheap header checks first, 32 in flight, 8 s deadline; refused real deliveries are replayed |
+| Repository or PR outside the governed set | 202, dropped and counted; ungoverned *branches* of governed repositories are refreshed, as the board shows them |
+| App uninstalled, suspended or permissions pending | `installation` events logged; token minting fails; the worker is not ready; the full pass carries on |
+| Wrong overlays (a port bug) | Overturn and drift show it; kill switch; the next full pass restores the base |
+| Policy change | Overlays record their policy commit; the next pass and refreshes use the new one |
+| Clock skew | 60 s margin in the merge rule; both clocks NTP-synced |
+
+### Verification
+
+- **Receiver** (axum tests with signed fixtures):
+  - a valid signature passes;
+  - a wrong, missing or SHA-1-only signature is 401;
+  - an oversized body is 413 before any HMAC;
+  - a repeated GUID enqueues nothing;
+  - a foreign installation or repository is 202 and dropped;
+  - both secrets pass during a rotation;
+  - a busy database is 503 within the deadline;
+  - a log-capture test finds no body, signature or header value.
+- **Queue:**
+  - coalescing;
+  - an event during a lease causes another run;
+  - a lease expires after a simulated crash;
+  - record and enqueue are atomic;
+  - an entry the base has overtaken is dropped.
+- **Worker on mock GitHub** (httpmock, the reader's existing `mock`):
+  - a read older than its event is retried, then dropped and counted;
+  - closed gives a tombstone, opened a new row;
+  - a status resolves through the head index;
+  - a fork's check suite;
+  - a failed engine read writes nothing;
+  - the reserve pauses the sweep, never events;
+  - the replay retries only unseen failures;
+  - the poll enqueues a missed head change.
+- **Merge, as an oracle.** For a fixture board and one changed PR —
+  approved, closed, opened, a draft flipped, an author's `wip` changed:
+  ```
+  apply_overlays(build(before), pr_part(after, PR)) == build(after)
+  ```
+  The `PrOut` rows and the people must be equal. And `build` stays equal to
+  assembling every PR's `pr_part`, which proves the refactor changes
+  nothing.
+- **Ordering:**
+  - an older snapshot keeps a newer overlay and records no stage change for
+    it;
+  - a newer one prunes it;
+  - a tombstone, then a reopen.
+- **Configuration:** `serve` refuses reader settings, and the worker refuses
+  the webhook secret.
+
+### Rollout
+
+| Stage | What runs | Exit |
+|---|---|---|
+| A. Record | Receiver live; deliveries recorded and queued; no worker | 2 days: every delivery GitHub lists verifies; no failures in the App's log beyond deliberate tests; p99 answer < 500 ms; largest body < 512 KiB |
+| B. Compute | Worker on; refreshes and shadow run; overlays written to the private table only, not served | 2–3 days: ≥ 95% of entries refreshed within 2 min; overturn ≤ 1% on `engine_state`, stage and owes, every case categorised; REST ≤ 50% of the hour; the soak clock for step 2 starts here |
+| C. Serve | Overlays applied (dashboard, API, skill, Slack) | 7 days: delivery→view p50 < 30 s, p95 < 2 min; drift ≤ 1% per pass; kill switch not needed |
+| D. Hourly | Actions pass hourly | 7 days of drift as in C |
+| E. 6-hourly | After read-only `next_change` timers and an hourly sweep | — |
+
+**Owner actions:**
+- agree the decisions in the report;
+- create the App with the settings above and install it on the five
+  repositories;
+- generate the key, put it and the webhook secret into SSM, delete the local
+  copy;
+- give infra the App id and the installation id;
+- at D and E, merge the cron change.
+
+**Infra actions** (dashpay/infra):
+- **The worker** in the compose file:
+  - the same image digest, `command: ["worker"]`, no ports;
+  - `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, tmpfs `/tmp`;
+  - `/srv/pr-hygiene/data:/data` and `/srv/pr-hygiene/worker:/work` (not
+    backed up);
+  - `PR_HYGIENE_READER_APP_ID`, `PR_HYGIENE_READER_INSTALLATION_ID`,
+    `PR_HYGIENE_READER_APP_KEY_FILE` and `PR_HYGIENE_WORKER_DB`.
+- **`serve`** gains `PR_HYGIENE_WEBHOOK_SECRET_FILE`,
+  `PR_HYGIENE_WEBHOOK_APP_ID` and `PR_HYGIENE_WEBHOOK_INSTALLATION_ID`.
+- **Secrets:** the SSM parameters, the IAM statement and the secrets unit
+  above.
+- **nginx:** the location above.
+- **Alerting:** on `/readyz` and on the new `/healthz/events`. It answers 503
+  when:
+  - the worker heartbeat is older than 5 min;
+  - the oldest due entry is older than 10 min;
+  - the replay has not succeeded for 30 min.
+
+  It carries ages only.
+- **Unchanged:** the deploy script (both services start from one digest)
+  and the backup. The main database gains small queue and delivery tables,
+  with no secrets.
+
+**Increments (each a PR, in order):**
+1. **Receiver** (`service`): the route and checks above, `webhook_deliveries`
+   and `refresh_queue`, the secret files and the rotation pair, `serve`
+   refusing reader settings, `/healthz/events`. Dormant without a secret.
+2. **One PR in the analyzer** (`src/`, can run in parallel with 1):
+   - the shared node fragment with `state` and `headRefOid`;
+   - `Fetcher::fetch_pr`;
+   - `dashboard::pr_part` and `counts_toward_wip` extracted, with the
+     `build`-equality test;
+   - `reads_from` in the snapshot, and the workflow's first step.
+3. **Overlays** (`service`):
+   - the `pr_overlays` table;
+   - `view::apply_overlays`;
+   - the version sequence;
+   - stage changes from overlays;
+   - pruning at ingest;
+   - the oracle tests.
+4. **Worker** (`service`):
+   - the subcommand: lease, coalesce, head index and poll, policy commit;
+   - the refresh: fetch, the engine's dry `Selection::Pr`, derivation,
+     freshness;
+   - the delivery replay, rate metering and the kill switch;
+   - the mock-GitHub tests.
+
+   Ships at stage B, with overlays private.
+5. **Shadow** (`service`): 1b-6b's comparison table in the private database,
+   the chunked sweep, overturn and drift counts, the pass summary.
+6. **Cadence** (`pr-hygiene.yml`): hourly, then 6-hourly, on the evidence
+   above.
+
 ## 7. Open PRs
 
 - #65: merge (step 0).
@@ -1081,3 +1678,10 @@ lets the engine trust the App.
 Owner, 2026-10-02: Rust; public API; public site; GitHub sign-in for anyone,
 used to personalise Me and show one's own speed. Open: this roadmap starting
 with step 0; hosting (infra team, §4).
+
+Owner, 2026-11-21: GitHub events drive the service now, read-only, through a
+GitHub App webhook (§6f). The service refreshes one PR per event and keeps a
+full reconciliation as the safety net. The Rust engine runs in shadow on the
+same events (1b-6b), and its clock restarts. Rejected: governed repositories
+pushing per-PR state from their Actions. Open: §6f's decisions (whose
+verdict the overlays show, the App, secrets).
