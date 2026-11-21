@@ -32,9 +32,16 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Bumped with every change to the tables below.
 ///
-/// Changes are additive only: new tables, and columns through
-/// `ADDED_COLUMNS`. So a release runs unharmed on the schema of the release
-/// after it, and a rollback, which goes one release back, can start.
+/// Changes are additive only: new tables and their indexes, and columns
+/// through `ADDED_COLUMNS`. Nothing new may constrain or trigger on writes
+/// to an existing table (a unique index, a trigger, a foreign key with an
+/// action). So a release runs unharmed on the schema of the release after
+/// it, and a rollback, which goes one release back, can start.
+///
+/// That holds only one bump at a time: a release that changes the schema
+/// must be deployed and running before the next one that changes it is
+/// merged, or a failed deploy rolls back across two versions and the
+/// release it returns to refuses to start.
 const SCHEMA_VERSION: i64 = 3;
 
 /// Columns added to a table after its `CREATE TABLE` below first shipped,
@@ -42,7 +49,8 @@ const SCHEMA_VERSION: i64 = 3;
 /// have one, added at an earlier start or by a newer release that was then
 /// rolled back, so each is added only if the table lacks it. SQLite adds a
 /// column only if it may be NULL or has a default, so the release before
-/// still inserts rows without knowing it.
+/// still inserts rows without knowing it. `SCHEMA` runs first, so an index
+/// on an added column cannot go there: create it after these are added.
 const ADDED_COLUMNS: &[(&str, &str, &str)] = &[];
 
 const SCHEMA: &str = "
@@ -271,7 +279,7 @@ impl Store {
         // disk, not left in free pages for a copy of the file to carry.
         conn.pragma_update(None, "secure_delete", true)?;
         conn.pragma_update(None, "foreign_keys", true)?;
-        migrate(&mut conn).with_context(|| path.display().to_string())?;
+        migrate(&mut conn, ADDED_COLUMNS).with_context(|| path.display().to_string())?;
         Ok(Self { conn })
     }
 
@@ -584,12 +592,15 @@ impl Store {
     }
 }
 
-/// Bring the schema up to this release's, in one transaction so that two
-/// processes opening the file at once cannot interleave their checks and
-/// writes. A schema one release newer is left as it is, its version
-/// included: lowered, the next release would migrate again what it already
-/// has.
-fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
+/// Bring the schema up to this release's, adding `added` columns, in one
+/// transaction: two processes opening the file at once cannot interleave
+/// their checks and writes, and a failure leaves the schema as it was.
+///
+/// A schema one release newer is left as it is, its version included. The
+/// version is what tells a release whether it may run on the schema at
+/// all; lowered, a release two behind would pass the check and run on a
+/// schema it was never shown to run on.
+fn migrate(conn: &mut Connection, added: &[(&str, &str, &str)]) -> anyhow::Result<()> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let version: i64 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
     anyhow::ensure!(
@@ -597,7 +608,7 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
         "schema version {version} is more than one release newer than this service ({SCHEMA_VERSION})"
     );
     tx.execute_batch(SCHEMA)?;
-    for &(table, column, definition) in ADDED_COLUMNS {
+    for &(table, column, definition) in added {
         add_column(&tx, table, column, definition)?;
     }
     if version < SCHEMA_VERSION {
@@ -607,30 +618,29 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `ALTER TABLE … ADD COLUMN`, unless `pragma table_info` already lists the
-/// column. Whether it was added.
+/// `ALTER TABLE … ADD COLUMN`, unless the table already has the column.
+/// `table_xinfo`, unlike `table_info`, also lists generated columns.
 fn add_column(
     conn: &Connection,
     table: &str,
     column: &str,
     definition: &str,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
     let present = conn
         .query_row(
-            "SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2 COLLATE NOCASE",
+            "SELECT 1 FROM pragma_table_xinfo(?1) WHERE name = ?2 COLLATE NOCASE",
             [table, column],
             |_| Ok(()),
         )
         .optional()?
         .is_some();
-    if present {
-        return Ok(false);
+    if !present {
+        conn.execute_batch(&format!(
+            r#"ALTER TABLE "{table}" ADD COLUMN "{column}" {definition}"#
+        ))
+        .with_context(|| format!("adding {table}.{column}"))?;
     }
-    conn.execute_batch(&format!(
-        "ALTER TABLE {table} ADD COLUMN {column} {definition}"
-    ))
-    .with_context(|| format!("adding {table}.{column}"))?;
-    Ok(true)
+    Ok(())
 }
 
 /// Delete what is stored about `user_id` for computing their speed, in the
@@ -1430,7 +1440,7 @@ mod tests {
 
     /// A database as the next release leaves it: this release's schema, a
     /// table and a column added, and the next version number.
-    fn migrated_by_next_release(path: &Path) {
+    fn migrate_as_next_release(path: &Path) {
         drop(Store::open(path).unwrap());
         let conn = Connection::open(path).unwrap();
         conn.execute_batch(
@@ -1449,7 +1459,7 @@ mod tests {
     fn a_schema_one_release_newer_opens_and_keeps_its_version() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("next.sqlite3");
-        migrated_by_next_release(&path);
+        migrate_as_next_release(&path);
 
         let mut store = Store::open(&path).unwrap();
         let d = snapshot(0);
@@ -1490,23 +1500,58 @@ mod tests {
     /// again changes nothing rather than failing the start.
     #[test]
     fn adding_a_column_already_there_is_a_no_op() {
-        let db = db();
-        let columns = |name: &str| -> i64 {
+        let mut db = db();
+        let added = [
+            ("snapshots", "note", "TEXT"),
+            ("snapshots", "note_length", "INTEGER AS (length(note))"),
+        ];
+        migrate(&mut db.store.conn, &added).unwrap();
+        migrate(&mut db.store.conn, &added).unwrap();
+        // SQLite's names are case-insensitive: this is the same column.
+        migrate(&mut db.store.conn, &[("snapshots", "NOTE", "TEXT")]).unwrap();
+        let columns: Vec<String> = db
+            .store
+            .conn
+            .prepare("SELECT name FROM pragma_table_xinfo('snapshots') WHERE name LIKE 'note%'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(columns, ["note", "note_length"]);
+        assert_eq!(
             db.store
                 .conn
-                .query_row(
-                    "SELECT count(*) FROM pragma_table_info('snapshots') WHERE name = ?1",
-                    [name],
-                    |row| row.get(0),
-                )
-                .unwrap()
-        };
-        assert!(add_column(&db.store.conn, "snapshots", "note", "TEXT").unwrap());
-        assert!(!add_column(&db.store.conn, "snapshots", "note", "TEXT").unwrap());
-        assert_eq!(columns("note"), 1);
-        // SQLite's names are case-insensitive: this is the same column.
-        assert!(!add_column(&db.store.conn, "snapshots", "NOTE", "TEXT").unwrap());
-        assert_eq!(columns("note"), 1);
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            SCHEMA_VERSION
+        );
+    }
+
+    /// A migration that fails part way leaves the database as it found it,
+    /// version included, rather than half migrated.
+    #[test]
+    fn a_failed_migration_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("clash.sqlite3");
+        // A table under the name of one of the schema's indexes: creating
+        // that index fails after the tables before it were created.
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch("CREATE TABLE stage_changes_by_time (x);")
+            .unwrap();
+
+        assert!(Store::open(&path).is_err());
+        let conn = Connection::open(&path).unwrap();
+        let snapshots: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE name = 'snapshots'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(snapshots, 0, "no table of the failed migration is left");
+        assert_eq!(user_version(&path), 0);
     }
 
     /// Signing in again in the same browser overwrites its cookie; the
