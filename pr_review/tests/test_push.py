@@ -118,6 +118,17 @@ class RunTests(unittest.TestCase):
         self.assertIn('push', self.events)
         self.assertTrue(self.file.exists())
 
+    def test_a_pull_request_whose_status_failed_is_left_to_the_last_snapshot(self):
+        # Its head now says error. Handing over the verdict the run could not
+        # publish would show the board a state the gate does not carry.
+        def fail_second(pr):
+            if pr['number'] == 2:
+                raise main.GitHubError('boom')
+        self.sync(publish=fail_second)
+        written = json.loads(self.file.read_text())
+        self.assertEqual([v['number'] for v in written['verdicts']], [1])
+        self.assertIn(2, written['open'], 'still open: the board must not hide it')
+
     def test_nothing_that_goes_wrong_in_the_hand_over_changes_the_run(self):
         # The same run, with the hand-over broken in every way it can break:
         # the statuses, the report and the exit code must be what they are

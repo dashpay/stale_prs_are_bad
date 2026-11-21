@@ -1138,7 +1138,10 @@ def run(argv=None):
                     except GitHubError:
                         print(f"PR #{pr['number']}: unable to publish the failure either", file=sys.stderr)
     if args.command == 'sync':
-        push.write(args.repo, read_at, context, rows)
+        # A pull request whose status could not be published now carries an
+        # error on its head; its verdict is left out so the board keeps its
+        # last snapshot rather than show what the gate does not say.
+        push.write(args.repo, read_at, context, [r for r in rows if r['number'] not in failed])
     if failed:
         raise GitHubError(f"reconciliation failed for {', '.join(f'#{n}' for n in failed)}")
     # A sweep tidies what it passes; a run aimed at one pull request does not
