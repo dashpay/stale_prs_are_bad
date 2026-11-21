@@ -6,11 +6,13 @@ on:
         description: 'all reconciles every governed pull request; batch is the sweep'
         type: string
         default: batch
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
-  statuses: write
+# No permissions block: the job holds exactly what the caller grants. A called
+# workflow that asks for a scope its caller withholds does not start at all,
+# and pull_request_target runs the caller from each pull request's base
+# branch, so a caller left on an old release branch would stop every pull
+# request into it. The caller grants contents: read, pull-requests: write,
+# issues: write and statuses: write, plus id-token: write for the dashboard
+# post; a caller without id-token still reconciles, and its post only warns.
 concurrency:
   # Per pull request, not per repository: one shared group meant every new event
   # cancelled whichever run was already queued for a different pull request.
@@ -172,3 +174,43 @@ jobs:
           PR_REVIEW_POLICIES_ROOT: ${{ github.workspace }}/review-policies/policies
           PR_REVIEW_REPOSITORY_ROOT: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '17 * * * *') && format('{0}/review-target', github.workspace) || '' }}
         run: python3 -m pr_review.event >> "$GITHUB_STEP_SUMMARY"
+      # The dashboard's copy of the verdicts the step above just published, so
+      # the board need not wait for its next snapshot. Every status is already
+      # written by now and the board only shows them, so this step can only
+      # warn: it never fails the job, and a hung service holds it seconds, not
+      # minutes. The service accepts a token only from this file on master
+      # and only for the repository the token was minted in.
+      - name: Post verdicts to the dashboard
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          SERVICE_URL: https://pr-hygiene.services.dash.org
+        run: |
+          verdicts="$RUNNER_TEMP/verdicts.json"
+          # No file: the run stopped before it had verdicts, or ran none.
+          [ -f "$verdicts" ] || exit 0
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "::warning::The caller grants no id-token: write; the dashboard keeps its last snapshot"
+            exit 0
+          fi
+          umask 077
+          headers="$RUNNER_TEMP/verdict-headers"
+          trap 'rm -f "$headers"' EXIT
+          # Headers go in a file so neither token is ever on a command line.
+          printf 'Authorization: bearer %s\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" > "$headers"
+          # --fail, not --fail-with-body: the response carries the token.
+          if ! token=$(curl --silent --show-error --fail --max-time 20 -H @"$headers" \
+                 --get --data-urlencode "audience=$SERVICE_URL" "$ACTIONS_ID_TOKEN_REQUEST_URL" \
+               | python3 -c 'import json, sys; print(json.load(sys.stdin)["value"])' 2>/dev/null); then
+            echo "::warning::No OIDC token for the dashboard; it keeps its last snapshot"
+            exit 0
+          fi
+          echo "::add-mask::$token"
+          printf 'Authorization: Bearer %s\n' "$token" > "$headers"
+          if ! curl --silent --show-error --fail-with-body --max-time 20 --proto '=https' \
+                 -H @"$headers" -H 'Content-Type: application/json' \
+                 --data-binary @"$verdicts" "$SERVICE_URL/ingest/verdicts"; then
+            echo
+            echo "::warning::The dashboard did not take these verdicts; it keeps its last snapshot"
+          fi

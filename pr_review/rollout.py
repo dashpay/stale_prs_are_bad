@@ -46,6 +46,8 @@ permissions:
   pull-requests: write
   issues: write
   statuses: write
+  # Lets the engine's last step post this run's verdicts to the dashboard.
+  id-token: write
 jobs:
   policy:
     # Only comments this controller actually reads can change an outcome, and a
