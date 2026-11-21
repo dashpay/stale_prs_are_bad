@@ -819,15 +819,17 @@ It was to be judged on operation, with 1b-6a carrying the verdicts. With
   It holds no bodies, values, permission levels or listings, and rows go
   after 30 days.
 
-  From §6f the worker also writes to the main database: queue leases and
-  each PR's public dashboard row (an overlay). Nothing private goes there.
+  From §6f, the private database also holds the worker's queue, leases and
+  rate state. The worker writes only each PR's public dashboard row (an
+  overlay) and the view to the main database. It reads `serve`'s inbox
+  there.
 - **What drives it** (§6f has the detail).
-  - Events. The reader App's webhook reaches `serve`, which queues the PR in
-    the main database. The worker runs `Selection::Pr(N)` per PR, one at a
-    time.
-  - A sweep at the lowest priority, chunked per author, paced by a request
-    budget. Replaces the serial `Selection::All` loop, which would block
-    events for minutes on platform.
+  - Events. The reader App's webhook reaches `serve`, which records each
+    delivery in an inbox in the main database. The worker runs
+    `Selection::Pr(N)` per PR, one at a time.
+  - A sweep at the lowest priority, in `Selection::Batch` chunks of at most
+    three PRs, paced by a request budget. It replaces the serial
+    `Selection::All` loop, which would block events for minutes on platform.
 - **Writes** are caught by the engine's `Observed` layer, as in 1b-5. Each one
   is answered as a GitHub failure, so the run goes on and every PR gets a
   verdict. `ReadOnly` sits below it as the guarantee. A refusal from
@@ -845,10 +847,11 @@ It was to be judged on operation, with 1b-6a carrying the verdicts. With
     status-page payload.
   - A PR whose read failed (403 or 429 are not retried) is "not compared".
     It is not a difference.
-- **Policies** are loaded from this repository's protected master, at the
-  commit the API reports and after the same ruleset check Python makes. The
-  commit is recorded per row, so a worker never decides on policies older
-  than the ones the Python engine reads.
+- **Policies** are built into the worker's image (§6f): master, through the
+  `production` environment, as for the code. This replaces reading master's
+  head over the API. The commit is recorded per row. A deploy that lags
+  behind a policy change is visible as rows on an older commit, which the
+  comparison skips.
 - **Rate metering.** `HttpTransport` reads the `x-ratelimit-*` headers of
   every answer. The loop pauses until the reset time when the reserve is
   reached. Step 2's pacing reuses this.
@@ -1086,582 +1089,533 @@ lets the engine trust the App.
 
 ## 6f. Events first, read-only — before the write cut-over
 
-Goal: the dashboard, the API, the `/prs` skill and Slack follow a pull
-request within about half a minute of a change on GitHub, not up to 15
-minutes later. Nothing is written to GitHub. The Rust engine runs in shadow
-on the same events: this is 1b-6b's soak, and its clock restarts here for
-step 2. (Owner decision, 2026-11-21: a GitHub App webhook to the service,
-brought forward from step 2.)
+Goal: the dashboard, the API, the `/prs` skill and Slack follow a PR within
+about half a minute of a change on GitHub, instead of up to 15 minutes
+later. Nothing is written to GitHub. The Rust engine runs in shadow on the
+same events: this is 1b-6b's soak, and step 2's clock restarts with it.
+(Owner decision, 2026-11-21. Revised after feasibility, security,
+failure-mode, simplicity and operations reviews; Appendix A lists the
+findings not taken.)
 
-**In one paragraph.** A new read-only App sends its webhook to `serve`. The
-receiver checks the signature, records the delivery and enqueues the pull
-request in one transaction, and answers. A second container, `worker`,
-holds the App key. It takes each pull request off the queue, reads it once
-the way the analyzer does and runs the Rust engine's dry `Selection::Pr`
-over it, and writes one **overlay** row, the PR's dashboard row, into the
-database `serve` answers from. The 15-minute Actions run keeps posting full
-snapshots, which stay the base layer and the safety net. Read times decide
-which of the two is newer, so an older snapshot never overwrites a newer
-overlay, and an older overlay never outlives a newer snapshot.
-
-Rejected: governed repositories' Actions pushing their per-PR state to the
-API. That needs `id-token: write` in other teams' caller workflows. It gives
-a partial row, since the engine has verdicts and only the analyzer derives
-the dashboard's fields. And step 2 throws it away.
+**In short.**
+- A new read-only App sends its webhook to `serve`. `serve` checks the
+  signature, records the delivery in an **inbox** table and answers.
+- A second container, `worker`, holds the App key. It coalesces the inbox
+  into its own queue. For each PR it:
+  - reads the PR as the analyzer does;
+  - runs the Rust engine with every write refused;
+  - writes the PR's dashboard row, an **overlay**, into the database `serve`
+    answers from.
+- The 15-minute Actions run keeps posting full snapshots. They stay the base
+  layer, the source of stage history and the safety net.
+- Read times decide, per PR, which of the two wins.
 
 ### The App
 
-A **new, dedicated, read-only App**: the reader App 1b-6 already specifies
-(§6c), now with a webhook.
+A **new read-only App**: §6c's reader App, with a webhook.
 
-Why not a webhook on the existing `pr-hygiene` App (id 4912985):
-- **Rate.** The export already spends about 2 400 of its 5 000 requests an
-  hour. The engine differential was disabled because it overran that budget.
-  Events and the soak need their own budget.
-- **Key.** Its key is an Actions secret. A second key of the same App on the
-  host would make a host compromise yield the export's identity as well.
-- **Permissions.** It has contents, issues, metadata and pull requests (read).
-  It lacks the statuses, checks and actions the engine reads
-  (`reader::app::PERMISSIONS`). Adding them needs the org owner's approval of
-  each new permission ([modifying an App](https://docs.github.com/en/apps/maintaining-github-apps/modifying-a-github-app-registration)),
-  the same work as installing a new App.
+The existing `pr-hygiene` App (id 4912985) is not used:
+- its export already spends about 2 400 of 5 000 requests an hour;
+- its key is an Actions secret;
+- it lacks statuses, checks and actions, and new permissions need the org's
+  approval anyway
+  ([modifying an App](https://docs.github.com/en/apps/maintaining-github-apps/modifying-a-github-app-registration)).
 
-At the write cut-over, a **separate writer App** is created (§6c). It is
-installed repository by repository, and its installation is the per-repo
-switch. The reader App keeps the webhook and every read. Rejected: giving
-the reader App write permissions then. That makes the long-lived,
-webhook-holding key a write key, and loses the per-repo switch. The writer
-App's own writes come back as events on the reader's webhook and are
-dropped by its bot's numeric id.
+At step 2 a separate writer App is installed per repository (§6c). The
+reader keeps the webhook and every read, and the writer's own events are
+dropped by its bot id.
 
-**Settings, for the owner to enter** (*Register new GitHub App* under the
-dashpay organisation; nothing is created before this spec is agreed):
+**Settings for the owner to enter** (*Register new GitHub App* under
+dashpay):
 
 | Field | Value |
 |---|---|
-| GitHub App name | `Dash PR Hygiene Reader` (≤ 34 characters, unique across GitHub; any free name will do) |
+| GitHub App name | `Dash PR Hygiene Reader`, or any free name (≤ 34 characters, unique on GitHub) |
 | Description | "Read-only. Reads pull requests in the governed repositories and receives their events for the PR Hygiene service. Writes nothing." |
 | Homepage URL | `https://pr-hygiene.services.dash.org` |
-| Callback URL, Setup URL, Device Flow, Request user authorization during installation | empty / off |
-| Webhook **Active** | on |
+| Callback URL, Setup URL, Device Flow, user authorization during installation | empty / off |
+| Webhook: Active | on |
 | Webhook URL | `https://pr-hygiene.services.dash.org/github/webhook` |
-| Webhook secret | 32 random bytes as hex (`openssl rand -hex 32`), never written anywhere but the App and SSM (below) |
+| Webhook secret | `openssl rand -hex 32`, kept only in the App and in SSM |
 | SSL verification | enabled |
-| Repository permissions | Actions **Read-only**, Checks **Read-only**, Commit statuses **Read-only**, Contents **Read-only**, Issues **Read-only**, Metadata **Read-only** (mandatory), Pull requests **Read-only**; everything else No access |
+| Repository permissions | Actions, Checks, Commit statuses, Contents, Issues, Metadata, Pull requests: **Read-only**; all else No access |
 | Organization and account permissions | none |
 | Subscribe to events | Check suite, Issue comment, Pull request, Pull request review, Pull request review comment, Pull request review thread, Status |
 | Where can this GitHub App be installed? | **Only on this account** |
-| Installation | dashpay → **Only select repositories**: platform, rust-dashcore, tenderdash, grovedb, dash-evo-tool |
+| Install on | dashpay, **Only select repositories**: platform, rust-dashcore, tenderdash, grovedb, dash-evo-tool |
 
-Then the owner generates one private key, records the App id and the
-installation id, and hands both secrets to SSM (§ *Secrets*).
+The permissions are exactly `reader::app::PERMISSIONS`, and each event needs
+one of them
+([events](https://docs.github.com/en/webhooks/webhook-events-and-payloads)).
+Tokens are also requested with the five `repository_ids`.
 
-- The permissions are exactly what `InstallationTokens` asks for. It asks
-  for each at `read` and refuses a token that grants more.
-- Each event needs a permission in this list
-  ([events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads)).
-  `installation` and `installation_repositories` arrive without a
-  subscription.
-- **Not subscribed at first:**
-  - `check_run`: about 25–30 runs per platform head, two or three deliveries
-    each, measured on two heads on 2026-11-21. Suites complete per workflow,
-    and suite completion is what the build state needs here.
-  - `push`: a base-branch push touches every PR on that base. That is left
-    to the full pass.
-  - Step 2 may add either. Checks read covers `check_run`, so no new
-    permission is needed.
+Two events are left out; step 2 may add them:
+- `check_run`: 25–30 runs per platform head, 2–3 deliveries each. A suite's
+  completion is enough.
+- `push`: a base push touches every PR on that base, which is the full
+  pass's job.
 
 ### Receiver, in `serve`
 
-`POST /github/webhook`. In order, cheapest first, nothing parsed before the
-signature holds:
-1. **Headers.** `X-GitHub-Event` is a subscribed event, `installation` or
-   `ping`; `X-GitHub-Delivery` is a GUID; `X-GitHub-Hook-Installation-Target-ID`
-   is the App id; `X-Hub-Signature-256` is `sha256=` and 64 hex digits.
-   Anything else gets 400 and is not read further. These headers are filters,
-   not proof.
-2. **Body.** Read to at most 1 MiB, the limit nginx also enforces; larger
-   gets 413. GitHub caps payloads at 25 MB, but every subscribed event is
-   bounded by two 65 536-character texts plus GitHub's objects.
-3. **Signature.** HMAC-SHA256 of the raw bytes with the webhook secret,
-   compared with `hmac`'s `verify_slice`, which runs in constant time
-   ([validating deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)).
-   During a rotation both the current and the next secret are tried.
-   Failure gets 401, and only a counter records it.
-4. **Scope.** The payload's `installation.id` is the configured installation.
-   The repository is a governed one by numeric id: the worker resolves the
-   registry's names to ids at start-up and writes them to the database. An
-   `issue_comment` counts only on a pull request (`issue.pull_request`
-   present), and `check_suite` only when `completed`. Anything else gets
-   **202 and is dropped**, never 4xx: a 4xx marks the delivery failed, and
-   the replay below would send it again.
-5. **Record and enqueue.** In one `BEGIN IMMEDIATE` transaction:
-   `INSERT OR IGNORE` the delivery id into `webhook_deliveries` (kept 7 days,
-   beyond GitHub's 3-day redelivery window); only if it is new, upsert the
-   queue entry (below). A repeat id gets 202 and changes nothing: a
-   redelivery carries the same `X-GitHub-Delivery`
-   ([best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks)).
-   Then 202.
+`POST /github/webhook`. Cheapest check first; nothing is parsed before the
+signature holds
+([validating deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)).
+1. **Headers**, each exactly once:
+   - `X-GitHub-Event` is subscribed, or sent unasked (`ping`,
+     `installation`, `installation_repositories`, `installation_target`,
+     `meta`);
+   - `X-GitHub-Delivery` is a GUID;
+   - `X-GitHub-Hook-Installation-Target-ID` is the App id;
+   - `X-Hub-Signature-256` is `sha256=` and 64 hex digits.
 
-GitHub expects a 2xx within 10 seconds (same page). The route has its own
-8-second deadline and at most 32 requests in flight, so a flood cannot
-starve the API. A busy database or the deadline gets 503, and the replay
-recovers the delivery. Logs carry the delivery id, event, action,
-repository, PR number and outcome: never a body, a header value or a
-signature. Bodies are dropped after the transaction; only the facts below
-are kept.
+   Otherwise 400.
+2. **Body**: at most 1 MiB, otherwise 413.
+3. **Signature**: HMAC-SHA256 over the raw bytes, keyed with the secret
+   file's trimmed bytes, compared with `hmac`'s constant-time `verify_slice`.
+   A mismatch gets 401 and is only counted.
+4. **Scope**, or **202, dropped and counted** (never a 4xx, which GitHub
+   would list as failed):
+   - the installation id is the configured one;
+   - the repository id is one of the five;
+   - an `issue_comment` is on a PR;
+   - a `check_suite` is `completed`;
+   - the payload's newest timestamp is under 4 days old.
+5. **Record**, in one `BEGIN IMMEDIATE`, into `webhook_inbox`. The delivery
+   GUID and the body's SHA-256 are each unique, so a redelivery (same GUID,
+   [best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks))
+   or a replay under a new GUID gets 202 and changes nothing.
 
-What the queue keeps from a payload is a **hint**, never evidence:
-- the pull request number, or the head SHA for a `status` event or a fork's
-  check suite, whose payload names no PR;
-- the facts the freshness check needs: the head SHA, the review or comment
-  id, and the PR's state (closed or draft).
+   A row holds:
+   - time, event, action, repository;
+   - the PR number, or the head SHA when no PR is named;
+   - the payload's newest PR or issue `updated_at`;
+   - whether the sender is `github-actions[bot]`;
+   - size and outcome.
 
-**Infra change to nginx** (infra owns it):
+   It holds no body, and is kept 7 days (GitHub redelivers for 3), as the
+   dedup and each PR's event log. Past 20 000 rows in an hour, deliveries
+   get 202 and are only counted, so not even the secret's holder can fill
+   the disk.
+
+GitHub wants an answer within 10 s (same page). The route has an 8 s
+deadline and 32 requests in flight; a busy database gets 503. Logs carry
+the GUID, event, repository, PR, outcome, size and duration, never a body,
+a header value or a signature.
+
+**Configuration.** The route is off unless all of these are set:
+- `PR_HYGIENE_WEBHOOK_SECRET_FILE` (files only; under 32 bytes is refused);
+- `PR_HYGIENE_WEBHOOK_APP_ID`;
+- `PR_HYGIENE_WEBHOOK_INSTALLATION_ID`;
+- `PR_HYGIENE_WEBHOOK_REPOSITORY_IDS`: `424232911,467841155,283521505,400487124,868322013`
+  (platform, rust-dashcore, tenderdash, grovedb, dash-evo-tool).
+
+`serve` refuses `PR_HYGIENE_READER_*` (§6d).
+
+**nginx (infra):**
 
 ```nginx
-limit_req_zone $binary_remote_addr zone=prh_hook:10m rate=20r/s;
+# http level, with the other zones; the access log format gains $request_length
+limit_req_zone  $binary_remote_addr zone=prh_hook:10m rate=20r/s;
+limit_conn_zone $server_name        zone=prh_hook_all:1m;
 
 location = /github/webhook {
     limit_except POST { deny all; }
+    # Refused before any body is read.
+    if ($http_x_hub_signature_256 !~ "^sha256=[0-9a-f]{64}$") { return 400; }
     client_max_body_size    1m;
-    client_body_buffer_size 1m;   # held in memory, never written to disk
-    limit_req zone=prh_hook burst=200 nodelay;
-    proxy_read_timeout 10s;
+    client_body_buffer_size 256k;
+    limit_req  zone=prh_hook burst=50 nodelay;
+    limit_conn prh_hook_all 64;
+    proxy_read_timeout 9s;
     proxy_pass http://prh_service;
 }
 ```
 
-The existing `prh` access log holds the path, status and size only, with no
-headers. No log format may name `$request_body` or `$http_x_hub_signature_256`.
-
-Rejected: allowing only GitHub's `hooks` ranges from `/meta`. A stale list
-silently drops real deliveries, the signature already authenticates, and a
-refused delivery is recovered by the replay.
+Rejected: allowing only GitHub's `hooks` ranges. A stale list silently drops
+real deliveries.
 
 ### Process and store
 
-Two containers from one image, as infra#92's README already plans:
-- **`serve`**: internet-facing. It holds the webhook secret and never the App
-  key, and it refuses to start with `PR_HYGIENE_READER_*` set (§6d).
-- **`worker`**: no port. It holds the App key and refuses to start with the
-  webhook secret set.
+Two containers from one image, as infra#92's README plans:
+- **`service`** runs `serve`. It holds the webhook secret and never the key.
+- **`worker`** runs `pr-hygiene-service worker`. It has no port, holds the
+  App key and refuses the webhook secret.
 
-Both open the **main database** on `/data`. The worker also keeps 1b-6b's
-private shadow database on a volume of its own, which `serve` never mounts
-and which is not backed up.
+They share the **main database** on `/data`, with **one writer per table**:
+- `serve` writes `webhook_inbox`, and ingests as before;
+- the worker writes `pr_overlays` and re-assembles the view.
 
-Compared:
+The worker's queue, leases, rate state and shadow table live in its
+**private database** under `/srv/pr-hygiene/worker`. `serve` never mounts
+it, and it is not backed up.
 
-| Option | For | Against |
-|---|---|---|
-| **Shared SQLite, WAL, two containers on one host** (chosen) | The queue's "record and enqueue" and the worker's lease are SQL transactions. There is no internal API to authenticate, version or bound. The same `Store` code is used by both, and the host's daily `sqlite3 VACUUM INTO` already opens this file from a second process. | Two writers. Writes are short `BEGIN IMMEDIATE` transactions with a 5 s busy timeout. Schema changes have one owner: `serve` migrates, and the worker waits until `user_version` equals its own. |
-| Worker writes through an internal endpoint of `serve` | One writer; `serve` could validate rows. | A second listener, its authentication and a wire format for rows and leases. It protects nothing: a compromised worker holds the key anyway, and a compromised `serve` can forge queue entries in both designs, because it holds the webhook secret. |
-| One process | Simplest to deploy. | Puts the App key in the internet-facing process (§3, §6d). Step 2 would have to split it again, with a write key. |
+**Why a shared SQLite file in WAL mode.** Recording and enqueuing is one
+transaction, and there is no internal API. The host's daily
+`sqlite3 VACUUM INTO` already opens the file from another process. It works
+because both containers run on one kernel, on local ext4, as uid 65532.
 
-WAL across containers works because both run on one kernel over a local
-ext4 volume, as the same uid (65532). The `-shm` file is shared through the
-bind mount. Never on NFS (§2).
+Rejected:
+- **An internal endpoint in `serve`:** a second listener, its own
+  authentication and a wire format, and nothing protected in the read-only
+  phase that the hardened connection below does not protect.
+- **One process:** the key would sit in the internet-facing process (§3).
 
-**What the worker trusts in the main database.** Only queue rows, as hints,
-and the base layer, to merge into. It decides the **policy commit** itself:
-- It reads master's head from GitHub, without a token. A row `serve` wrote
-  could otherwise point it at any commit in the repository's network.
-- It loads `policies/` and `.pr-hygiene.yml` at that commit, cached by
-  commit, after the ruleset check §6d makes.
+**Hardening.** The worker opens the main file in SQLite's defensive mode:
+- `trusted_schema=OFF`, `cell_size_check=ON`, and `Store::open`'s pragmas
+  (`secure_delete` among them);
+- no DDL;
+- the schema is checked against its own, and refused if it holds triggers
+  or views;
+- its private database is never attached.
+
+Inbox rows are hints only. **Before step 2**, the process that decides
+merges must share no WAL with the internet-facing one. Step 2's design
+reopens this.
+
+**Schema.**
+- Migrations are additive: new tables and `ADD COLUMN`. `serve` runs them.
+- A release opens a schema one compatibility version newer, so a rollback
+  still starts. Today `Store::open` refuses any newer schema.
+- The worker waits for its schema.
+
+**Policies** (`policies/`, `.pr-hygiene.yml`) are **built into the image**:
+- the Dockerfile and `service-deploy.yml`'s paths gain them;
+- they are trusted as the code is: master, through the `production`
+  environment;
+- each overlay records the image's commit;
+- this replaces §6d's read of master's head.
 
 **Secrets.**
-- Two SSM Parameter Store `SecureString` parameters:
-  `/pr-hygiene/webhook-secret` and `/pr-hygiene/reader-app-key`, plus
-  `/pr-hygiene/webhook-secret-next` during a rotation.
-- Terraform creates the parameters with a placeholder value and
-  `ignore_changes = [value]`. The owner, or infra with the owner, puts the
-  real values with `aws ssm put-parameter`, then deletes the downloaded PEM.
-  Real values never enter Terraform state or a repository.
-- A host unit, run before `docker compose up` and by `pr-hygiene-deploy`,
-  reads them with the instance role. The role gets `ssm:GetParameter` on
-  exactly these ARNs. The unit writes them to `/run/pr-hygiene/secrets/`
-  (tmpfs, mode 0400, uid 65532).
-- Each is mounted read-only into one container only:
-  `PR_HYGIENE_WEBHOOK_SECRET_FILE` in `serve`,
-  `PR_HYGIENE_READER_APP_KEY_FILE` in `worker`.
-- Containers cannot reach the instance role (IMDSv2, hop limit 1), so a
-  compromised `serve` cannot fetch the key.
-- Rejected for now: signing the App JWT with a non-exportable KMS key. The
-  container would need AWS credentials, and the key is read-only. It is
-  required for the writer App at step 2 (§3).
+- `/pr-hygiene/webhook-secret` and `/pr-hygiene/reader-app-key` are SSM
+  `SecureString`s, created **outside Terraform**. Terraform reads a
+  parameter's value back into its state, even under `ignore_changes`.
+- They are encrypted with a **customer-managed KMS key**. Only the host role
+  may decrypt with it, through `kms:ViaService` and the parameter-ARN
+  encryption context. Today `AmazonSSMManagedInstanceCore` lets every
+  SSM-managed host in the account `GetParameter` on `*`.
+- A host unit, before `docker.service`, writes each secret into a
+  tmpfiles.d directory per container. Each container mounts only its own
+  directory, read-only. A container missing its file exits; Docker restarts
+  it once the file is there.
 
 **Rotation.**
-- **Webhook secret:** put `-next`, restart `serve` (it accepts both), change
-  the secret in the App, promote `-next`, restart again.
-- **App key:** GitHub allows up to 25 keys per App
-  ([private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)).
-  Generate the new key, put it in SSM, restart the worker, then delete the
-  old key on GitHub.
+- Webhook secret: change it in SSM and the App, then restart `serve`. The
+  full pass covers the gap, and from increment 6 the replay does.
+- App key: add a new key (an App may have 25,
+  [private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)),
+  restart, then delete the old one.
 
-### Queue and coalescing
+The App's JWT can also re-point the webhook. The worker therefore checks
+`GET /app/hook/config` hourly. By step 2 the key moves to KMS signing or a
+signer process (§3).
 
-`refresh_queue` is keyed by (repository, PR), or (repository, head SHA)
-until the worker resolves the SHA.
-- **Upsert.** It merges the hints, keeps the first enqueue time, and sets
-  `due_at`:
-  - PR, review and comment events: 5 s after the last event, at most 30 s
-    after the first;
-  - check suites and statuses: 30 s after the last, at most 120 s after the
-    first.
-- **The queue is bounded by the open PRs, not by the deliveries.** A burst of
-  check events is one entry.
-- **One worker loop, serial.** That keeps the engine's per-author
-  serialisation trivially (§2). It **leases** the earliest due entry with a
-  `leased_until`, so a crash returns the entry when the lease expires.
-- **An event during a run.** It bumps the entry's generation. When the run
-  ends, the entry is deleted only if its generation is unchanged; otherwise
-  it is re-armed (§6e's "followed by another").
-- **One PR is refreshed at most once every 20 s,** which bounds what a flood
-  or a replayed delivery can cost.
-- **An entry whose last event predates its repository's latest base
-  `reads_from` is dropped.** The full pass has already seen it, so a backlog
-  after an outage drains to what is still new.
-- **Head index.** The worker keeps (repository, PR, head) in its own tables
-  to resolve SHA entries. It fills the index from refreshes and from a
-  **conditional poll of each repository's open-PR list** every 5 minutes:
-  `GET /pulls?state=open`, one or two pages, with an ETag, so mostly 304s.
-  The same poll enqueues:
-  - any PR whose head changed or whose `updated_at` is later than its last
-    read;
-  - any PR on the board that the list no longer has, and any PR in the list
-    the board lacks.
-  That catches most missed deliveries within 5 minutes, at almost no cost.
-  §6e's pagination rule for 304s applies.
+### Queue
+
+The worker copies new inbox rows into its queue, keyed by (repository, PR).
+- **Head SHAs.** A status or a fork's suite names only a head. It is
+  resolved through the heads recorded by refreshes and the suite's PR list.
+  An unresolved one is dropped after 10 minutes and counted.
+- **Hints** merge by maximum.
+- **When an entry falls due:**
+  - PR, review and comment events: 5 s after the last, at most 30 s after
+    the first;
+  - suites, statuses and anything from `github-actions[bot]` (Python's
+    record, status and labels): 30 s and 120 s.
+- **During a run.** An event re-arms the entry through a lease generation,
+  and the re-armed entry's first time is reset.
+- **Cost bounds**, which turn a comment flood on these public repositories
+  into a staler board, never a spent budget:
+  - a token bucket per PR: 3 refreshes, then one per 5 minutes; delays
+    never drop an entry;
+  - at most 120 event refreshes an hour;
+  - nothing runs under 1 000 requests remaining.
+- **Other PRs.** `Selection::Pr` also decides the author's other PRs whose
+  slot changed. Each verdict that differs from the board's row is enqueued.
+  A close, merge, draft change or base change enqueues the author's other
+  open PRs in that repository. Only differences enqueue, so this converges.
 
 ### Per-PR refresh
 
-For one PR, in one blocking task:
-1. **The analyzer's read, for one PR.** A new
-   `Fetcher::fetch_pr(owner, name, number)`, as one GraphQL query:
-   - `repository { defaultBranchRef pullRequest(number:) { … } }` with the
-     list query's node selection, shared as one fragment, plus `state` and
-     `headRefOid`;
-   - `parse_pr_node`;
-   - the existing per-node follow-ups for threads and files;
-   - `recheck_mergeable`;
-   - `fetch_stage_evidence` for this node.
+1. **Read.** A new `Fetcher::fetch_pr(owner, name, number)`: the list
+   query's node selection as a shared fragment, plus `state` and
+   `headRefOid`, then the existing per-node follow-ups (threads, files,
+   `recheck_mergeable`, `fetch_stage_evidence`). About 4 GraphQL points.
+2. **Freshness.** The read's `updatedAt` must reach the newest hinted
+   `updated_at`. A head is checked only when the newest hint carries one.
+   - A stale read is re-armed after 5 s and again after 30 s. Then it is used
+     and counted as unconfirmed: it is no older than what it replaces.
+   - Statuses and suites carry no PR time; they rely on their 30 s wait.
+3. **Engine.** `Reconciler::run` with `Command::Sync`, `apply: true` and
+   `Selection::Pr(n)`, over `Observed<ReadOnly<HttpTransport>>`, as
+   `conformance::live` runs it.
+   - Writes are refused before the transport and logged as would-be writes.
+   - The row is the PR's entry in `Run::verdicts`, which is decided before
+     any write, written with `py_dumps` and read as `PolicyState`.
+   - It costs 15–39 requests, about 30% of them GraphQL.
+   - Only a failed *read* withholds the overlay: the entry backs off, and
+     after three tries it is left to the full pass.
+4. **Derivation**, with the analyzer's code:
+   - `analyzer::analyze` (exclusions re-applied), `score_prs` and
+     `attach_engine_state`;
+   - a new `dashboard::pr_part`, shared with `build`, giving the `PrOut` and
+     the PR's person contributions (the author's `authored` key, each
+     reviewer's `Owed`);
+   - the grace period, whose cache lives on the `data` branch: a PR already
+     on the board keeps its `tracked`; a new PR is tracked if its author has
+     a tracked PR on the board, and otherwise is an engine-only row if
+     governed or a **hidden** overlay if not.
+5. **A closed or merged PR** gets a **tombstone**.
 
-   About 3–5 GraphQL points.
-2. **Freshness.** The read must show what the queued events reported: the
-   head SHA, the review or comment id, closed or draft. A read that predates
-   its event is retried after 2, 5, 15 and 60 s. Then it is dropped and
-   counted, and left to the poll and the full pass (§6e).
-3. **The engine, dry.** `Reconciler::run` with `Command::Sync`,
-   `apply: false`, `Selection::Pr(n)`, over `Observed<ReadOnly<HttpTransport>>`
-   (§6d), at the worker's policy commit. About 15–40 REST requests, as
-   measured for a one-author sync.
-   - Its report row has the shape Python's `report --format json` exports. It
-     is read into the analyzer's `PolicyState` exactly as the exported file
-     is.
-   - Its would-be writes feed the shadow comparison (below). **One run serves
-     both.**
-4. **Derivation**, using the analyzer's own code:
-   - `analyzer::analyze` with the PR alone (exclusions are pure
-     configuration);
-   - `scorer::score_prs` and `attach_engine_state`;
-   - a new `dashboard::pr_part`, shared with `dashboard::build`, which gives
-     the `PrOut` and the PR's **person contributions**: the author's
-     `authored` key, and each reviewer's `Owed` from `dashboard::part`.
-   - The grace period needs the analyzer's author cache, which lives on the
-     `data` branch. A PR already on the board keeps its `tracked`. A new PR
-     is tracked if its author has a tracked PR on the board, and otherwise
-     waits for the full pass.
-5. **A closed or merged PR** gives a **tombstone** overlay, and leaves the
-   board.
-
-An engine read that fails (403/429 not retried, as in §6d) writes no
-overlay. The entry is retried with backoff, then dropped and counted. There
-are no half-rows.
-
-**Whose verdict.** Overlays show the **Rust port's** verdict. Full snapshots
-show **Python's** (its `report`, re-evaluated in Actions, which is what the
-board has always shown, not the posted status). This departs from §2's
-"Python's, as posted" during shadow, and needs the owner (report, decision
-1). It is limited three ways:
-- stage B below gates it on the overturn rate;
-- each overlay names its source;
-- the kill switch removes every overlay within one full pass.
-
-The alternative refreshes only GitHub's own fields per event and keeps the
-engine's fields from the snapshot. Stage, reviews owed and "whose move"
-would then still lag by up to 15 minutes: most of what the owner asked for.
+**Whose verdict.** Overlays show the **Rust port's** verdict. Snapshots show
+**Python's** `report`: its live re-evaluation, which the board has always
+shown, rather than the posted status. This departs from §2's "Python's, as
+posted" during shadow, and is the owner's decision. Stage B's drift gate
+and the kill switch bound it. The alternative, refreshing only GitHub's own
+fields, leaves stage, owed reviews and whose move it is 15 minutes late.
 
 ### Merging with the full snapshot
 
-- **Read times, not arrival times.**
-  - An overlay's `read_from` is the worker's clock just before its first
-    read.
-  - A snapshot's `reads_from` is its run's start, before the engine export.
-    It is a new additive field, set by the workflow's first step and checked
-    on ingest like `generated_at`: no later than `generated_at`, no earlier
-    than the token's `iat` minus the job timeout.
-  - A snapshot without it counts as `generated_at` minus the job timeout,
-    the conservative side.
-- **For each PR of a repository, the base wins only if
-  `reads_from ≥ read_from + 60 s`.** The margin covers the clock skew
-  between runner and host. Otherwise the overlay stands. The consequences:
-  - an older snapshot never replaces a newer row;
-  - its absence of a newer PR deletes nothing;
-  - its listing of a PR an overlay closed does not bring it back.
+**Rule.**
+- **Base read time.** `base_from = good_at − 11 min`. `good_at` is the
+  `generated_at` of the snapshot that last read that repository well. The
+  analyzer's clock starts right after the engine export, whose
+  `timeout-minutes: 10` a test reads from `pr-hygiene.yml`.
+- **Overlay read time.** `read_from` is the worker's clock at the start of
+  the attempt whose read is used. The worker checks its clock against
+  GitHub's `Date` header and reports a drift over 10 s.
+- **The base wins only if `base_from ≥ read_from + 60 s`.** So an older
+  snapshot never replaces, deletes or revives a newer row. A failing
+  repository keeps its old `good_at`, and with it its overlays.
 
-  At ingest, overlays the base has overtaken are deleted, tombstones
-  included. A reopened PR returns through its event or the next snapshot.
-- **Stale repositories.** The base keeps its last good data, and overlays
-  keep it current; `/api/v1/repos` gains `refreshed_at`. Overlays apply only
-  to repositories that have a base.
-- **People.**
-  - A repository's people are its base people parts, minus every entry keyed
-    by an overlaid PR (owes and authored are keyed by PR; `service/src/view.rs`), plus the
-    overlays' contributions.
-  - `wip` is recounted from the final rows with the analyzer's own rule
-    (`counts_toward_wip`, extracted from `dashboard::people`).
-  - Areas come from the policies, and nothing per PR changes them.
-  - `view::merge_people` then does what it does today.
-- **Stage history.**
-  - A worker write records stage changes from overlays, with `observed_at`
-    set to `read_from`.
-  - An ingest records none for PRs where an overlay still wins, so history
-    never steps back to an older read.
-  - `stage_changes.snapshot_id` becomes nullable, with an `overlay_id`
-    beside it.
-- **Speed inputs and the closed list** come from full snapshots only, as
-  today: monthly medians do not need seconds.
-- **Version.** `view.version` becomes a sequence that every assembly bumps
-  (ingest or overlay), so `serve`'s cached view and the ETags follow. Stage
-  changes carry the sequence they were written at.
-- **Kill switch.** `PR_HYGIENE_OVERLAYS=off` on the worker: at start it
-  deletes every overlay and writes no new ones. The next assembly serves
-  full snapshots only.
+**Writes.** The worker's transaction refuses an overlay that the base, or an
+existing overlay, already beats. Each ingest first counts **drift**, then
+deletes the overlays it overtakes. Drift means an overtaken overlay whose
+stage, engine state or owes differ from the base, with no inbox event for
+that PR in between.
+
+**People.**
+- Each repository's base people parts lose every entry keyed by an overlaid
+  PR. Owes and authored are keyed by PR, in `service/src/view.rs`.
+- They gain the overlays' contributions.
+- `wip` is recounted from the final rows (`counts_toward_wip`, taken from
+  `dashboard::people`).
+- A person left empty is dropped. A person new from an overlay gets
+  `dashboard::kind` and the review-bot role.
+- `view::merge_people` then runs as today.
+
+**Stage history, speed and the closed list** come from snapshots only, as
+today. History stays Python's, at 15-minute grain; a row may run up to 15
+minutes ahead of it.
+
+**Version.**
+- `view.seq` is bumped on every assembly, seeded above the highest snapshot
+  id. It keys `serve`'s cache and the ETags.
+- `view.version` stays the snapshot id that history is read against.
+- The worker re-assembles from the stored view, the base parts and the
+  overlays.
+
+**Modes** (`PR_HYGIENE_OVERLAYS` on the worker):
+- `off`: deletes every overlay, re-assembles and bumps `seq`, in one
+  transaction at start;
+- `shadow`: writes overlays the view ignores, and still counts drift;
+- `on`: serves them.
 
 ### Shadow engine on the same events (1b-6b)
 
-- **Events.** Each refresh's dry run is compared as §6d describes: Rust's
-  state against the posted record, and would-be writes where the record
-  agrees. The result goes to the private shadow table.
-  - Python's own `report` arrives every 15 minutes in the full snapshot.
-  - Each overlay is also compared with the next snapshot that started after
-    it, for the same PR and head with no event in between: the **overturn
-    rate**.
-- **Sweep.** §6d's sweep runs at the lowest priority. It is chunked as
-  `Selection::Batch` of one author's PRs at a time, so a due event waits at
-  most one chunk (about 10–20 s).
-  - It pauses while any queue entry is due, and while the installation's
-    remaining REST is under a reserve of 1 500.
-  - It covers every PR about every 2 hours, about 300 requests an hour.
-- **Priority:**
-  1. event refreshes and their retries;
-  2. the delivery replay and the open-PR poll;
-  3. the sweep.
+- **Comparison.** Each refresh's run is compared as §6d describes: Rust's
+  state against the posted record, and would-be writes where they agree.
+  Drift compares overlays with Python's next snapshot. Results go to the
+  private table.
+- **The sweep** covers quiet PRs, as `Selection::Batch` chunks of at most 3
+  PRs, so an event waits at most one chunk.
+  - It pauses while an entry is due, or under 2 500 remaining requests.
+  - Every PR about every 4 hours: about 1 400 requests a pass, 350 an hour.
+  - Step 2's clock starts when it runs.
 
-### Recovering lost deliveries
+### Recovery
 
-GitHub does not redeliver failed deliveries
-([handling failed deliveries](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)).
-Failures can be redelivered for 3 days
+GitHub does not redeliver failures
+([handling failures](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)),
+and redelivery reaches back 3 days
 ([redelivering](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks)).
+Every deploy restarts `serve`, so a few deliveries fail each time. Until
+the pass slows, the 15-minute pass recovers them, as it recovers everything
+today.
 
-The worker holds the key, so it replays them:
-- Every 5 minutes, with the App's JWT, it reads
-  `GET /app/hook/deliveries?per_page=100` (cursor-paged, newest first) back
-  to its last high-water mark.
-- For each `failure` whose GUID is not in `webhook_deliveries`, it sends
-  `POST /app/hook/deliveries/{id}/attempts` (202)
-  ([App webhook API](https://docs.github.com/en/rest/apps/webhooks)).
-- 413s and payloads for ungoverned repositories are not replayed. A delivery
-  that fails twice more is left to the safety net.
+Increment 6 adds three things before the pass slows:
+- **Replay.**
+  - Every 5 minutes while `serve` is ready, the worker reads
+    `GET /app/hook/deliveries` with the JWT
+    ([App webhooks](https://docs.github.com/en/rest/apps/webhooks)),
+    rescanning an hour so that scans overlap.
+  - A `failure` whose GUID is not in the inbox and is newer than
+    `base_from` is redelivered (`POST …/deliveries/{id}/attempts`).
+  - A 413 is fetched whole with the JWT and recorded.
+- **Poll.** A conditional poll of each open-PR list every 5 minutes, with an
+  ETag and §6e's pagination rule. It enqueues a changed head, a newer
+  `updated_at` (seeded from `base_from`), or a PR on one side only.
+- **The webhook-configuration watch.**
 
-The **safety net** is the open-PR poll every 5 minutes and the full pass
-every 15. The latter is also the only one for inputs no event reports:
-time-driven waivers and nudges, permission changes and the status page
-(§6e).
+A check result that arrives without a delivery is left to the sweep and the
+full pass.
 
-### Full reconciliation cadence
+### Cadence and budget
 
-- **The 15-minute Actions pass stays** as the base and as Python's verdicts.
-- **Hourly** (a cron change in `pr-hygiene.yml`) once stage C has run 7
-  days with:
-  - drift of at most 1% of rows per pass, each explained. Drift is a full
-    pass changing a row with no event since the overlay, excluding
-    lateness and idle, which move with time.
-  - no failed delivery left unrecovered;
-  - the worker's sweep running.
-- **Every 6 hours** only once the read-only `next_change` timers (§6e)
-  enqueue time-driven transitions, and the sweep covers every PR hourly.
-- **Retiring the export** comes when the worker's own full pass replaces
-  it. That means the board shows Rust's verdicts everywhere, and is the
-  owner's call after the soak (§6e's table).
+- **The 15-minute pass stays.**
+- **Hourly**, once stage C has run 7 days with drift of at most 1% per
+  pass, each case explained, increment 6 running, and no failed delivery
+  left unrecovered.
+- **Every 6 hours** only after read-only `next_change` timers (§6e).
+- **Retiring the export** means Rust's verdicts everywhere: the owner's
+  call after the soak.
 
-### Rate budget
-
-**Reader App** (new; 5 000 REST an hour and 5 000 GraphQL points an hour
-per installation, separate pools;
-[REST](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api),
-[GraphQL](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api)):
-
-| Use | REST / hour | GraphQL points / hour |
+| Per hour | REST (limit 5 000) | GraphQL points (limit 5 000) |
 |---|---|---|
-| Event refreshes, 15–40 an hour (estimate below) × ~25 | 400–1 000 | 50–200 |
-| Shadow sweep, all PRs every ~2 h | ~300 | — |
-| Open-PR poll, 5 repos × 12, mostly 304 | ≤ 60 | — |
-| Policy commit and files (tokenless) | 0 | — |
-| **Total** | **≈ 750–1 400** (peak ≈ 2 500) | ≤ 200 |
+| Reader: 30–80 event refreshes (human events and Python's replies) | 550–1 450 | 350–950 |
+| Reader: sweep | ~350 | ~150 |
+| Reader: poll, from increment 6 (replay runs on the JWT) | ≤ 60, mostly 304s | — |
+| **Reader, total** | **≈ 900–1 850**; 120-refresh cap; 1 000 reserve | ≤ 1 100 |
+| `pr-hygiene` export | ≈ 2 400 every 15 min · 600 hourly · 100 six-hourly | as today |
 
-The delivery replay goes through the App's JWT, outside the installation's
-budget: about 12 requests an hour.
+REST and GraphQL are separate pools
+([REST](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api),
+[GraphQL](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api)).
+The counts are estimates, and the soak measures them:
+- public feeds show about 22 PR events an hour, a lower bound;
+- suites add 9–16 per platform head;
+- Python replies to each event.
 
-The estimate:
-- The repositories' public event feeds over the last days give about 22
-  PR-related events an hour across the five. That is a lower bound: the feed
-  omits statuses, checks and many actions.
-- Check suites add about 9–16 per platform head.
-- Coalescing turns these into one refresh per PR per burst.
-- The soak measures the real figure. A reserve of 1 500 is always held for
-  events.
-
-**`pr-hygiene` App** (export): unchanged at about 2 400 an hour while the
-cadence is 15 minutes; about 600 hourly, about 100 every six hours. The
-headroom that frees can bring back the 1b-5 differential (disabled by the
-owner for budget).
+A slower export frees room for the 1b-5 differential.
 
 ### Failure modes
 
-| Case | What happens |
+| Case | Handling |
 |---|---|
-| Delivery lost (host down, 429, 5xx, timeout) | Replayed from the delivery log within 5 minutes, while under 3 days old; otherwise the poll (5 min) or the full pass (15 min) |
-| Delivery duplicated | Same GUID: 202, nothing enqueued; refreshes are idempotent anyway |
-| Events out of order | Payloads are hints; the worker reads the present; read times order rows |
-| Read older than its event | Freshness check, bounded backoff, then poll and full pass (counted) |
-| Receiver up, worker down | Deliveries are acknowledged and queued, so none is lost; the board ages to the 15-minute pass; restart drains one refresh per PR; alert at worker heartbeat > 5 min or oldest due entry > 10 min |
-| Backlog | Bounded by the open PRs; entries the base has overtaken are dropped |
-| Secret or key rotation | Two secrets accepted during a webhook-secret change; overlapping App keys |
-| Captured delivery replayed | GUID kept 7 days; later replays only enqueue a refresh of a real PR, at most every 20 s; nothing in a payload reaches the board |
-| Flood on the public route | nginx per-client rate and connection limits, 1 MiB body, header timeouts; in the service, cheap header checks first, 32 in flight, 8 s deadline; refused real deliveries are replayed |
-| Repository or PR outside the governed set | 202, dropped and counted; ungoverned *branches* of governed repositories are refreshed, as the board shows them |
-| App uninstalled, suspended or permissions pending | `installation` events logged; token minting fails; the worker is not ready; the full pass carries on |
-| Wrong overlays (a port bug) | Overturn and drift show it; kill switch; the next full pass restores the base |
-| Policy change | Overlays record their policy commit; the next pass and refreshes use the new one |
-| Clock skew | 60 s margin in the merge rule; both clocks NTP-synced |
+| Delivery lost or refused (deploy, 429, 5xx) | Full pass; the replay from increment 6 |
+| Duplicate; replay under a new GUID | Unique GUID and body hash |
+| Out of order; read older than its event | Hints merge by maximum; two re-arms, then used and counted |
+| Worker down | Inbox keeps filling; the board falls back to the full pass; a restart refreshes each PR once |
+| Flood | Bucket, cap, reserve; nginx and route limits |
+| Wrong overlays | Drift; `off` removes them at once |
+| Old snapshot; failing repository | The read-time rule; the old `good_at` |
+| Clock skew | 60 s margin; host checked against `Date` |
+| App uninstalled, suspended, permissions pending | Logged; the worker reports it; the full pass carries on |
+| Repository or PR outside the set | 202, dropped and counted; ungoverned branches of the five are refreshed, as the board shows them |
 
 ### Verification
 
-- **Receiver** (axum tests with signed fixtures):
-  - a valid signature passes;
-  - a wrong, missing or SHA-1-only signature is 401;
-  - an oversized body is 413 before any HMAC;
-  - a repeated GUID enqueues nothing;
-  - a foreign installation or repository is 202 and dropped;
-  - both secrets pass during a rotation;
-  - a busy database is 503 within the deadline;
-  - a log-capture test finds no body, signature or header value.
+- **Receiver** (signed fixtures):
+  - 400 for a bad header, 401 for a wrong signature, 413 before any HMAC;
+  - a repeated GUID or body queues nothing;
+  - a foreign installation or repository, or an old payload, gets 202;
+  - a busy database gets 503 within the deadline;
+  - no body or header value appears in the logs.
 - **Queue:**
-  - coalescing;
-  - an event during a lease causes another run;
-  - a lease expires after a simulated crash;
-  - record and enqueue are atomic;
-  - an entry the base has overtaken is dropped.
-- **Worker on mock GitHub** (httpmock, the reader's existing `mock`):
-  - a read older than its event is retried, then dropped and counted;
-  - closed gives a tombstone, opened a new row;
-  - a status resolves through the head index;
-  - a fork's check suite;
-  - a failed engine read writes nothing;
-  - the reserve pauses the sweep, never events;
-  - the replay retries only unseen failures;
-  - the poll enqueues a missed head change.
-- **Merge, as an oracle.** For a fixture board and one changed PR —
-  approved, closed, opened, a draft flipped, an author's `wip` changed:
-  ```
-  apply_overlays(build(before), pr_part(after, PR)) == build(after)
-  ```
-  The `PrOut` rows and the people must be equal. And `build` stays equal to
-  assembling every PR's `pr_part`, which proves the refactor changes
-  nothing.
+  - coalescing, and the reset on re-arm;
+  - an event during a lease, and a lease lost in a crash;
+  - one sender posting 500 comments an hour stays under a fixed REST cost;
+  - an unresolved SHA is dropped;
+  - a close enqueues the author's other PRs.
+- **Worker on mock GitHub:**
+  - a stale read is re-armed, then counted;
+  - a tombstone, a new PR, a hidden PR;
+  - a status resolved by its head;
+  - refused writes still give a row, and a failed read gives none;
+  - a planted trigger is refused.
+- **Merge oracle**, for an approval, a close, an open, a draft flip, a freed
+  slot and an exclusion label:
+  `apply_overlays(build(before), pr_part(after, PR)) == build(after)`.
+  `build` equals the assembly of every `pr_part`.
 - **Ordering:**
-  - an older snapshot keeps a newer overlay and records no stage change for
-    it;
-  - a newer one prunes it;
-  - a tombstone, then a reopen.
-- **Configuration:** `serve` refuses reader settings, and the worker refuses
-  the webhook secret.
+  - an older snapshot keeps the overlay and a newer one prunes it;
+  - a late write is refused;
+  - drift is counted before pruning;
+  - a stale repository keeps its overlays.
+- **Configuration:**
+  - `serve` refuses reader settings, and the worker refuses the webhook
+    secret;
+  - a release opens the next schema;
+  - the export-timeout test.
 
 ### Rollout
 
-| Stage | What runs | Exit |
+| Stage | Runs | Exit |
 |---|---|---|
-| A. Record | Receiver live; deliveries recorded and queued; no worker | 2 days: every delivery GitHub lists verifies; no failures in the App's log beyond deliberate tests; p99 answer < 500 ms; largest body < 512 KiB |
-| B. Compute | Worker on; refreshes and shadow run; overlays written to the private table only, not served | 2–3 days: ≥ 95% of entries refreshed within 2 min; overturn ≤ 1% on `engine_state`, stage and owes, every case categorised; REST ≤ 50% of the hour; the soak clock for step 2 starts here |
-| C. Serve | Overlays applied (dashboard, API, skill, Slack) | 7 days: delivery→view p50 < 30 s, p95 < 2 min; drift ≤ 1% per pass; kill switch not needed |
-| D. Hourly | Actions pass hourly | 7 days of drift as in C |
-| E. 6-hourly | After read-only `next_change` timers and an hourly sweep | — |
+| A. Record | Receiver on; worker `off` | 2 days: the App's delivery page shows no failures outside deploys; no 401s; p99 handling < 500 ms; largest body < 512 KiB |
+| B. Shadow | Worker `shadow` | 3 days: 95% of entries refreshed within 2 min of falling due; drift ≤ 1%, each case categorised; reader REST ≤ 50% of the hour |
+| C. On | Worker `on`; then the sweep (increment 5) | 7 days: delivery-to-view p50 < 30 s; p95 < 2 min for PR, review and comment events, < 4 min for checks; drift ≤ 1% per pass |
+| D. Hourly | After increment 6 | 7 days of drift as in C |
+| E. Six-hourly | After `next_change` timers | — |
 
-**Owner actions:**
-- agree the decisions in the report;
-- create the App with the settings above and install it on the five
-  repositories;
-- generate the key, put it and the webhook secret into SSM, delete the local
-  copy;
-- give infra the App id and the installation id;
-- at D and E, merge the cron change.
+**Order.** First the image ships, with the receiver and worker dormant.
+Then the owner and infra act in one apply, which replaces the instance (a
+few minutes down).
 
-**Infra actions** (dashpay/infra):
-- **The worker** in the compose file:
-  - the same image digest, `command: ["worker"]`, no ports;
+**Owner:**
+- decides the report's open questions;
+- generates the webhook secret;
+- creates and installs the App as above;
+- generates its key;
+- puts both secrets into SSM with infra's KMS key, and deletes the local
+  copies;
+- gives infra the App and installation ids;
+- merges each cadence change.
+
+**Infra** (dashpay/infra):
+- **KMS and IAM:** the KMS key and the IAM above.
+- **Secrets:** a unit (after `network-online` and `snapd.seeded`, before and
+  wanted by `docker.service`; `umask 077`; temporary file then rename; never
+  echoes). Its tmpfiles.d directories, `/run/pr-hygiene/secrets/{service,worker}`
+  (0500, uid 65532).
+- **Bootstrap:** creates `/srv/pr-hygiene/worker` (0700, uid 65532).
+- **Compose, `worker`:**
+  - the same image, `command: ["worker"]`, no ports;
   - `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, tmpfs `/tmp`;
-  - `/srv/pr-hygiene/data:/data` and `/srv/pr-hygiene/worker:/work` (not
-    backed up);
-  - `PR_HYGIENE_READER_APP_ID`, `PR_HYGIENE_READER_INSTALLATION_ID`,
-    `PR_HYGIENE_READER_APP_KEY_FILE` and `PR_HYGIENE_WORKER_DB`.
-- **`serve`** gains `PR_HYGIENE_WEBHOOK_SECRET_FILE`,
-  `PR_HYGIENE_WEBHOOK_APP_ID` and `PR_HYGIENE_WEBHOOK_INSTALLATION_ID`.
-- **Secrets:** the SSM parameters, the IAM statement and the secrets unit
-  above.
-- **nginx:** the location above.
-- **Alerting:** on `/readyz` and on the new `/healthz/events`. It answers 503
-  when:
-  - the worker heartbeat is older than 5 min;
-  - the oldest due entry is older than 10 min;
-  - the replay has not succeeded for 30 min.
+  - `mem_limit: 768m`, `ulimits: {core: 0}`, the same `logging`;
+  - `/data` and `/srv/pr-hygiene/worker:/work`, and its secrets directory;
+  - `PR_HYGIENE_READER_APP_ID`, `…_INSTALLATION_ID`, `…_APP_KEY_FILE`,
+    `PR_HYGIENE_WORKER_DB` and `PR_HYGIENE_OVERLAYS`.
+- **Compose, `service`:** `mem_limit: 384m`, its secrets directory, and
+  the `PR_HYGIENE_WEBHOOK_*` settings.
+- **`deploy.sh`:** also waits for `/healthz/events` to show the worker's
+  heartbeat on the new build.
+- **README:** restore stops both containers (`PR_HYGIENE_IMAGE` from
+  `deploy/image`).
+- **nginx:** the block above.
+- **Alerting:** Route 53 HTTPS health checks on `/readyz` and
+  `/healthz/events`, with CloudWatch alarms in us-east-1 (missing data
+  breaches) and an SNS email. `/healthz/events` shows ages only and knows the
+  mode. It answers 503 on:
+  - a worker heartbeat over 5 min old;
+  - the oldest due entry over 10 min old (unresolved SHAs aside);
+  - a changed webhook configuration.
 
-  It carries ages only.
-- **Unchanged:** the deploy script (both services start from one digest)
-  and the backup. The main database gains small queue and delivery tables,
-  with no secrets.
+**Increments (each a PR):**
+1. **One PR in the analyzer** (`src/`): the shared fragment with `state` and
+   `headRefOid`; `Fetcher::fetch_pr`; `dashboard::pr_part` and
+   `counts_toward_wip` with the `build`-equality test; the export-timeout
+   test.
+2. **Receiver:** `webhook_inbox`, its checks and settings;
+   `/healthz/events`; the schema's compatibility window. Dormant without a
+   secret.
+3. **Overlays:**
+   - `pr_overlays`, `apply_overlays`, re-assembly and `view.seq`;
+   - drift and pruning at ingest, the write guard, the modes;
+   - the oracle tests;
+   - policies in the image.
+4. **Worker:**
+   - subcommand, private database and hardened connection;
+   - queue, coalescing, buckets and head index;
+   - refresh (`fetch_pr`, the engine over `Observed`, derivation,
+     freshness);
+   - other PRs, metering, the clock check;
+   - mock-GitHub tests.
 
-**Increments (each a PR, in order):**
-1. **Receiver** (`service`): the route and checks above, `webhook_deliveries`
-   and `refresh_queue`, the secret files and the rotation pair, `serve`
-   refusing reader settings, `/healthz/events`. Dormant without a secret.
-2. **One PR in the analyzer** (`src/`, can run in parallel with 1):
-   - the shared node fragment with `state` and `headRefOid`;
-   - `Fetcher::fetch_pr`;
-   - `dashboard::pr_part` and `counts_toward_wip` extracted, with the
-     `build`-equality test;
-   - `reads_from` in the snapshot, and the workflow's first step.
-3. **Overlays** (`service`):
-   - the `pr_overlays` table;
-   - `view::apply_overlays`;
-   - the version sequence;
-   - stage changes from overlays;
-   - pruning at ingest;
-   - the oracle tests.
-4. **Worker** (`service`):
-   - the subcommand: lease, coalesce, head index and poll, policy commit;
-   - the refresh: fetch, the engine's dry `Selection::Pr`, derivation,
-     freshness;
-   - the delivery replay, rate metering and the kill switch;
-   - the mock-GitHub tests.
-
-   Ships at stage B, with overlays private.
-5. **Shadow** (`service`): 1b-6b's comparison table in the private database,
-   the chunked sweep, overturn and drift counts, the pass summary.
-6. **Cadence** (`pr-hygiene.yml`): hourly, then 6-hourly, on the evidence
-   above.
+   Ships `off`; stages A–C follow.
+5. **Sweep:** 1b-6b's comparison table and the chunked sweep. Starts step
+   2's clock.
+6. **Before slowing the pass:** replay and the 413 fetch, the poll, the
+   webhook-configuration watch, then the cron change in `pr-hygiene.yml`.
 
 ## 7. Open PRs
 
@@ -1685,3 +1639,29 @@ full reconciliation as the safety net. The Rust engine runs in shadow on the
 same events (1b-6b), and its clock restarts. Rejected: governed repositories
 pushing per-PR state from their Actions. Open: §6f's decisions (whose
 verdict the overlays show, the App, secrets).
+
+## Appendix A. §6f review findings not taken
+
+Five reviews of §6f's draft (feasibility, security, failure modes and
+merge correctness, simplicity, operations) were folded in. These findings
+were not taken, or were taken differently:
+
+| Finding | Decision |
+|---|---|
+| Cut the cadence track and its safety nets from §6f (simplicity) | Partly. The owner asked when and on what evidence to slow the pass, so the criteria stay, in brief. The replay and the poll move to increment 6, before any slowdown. |
+| Shrink §6f to about 1 500 words (simplicity) | Not taken. The App settings, the nginx block, the infra asks and the PR plan are what the owner and infra act on. The draft went from 4 900 words to 3 800. |
+| Fewer failure-mode rows (simplicity) | Not taken. The owner listed nine cases, and each keeps a one-line row. |
+| Put events from members first by `author_association` (security) | Not taken. PR authors are often outside contributors whose pushes matter. The per-PR bucket, the global cap and the reserve already bound the cost. Revisit at step 2, where a stall would hold up merges. |
+| Skip the engine's reads when the GraphQL read shows nothing changed (security) | Deferred. A second notion of "unchanged" beside the engine's own evidence risks silent misses. Measure the cost first. |
+| No shared WAL between `serve` and the worker now (security) | Deferred to before step 2, written into §6f as a gate. Read-only, the hardened connection and one writer per table suffice. |
+| KMS signing for the reader key now (security) | Deferred to step 2. The webhook-configuration watch is taken now. |
+| Keep `/healthz/events` off the public route (security) | Not taken. Route 53's health checks must reach it, and it shows ages only. |
+| Mount single secret files rather than directories (security) | Not taken. A bind of a missing file creates a root-owned directory (operations). One directory per container, mounted only into that container, separates them just as well. |
+| A webhook burst of about 20 (security) | Partly. The burst is 50 per address, since GitHub sends about 100 deliveries per platform push from a few addresses. A connection cap of 64 for the whole location bounds memory with 256 KiB buffers. |
+| Check the target-id header in nginx too (security) | Not taken. It would put the App id in nginx's template, which is user data. The service checks it. |
+| Store the App and installation ids as SSM String parameters to avoid replacing the instance (operations) | Left to infra. The ids are set once, in the same apply that already replaces the instance. |
+| Take the runner's time from GitHub's `Date` header too (failure modes) | Partly. The host is checked against `Date`. GitHub-hosted runners are NTP-synced, and the 60 s margin covers them. |
+| Bound a new `reads_from` snapshot field (failure modes) | Moot. The field was dropped; the base read time is `good_at − 11 min` (simplicity). |
+| Mark the source of each stage-history row, or backdate it (failure modes) | Taken differently. History stays snapshot-only during shadow. |
+| Write an overlay for every verdict in a run (feasibility) | Taken differently. Verdicts that differ from the board are enqueued, and each gets its own read. A close, a draft change or a base change also enqueues the author's other PRs. |
+| Check status and suite results against the engine's own read (failure modes) | Deferred. There is no cheap fact the two reads share. Statuses and suites rely on their 30 s wait, and drift measures what that misses. Revisit before the pass goes six-hourly. |
