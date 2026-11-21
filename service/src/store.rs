@@ -31,7 +31,19 @@ pub const HISTORY_RETENTION: Months = Months::new(13);
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Bumped with every change to the tables below.
+///
+/// Changes are additive only: new tables, and columns through
+/// `ADDED_COLUMNS`. So a release runs unharmed on the schema of the release
+/// after it, and a rollback, which goes one release back, can start.
 const SCHEMA_VERSION: i64 = 3;
+
+/// Columns added to a table after its `CREATE TABLE` below first shipped,
+/// as (table, column, definition), oldest first. A database may already
+/// have one, added at an earlier start or by a newer release that was then
+/// rolled back, so each is added only if the table lacks it. SQLite adds a
+/// column only if it may be NULL or has a default, so the release before
+/// still inserts rows without knowing it.
+const ADDED_COLUMNS: &[(&str, &str, &str)] = &[];
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -244,7 +256,8 @@ pub struct Store {
 impl Store {
     /// Open (creating if need be) the database for writing.
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+        let mut conn =
+            Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
         let mode: String =
             conn.pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))?;
@@ -258,14 +271,7 @@ impl Store {
         // disk, not left in free pages for a copy of the file to carry.
         conn.pragma_update(None, "secure_delete", true)?;
         conn.pragma_update(None, "foreign_keys", true)?;
-        let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        anyhow::ensure!(
-            version <= SCHEMA_VERSION,
-            "{}: schema version {version} is newer than this service ({SCHEMA_VERSION})",
-            path.display()
-        );
-        conn.execute_batch(SCHEMA)?;
-        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        migrate(&mut conn).with_context(|| path.display().to_string())?;
         Ok(Self { conn })
     }
 
@@ -576,6 +582,55 @@ impl Store {
             speed_inputs,
         })
     }
+}
+
+/// Bring the schema up to this release's, in one transaction so that two
+/// processes opening the file at once cannot interleave their checks and
+/// writes. A schema one release newer is left as it is, its version
+/// included: lowered, the next release would migrate again what it already
+/// has.
+fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let version: i64 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    anyhow::ensure!(
+        version <= SCHEMA_VERSION + 1,
+        "schema version {version} is more than one release newer than this service ({SCHEMA_VERSION})"
+    );
+    tx.execute_batch(SCHEMA)?;
+    for &(table, column, definition) in ADDED_COLUMNS {
+        add_column(&tx, table, column, definition)?;
+    }
+    if version < SCHEMA_VERSION {
+        tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// `ALTER TABLE … ADD COLUMN`, unless `pragma table_info` already lists the
+/// column. Whether it was added.
+fn add_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> anyhow::Result<bool> {
+    let present = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2 COLLATE NOCASE",
+            [table, column],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if present {
+        return Ok(false);
+    }
+    conn.execute_batch(&format!(
+        "ALTER TABLE {table} ADD COLUMN {column} {definition}"
+    ))
+    .with_context(|| format!("adding {table}.{column}"))?;
+    Ok(true)
 }
 
 /// Delete what is stored about `user_id` for computing their speed, in the
@@ -1364,6 +1419,94 @@ mod tests {
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    fn user_version(path: &Path) -> i64 {
+        Connection::open(path)
+            .unwrap()
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap()
+    }
+
+    /// A database as the next release leaves it: this release's schema, a
+    /// table and a column added, and the next version number.
+    fn migrated_by_next_release(path: &Path) {
+        drop(Store::open(path).unwrap());
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE added_next (id INTEGER PRIMARY KEY);
+             ALTER TABLE snapshots ADD COLUMN added_next TEXT;",
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+            .unwrap();
+    }
+
+    /// A rollback runs this release on a database the next one migrated. It
+    /// must start, and must leave the version as it found it: lowered, the
+    /// next roll-forward would take the added columns for missing.
+    #[test]
+    fn a_schema_one_release_newer_opens_and_keeps_its_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("next.sqlite3");
+        migrated_by_next_release(&path);
+
+        let mut store = Store::open(&path).unwrap();
+        let d = snapshot(0);
+        let raw = serde_json::to_string(&d).unwrap();
+        stored(&store.ingest(&d, &raw, None, d.generated_at).unwrap());
+        drop(store);
+        assert_eq!(user_version(&path), SCHEMA_VERSION + 1);
+
+        drop(Store::open(&path).unwrap());
+        assert_eq!(
+            user_version(&path),
+            SCHEMA_VERSION + 1,
+            "a restart on the rolled-back release leaves it too"
+        );
+    }
+
+    /// A rollback goes one release back, never two: a schema further ahead
+    /// is not one this release is known to run on unharmed.
+    #[test]
+    fn a_schema_two_releases_newer_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("later.sqlite3");
+        drop(Store::open(&path).unwrap());
+        Connection::open(&path)
+            .unwrap()
+            .pragma_update(None, "user_version", SCHEMA_VERSION + 2)
+            .unwrap();
+
+        let Err(e) = Store::open(&path) else {
+            panic!("opened a schema two releases newer");
+        };
+        assert!(format!("{e:#}").contains("newer"), "{e:#}");
+        assert_eq!(user_version(&path), SCHEMA_VERSION + 2, "left as found");
+    }
+
+    /// A column a migration adds may already be there: added at an earlier
+    /// start, or by a newer release that was then rolled back. Adding it
+    /// again changes nothing rather than failing the start.
+    #[test]
+    fn adding_a_column_already_there_is_a_no_op() {
+        let db = db();
+        let columns = |name: &str| -> i64 {
+            db.store
+                .conn
+                .query_row(
+                    "SELECT count(*) FROM pragma_table_info('snapshots') WHERE name = ?1",
+                    [name],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert!(add_column(&db.store.conn, "snapshots", "note", "TEXT").unwrap());
+        assert!(!add_column(&db.store.conn, "snapshots", "note", "TEXT").unwrap());
+        assert_eq!(columns("note"), 1);
+        // SQLite's names are case-insensitive: this is the same column.
+        assert!(!add_column(&db.store.conn, "snapshots", "NOTE", "TEXT").unwrap());
+        assert_eq!(columns("note"), 1);
     }
 
     /// Signing in again in the same browser overwrites its cookie; the
