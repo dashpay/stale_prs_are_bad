@@ -1,16 +1,18 @@
 //! SQLite: the snapshots received, each repository's last good data, the
-//! view assembled from them, every stage change observed, sign-in, and the
-//! inputs of each person's speed.
+//! view assembled from them, every stage change observed, the verdicts and
+//! open PRs pushed since, sign-in, and the inputs of each person's speed.
 //!
 //! One writer, in `BEGIN IMMEDIATE` transactions, so the "is it newer"
 //! check and the write cannot interleave with another ingest. The API reads
 //! through its own read-only connection.
 
+use crate::overlay::{OpenList, StoredVerdict};
+use crate::push::Push;
 use crate::speed::{self, ClosedRecorded, Speed};
 use crate::view::{self, Kept, RepoData, View};
 use anyhow::Context;
 use chrono::{DateTime, Months, SecondsFormat, TimeDelta, Utc};
-use pr_hygiene::dashboard::{Dashboard, PrOut, SinceBasis, Stage};
+use pr_hygiene::dashboard::{self as board, Dashboard, PrOut, SinceBasis, Stage};
 use rusqlite::{
     params, Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior,
 };
@@ -42,7 +44,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// must be deployed and running before the next one that changes it is
 /// merged, or a failed deploy rolls back across two versions and the
 /// release it returns to refuses to start.
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// Columns added to a table after its `CREATE TABLE` below first shipped,
 /// as (table, column, definition), oldest first. A database may already
@@ -210,6 +212,31 @@ CREATE TABLE IF NOT EXISTS speed_reads (
     read_at       TEXT NOT NULL,
     stale         INTEGER NOT NULL
 );
+-- The newest verdict pushed for each PR, shown over the snapshot's while
+-- it is the newer of the two.
+CREATE TABLE IF NOT EXISTS verdicts (
+    repo          TEXT NOT NULL,
+    number        INTEGER NOT NULL,
+    head          TEXT NOT NULL,
+    -- When the run that pushed it started reading GitHub.
+    read_at       TEXT NOT NULL,
+    -- The engine's verdict, as JSON.
+    verdict       TEXT NOT NULL,
+    -- The stage that verdict puts the PR in.
+    stage         TEXT NOT NULL,
+    -- The `read_at` of the push that first showed the PR in `stage`; NULL
+    -- while that was the PR's first push, whose stage may be older.
+    stage_seen_at TEXT,
+    PRIMARY KEY (repo, number)
+);
+-- Each repository's open PRs as of the newest push: those missing from it
+-- are hidden until the next snapshot.
+CREATE TABLE IF NOT EXISTS open_lists (
+    repo          TEXT PRIMARY KEY,
+    read_at       TEXT NOT NULL,
+    -- The PR numbers, as a JSON array.
+    numbers       TEXT NOT NULL
+);
 ";
 
 /// How long a sign-in may take between leaving for GitHub and coming back.
@@ -257,6 +284,16 @@ pub enum Outcome {
     TokenUsed,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pushed {
+    /// Checked against what was stored: `verdicts` of the push's verdicts
+    /// were newer and replaced the stored ones, and its open list did when
+    /// `open` is true.
+    Stored { verdicts: usize, open: bool },
+    /// The token already posted once. Nothing was written.
+    TokenUsed,
+}
+
 pub struct Store {
     conn: Connection,
 }
@@ -298,17 +335,9 @@ impl Store {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(jti) = token_id {
-            let fresh = tx.execute(
-                "INSERT OR IGNORE INTO used_tokens (jti, used_at) VALUES (?1, ?2)",
-                params![jti, ts(received_at)],
-            )? == 1;
-            if !fresh {
+            if !spend_token(&tx, jti, received_at)? {
                 return Ok(Outcome::TokenUsed);
             }
-            tx.execute(
-                "DELETE FROM used_tokens WHERE used_at < ?1",
-                [ts(received_at - USED_TOKEN_RETENTION)],
-            )?;
         }
         let latest: Option<String> = tx
             .query_row(
@@ -389,6 +418,68 @@ impl Store {
             stale: view.stale_repos().into_iter().map(String::from).collect(),
             stage_changes,
         })
+    }
+
+    /// Store what of a checked push is newer than what is stored: per PR,
+    /// the verdict read last wins; per repository, the open list read last.
+    pub fn push(
+        &mut self,
+        push: &Push,
+        token_id: &str,
+        received_at: DateTime<Utc>,
+    ) -> anyhow::Result<Pushed> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if !spend_token(&tx, token_id, received_at)? {
+            return Ok(Pushed::TokenUsed);
+        }
+        let read_at = ts(push.read_at);
+        let open = tx.execute(
+            "INSERT INTO open_lists (repo, read_at, numbers) VALUES (?1, ?2, ?3)
+             ON CONFLICT (repo) DO UPDATE SET read_at = excluded.read_at, numbers = excluded.numbers
+             WHERE excluded.read_at > open_lists.read_at",
+            params![push.repo, read_at, serde_json::to_string(&push.open)?],
+        )? == 1;
+        let mut verdicts = 0;
+        for v in &push.verdicts {
+            let number = i64::try_from(v.number).context("PR number out of range")?;
+            let stage = board::stage(false, true, true, Some(&v.verdict)).key();
+            let stored: Option<(String, String, Option<String>)> = tx
+                .query_row(
+                    "SELECT read_at, stage, stage_seen_at FROM verdicts
+                     WHERE repo = ?1 AND number = ?2",
+                    params![push.repo, number],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?;
+            let stage_seen_at = match stored {
+                None => None,
+                Some((was_read_at, _, _)) if parse_ts(&was_read_at)? >= push.read_at => continue,
+                Some((_, was_stage, seen)) if was_stage == stage => seen,
+                Some(_) => Some(read_at.clone()),
+            };
+            tx.execute(
+                "INSERT INTO verdicts (repo, number, head, read_at, verdict, stage, stage_seen_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT (repo, number) DO UPDATE SET
+                     head = excluded.head, read_at = excluded.read_at,
+                     verdict = excluded.verdict, stage = excluded.stage,
+                     stage_seen_at = excluded.stage_seen_at",
+                params![
+                    push.repo,
+                    number,
+                    v.head,
+                    read_at,
+                    serde_json::to_string(&v.verdict)?,
+                    stage,
+                    stage_seen_at
+                ],
+            )?;
+            verdicts += 1;
+        }
+        tx.commit()?;
+        Ok(Pushed::Stored { verdicts, open })
     }
 
     /// Store a snapshot from a file, as `ingest` does with no token. One not
@@ -590,6 +681,22 @@ impl Store {
             speed_inputs,
         })
     }
+}
+
+/// Note a token's id as used; false when it already was. Ids are forgotten
+/// long after any token has expired.
+fn spend_token(tx: &Transaction<'_>, jti: &str, now: DateTime<Utc>) -> anyhow::Result<bool> {
+    let fresh = tx.execute(
+        "INSERT OR IGNORE INTO used_tokens (jti, used_at) VALUES (?1, ?2)",
+        params![jti, ts(now)],
+    )? == 1;
+    if fresh {
+        tx.execute(
+            "DELETE FROM used_tokens WHERE used_at < ?1",
+            [ts(now - USED_TOKEN_RETENTION)],
+        )?;
+    }
+    Ok(fresh)
 }
 
 /// Bring the schema up to this release's, adding `added` columns, in one
@@ -887,6 +994,55 @@ impl Reader {
             .optional()?;
         body.map(|b| serde_json::from_str(&b).context("stored view"))
             .transpose()
+    }
+
+    /// Every verdict pushed and every repository's open list.
+    pub fn pushes(&self) -> anyhow::Result<(Vec<StoredVerdict>, Vec<OpenList>)> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT repo, number, read_at, verdict, stage_seen_at FROM verdicts")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
+        })?;
+        let mut verdicts = vec![];
+        for row in rows {
+            let (repo, number, read_at, verdict, stage_seen_at) = row?;
+            verdicts.push(StoredVerdict {
+                number: u64::try_from(number).context("stored PR number")?,
+                read_at: parse_ts(&read_at)?,
+                verdict: serde_json::from_str(&verdict)
+                    .with_context(|| format!("stored verdict of {repo}#{number}"))?,
+                stage_seen_at: stage_seen_at.as_deref().map(parse_ts).transpose()?,
+                repo,
+            });
+        }
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT repo, read_at, numbers FROM open_lists")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut open = vec![];
+        for row in rows {
+            let (repo, read_at, numbers) = row?;
+            open.push(OpenList {
+                read_at: parse_ts(&read_at)?,
+                numbers: serde_json::from_str(&numbers)
+                    .with_context(|| format!("stored open list of {repo}"))?,
+                repo,
+            });
+        }
+        Ok((verdicts, open))
     }
 
     /// A PR's stage changes as of snapshot `as_of`: the rows a later ingest
@@ -1429,6 +1585,89 @@ mod tests {
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    fn push_of(read_at: DateTime<Utc>, state: &str) -> Push {
+        serde_json::from_value(serde_json::json!({
+            "repo": PLATFORM, "read_at": read_at, "open": [3000],
+            "verdicts": [{"number": 3000, "head": "0".repeat(40),
+                          "verdict": {"state": state}}],
+        }))
+        .unwrap()
+    }
+
+    fn pushed_3000(db: &Db) -> StoredVerdict {
+        let (verdicts, _) = db.reader.pushes().unwrap();
+        verdicts.into_iter().find(|v| v.number == 3000).unwrap()
+    }
+
+    /// The stage's first sighting is kept across pushes that leave it there,
+    /// moves with a push that changes it, and is unknown after a first push.
+    #[test]
+    fn a_push_dates_a_stage_change_and_never_goes_back_in_time() {
+        let mut db = db();
+        let t0 = Utc::now() - minutes(30);
+        let mut n = 0;
+        let mut push = |db: &mut Db, at: DateTime<Utc>, state: &str| {
+            n += 1;
+            db.store
+                .push(&push_of(at, state), &format!("jti-{n}"), Utc::now())
+                .unwrap()
+        };
+        push(&mut db, t0, "ready-for-human");
+        assert_eq!(pushed_3000(&db).stage_seen_at, None, "first push");
+        push(&mut db, t0 + minutes(5), "ready-for-human");
+        assert_eq!(pushed_3000(&db).stage_seen_at, None, "same stage: kept");
+        push(&mut db, t0 + minutes(10), "ready-to-merge");
+        assert_eq!(pushed_3000(&db).stage_seen_at, Some(t0 + minutes(10)));
+        push(&mut db, t0 + minutes(15), "ready-to-merge");
+        assert_eq!(pushed_3000(&db).stage_seen_at, Some(t0 + minutes(10)));
+        let older = push(&mut db, t0 + minutes(1), "draft");
+        assert_eq!(
+            older,
+            Pushed::Stored {
+                verdicts: 0,
+                open: false
+            }
+        );
+        let kept = pushed_3000(&db);
+        assert_eq!(kept.read_at, t0 + minutes(15));
+        assert_eq!(kept.verdict.state, "ready-to-merge");
+    }
+
+    /// The release before this one never made the push tables; opening its
+    /// database adds them and leaves its view as it was.
+    #[test]
+    fn a_database_from_before_pushes_gains_their_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.sqlite3");
+        let d = snapshot(0);
+        {
+            let mut store = Store::open(&path).unwrap();
+            store
+                .ingest(
+                    &d,
+                    &serde_json::to_string(&d).unwrap(),
+                    None,
+                    d.generated_at,
+                )
+                .unwrap();
+            store
+                .conn
+                .execute_batch(
+                    "DROP TABLE verdicts; DROP TABLE open_lists; PRAGMA user_version = 3;",
+                )
+                .unwrap();
+        }
+        let before = Reader::open(&path).unwrap().view().unwrap();
+        let mut store = Store::open(&path).unwrap();
+        assert_eq!(user_version(&path), SCHEMA_VERSION);
+        store
+            .push(&push_of(Utc::now(), "ready-to-merge"), "jti", Utc::now())
+            .unwrap();
+        let reader = Reader::open(&path).unwrap();
+        assert_eq!(reader.view().unwrap(), before);
+        assert_eq!(reader.pushes().unwrap().0.len(), 1);
     }
 
     fn user_version(path: &Path) -> i64 {

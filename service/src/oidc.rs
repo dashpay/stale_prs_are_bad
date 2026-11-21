@@ -2,12 +2,15 @@
 //! branch, on a GitHub-hosted runner, on the first attempt of a scheduled or
 //! manual run — proven by the OIDC token GitHub mints for that job.
 //!
+//! Who may push verdicts: the reusable PR Hygiene workflow at master, run by
+//! one of the governed repositories, for that repository only.
+//!
 //! A token is checked before anything else happens: its algorithm (RS256 and
 //! nothing else), its signature against GitHub's published keys, its issuer
 //! and audience exactly, its validity window, its age, and then every claim
 //! that names where it ran.
 
-use crate::config::{IngestConfig, GITHUB_ISSUER, GITHUB_JWKS_URL};
+use crate::config::{IngestConfig, VerdictRepo, GITHUB_ISSUER, GITHUB_JWKS_URL};
 use chrono::{DateTime, TimeDelta, Utc};
 use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, KeyAlgorithm, PublicKeyUse};
@@ -255,6 +258,7 @@ struct Claims {
     iat: i64,
     jti: String,
     sha: String,
+    repository: String,
     repository_id: String,
     repository_owner_id: String,
     #[serde(rename = "ref")]
@@ -272,6 +276,17 @@ struct Claims {
 pub struct Verified {
     /// The commit the posting run executed.
     pub sha: String,
+    pub issued_at: DateTime<Utc>,
+    /// The token's own id (`jti`): a token posts once.
+    pub token_id: String,
+}
+
+/// What a verified verdict token vouches for.
+#[derive(Debug, Clone)]
+pub struct VerifiedPusher {
+    /// The governed repository whose run minted it: the only one it may
+    /// push verdicts for.
+    pub repo: String,
     pub issued_at: DateTime<Utc>,
     /// The token's own id (`jti`): a token posts once.
     pub token_id: String,
@@ -298,6 +313,8 @@ pub struct Verifier {
     git_ref: String,
     workflow_ref: String,
     job_workflow_ref: String,
+    verdict_repos: Vec<VerdictRepo>,
+    verdict_job_workflow_ref: String,
 }
 
 impl Verifier {
@@ -319,6 +336,8 @@ impl Verifier {
             git_ref: cfg.git_ref.clone(),
             workflow_ref: cfg.workflow_ref.clone(),
             job_workflow_ref: cfg.job_workflow_ref.clone(),
+            verdict_repos: cfg.verdict_repos.clone(),
+            verdict_job_workflow_ref: cfg.verdict_job_workflow_ref.clone(),
         }
     }
 
@@ -326,7 +345,65 @@ impl Verifier {
         &self.keys
     }
 
+    /// A token that may post a snapshot.
     pub async fn verify(&self, token: &str) -> Result<Verified, AuthError> {
+        let (claims, issued_at) = self.decode(token).await?;
+        self.check_origin(&claims)?;
+        if !is_commit_sha(&claims.sha) {
+            return Err(AuthError::Unauthenticated(
+                "token: `sha` is not a commit id".into(),
+            ));
+        }
+        Ok(Verified {
+            sha: claims.sha,
+            issued_at,
+            token_id: token_id(claims.jti)?,
+        })
+    }
+
+    /// A token that may push verdicts, and the repository it may push for.
+    ///
+    /// Its branch, workflow, event, attempt and runner are not checked: every
+    /// event of every governed branch pushes, re-runs read fresh data, and
+    /// the runner may be self-hosted. What may run is pinned by
+    /// `job_workflow_ref`: the reusable workflow at master checks out the
+    /// engine and the policies from master, never a PR's code.
+    pub async fn verify_pusher(&self, token: &str) -> Result<VerifiedPusher, AuthError> {
+        let (claims, issued_at) = self.decode(token).await?;
+        let repo = self
+            .verdict_repos
+            .iter()
+            .find(|r| r.id.to_string() == claims.repository_id);
+        let checks: [(&str, bool); 4] = [
+            (
+                "repository_owner_id",
+                claims.repository_owner_id == self.repository_owner_id,
+            ),
+            ("repository_id", repo.is_some()),
+            (
+                "repository",
+                repo.is_some_and(|r| r.name == claims.repository),
+            ),
+            (
+                "job_workflow_ref",
+                claims.job_workflow_ref == self.verdict_job_workflow_ref,
+            ),
+        ];
+        if let Some((claim, _)) = checks.iter().find(|(_, ok)| !ok) {
+            return Err(AuthError::Forbidden(format!(
+                "token: claim `{claim}` is not allowed to push verdicts"
+            )));
+        }
+        Ok(VerifiedPusher {
+            repo: claims.repository,
+            issued_at,
+            token_id: token_id(claims.jti)?,
+        })
+    }
+
+    /// A token signed by GitHub for this audience, issued recently, and the
+    /// time it was issued. Where it was minted is for the caller to check.
+    async fn decode(&self, token: &str) -> Result<(Claims, DateTime<Utc>), AuthError> {
         let unauthenticated = |why: &str| AuthError::Unauthenticated(format!("token: {why}"));
         // The header is read unverified only to choose the key. The
         // algorithm is pinned before any key is looked up, so a token
@@ -357,18 +434,7 @@ impl Verifier {
             return Err(unauthenticated("wrong audience"));
         }
         let issued_at = issued_at(claims.iat, Utc::now())?;
-        self.check_origin(&claims)?;
-        if !is_commit_sha(&claims.sha) {
-            return Err(unauthenticated("`sha` is not a commit id"));
-        }
-        if claims.jti.is_empty() || claims.jti.len() > 128 {
-            return Err(unauthenticated("`jti` is missing or too long"));
-        }
-        Ok(Verified {
-            sha: claims.sha,
-            issued_at,
-            token_id: claims.jti,
-        })
+        Ok((claims, issued_at))
     }
 
     /// Where the token was minted: this repository, its default branch, the
@@ -404,6 +470,15 @@ impl Verifier {
             None => Ok(()),
         }
     }
+}
+
+fn token_id(jti: String) -> Result<String, AuthError> {
+    if jti.is_empty() || jti.len() > 128 {
+        return Err(AuthError::Unauthenticated(
+            "token: `jti` is missing or too long".into(),
+        ));
+    }
+    Ok(jti)
 }
 
 /// `iat` must be in the past (within the skew) and recent.

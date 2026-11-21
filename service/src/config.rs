@@ -89,6 +89,29 @@ pub struct IngestConfig {
     )]
     pub job_workflow_ref: String,
 
+    /// The governed repositories whose PR Hygiene runs may push verdicts,
+    /// as `id=owner/name`, comma-separated. The token's numeric
+    /// `repository_id` picks the entry; its `repository` must be that name.
+    #[arg(
+        long,
+        env = "PR_HYGIENE_VERDICT_REPOS",
+        value_delimiter = ',',
+        value_parser = VerdictRepo::parse,
+        default_value = "424232911=dashpay/platform,467841155=dashpay/rust-dashcore,\
+283521505=dashpay/tenderdash,400487124=dashpay/grovedb,868322013=dashpay/dash-evo-tool"
+    )]
+    pub verdict_repos: Vec<VerdictRepo>,
+
+    /// The only code that may push verdicts: the reusable PR Hygiene
+    /// workflow at master, which every governed repository calls. A job a
+    /// caller adds carries the caller's own ref here and is refused.
+    #[arg(
+        long,
+        env = "PR_HYGIENE_VERDICT_JOB_WORKFLOW_REF",
+        default_value = "dashpay/stale_prs_are_bad/.github/workflows/pr-review-reusable.yml@refs/heads/master"
+    )]
+    pub verdict_job_workflow_ref: String,
+
     /// Largest snapshot accepted, in bytes. A five-repository snapshot with
     /// 139 open PRs measured 109 KB; the default leaves ample headroom.
     #[arg(long, env = "PR_HYGIENE_BODY_LIMIT", default_value_t = 1024 * 1024)]
@@ -104,6 +127,33 @@ pub struct IngestConfig {
         value_parser = clap::value_parser!(u64).range(60..=86_400)
     )]
     pub job_timeout_secs: u64,
+}
+
+/// A governed repository that may push verdicts: its numeric id, which
+/// cannot be re-registered by someone else, and its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerdictRepo {
+    pub id: u64,
+    pub name: String,
+}
+
+impl VerdictRepo {
+    fn parse(value: &str) -> Result<Self, String> {
+        let (id, name) = value
+            .trim()
+            .split_once('=')
+            .ok_or_else(|| format!("{value:?}: expected id=owner/name"))?;
+        let id = id
+            .parse()
+            .map_err(|_| format!("{value:?}: the id is not a number"))?;
+        if !crate::snapshot::is_repo(name) {
+            return Err(format!("{value:?}: {name:?} is not owner/name"));
+        }
+        Ok(Self {
+            id,
+            name: name.to_string(),
+        })
+    }
 }
 
 impl IngestConfig {
@@ -341,6 +391,38 @@ mod tests {
         ] {
             assert!(!is_origin(bad), "{bad}");
         }
+    }
+
+    #[derive(clap::Parser)]
+    struct Cli {
+        #[command(flatten)]
+        ingest: IngestConfig,
+    }
+
+    /// The five governed repositories, by the ids GitHub gave them.
+    #[test]
+    fn verdicts_are_taken_from_the_five_governed_repositories_by_default() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["service", "--audience", "https://x.example"]).unwrap();
+        let repos: Vec<(u64, &str)> = cli
+            .ingest
+            .verdict_repos
+            .iter()
+            .map(|r| (r.id, r.name.as_str()))
+            .collect();
+        assert_eq!(
+            repos,
+            vec![
+                (424_232_911, "dashpay/platform"),
+                (467_841_155, "dashpay/rust-dashcore"),
+                (283_521_505, "dashpay/tenderdash"),
+                (400_487_124, "dashpay/grovedb"),
+                (868_322_013, "dashpay/dash-evo-tool"),
+            ]
+        );
+        assert!(VerdictRepo::parse("dashpay/platform").is_err());
+        assert!(VerdictRepo::parse("x=dashpay/platform").is_err());
+        assert!(VerdictRepo::parse("1=dashpay").is_err());
     }
 
     #[test]

@@ -25,11 +25,11 @@ const MAX_REPOS: usize = 64;
 const MAX_PRS: usize = 10_000;
 const MAX_PEOPLE: usize = 10_000;
 /// Per-PR and per-person lists: approvers, blockers, areas, owed reviews.
-const MAX_LIST: usize = 1_000;
+pub(crate) const MAX_LIST: usize = 1_000;
 /// GitHub caps a title at 256 characters.
-const MAX_TITLE: usize = 1_024;
+pub(crate) const MAX_TITLE: usize = 1_024;
 /// The engine's blockers and next actions.
-const MAX_TEXT: usize = 4_096;
+pub(crate) const MAX_TEXT: usize = 4_096;
 /// Diagnostics (`fetch_error`, `stage_times_error`, `closed_error`) carry whatever an HTTP
 /// error body said; they are cut to this rather than refused, so a long
 /// error page cannot cost the whole snapshot.
@@ -39,7 +39,7 @@ const MAX_DIAGNOSTIC: usize = 500;
 #[error("{0}")]
 pub struct Invalid(pub String);
 
-fn invalid<T>(why: impl Into<String>) -> Result<T, Invalid> {
+pub(crate) fn invalid<T>(why: impl Into<String>) -> Result<T, Invalid> {
     Err(Invalid(why.into()))
 }
 
@@ -224,12 +224,7 @@ fn pr(p: &PrOut, known: &impl Fn(&str) -> bool) -> Result<(), Invalid> {
         text(&at(), "milestone", milestone, MAX_TITLE)?;
     }
     if let Some(state) = &p.engine_state {
-        if state.is_empty()
-            || state.len() > 64
-            || !state.bytes().all(|b| b.is_ascii_lowercase() || b == b'-')
-        {
-            return invalid(format!("{}: engine_state is not a state", at()));
-        }
+        engine_state(&at(), state)?;
     }
     if let Some(next) = &p.next_action {
         text(&at(), "next_action", next, MAX_TEXT)?;
@@ -324,14 +319,25 @@ fn person(p: &PersonOut, known: &impl Fn(&str) -> bool) -> Result<(), Invalid> {
     Ok(())
 }
 
-fn bounded(at: &str, len: usize, max: usize) -> Result<(), Invalid> {
+/// One of the engine's states: `ready-for-human` and the like.
+pub(crate) fn engine_state(at: &str, state: &str) -> Result<(), Invalid> {
+    if state.is_empty()
+        || state.len() > 64
+        || !state.bytes().all(|b| b.is_ascii_lowercase() || b == b'-')
+    {
+        return invalid(format!("{at}: engine_state is not a state"));
+    }
+    Ok(())
+}
+
+pub(crate) fn bounded(at: &str, len: usize, max: usize) -> Result<(), Invalid> {
     if len > max {
         return invalid(format!("{at}: more than {max} entries"));
     }
     Ok(())
 }
 
-fn text(at: &str, field: &str, value: &str, max: usize) -> Result<(), Invalid> {
+pub(crate) fn text(at: &str, field: &str, value: &str, max: usize) -> Result<(), Invalid> {
     if value.chars().count() > max {
         return invalid(format!("{at}: {field} longer than {max} characters"));
     }
@@ -344,7 +350,7 @@ pub fn is_login(s: &str) -> bool {
     (1..=39).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
-fn login(at: &str, s: &str) -> Result<(), Invalid> {
+pub(crate) fn login(at: &str, s: &str) -> Result<(), Invalid> {
     if !is_login(s) {
         return invalid(format!("{at}: {s:?} is not a GitHub login"));
     }
@@ -352,7 +358,7 @@ fn login(at: &str, s: &str) -> Result<(), Invalid> {
 }
 
 /// A policy's area id (`[a-z0-9][a-z0-9-]*`), or `fallback`.
-fn area(at: &str, s: &str) -> Result<(), Invalid> {
+pub(crate) fn area(at: &str, s: &str) -> Result<(), Invalid> {
     let ok = (1..=100).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
