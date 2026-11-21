@@ -304,6 +304,7 @@ impl Fetcher {
                 "owner": owner,
                 "name": name,
                 "cursor": cursor,
+                "prs": prs,
                 "threads": THREADS_PER_PAGE,
                 "comments": COMMENTS_PER_THREAD,
                 "decisive": DECISIVE_REVIEWS,
@@ -636,7 +637,9 @@ impl Fetcher {
         loop {
             attempt += 1;
             if let Some(page) = &page {
-                body["variables"][page.var] = json!(*page.size);
+                if let Some(vars) = body.get_mut("variables").and_then(Value::as_object_mut) {
+                    vars.insert(page.var.to_string(), json!(*page.size));
+                }
             }
             // Bundle send + body-read so that mid-stream truncation (chunked
             // transfer cut by GitHub during a 502/503 storm) is treated as a
@@ -715,17 +718,17 @@ impl Fetcher {
                 // GitHub stops a query after ten seconds with a 502 or a 504.
                 let timed_out =
                     status == StatusCode::BAD_GATEWAY || status == StatusCode::GATEWAY_TIMEOUT;
-                match page.as_mut().filter(|_| timed_out) {
-                    Some(page) => {
+                match page.as_mut() {
+                    Some(page) if timed_out => {
                         page.halve();
                         tracing::warn!(
                             attempt,
                             sleep_secs,
-                            page = *page.size,
-                            "server error {status}; retrying a smaller page"
+                            "server error {status}; retrying at page size {}",
+                            page.size
                         );
                     }
-                    None => tracing::warn!(attempt, sleep_secs, "server error {status}; retrying"),
+                    _ => tracing::warn!(attempt, sleep_secs, "server error {status}; retrying"),
                 }
                 self.back_off(sleep_secs).await;
                 continue;
@@ -768,24 +771,25 @@ impl Fetcher {
                         self.back_off(sleep_secs).await;
                         continue;
                     }
-                    let timed_out = attempt <= MAX_RETRIES && says_timed_out(errors);
-                    if let Some(page) = page.as_mut().filter(|_| timed_out) {
-                        page.halve();
-                        let sleep_secs = backoff_secs(attempt);
-                        tracing::warn!(
-                            attempt,
-                            sleep_secs,
-                            page = *page.size,
-                            "graphql timeout; retrying a smaller page"
-                        );
-                        self.back_off(sleep_secs).await;
-                        continue;
+                    if attempt <= MAX_RETRIES && says_timed_out(errors) {
+                        if let Some(page) = page.as_mut() {
+                            page.halve();
+                            let sleep_secs = backoff_secs(attempt);
+                            tracing::warn!(
+                                attempt,
+                                sleep_secs,
+                                "graphql timeout; retrying at page size {}",
+                                page.size
+                            );
+                            self.back_off(sleep_secs).await;
+                            continue;
+                        }
                     }
                     if missing_ok && only_missing_nodes(errors) {
                         self.charge(&value);
                         return Ok(value);
                     }
-                    bail!("graphql errors: {errors:?}");
+                    bail!("graphql errors{}", excerpt(&format!("{errors:?}")));
                 }
             }
             self.charge(&value);
@@ -835,23 +839,15 @@ fn says_timed_out(errors: &[Value]) -> bool {
     })
 }
 
-/// How much of a failed response's body an error keeps.
-const MAX_EXCERPT_CHARS: usize = 160;
-
 /// What an error keeps of a failed response's body, to follow its status:
 /// nothing of an HTML error page, else `: ` and the body on one line, cut
-/// short. The error is published with the dashboard.
+/// as a failed read's reason is. The error is published with the dashboard.
 fn excerpt(body: &str) -> String {
     let line = body.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.is_empty() || line.starts_with('<') {
         return String::new();
     }
-    if line.chars().count() > MAX_EXCERPT_CHARS {
-        let cut: String = line.chars().take(MAX_EXCERPT_CHARS).collect();
-        format!(": {cut}…")
-    } else {
-        format!(": {line}")
-    }
+    format!(": {}", shorten(line))
 }
 
 /// Whether every error says only that a node asked for by id no longer
@@ -2659,14 +2655,20 @@ mod tests {
         request["variables"]["prs"].as_u64().unwrap_or(50)
     }
 
-    /// The PRs after the one a list request's cursor names, as many as it
-    /// asks for, of an open list of PRs 1 to `count`, and the cursor of the
-    /// last of them; GitHub's cursor names a PR, not a page.
-    fn list_page(request: &Value, count: u64) -> (u16, String) {
-        let after: u64 = request["variables"]["cursor"]
+    /// The PR a list request's cursor names, 0 for none; GitHub's cursor
+    /// names a PR, not a page.
+    fn after(request: &Value) -> u64 {
+        request["variables"]["cursor"]
             .as_str()
             .map(|c| c.trim_start_matches("after:").parse().unwrap())
-            .unwrap_or(0);
+            .unwrap_or(0)
+    }
+
+    /// The PRs after the one a list request's cursor names, as many as it
+    /// asks for, of an open list of PRs 1 to `count`, and the cursor of the
+    /// last of them.
+    fn list_page(request: &Value, count: u64) -> (u16, String) {
+        let after = after(request);
         let last = (after + page_size(request)).min(count);
         let nodes: Vec<Value> = (after + 1..=last).map(list_node).collect();
         let body = json!({ "data": {
@@ -2690,10 +2692,7 @@ mod tests {
         timeout: impl Fn() -> (u16, String) + Send + 'static,
     ) -> (String, std::sync::Arc<std::sync::Mutex<Vec<Value>>>) {
         serve_http(move |request| {
-            let after: u64 = request["variables"]["cursor"]
-                .as_str()
-                .map(|c| c.trim_start_matches("after:").parse().unwrap())
-                .unwrap_or(0);
+            let after = after(request);
             if (after + page_size(request)).min(count) - after > fits {
                 timeout()
             } else {
@@ -2747,6 +2746,42 @@ mod tests {
                 "start/3",
                 "after:3/3",
                 "after:6/3"
+            ]
+        );
+    }
+
+    /// Part way down the list, a page GitHub runs out of time on is asked
+    /// again from its own cursor, and the smaller size holds through a retry
+    /// for another reason and for the pages after it.
+    #[tokio::test]
+    async fn a_page_part_way_down_the_list_keeps_its_cursor_and_its_smaller_size() {
+        let answered = std::sync::atomic::AtomicUsize::new(0);
+        let (url, seen) =
+            serve_http(
+                move |request| match answered.fetch_add(1, Ordering::Relaxed) {
+                    1 => graphql_timeout(),
+                    2 => (500, "{}".to_string()),
+                    _ => list_page(request, 120),
+                },
+            );
+        let fetcher = Fetcher::new("t")
+            .unwrap()
+            .with_endpoint(url)
+            .without_backoff();
+        let (prs, ..) = fetcher
+            .fetch_all_open_prs("dashpay", "platform")
+            .await
+            .unwrap();
+        assert_eq!(numbers(&prs), (1..=120).collect::<Vec<_>>());
+        assert_eq!(
+            asked(&seen),
+            [
+                "start/50",
+                "after:50/50",
+                "after:50/25",
+                "after:50/25",
+                "after:75/25",
+                "after:100/25"
             ]
         );
     }
@@ -2809,14 +2844,33 @@ mod tests {
             .fetch_all_open_prs("dashpay", "platform")
             .await
             .unwrap_err();
-        assert_eq!(
-            asked(&seen),
-            ["start/50", "start/25", "start/12", "start/6", "start/3", "start/1"]
-        );
-        assert_eq!(seen.lock().unwrap().len() as u32, MAX_RETRIES + 1);
+        let sizes = [
+            "start/50", "start/25", "start/12", "start/6", "start/3", "start/1",
+        ];
+        assert_eq!(asked(&seen), sizes);
+        assert_eq!(sizes.len(), MAX_RETRIES as usize + 1);
         assert_eq!(
             format!("{error:#}"),
             "server error 504 Gateway Timeout after 5 retries"
+        );
+
+        let (url, seen) = open_list(7, 0, graphql_timeout);
+        let fetcher = Fetcher::new("t")
+            .unwrap()
+            .with_endpoint(url)
+            .without_backoff();
+        let error = fetcher
+            .fetch_all_open_prs("dashpay", "platform")
+            .await
+            .unwrap_err();
+        assert_eq!(asked(&seen), sizes);
+        let error = format!("{error:#}");
+        assert!(error.starts_with("graphql errors: "), "{error}");
+        assert!(error.contains("may be the result of a timeout"), "{error}");
+        assert!(!error.contains('\n'), "{error}");
+        assert!(
+            error.chars().count() <= "graphql errors: ".len() + MAX_REASON_CHARS + 1,
+            "{error}"
         );
     }
 
@@ -2862,7 +2916,11 @@ mod tests {
         );
         assert!(!error.contains('\n'), "{error}");
         assert!(error.ends_with('…'), "{error}");
-        assert!(error.chars().count() < 300, "{error}");
+        assert_eq!(
+            error.chars().count(),
+            "HTTP 401 Unauthorized: ".len() + MAX_REASON_CHARS + 1,
+            "{error}"
+        );
 
         let (url, _) = serve_http(|_| (404, TIMEOUT_PAGE.to_string()));
         let fetcher = Fetcher::new("t").unwrap().with_endpoint(url);
