@@ -196,9 +196,20 @@ fn validate_policy(policy: &Value) -> Result<()> {
         "target_branches",
         "areas",
     ];
-    const OPTIONAL: [&str; 3] = ["required_bots", "bot_timeouts", "bot_authors"];
-    let allowed: Vec<&str> = KEYS.iter().chain(&OPTIONAL).copied().collect();
-    let policy = fields(policy, &allowed, &KEYS)?;
+    const ALLOWED: [&str; 9] = [
+        "version",
+        "repository",
+        "fallback",
+        "max_active_prs",
+        "target_branches",
+        "areas",
+        "required_bots",
+        "bot_timeouts",
+        "bot_authors",
+    ];
+    // `fields` has checked every key in KEYS is present, so indexing them
+    // below cannot panic; the same holds for each roster and area.
+    let policy = fields(policy, &ALLOWED, &KEYS)?;
     let no_handles = Value::Array(Vec::new());
     let bot_authors = policy.get("bot_authors").unwrap_or(&no_handles);
     handles(bot_authors, false)?;
@@ -1183,7 +1194,7 @@ mod tests {
     fn a_policy_the_engine_refuses_is_refused_at_load() {
         load_one("valid", &engine_valid()).expect("the base case is valid");
         type Break = fn(&mut serde_json::Value);
-        let cases: [(&str, Break, &str); 13] = [
+        let cases: [(&str, Break, &str); 29] = [
             (
                 "reviewers-without-owners",
                 |p| {
@@ -1254,6 +1265,95 @@ mod tests {
                 |p| p["areas"][0]["owners"] = serde_json::json!(["dependabot"]),
                 "Duplicate or excluded identity",
             ),
+            (
+                "version-true",
+                |p| p["version"] = serde_json::json!(true),
+                "Unsupported policy version",
+            ),
+            (
+                "slots-float",
+                |p| p["max_active_prs"] = serde_json::json!(5.0),
+                "Expected five active slots",
+            ),
+            (
+                "repository-without-owner",
+                |p| p["repository"] = serde_json::json!("x"),
+                "Invalid repository",
+            ),
+            (
+                "timeouts-one-key",
+                |p| p["bot_timeouts"] = serde_json::json!({"nudge_after_hours": 2}),
+                "Unknown or missing policy fields",
+            ),
+            (
+                "timeouts-zero",
+                |p| {
+                    p["bot_timeouts"] =
+                        serde_json::json!({"nudge_after_hours": 0, "waive_after_hours": 24})
+                },
+                "bot_timeouts must be whole hours between 1 and 168",
+            ),
+            (
+                "timeouts-over-a-week",
+                |p| {
+                    p["bot_timeouts"] =
+                        serde_json::json!({"nudge_after_hours": 2, "waive_after_hours": 169})
+                },
+                "bot_timeouts must be whole hours between 1 and 168",
+            ),
+            (
+                "timeouts-float",
+                |p| {
+                    p["bot_timeouts"] =
+                        serde_json::json!({"nudge_after_hours": 2.0, "waive_after_hours": 24})
+                },
+                "bot_timeouts must be whole hours between 1 and 168",
+            ),
+            (
+                "required-unknown-bot",
+                |p| p["required_bots"] = serde_json::json!(["claudbot[bot]"]),
+                "required_bots must be a subset of thepastaclaw, coderabbitai",
+            ),
+            (
+                "required-twice",
+                |p| p["required_bots"] = serde_json::json!(["coderabbitai", "coderabbitai"]),
+                "required_bots must be a subset",
+            ),
+            (
+                "required-null",
+                |p| p["required_bots"] = serde_json::json!(null),
+                "required_bots must be a subset",
+            ),
+            (
+                "bot-authors-null",
+                |p| p["bot_authors"] = serde_json::json!(null),
+                "Expected handle list",
+            ),
+            (
+                "unresolved-blank",
+                |p| p["areas"][0]["unresolved"] = serde_json::json!(["Owner: ?", " \u{1c}\t"]),
+                "Invalid unresolved identities",
+            ),
+            (
+                "unresolved-not-text",
+                |p| p["areas"][0]["unresolved"] = serde_json::json!([1]),
+                "Invalid unresolved identities",
+            ),
+            (
+                "metadata-not-object",
+                |p| p["areas"][0]["metadata"] = serde_json::json!([]),
+                "Invalid area metadata",
+            ),
+            (
+                "target-blank",
+                |p| p["target_branches"] = serde_json::json!(["dev", "\u{a0}"]),
+                "Invalid target branches",
+            ),
+            (
+                "malformed-handle",
+                |p| p["fallback"]["reviewers"] = serde_json::json!(["-a"]),
+                "Malformed GitHub handle",
+            ),
         ];
         for (case, break_it, reason) in cases {
             let mut policy = engine_valid();
@@ -1265,6 +1365,51 @@ mod tests {
             assert!(err.contains("invalid policy"), "{case}: {err}");
             assert!(err.contains(reason), "{case}: {err}");
         }
+    }
+
+    /// What the engine accepts at the edges of the rules above, so a check
+    /// stricter than the engine's would fail here rather than refuse a real
+    /// policy and stop the board.
+    #[test]
+    fn the_edges_of_each_rule_are_accepted() {
+        type Vary = fn(&mut serde_json::Value);
+        let cases: [(&str, Vary); 7] = [
+            ("timeouts-at-bounds", |p| {
+                p["bot_timeouts"] = json!({"nudge_after_hours": 1, "waive_after_hours": 168})
+            }),
+            ("timeouts-null", |p| p["bot_timeouts"] = json!(null)),
+            ("required-one", |p| {
+                p["required_bots"] = json!(["coderabbitai"])
+            }),
+            ("required-none", |p| p["required_bots"] = json!([])),
+            ("unresolved-empty-with-owners", |p| {
+                p["areas"][0]["unresolved"] = json!([])
+            }),
+            ("metadata-empty", |p| p["areas"][0]["metadata"] = json!({})),
+            ("repository-dotted", |p| {
+                p["repository"] = json!("dash_pay/x.y-z")
+            }),
+        ];
+        for (case, vary) in cases {
+            let mut policy = engine_valid();
+            vary(&mut policy);
+            Policy::parse(&policy.to_string()).unwrap_or_else(|e| panic!("{case}: {e:#}"));
+        }
+    }
+
+    /// The bots a policy may require must be the engine's, or the board
+    /// would refuse a policy the engine accepts.
+    #[test]
+    fn review_bots_match_the_engine() {
+        let engine =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/pr_review/policy.py"))
+                .unwrap();
+        let line = engine
+            .lines()
+            .find(|l| l.starts_with("REVIEW_BOTS = ("))
+            .expect("REVIEW_BOTS in pr_review/policy.py");
+        let theirs: Vec<&str> = line.split('\'').skip(1).step_by(2).collect();
+        assert_eq!(theirs, REVIEW_BOTS);
     }
 
     /// Every registered policy: its repository, its file's text and the
@@ -1291,7 +1436,7 @@ mod tests {
     /// that breaks one of the engine's rules is refused with the engine's
     /// reason, whatever the policy's own shape.
     #[test]
-    fn every_registered_policy_is_accepted_or_refused_as_the_engine_does() {
+    fn every_registered_policy_is_accepted_or_refused_with_the_engines_reasons() {
         type Vary = fn(&mut serde_json::Value);
         let variations: [(&str, Vary, Option<&str>); 11] = [
             ("as written", |_| {}, None),
