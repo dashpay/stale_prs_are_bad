@@ -6,6 +6,10 @@
 //! messages, so the board never routes or counts slots by a policy the
 //! engine would refuse. The engine stays the authority: the reusable
 //! workflow validates every policy with it before any of them is used.
+//!
+//! The text is read as strict JSON, so a few things Python's reader takes
+//! are refused here: `NaN`, numbers beyond `f64`, lone surrogates and
+//! nesting deeper than 128. A policy has no use for any of them.
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -1410,6 +1414,24 @@ mod tests {
             .expect("REVIEW_BOTS in pr_review/policy.py");
         let theirs: Vec<&str> = line.split('\'').skip(1).step_by(2).collect();
         assert_eq!(theirs, REVIEW_BOTS);
+    }
+
+    /// The handles no policy may name besides the bots must be the engine's,
+    /// or the board would accept a policy the engine refuses.
+    #[test]
+    fn excluded_identities_match_the_engine() {
+        let engine =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/pr_review/policy.py"))
+                .unwrap();
+        let line = engine
+            .lines()
+            .find(|l| l.contains("handle.lower() in seen or handle.lower() in {"))
+            .expect("the excluded identities in pr_review/policy.py");
+        let mut theirs: Vec<&str> = line.split('\'').skip(1).step_by(2).collect();
+        theirs.sort_unstable();
+        let mut ours = EXCLUDED.to_vec();
+        ours.sort_unstable();
+        assert_eq!(theirs, ours, "{line}");
     }
 
     /// Every registered policy: its repository, its file's text and the
