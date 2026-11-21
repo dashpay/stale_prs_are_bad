@@ -35,7 +35,7 @@ App with no permissions.
 | Port | 8080, plain HTTP; terminate TLS in front of it |
 | Volume | `/data`, holding `pr-hygiene.sqlite3` and its `-wal`/`-shm` files. Must be a **local** volume: SQLite's WAL mode needs real file locks, so not NFS or SMB. The service refuses to start if WAL cannot be enabled. |
 | Outbound | HTTPS to `token.actions.githubusercontent.com`; with sign-in on, also `github.com` and `api.github.com` |
-| Inbound | `POST /ingest` from GitHub-hosted runners, so reachable from the internet over HTTPS (runners have no fixed addresses; GitHub publishes their changing ranges under `actions` in `https://api.github.com/meta`, should you allowlist); `GET /api/v1/*` from anyone; with sign-in on, `/auth/*` and `/api/v1/me*` from browsers |
+| Inbound | `POST /ingest` from GitHub-hosted runners, and `POST /ingest/verdicts` from the governed repositories' runners (self-hosted ones included), so reachable from the internet over HTTPS (runners have no fixed addresses; GitHub publishes their changing ranges under `actions` in `https://api.github.com/meta`, should you allowlist); `GET /api/v1/*` from anyone; with sign-in on, `/auth/*` and `/api/v1/me*` from browsers |
 
 ### Environment
 
@@ -50,6 +50,8 @@ App with no permissions.
 | `PR_HYGIENE_REF` | `refs/heads/master` | The only branch a posting run may run on. |
 | `PR_HYGIENE_WORKFLOW_REF` | `dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene.yml@refs/heads/master` | The only workflow whose runs may post (the token's `workflow_ref`): the scheduled caller. |
 | `PR_HYGIENE_JOB_WORKFLOW_REF` | `dashpay/stale_prs_are_bad/.github/workflows/pr-hygiene-post.yml@refs/heads/master` | The only code that may hold a posting token (the token's `job_workflow_ref`): the reusable post workflow. Every other job of the caller — the Pages deploy, which also holds `id-token: write`, included — carries the caller's ref here and is refused. |
+| `PR_HYGIENE_VERDICT_REPOS` | the five governed repositories, `424232911=dashpay/platform,…` | The repositories whose PR Hygiene runs may push verdicts, as `id=owner/name`, comma-separated. A token's `repository_id` picks the entry and its `repository` must be that name. |
+| `PR_HYGIENE_VERDICT_JOB_WORKFLOW_REF` | `dashpay/stale_prs_are_bad/.github/workflows/pr-review-reusable.yml@refs/heads/master` | The only code that may push verdicts (the token's `job_workflow_ref`): the reusable PR Hygiene workflow at master. A caller pinned to a SHA is refused. |
 | `PR_HYGIENE_BODY_LIMIT` | `1048576` | Largest snapshot accepted, in bytes. Five repositories with 139 open PRs measured 109 KB. |
 | `PR_HYGIENE_JOB_TIMEOUT_SECS` | `1800` | How long before the token was minted the snapshot may have been generated: the analyze job's `timeout-minutes` (20) plus the post job's start-up. 60 to 86400. |
 | `PR_HYGIENE_SIGNIN_CLIENT_ID` | — | The sign-in App's **client id** (`Iv23li…`, not its numeric App id). See [sign-in](#sign-in-with-github). |
@@ -125,8 +127,9 @@ limit, and nothing else. The reverse proxy that terminates TLS must also:
 
 - time out slow and idle connections (request headers within about 10 s);
 - cap connections, and rate-limit `/api/v1/*` per client;
-- pass `POST /ingest` through unbuffered or with a body limit no larger
-  than the service's, and never log its `Authorization` header;
+- pass `POST /ingest` and `POST /ingest/verdicts` through unbuffered or
+  with a body limit no larger than the service's, and never log their
+  `Authorization` header;
 - never log `Cookie` or `Set-Cookie` headers, nor the query string of
   `/auth/callback` (it carries GitHub's one-time code);
 - rate-limit `/auth/*` and `/api/v1/me*` per client, tighter than the
@@ -375,6 +378,52 @@ analyzer's `dashboard.json`. Checked in this order:
 | 403 | A valid token from a run that may not post; the error names the claim. |
 | 413 | Body over the limit. |
 | 503 | GitHub's signing keys are not available. |
+
+### Verdicts pushed between snapshots
+
+`POST /ingest/verdicts`, `Authorization: Bearer <GitHub OIDC token>`, body:
+
+```json
+{ "repo": "dashpay/platform", "read_at": "<when the run started reading GitHub>",
+  "open": [<every open PR number>],
+  "verdicts": [ { "number", "head", "verdict": { ...the engine's report row... } } ] }
+```
+
+Each governed repository's PR Hygiene run pushes the verdicts it just
+computed, so the board shows a new stage within a minute rather than at the
+next snapshot.
+
+1. The token, as for `/ingest` up to its origin; then `repository_owner_id`,
+   `repository_id` one of `PR_HYGIENE_VERDICT_REPOS` with `repository` its
+   name, and `job_workflow_ref` exactly `PR_HYGIENE_VERDICT_JOB_WORKFLOW_REF`.
+   Branch, workflow, event, attempt and runner are not checked: every event
+   on every governed branch pushes, and the reusable workflow at master runs
+   only master's engine and policies.
+2. The body, up to 1 MiB: at most 1,000 open PRs and 1,000 verdicts, each
+   verdict on a PR listed open, every text and login bounded and shaped as in
+   a snapshot, `read_at` no later than now.
+3. The binding: `repo` is the token's repository (otherwise 403, nothing
+   stored), and `read_at` is no more than an hour before the token's `iat`.
+4. One post per token, as for `/ingest`.
+5. Per PR, a verdict replaces the stored one only if its `read_at` is newer;
+   per repository, likewise the open list.
+
+`200 {"stored": true, "verdicts", "open"}` says how many verdicts, and
+whether the open list, were newer than what was stored.
+
+The served view is the latest snapshot's with these shown over it. For a PR
+in the snapshot whose pushed verdict was read after its repository's
+`data_as_of`, the verdict decides its `engine_state`, `stage`, `draft`,
+`blockers`, `next_action`, `asks` and `objectors`, the reviews owed on it,
+and its author's `wip`; a stage change since the snapshot dates `since`
+(`since_basis: engine`) from the push that first showed it, except in a
+stage whose entry is never recorded (a running build), which is timed from
+the PR's opening as the analyzer does. A PR missing from
+an open list read after `data_as_of` is hidden, with the reviews owed on it
+and its place in its author's `authored` and `wip`. Everything else — titles,
+CI, threads, speed, stage history — stays the snapshot's, and the next
+snapshot replaces all of it. PRs opened since the snapshot wait for the next
+one.
 
 ### Partial runs
 

@@ -14,7 +14,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use pr_hygiene::dashboard::Dashboard;
 use pr_hygiene_service::app::{self, AppState};
-use pr_hygiene_service::config::{IngestConfig, Secret, SignInConfig};
+use pr_hygiene_service::config::{IngestConfig, Secret, SignInConfig, VerdictRepo};
 use pr_hygiene_service::github::SignInApi;
 use pr_hygiene_service::oidc::{BoxFuture, KeyCache, KeySource, KEY_REFRESH_INTERVAL};
 use pr_hygiene_service::store::{Reader, Store};
@@ -93,6 +93,19 @@ pub fn config() -> IngestConfig {
         git_ref: "refs/heads/master".into(),
         workflow_ref: WORKFLOW.into(),
         job_workflow_ref: POST_WORKFLOW.into(),
+        verdict_repos: [
+            (424_232_911, "dashpay/platform"),
+            (467_841_155, "dashpay/rust-dashcore"),
+        ]
+        .into_iter()
+        .map(|(id, name)| VerdictRepo {
+            id,
+            name: name.into(),
+        })
+        .collect(),
+        verdict_job_workflow_ref:
+            "dashpay/stale_prs_are_bad/.github/workflows/pr-review-reusable.yml@refs/heads/master"
+                .into(),
         body_limit: 1024 * 1024,
         job_timeout_secs: 1800,
     }

@@ -5,10 +5,12 @@ use crate::auth::{self, SignIn};
 use crate::config::{IngestConfig, SignInConfig};
 use crate::github::SignInApi;
 use crate::oidc::{AuthError, KeyCache, Verifier};
+use crate::overlay::overlay;
+use crate::push::{self, Bound};
 use crate::snapshot;
-use crate::store::{Outcome, Reader, Store};
+use crate::store::{Outcome, Pushed, Reader, Store};
 use crate::view::View;
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
@@ -19,6 +21,7 @@ use chrono::Utc;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use serde_json::json;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 use tower_http::services::ServeDir;
@@ -33,8 +36,11 @@ pub struct AppState {
     pub verifier: Verifier,
     writer: Mutex<Store>,
     reader: Mutex<Reader>,
-    /// The view last read, reused while the stored version is unchanged.
-    cached: RwLock<Option<Arc<View>>>,
+    /// The view last served, with the push count it was built at: reused
+    /// while neither the stored snapshot nor anything pushed has changed.
+    cached: RwLock<Option<(u64, Arc<View>)>>,
+    /// Pushes stored since the process started.
+    pushes: AtomicU64,
     /// `None` while sign-in is not configured.
     signin: Option<SignIn>,
 }
@@ -47,6 +53,7 @@ impl AppState {
             writer: Mutex::new(writer),
             reader: Mutex::new(reader),
             cached: RwLock::new(None),
+            pushes: AtomicU64::new(0),
             signin: None,
         }
     }
@@ -94,24 +101,34 @@ impl AppState {
         .map_err(ApiError::internal)
     }
 
-    /// The latest view, or 503 before the first snapshot.
+    /// The latest view, with what was pushed since shown over it, or 503
+    /// before the first snapshot.
     pub async fn view(self: &Arc<Self>) -> Result<Arc<View>, ApiError> {
         let state = self.clone();
         let view = self
             .read(move |reader| {
+                // Read before the pushes are: a push stored meanwhile then
+                // leaves a view built with it under the older count, and the
+                // next request builds it again.
+                let pushes = state.pushes.load(Ordering::SeqCst);
                 let Some(version) = reader.version()? else {
                     return Ok(None);
                 };
                 let cached = state.cached.read().unwrap_or_else(PoisonError::into_inner);
-                if let Some(view) = cached.as_ref().filter(|v| v.version == version) {
+                if let Some((_, view)) = cached
+                    .as_ref()
+                    .filter(|(n, v)| v.version == version && *n == pushes)
+                {
                     return Ok(Some(view.clone()));
                 }
                 drop(cached);
                 let Some(view) = reader.view()? else {
                     return Ok(None);
                 };
-                let view = Arc::new(view);
-                *state.cached.write().unwrap_or_else(PoisonError::into_inner) = Some(view.clone());
+                let (verdicts, open) = reader.pushes()?;
+                let view = Arc::new(overlay(&view, &verdicts, &open, Utc::now()));
+                *state.cached.write().unwrap_or_else(PoisonError::into_inner) =
+                    Some((pushes, view.clone()));
                 Ok(Some(view))
             })
             .await?;
@@ -156,6 +173,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .merge(public)
         .merge(private)
         .route("/ingest", post(ingest))
+        .route("/ingest/verdicts", post(ingest_verdicts))
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .layer(middleware::from_fn(log_request))
@@ -279,26 +297,7 @@ async fn ingest_checked(
     let token = bearer(headers)
         .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "token: missing bearer token"))?;
     let verified = state.verifier.verify(token).await?;
-
-    let limit = state.ingest.body_limit;
-    let too_large = || {
-        ApiError::new(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            format!("snapshot larger than {limit} bytes"),
-        )
-    };
-    let declared = headers
-        .get(header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<u64>().ok());
-    if declared.is_some_and(|n| n > limit as u64) {
-        return Err(too_large());
-    }
-    let bytes = match Limited::new(body, limit).collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(e) if e.downcast_ref::<LengthLimitError>().is_some() => return Err(too_large()),
-        Err(_) => return Err(ApiError::bad_request("could not read the body")),
-    };
+    let bytes = read_body(headers, body, state.ingest.body_limit, "snapshot").await?;
     let d = snapshot::parse(&bytes, Utc::now()).map_err(|e| ApiError::bad_request(e.0))?;
     snapshot::bind(&d, &verified, state.ingest.job_timeout())
         .map_err(|e| ApiError::bad_request(e.0))?;
@@ -341,6 +340,90 @@ async fn ingest_checked(
         }
         Outcome::TokenUsed => {
             tracing::warn!("a token posted a second time; ignored");
+            Json(json!({
+                "stored": false,
+                "reason": "token already used: each token posts once; mint a new one",
+            }))
+            .into_response()
+        }
+    })
+}
+
+/// The body, up to `limit` bytes.
+async fn read_body(
+    headers: &HeaderMap,
+    body: Body,
+    limit: usize,
+    what: &str,
+) -> Result<Bytes, ApiError> {
+    let too_large = || {
+        ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("{what} larger than {limit} bytes"),
+        )
+    };
+    let declared = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    if declared.is_some_and(|n| n > limit as u64) {
+        return Err(too_large());
+    }
+    match Limited::new(body, limit).collect().await {
+        Ok(collected) => Ok(collected.to_bytes()),
+        Err(e) if e.downcast_ref::<LengthLimitError>().is_some() => Err(too_large()),
+        Err(_) => Err(ApiError::bad_request("could not read the body")),
+    }
+}
+
+/// `POST /ingest/verdicts`: a governed repository's newest verdicts and
+/// open PRs, from its PR Hygiene run, with that job's OIDC token. The token
+/// is checked before the body is read; the body must be for the token's own
+/// repository.
+async fn ingest_verdicts(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    match ingest_verdicts_checked(&state, &headers, body).await {
+        Ok(res) => res,
+        Err(e) => {
+            tracing::warn!(status = e.status.as_u16(), reason = %e.message, "push refused");
+            e.into_response()
+        }
+    }
+}
+
+async fn ingest_verdicts_checked(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+    body: Body,
+) -> Result<Response, ApiError> {
+    let token = bearer(headers)
+        .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "token: missing bearer token"))?;
+    let pusher = state.verifier.verify_pusher(token).await?;
+    let bytes = read_body(headers, body, push::BODY_LIMIT, "push").await?;
+    let pushed = push::parse(&bytes, Utc::now()).map_err(|e| ApiError::bad_request(e.0))?;
+    push::bind(&pushed, &pusher).map_err(|e| match e {
+        Bound::OtherRepository => ApiError::new(
+            StatusCode::FORBIDDEN,
+            "repo: a token may push for its own repository only",
+        ),
+        Bound::Invalid(e) => ApiError::bad_request(e.0),
+    })?;
+    let repo = pushed.repo.clone();
+    let token_id = pusher.token_id;
+    let outcome = state
+        .write(move |store| store.push(&pushed, &token_id, Utc::now()))
+        .await?;
+    Ok(match outcome {
+        Pushed::Stored { verdicts, open } => {
+            state.pushes.fetch_add(1, Ordering::SeqCst);
+            tracing::info!(%repo, verdicts, open, "push stored");
+            Json(json!({ "stored": true, "verdicts": verdicts, "open": open })).into_response()
+        }
+        Pushed::TokenUsed => {
+            tracing::warn!(%repo, "a token pushed a second time; ignored");
             Json(json!({
                 "stored": false,
                 "reason": "token already used: each token posts once; mint a new one",

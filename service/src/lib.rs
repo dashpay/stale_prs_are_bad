@@ -1,7 +1,9 @@
 //! The read-only PR Hygiene service. The scheduled workflow posts the
-//! analyzer's snapshot to `/ingest` with a GitHub OIDC token; the service
-//! keeps each repository's last good data in SQLite and serves it, publicly,
-//! under `/api/v1`. It holds no credential with access to any repository.
+//! analyzer's snapshot to `/ingest` with a GitHub OIDC token, and each
+//! governed repository's PR Hygiene run pushes its newest verdicts to
+//! `/ingest/verdicts`; the service keeps each repository's last good data in
+//! SQLite, shows the newer verdicts over it, and serves it, publicly, under
+//! `/api/v1`. It holds no credential with access to any repository.
 //! It calls GitHub only to fetch GitHub's public token-signing keys and,
 //! when sign-in is on, to sign people in through an App with no permissions.
 
@@ -12,6 +14,8 @@ pub mod config;
 pub mod digest;
 pub mod github;
 pub mod oidc;
+pub mod overlay;
+pub mod push;
 pub mod snapshot;
 pub mod speed;
 pub mod store;

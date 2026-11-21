@@ -666,11 +666,23 @@ fn lateness(
     basis: Option<SinceBasis>,
     inp: &Inputs<'_>,
 ) -> Option<Lateness> {
+    let thresholds = inp.cfg.lateness_hours.get(stage.key()).copied();
+    lateness_at(since, basis, thresholds, inp.now)
+}
+
+/// How late a PR is at `now`, in a stage whose `[late, very_late]` hours are
+/// `thresholds`. Only a recorded entry into the stage can make it late.
+pub fn lateness_at(
+    since: Option<DateTime<Utc>>,
+    basis: Option<SinceBasis>,
+    thresholds: Option<[f64; 2]>,
+    now: DateTime<Utc>,
+) -> Option<Lateness> {
     if basis != Some(SinceBasis::Engine) {
         return None;
     }
-    let [late, very_late] = *inp.cfg.lateness_hours.get(stage.key())?;
-    let hours = (inp.now - since?).num_seconds() as f64 / 3600.0;
+    let [late, very_late] = thresholds?;
+    let hours = (now - since?).num_seconds() as f64 / 3600.0;
     Some(if hours >= very_late {
         Lateness::VeryLate
     } else if hours >= late {
@@ -681,7 +693,7 @@ fn lateness(
 }
 
 /// The areas still waiting for an approval, in the engine's order.
-fn asks(state: &PolicyState) -> Vec<Ask> {
+pub fn asks(state: &PolicyState) -> Vec<Ask> {
     state
         .approvals
         .iter()
