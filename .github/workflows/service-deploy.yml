@@ -1,0 +1,201 @@
+name: Service deploy
+
+# Builds the PR Hygiene service's image from master and deploys it to the
+# host infra runs for it (dashpay/infra, modules/pr-hygiene).
+#
+# The job stores no secret. It runs in the `production` environment, which
+# only master may use, and trades its GitHub OIDC token for a short-lived AWS
+# role that trusts exactly that environment of this repository. The role can
+# do two things: push to the service's ECR repository, and run one SSM
+# document on the service's host. The document takes an image digest and
+# nothing else: the host pulls that image, restarts the service, waits for
+# /readyz, and goes back to the previous image if it does not come up. The
+# job has no shell on the host.
+#
+# Dormant until the repository variable PR_HYGIENE_DEPLOY_ROLE_ARN is set.
+#
+# No third-party code: checkout, the runner's Docker and AWS CLI, curl, jq.
+
+on:
+  push:
+    branches: [master]
+    # What service/Dockerfile copies into the image (see
+    # service/Dockerfile.dockerignore), and this file.
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - src/**
+      - engine/**
+      - service/**
+      - "!service/README.md"
+      - site/index.html
+      - site/app.js
+      - site/style.css
+      - site/js/**
+      - site/vendor/**
+      - .github/workflows/service-deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One deploy at a time, in order. A pending one is replaced by a newer
+  # one, which carries its changes too.
+  group: service-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy
+    # The environment's branch rule is what keeps other branches out; the
+    # ref check only spares them a run that would be refused.
+    if: ${{ vars.PR_HYGIENE_DEPLOY_ROLE_ARN != '' && github.ref == 'refs/heads/master' }}
+    # The host is ARM64. Building natively avoids emulating a Rust build.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      contents: read
+      id-token: write       # mint the OIDC token AWS verifies
+    env:
+      AWS_REGION: us-west-2
+      AWS_DEFAULT_REGION: us-west-2
+      ECR_REPOSITORY: pr-hygiene-service
+      DEPLOY_DOCUMENT: pr-hygiene-deploy
+      DEPLOY_TARGET: Key=tag:Service,Values=pr-hygiene
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Before any credential exists, so the role's session is not spent on
+      # the build.
+      - name: Build the image
+        run: |
+          set -euo pipefail
+          docker buildx build --load --provenance=false \
+            --file service/Dockerfile \
+            --tag "pr-hygiene-service:$GITHUB_SHA" .
+
+      - name: Assume the deploy role
+        env:
+          ROLE_ARN: ${{ vars.PR_HYGIENE_DEPLOY_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          headers="$RUNNER_TEMP/oidc-headers"
+          token_file="$RUNNER_TEMP/oidc-token"
+          trap 'rm -f "$headers" "$token_file"' EXIT
+
+          printf 'Authorization: bearer %s\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" > "$headers"
+          # --fail, not --fail-with-body: the response carries the token.
+          token=$(curl --silent --show-error --fail --max-time 30 -H @"$headers" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$token"
+          printf '%s' "$token" > "$token_file"
+
+          creds=$(aws sts assume-role-with-web-identity \
+            --role-arn "$ROLE_ARN" \
+            --role-session-name "service-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --web-identity-token "file://$token_file" \
+            --duration-seconds 1800 \
+            --query Credentials --output json)
+          secret=$(jq -r .SecretAccessKey <<<"$creds")
+          session=$(jq -r .SessionToken <<<"$creds")
+          echo "::add-mask::$secret"
+          echo "::add-mask::$session"
+          {
+            echo "AWS_ACCESS_KEY_ID=$(jq -r .AccessKeyId <<<"$creds")"
+            echo "AWS_SECRET_ACCESS_KEY=$secret"
+            echo "AWS_SESSION_TOKEN=$session"
+          } >> "$GITHUB_ENV"
+
+      - name: Push the image
+        id: push
+        run: |
+          set -euo pipefail
+          account=$(aws sts get-caller-identity --query Account --output text)
+          registry="$account.dkr.ecr.$AWS_REGION.amazonaws.com"
+          image="$registry/$ECR_REPOSITORY:$GITHUB_SHA"
+
+          digest_of_tag() {
+            aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageTag=$GITHUB_SHA" \
+              --query 'imageDetails[0].imageDigest' --output text
+          }
+
+          # Tags are immutable in the repository: a re-run of the same commit
+          # deploys the image its first run pushed.
+          if digest=$(digest_of_tag 2>/dev/null); then
+            echo "already pushed: $GITHUB_SHA"
+          else
+            aws ecr get-login-password \
+              | docker login --username AWS --password-stdin "$registry"
+            docker tag "pr-hygiene-service:$GITHUB_SHA" "$image"
+            docker push --quiet "$image"
+            digest=$(digest_of_tag)
+          fi
+
+          # The registry's own answer, and the only form the host accepts.
+          if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::ECR returned no digest for $GITHUB_SHA"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Image \`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy and wait for the host's answer
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          command_id=$(aws ssm send-command \
+            --document-name "$DEPLOY_DOCUMENT" \
+            --targets "$DEPLOY_TARGET" \
+            --parameters "{\"digest\":[\"$DIGEST\"]}" \
+            --comment "$GITHUB_REPOSITORY ${GITHUB_SHA:0:12}, run $GITHUB_RUN_ID" \
+            --timeout-seconds 60 \
+            --query Command.CommandId --output text)
+          echo "command: $command_id"
+
+          # Three clocks, all bounded. Delivery: the host has 60 seconds to
+          # pick the command up (--timeout-seconds above; SSM's default is an
+          # hour). Execution: the host's worst case is 7 minutes (pull, start
+          # and 90 seconds of readiness checks for the new image, then start
+          # and readiness again for the one it goes back to), under a
+          # 10-minute deadline. This loop: 12 minutes, a little more than
+          # the two together.
+          status=Pending
+          targets=0
+          for _ in $(seq 1 144); do
+            sleep 5
+            # A failed or malformed poll keeps the last answer and tries
+            # again.
+            if answer=$(aws ssm list-commands --command-id "$command_id" \
+                --query 'Commands[0].[Status,TargetCount]' --output text) \
+                && [[ "$answer" =~ ^([A-Za-z]+)[[:space:]]+([0-9]+)$ ]]; then
+              status=${BASH_REMATCH[1]}
+              targets=${BASH_REMATCH[2]}
+            fi
+            case "$status" in
+              Pending|InProgress|Delayed) ;;
+              *) break ;;
+            esac
+          done
+
+          # What the host's deploy script printed: image references and the
+          # outcome. It never prints the service's logs.
+          aws ssm list-command-invocations --command-id "$command_id" --details \
+            --query 'CommandInvocations[].CommandPlugins[].Output' --output text
+
+          if [ "$targets" -lt 1 ]; then
+            echo "::error::no host matched $DEPLOY_TARGET; nothing was deployed"
+            exit 1
+          fi
+          if [ "$status" != Success ]; then
+            echo "::error::the deploy ended as $status; the host keeps or returns to the previous image (see above)"
+            exit 1
+          fi
+          echo "Deployed." >> "$GITHUB_STEP_SUMMARY"
