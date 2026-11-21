@@ -1,211 +1,217 @@
-# Dashboard push: Python reads, the service stores and shows
+# Dashboard push: verdicts arrive with events; the analyzer reads less often
 
 Status: proposed (2026-11-21). Design only.
 
 ## Problem
 
-GitHub is read twice. The Python engine (`pr_review/`) reads every PR it judges.
-Every 15 minutes, `pr-hygiene.yml` then reads all five repositories a second time
-with the Rust analyzer (`src/`, about 590 GraphQL calls per run), asks
-`pr_review.main report` for verdicts, and posts `dashboard.json` to the service.
-That leaves two codebases that each have to understand GitHub and the engine's
-record comments.
+Every 15 minutes, `pr-hygiene.yml` re-reads every open PR of the five governed
+repositories, about 590 GraphQL calls per run. The board shows a verdict as old
+as that run, even though the Python engine computed a newer one on the last
+event. The engine already holds that newer verdict, and passing it on costs no
+extra GitHub reads.
 
 ## Decision
 
-**Python is the only reader. The service is the only store and view.** At the end
-of each reconcile run, the reusable workflow posts what the run read: the open-PR
-listing and the verdicts it computed. The service keeps the newest of each,
-timestamps stage changes itself, and derives the board and people from its store.
+**Python pushes its per-PR verdicts at the end of every run**: events, sweeps,
+build scans and `scope: all`. The service overlays the newest verdict for each PR
+on the latest snapshot. With verdicts arriving on events, the analyzer can drop
+from every 15 minutes to hourly.
 
-### Payload: facts and verdict; the service derives the board
+**Nothing in the dashboard's business logic changes.** Speed, sign-in, accounts,
+stage history from record edits, closed PRs, thread severity, `index.md`,
+`/ingest`, the analyzer, Pages and `data` all stay as they are.
+
+### Payload
 
 ```json
-{ "repo": "dashpay/platform", "read_at": "<listing read time>",
-  "policy": { "slot_limit": 5, "rosters": { "<area>|fallback": ["login"] },
-              "bot_authors": [], "review_bots": [] },
-  "open": [ { "number", "title", "url", "author", "author_is_bot", "draft", "base",
-              "governed", "created_at", "updated_at", "milestone" } ],
-  "rows": [ { "number", "read_at": "<snapshot read time>", "verdict": { ... },
-              "mergeable", "build", "unresolved_threads" } ] }
+{ "repo": "dashpay/platform", "read_at": "<stamped before collect() starts>",
+  "open": [<every open PR number>],
+  "verdicts": [ { "number", "head",
+                  "verdict": { ...the object `report --format json` prints... } } ] }
 ```
 
-- **`open`** comes from `open_prs()`, which every run already calls: events,
-  sweeps and build scans alike. `updated_at` and `milestone` come from the same
-  listing response, and `mergeable` from the `/pulls/{n}` response the snapshot
-  already fetches. A `null` counts as "no conflict known".
-- **`policy`** carries what the board needs from the policy: the rosters that
-  `people()` walks, the bot logins that `kind()` uses, and the slot limit. The
-  service therefore needs no policy reader of its own.
-- **`rows`** holds only the PRs this run evaluated: one for an event, about six
-  for a sweep, every PR for `scope: all`. `verdict` is the same dict that
-  `report --format json` prints today.
-- **Caution.** The extra listing and snapshot fields stay out of the PR evidence
-  dict and go in a side map on `GitHub`. `policy.fingerprint` hashes every key of
-  that dict, so `updated_at` inside it would turn every comment into new evidence.
+- **`verdict`** is the dict `evaluate_snapshots` returns, the same row that
+  `report --format json` prints and the analyzer parses into `PolicyState`
+  (`src/model.rs`). It carries `state`, `status`, `blockers`, `reviewers`,
+  `objectors`, `areas`, `approvals`, `ready_since`, `title` and `author`.
+- **`open`** comes from `open_prs()`, which every run already calls.
+- **`read_at`** is stamped before `collect()` reads anything. If it were stamped
+  at `now`, after the reads, a push whose reads came before a snapshot could
+  still win against it.
+- Neither field needs a new GitHub read.
 
-**Who owns what.**
-- **Python owns the verdict and the facts:** about 170 new lines (`push.py` plus
-  the side map) and 25 lines of YAML.
-- **The service owns `stage()`, lateness, `asks`, `part`, people/WIP and `kind`.**
-  These are about 450 lines that move from `src/dashboard.rs` with
-  `PolicyState`. They now read the rosters from the stored `policy` and
-  `areas`/`unresolved` from the row.
-- **Why they live in the service.** Lateness and people need every row plus the
-  stage history, and only the service has both.
-- **Rejected:** Python sending finished `PrOut` rows. The derivation would then
-  be split across two languages.
-- **Deleted:** `src/stages.rs`, which reconstructs stage entry from comment edit
-  history, along with the fetcher, analyzer, scorer, renderer, history and the
-  Rust policy reader. That is about 12k lines.
+### Service: one table, overlaid at read time
 
-### Service
+- **`verdicts` table**, keyed by `(repo, number)`.
+  - Its columns are `head`, `read_at`, `verdict`, `stage` and `stage_seen_at`.
+  - A push replaces a row only when its `read_at` is newer than the stored one.
+  - `stage_seen_at` is set to the push's `read_at` when the pushed stage differs
+    from the stored row's stage. It is NULL on a PR's first push, and otherwise
+    it is kept.
+- **`open_lists` table**, keyed by `repo`, holding the newest `open` set and its
+  `read_at`.
+- **Where the overlay runs: in `AppState::view()`, at read time.** This is less
+  code than doing it at ingest:
+  - The cache key becomes (snapshot version, push counter).
+  - Every accepted push bumps the counter, including one that only changes an
+    `open` list.
+  - `View.version` stays the snapshot id, because `api.rs` passes it on as
+    `stage_changes(as_of)`.
+  - A push writes one row and nothing else.
+  - The stored snapshot view stays untouched, so no base copy has to be kept.
+  - The overlay runs only when either version moves. It covers hundreds of rows
+    on each change.
 
-- **`prs`** stores the newest row per PR. **`listings`** stores the newest `open`
-  set and `policy` per repository.
-- **Ordering.** Each listing and each row is ordered by its own `read_at`, and an
-  older one is ignored. A late re-run therefore cannot revive a closed PR, and a
-  slow sweep cannot overwrite a newer event's verdict.
-- **The board** is the newest listing joined with each PR's newest verdict. A PR
-  with no verdict shows draft, not-governed or `unknown`, as it does today.
-- **Stage history.** When a PR's stage or engine state differs from the stored
-  one, the service adds a `stage_changes` row with `observed_at = row.read_at`. A
-  PR with no verdict records nothing. Without that rule, the switch would log
-  every PR as `unknown` and then log it again, which would reset every `since`.
-- **`since`** is the start of the current stage in `stage_changes`. While a PR is
-  in review it falls back to the engine's `ready_since`.
-- **Snapshots.** Each post also adds a `snapshots` row, so
-  `stage_changes.snapshot_id` stays valid without a migration.
-- **The page schema stays the same.**
-  - The `fetch_error`, `stage_times_error` and `commit` fields are null.
-  - `engine_state_available` and `tracked` are always true.
-- **Staleness.** A repository with no listing for 2 hours is marked stale.
+**The overlay rule.** For a PR in the snapshot view:
 
-## What is lost or changes
+- **When the pushed verdict wins:** its `read_at` is later than the repository's
+  `data_as_of`, the time that snapshot was generated.
+- **What changes when it wins:** only the verdict-derived fields:
+  - `engine_state`, `stage`, `draft`, `blockers`, `next_action`, `asks` and
+    `objectors`;
+  - that PR's entries in every person's `owes`;
+  - its author's `wip`, when the stage moves into or out of draft.
+- **Everything else** (title, CI, threads, speed inputs) stays from the snapshot.
+- **No duplicated logic:** the overlay calls the existing functions in
+  `src/dashboard.rs`: `stage()`, `asks()` and `part()`.
+- **`stage()` is called with `draft = false`.** The verdict's own `draft` state
+  decides, so a PR marked ready after the snapshot leaves Draft.
+- **Lateness.** `lateness()` takes the whole `Inputs` today, which the service
+  does not have. Its body is split out into
+  `lateness_at(stage, since, basis, [late, very_late], now)`, and `lateness()`
+  calls it, so the logic does not change. The overlay passes thresholds from
+  `view.stages[].late_hours` and `now` = the time the overlay is built.
+  `asks` and `lateness_at` become `pub`.
+- **Timing.** The first rule that applies sets `since`, with `since_basis`
+  `engine`:
+  - If `stage_seen_at` is later than `data_as_of`, a stage change happened after
+    the snapshot, so `since = stage_seen_at`. This also covers a round trip such
+    as review → mergeable → review.
+  - Otherwise, if the pushed stage matches the snapshot's, the snapshot's
+    `since` stays.
+  - Otherwise, `since` = the push's `read_at`.
 
-- **Closed and merged PRs.** Callers already trigger on `closed`. That run's
-  listing leaves the PR out, so the PR leaves the board within seconds. If an
-  event is missed, the next build scan, at most 15 minutes away, removes it.
-- **Dropped: personal speed, and with it sign-in, accounts and opt-out.**
-  - **Why:** speed needs closed-PR history, reviewer ids on decisive reviews and
-    whole-repository snapshots, and Python reads none of these. Sign-in exists
-    only to show people their own speed.
-  - **What goes:** `speed.rs`, `auth.rs` and `github.rs` (about 3k lines), nine
-    store tables, the OAuth app config, and the page's `account`, `speed` and
-    `privacy` scripts.
-  - If speed is wanted later, it gets its own spec.
-- **Dropped: the `closed` list.** Only speed used it.
-- **Dropped: the analyzer's thread classification.** `unresolved_threads`
-  becomes a plain count.
-- **Changed: `ci_failing`, `merge_conflict` and `unresolved_comments` are set only
-  on evaluated PRs.** On drafts and ungoverned PRs they show false or 0. Each
-  value is as of the PR's last evaluation: any event re-evaluates the PR, and the
-  sweep reaches every PR within about a day. `changes_requested` now means the
-  verdict has objectors.
-- **Changed: stage entry times.** A change raised by an event is timed to within
-  seconds. A change with no event is timed when it is next seen: a build within
-  15 minutes, anything else within the sweep's rotation. Today these times are
-  read back from comment edit history.
-- **Backfill: none.** The service keeps its SQLite file, and `stage_changes`
-  already holds each PR's current stage and `since`. After the switch the admin
-  dispatches `scope: all` once in each repository. Until then, PRs that have not
-  been evaluated show `unknown`.
-- **Dropped:** `index.md`, the `data` branch with its nightly snapshots, and
-  Pages. The digest workflow stays as it is.
+  The next snapshot reads the exact time from the record edits.
+- **When the snapshot wins:** it is newer, so the overlay drops out by itself.
+  Its verdict was exported at or after `data_as_of`.
+- **Closed PRs:** a snapshot row whose number is missing from an `open` list newer
+  than `data_as_of` is hidden. Its entries are also removed from the reviewers'
+  `owes` and from the author's `authored` and `wip`. It reappears in the closed
+  list on the next snapshot, as today.
+- **Pushed PRs not in the snapshot** (opened since the last snapshot) are
+  ignored. They appear at the next snapshot, at most an hour later.
+- **Speed stays snapshot-only.** It reads its own tables, which only snapshot
+  ingest writes. It dates changes from the record edits, so an hourly cadence
+  loses no precision.
+
+### Known edge
+
+The snapshot's verdicts come from the export step, which runs a few minutes
+before the analyzer stamps `generated_at`. A push read inside that window loses
+to a slightly older snapshot verdict until the next push or snapshot. This is
+accepted.
 
 ## Auth
 
-`/ingest/rows` gets a second identity in `service/src/oidc.rs`. These checks stay
-as they are:
+`/ingest/verdicts` gets a second identity in `service/src/oidc.rs`. The existing
+checks stay as they are:
 
 - the RS256 signature against GitHub's keys;
 - `iss = https://token.actions.githubusercontent.com` and `aud` = the service URL;
 - `exp`, `nbf` and the age of `iat`;
 - single use of `jti`.
 
-These are added:
+The new identity also requires:
 
 - `repository_owner_id` is dashpay's id.
 - `repository_id` is one of the five configured ids (id → name), and the
-  `repository` claim equals the mapped name.
+  `repository` claim equals the mapped name. `Claims` gains a `repository` field
+  for this.
 - `job_workflow_ref` = `dashpay/stale_prs_are_bad/.github/workflows/pr-review-reusable.yml@refs/heads/master`.
-- **Binding:** the body's `repo` equals that name. If it does not, the service
+- **SHA-pinned callers:** `rollout.py` still allows them, and they would get a
+  permanent 403. That fails closed. Today all five callers use `@master`.
+- **Binding:** the body's `repo` must equal that name. Otherwise the service
   answers 403 and stores nothing, so one repository cannot post for another.
 
-These are not checked:
+These are not checked, on purpose:
 
 - **`ref`, `workflow_ref`, `event_name`:** `pull_request_target` runs on each
   PR's base branch, and every event posts.
-- **`run_attempt`:** re-runs read fresh data, and `read_at` orders the posts.
-- **`runner_environment`:** `DASH_LIGHT_RUNNER` may be a self-hosted runner, and
-  that runner already holds a token that can write statuses.
+- **`run_attempt`:** a re-run reads fresh data, and `read_at` orders the posts.
+- **`runner_environment`:** `DASH_LIGHT_RUNNER` may be self-hosted, and that
+  runner already holds a status-write token.
 - **`sha`:** it is the governed repository's own commit.
 
-**Why forging rows is hard.** The job checks out only the engine and the policies
-from master, never PR code. A writer who edits a caller on a branch still runs
-`reusable@master`, which reads real data. Any job that writer adds carries the
-caller's `job_workflow_ref`, and the service refuses it. Forks and other
-repositories fail the owner and id checks.
+**Why a forged verdict is unlikely.** The job checks out the engine and the
+policies from master, never PR code. A writer who edits a caller on a branch
+still runs `reusable@master`. Any job that writer adds carries the caller's
+`job_workflow_ref`, which the service refuses.
 
-**Accepted relaxation.** Every step of the reconcile job can now mint a token.
-Today `pr-hygiene-post.yml` keeps the token in a separate job. The actions are
-pinned by SHA, and the same job already holds a token that can write statuses.
+**One relaxation, accepted:** every step of the reconcile job can now mint a
+token. The actions are pinned by SHA, and the same job already holds a token
+that can write statuses.
 
-**Configuration and limits.**
-- The service URL is fixed in the reusable workflow, because callers do not own
-  a variable that would hold it.
-- The body is at most 2 MB, with at most 1,000 `open` entries and 1,000 `rows`.
-- Every number in `rows` must appear in `open`.
+**Limits:**
+- The service URL is fixed in the reusable workflow.
+- The body is at most 1 MB, with at most 1,000 numbers in `open` and 1,000
+  entries in `verdicts`.
+- Every verdict's number must be in `open`.
 - `read_at` must fall between `iat − 1h` and `now + skew`.
-- Texts and logins are checked the way `snapshot.rs` checks them today.
+- Texts and logins are checked the way `snapshot.rs` checks them.
 
-## Failure behaviour: a push never touches the gate
+## A push never affects the gate
 
-1. **Python writes the file and never calls the service.** It writes
-   `$RUNNER_TEMP/push.json` inside a `try/except Exception` that only warns, so
-   the file cannot change the exit code or skip a write. The write comes after
-   every PR's status and before the final `reconciliation failed` raise, so a run
-   that partly failed still posts the rows that succeeded.
+1. **Python writes `$RUNNER_TEMP/verdicts.json` and makes no HTTP call.** The
+   write is wrapped in `try/except Exception` and only warns. It happens after
+   every PR's status write and before the final `reconciliation failed` raise.
 2. **A last step posts the file.** It runs with `if: always()`,
    `continue-on-error: true`, `timeout-minutes: 2` and `curl --max-time 20`. It
-   exits 0 when there is no file and reports any failure only as `::warning::`.
-3. **The reusable workflow drops its top-level `permissions:` block.** A called
-   workflow that asks for `id-token: write` when its caller did not grant it fails
-   to start. That would block the gate on every base branch whose caller is stale,
-   and old `v*-dev` branches are among them, because `pull_request_target` runs the
-   caller from the base branch. Without its own block, the called workflow inherits
-   exactly what the caller grants, which today is the same four scopes. A caller
-   without `id-token` has no token URL, so its post step only warns. The two
-   changes can therefore ship in any order.
+   exits 0 when there is no file, and any failure is only `::warning::`.
+3. **The reusable workflow drops its top-level `permissions:` block.** A callee
+   that asks for `id-token: write` its caller did not grant fails to start.
+   `pull_request_target` runs the caller from the base branch, so stale callers
+   on old `v*-dev` branches would block the gate. Without its own block the
+   callee inherits exactly what the caller grants, which today is the same four
+   scopes. A caller without `id-token` has no token URL, and its post only
+   warns. The two changes can ship in any order.
 
-The posted verdict is the computed one, so the board can briefly run ahead of a
-status that `publish()` is holding `pending`. The board heals on the next event,
-scan or sweep.
+If a push fails, the board falls back to the snapshot until the next push.
 
-## Plan (each step ships alone)
+## Analyzer cadence
 
-| # | PR | Size | Why it is safe alone |
+After a day of live pushes, `pr-hygiene.yml` drops the quarter-hour cron
+`"15,30,45 * * * *"`. It keeps `"0 */6 * * *"` (full run) and
+`"0 1-5,7-11,13-17,19-23 * * *"` (the hourly quick runs), so it runs every hour
+on the hour. That is 4× fewer runs: about 2,360 → about 590 GraphQL calls per
+hour, at about 590 per run. The comments in the workflow that say "every quarter
+hour" are updated to match.
+
+## Plan
+
+| # | PR | Size | Safe alone because |
 |---|---|---|---|
-| 1 | Engine push: `push.py`, the side map, the post step; the reusable workflow loses its `permissions:` block; `rollout.py`'s caller template and its test gain `id-token: write` | +170 py, +120 test, +25 yaml | Without a token, or before step 4 (404), the post only warns |
-| 2 | Five caller one-liners adding `id-token: write` on each default branch | 5 × +1 | The service answers 404 until step 4, which only warns |
-| 3 | Drop speed and sign-in: service, tables, page, config, deploy secrets | −4k | Pure deletion |
-| 4 | The service runs on rows: `/ingest/rows`, the verifier, `prs`/`listings`, and the board logic moved from `src/dashboard.rs`. Delete the snapshot `/ingest`, `snapshot.rs`, `pr-hygiene.yml` and `pr-hygiene-post.yml` | +600 / −1.5k | One source from deploy on; then `scope: all` in each repository |
-| 5 | Delete `src/`, the root crate, `tests/`, the analyzer jobs in `rust.yml`, and the Pages assembly | −12k | Nothing reads them after step 4 |
-
-A week after step 5, the admin disables Pages and deletes the `data` branch.
+| 1 | Python push (`pr_review/push.py` + tests); the reusable workflow loses `permissions:` and gains the post step; `rollout.py`'s caller template and its test gain `id-token: write` | ~+100 py, +100 test, +25 yaml | Without a token, or before step 3 (404), the post only warns |
+| 2 | Five caller one-liners adding `id-token: write` | 5 × +1 | 404 warnings until step 3 |
+| 3 | Service: `/ingest/verdicts`, the second OIDC identity, the `verdicts` and `open_lists` tables, the overlay in `view()` | ~+350 with tests | Without pushes the overlay is empty, so the view is today's |
+| 4 | Cadence: drop `"15,30,45 * * * *"`, after a day of live pushes | −1 line | Only the analyzer's frequency changes |
 
 ## Verification
 
-- **Step 1 tests:**
-  - The payload is built from fixture snapshots.
-  - A snapshot's fingerprint is unchanged once the side map exists.
-  - When `push.py` raises, `run()` still publishes and returns 0.
-- **Step 1, live:** in each repository's log, the post step's warning appears and
-  the status is set.
-- **Step 4 tests:** each of these is refused or ignored as stated:
-  - a token from repository A posting `repo: B` (403);
-  - a wrong `job_workflow_ref` (403);
-  - an older post arriving after a newer one (ignored);
-  - a PR missing from a newer listing (removed);
-  - a listed PR with no verdict (no `stage_changes` row).
-- **Step 4, live:** the board fills within 15 minutes of deploy.
+- **Step 1:**
+  - The payload is built from fixture rows.
+  - If `push.py` raises, `run()` still publishes and returns 0.
+  - Live: each repository's log shows the warning and the status is set.
+- **Step 3 tests:**
+  - A token from repository A posting `repo: B` is refused with 403.
+  - A wrong `job_workflow_ref` is refused with 403.
+  - An older push after a newer one is ignored.
+  - A push newer than the snapshot changes that PR's stage, its asks and the
+    reviewer's `owes`, and changes nothing else.
+  - A draft marked ready after the snapshot leaves Draft.
+  - A review → mergeable → review round trip takes its new `since`.
+  - A newer snapshot wins over an older push.
+  - A PR missing from a newer `open` list is hidden, including from `owes`,
+    `authored` and `wip`.
+  - A push that changes only the `open` list still refreshes the cache.
+- **Step 3, live:** after an approval, the board shows the new stage within a
+  minute.
