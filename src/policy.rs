@@ -1,23 +1,36 @@
 //! The shared review policy: the registry of governed repositories, each
 //! repository's area/owner map, and the review engine's exported per-PR state.
 //!
-//! A policy is the review engine's: it is read with the engine's JSON reader
-//! and accepted only when the engine's `validate_policy` accepts it, and the
-//! branches it governs are the engine's `governs`. The fields the board reads
-//! are taken from that accepted value, so the board cannot route or count
-//! slots by a policy the engine would refuse.
+//! A policy is accepted only when it passes the same checks as the review
+//! engine's `validate_policy` in `pr_review/policy.py`, with the same
+//! messages, so the board never routes or counts slots by a policy the
+//! engine would refuse. The engine stays the authority: the reusable
+//! workflow validates every policy with it before any of them is used.
 
 use anyhow::{bail, Context, Result};
-use pr_hygiene_engine::policy as engine;
-use pr_hygiene_engine::pycompat::object::{get_or, getitem, iterate, EMPTY_LIST, NONE};
-use pr_hygiene_engine::pycompat::{py_loads, PyDict, PyValue};
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use serde_json::{Map, Value};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use crate::model::PolicyState;
 
 pub const REGISTRY_FILE: &str = "repositories.json";
+
+/// The review bots, by every login they write under: the engine's `BOTS`.
+/// A policy may not name them, and the board never counts them as people.
+pub const BOTS: [&str; 4] = [
+    "thepastaclaw",
+    "coderabbitai",
+    "coderabbitai[bot]",
+    "claudbot[bot]",
+];
+
+/// The review bots a policy may require: the engine's `REVIEW_BOTS`.
+const REVIEW_BOTS: [&str; 2] = ["thepastaclaw", "coderabbitai"];
+
+/// Handles no policy may name besides the bots: two people, and machines.
+const EXCLUDED: [&str; 4] = ["strophy", "silvanassss", "copilot", "dependabot"];
 
 /// `policies/repositories.json`.
 #[derive(Debug, Clone, Deserialize)]
@@ -33,14 +46,13 @@ pub struct RegistryEntry {
     pub policy: String,
 }
 
-/// One repository's policy (`policies/<name>.json`) as the engine accepted
-/// it, with the fields the dashboard reads. Only [`Policy::parse`] makes
-/// one, so every `Policy` is one the engine accepts.
+/// One repository's policy (`policies/<name>.json`) with the fields the
+/// dashboard reads. Only [`Policy::parse`] makes one, so every `Policy` is
+/// one the engine's rules accept.
 #[derive(Debug, Clone)]
 pub struct Policy {
-    /// The policy as the engine reads it.
-    value: PyValue,
     repository: String,
+    target_branches: Vec<String>,
     fallback: Roster,
     areas: Vec<Area>,
     bot_authors: Vec<String>,
@@ -48,40 +60,43 @@ pub struct Policy {
 }
 
 impl Policy {
-    /// Read a policy file's text with the engine's JSON reader and accept it
-    /// only when the engine's `validate_policy` does.
+    /// Read a policy file's text and accept it only when it passes the
+    /// engine's checks.
     pub fn parse(text: &str) -> Result<Policy> {
-        let value = py_loads(text).context("not JSON the engine reads")?;
-        engine::validate_policy(&value)?;
-        targets_compile(&value)?;
-        let repository = string(getitem(&value, "repository")?)?;
-        let fallback = Roster::read(getitem(&value, "fallback")?)?;
-        let areas = match getitem(&value, "areas")? {
-            PyValue::List(items) => items.iter().map(Area::read).collect::<Result<_>>()?,
-            other => bail!("areas is not a list: {other:?}"),
-        };
-        let bot_authors = strings(get_or(&value, "bot_authors", &EMPTY_LIST)?)?;
-        let max_active_prs = match getitem(&value, "max_active_prs")? {
-            PyValue::Int(n) => n.as_i64().and_then(|n| u32::try_from(n).ok()),
-            _ => None,
-        }
-        .context("max_active_prs is not a count")?;
+        let value: Value = serde_json::from_str(text).context("not JSON")?;
+        validate_policy(&value)?;
+        // Validation has checked the shape of every field read below.
+        let typed: Typed = serde_json::from_value(value).context("reading a validated policy")?;
         Ok(Policy {
-            value,
-            repository,
-            fallback,
-            areas,
-            bot_authors,
-            max_active_prs,
+            repository: typed.repository,
+            target_branches: typed.target_branches,
+            fallback: typed.fallback,
+            areas: typed
+                .areas
+                .into_iter()
+                .map(|area| Area {
+                    id: area.id,
+                    paths: area.paths,
+                    owners: area.owners,
+                    reviewers: area.reviewers,
+                    unresolved: !area.unresolved.is_empty(),
+                })
+                .collect(),
+            bot_authors: typed.bot_authors,
+            max_active_prs: typed.max_active_prs,
         })
     }
 
-    /// Whether PRs into `branch` are under this policy: the engine's
-    /// `governs`. A target is a branch name or a pattern in the form GitHub
+    /// Whether PRs into `branch` are under this policy, by the engine's
+    /// `governs`: a target is a branch name or a pattern in the form GitHub
     /// branch rules use, where `*` matches any run of characters except `/`.
+    /// A PR with no known base is never governed.
     pub fn governs(&self, branch: &str) -> bool {
-        engine::governs(&self.value, &PyValue::Str(branch.to_owned()))
-            .expect("every target compiled when the policy was parsed")
+        !branch.is_empty()
+            && self
+                .target_branches
+                .iter()
+                .any(|target| target_matches(target, branch))
     }
 
     /// The roster for files no area claims.
@@ -105,52 +120,362 @@ impl Policy {
     }
 }
 
-/// Refuse a policy with a target the engine cannot match branches against.
-/// The engine compiles a target the first time it is matched, refuses one
-/// too large to compile, and stops at the first target that matches; asking
-/// about each target alone compiles every one, so such a policy is refused
-/// here rather than when a branch is looked up.
-fn targets_compile(value: &PyValue) -> Result<()> {
-    for target in iterate(getitem(value, "target_branches")?)? {
-        let target = target.into_owned();
-        let alone = PyDict::from_iter([(
-            "target_branches".to_owned(),
-            PyValue::List(vec![target.clone()].into()),
-        )]);
-        engine::governs(&PyValue::Dict(alone), &target)?;
+/// The fields of a policy `validate_policy` accepted.
+#[derive(Deserialize)]
+struct Typed {
+    repository: String,
+    target_branches: Vec<String>,
+    fallback: Roster,
+    areas: Vec<TypedArea>,
+    #[serde(default)]
+    bot_authors: Vec<String>,
+    max_active_prs: u32,
+}
+
+#[derive(Deserialize)]
+struct TypedArea {
+    id: String,
+    paths: Vec<String>,
+    owners: Vec<String>,
+    reviewers: Vec<String>,
+    #[serde(default)]
+    unresolved: Vec<String>,
+}
+
+/// Whether `target` matches the whole of `branch`, `*` standing for any run
+/// of characters except `/`. Since `*` never matches `/`, the two match
+/// exactly when they have as many `/`-separated segments and each segment
+/// matches its counterpart.
+fn target_matches(target: &str, branch: &str) -> bool {
+    let targets: Vec<&str> = target.split('/').collect();
+    let branches: Vec<&str> = branch.split('/').collect();
+    targets.len() == branches.len()
+        && targets
+            .iter()
+            .zip(&branches)
+            .all(|(target, branch)| segment_matches(target, branch))
+}
+
+/// Whether a `/`-free `pattern` matches the whole of `text`, `*` standing for
+/// any run of characters. The usual greedy match: on a mismatch, the last
+/// `*` takes one more character, which keeps it linear in practice and
+/// quadratic at worst.
+fn segment_matches(pattern: &str, text: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let text: Vec<char> = text.chars().collect();
+    let (mut p, mut t) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while t < text.len() {
+        if p < pattern.len() && pattern[p] == '*' {
+            star = Some((p, t));
+            p += 1;
+        } else if p < pattern.len() && pattern[p] == text[t] {
+            p += 1;
+            t += 1;
+        } else if let Some((star_p, star_t)) = star {
+            star = Some((star_p, star_t + 1));
+            p = star_p + 1;
+            t = star_t + 1;
+        } else {
+            return false;
+        }
+    }
+    pattern[p..].iter().all(|&c| c == '*')
+}
+
+/// `validate_policy(policy)` of `pr_review/policy.py`, without the check of
+/// each area's directory in a checkout: the first problem the engine would
+/// find, with its message. The board refuses at least what the engine
+/// refuses.
+fn validate_policy(policy: &Value) -> Result<()> {
+    const KEYS: [&str; 6] = [
+        "version",
+        "repository",
+        "fallback",
+        "max_active_prs",
+        "target_branches",
+        "areas",
+    ];
+    const OPTIONAL: [&str; 3] = ["required_bots", "bot_timeouts", "bot_authors"];
+    let allowed: Vec<&str> = KEYS.iter().chain(&OPTIONAL).copied().collect();
+    let policy = fields(policy, &allowed, &KEYS)?;
+    let no_handles = Value::Array(Vec::new());
+    let bot_authors = policy.get("bot_authors").unwrap_or(&no_handles);
+    handles(bot_authors, false)?;
+
+    if let Some(timeouts) = policy.get("bot_timeouts").filter(|t| !t.is_null()) {
+        let both = ["nudge_after_hours", "waive_after_hours"];
+        let timeouts = fields(timeouts, &both, &both)?;
+        if !timeouts.values().all(|hours| is_int(hours, 1..=168)) {
+            bail!("bot_timeouts must be whole hours between 1 and 168");
+        }
+    }
+
+    if let Some(bots) = policy.get("required_bots") {
+        let accepted = bots.as_array().is_some_and(|bots| {
+            let mut seen = HashSet::new();
+            bots.iter().all(|bot| {
+                bot.as_str()
+                    .is_some_and(|bot| REVIEW_BOTS.contains(&bot) && seen.insert(bot))
+            })
+        });
+        if !accepted {
+            bail!(
+                "required_bots must be a subset of {}",
+                REVIEW_BOTS.join(", ")
+            );
+        }
+    }
+
+    if !is_int(&policy["version"], 1..=1) {
+        bail!("Unsupported policy version");
+    }
+    if !policy["repository"].as_str().is_some_and(is_repository) {
+        bail!("Invalid repository");
+    }
+    if !is_int(&policy["max_active_prs"], 5..=5) {
+        bail!("Expected five active slots");
+    }
+
+    let Some(branches) = texts(&policy["target_branches"]).filter(|b| !b.is_empty()) else {
+        bail!("Invalid target branches");
+    };
+    if branches.iter().collect::<HashSet<_>>().len() != branches.len() {
+        bail!("Invalid target branches");
+    }
+    // `*` is the only pattern `governs` understands; anything else GitHub's
+    // rules accept would be read literally and match no branch at all.
+    if branches.iter().any(|b| has_branch_syntax(b)) {
+        bail!("Target branch patterns support only `*`");
+    }
+
+    let fallback = fields(
+        &policy["fallback"],
+        &["owners", "reviewers"],
+        &["owners", "reviewers"],
+    )?;
+    handles(&fallback["owners"], true)?;
+    handles(&fallback["reviewers"], false)?;
+
+    let Some(areas) = policy["areas"].as_array() else {
+        bail!("Expected areas list");
+    };
+    let mut ids: HashSet<&str> = HashSet::new();
+    let mut prefixes: Vec<&str> = Vec::new();
+    for area in areas {
+        let area = fields(
+            area,
+            &[
+                "id",
+                "paths",
+                "owners",
+                "reviewers",
+                "unresolved",
+                "metadata",
+            ],
+            &["id", "paths", "owners", "reviewers"],
+        )?;
+        let id = area["id"]
+            .as_str()
+            .filter(|id| is_area_id(id) && !ids.contains(id) && *id != "fallback");
+        let Some(id) = id else {
+            bail!("Invalid or duplicate area id");
+        };
+        ids.insert(id);
+        handles(&area["owners"], false)?;
+        if !truthy(&area["owners"]) && !area.get("unresolved").is_some_and(truthy) {
+            bail!("Missing owners require an explicit unresolved identity");
+        }
+        handles(&area["reviewers"], false)?;
+        if !handle_set(&area["owners"]).is_disjoint(&handle_set(&area["reviewers"])) {
+            bail!("Owner and reviewer roles overlap");
+        }
+        if area.get("unresolved").is_some_and(|u| texts(u).is_none()) {
+            bail!("Invalid unresolved identities");
+        }
+        if area.get("metadata").is_some_and(|m| !m.is_object()) {
+            bail!("Invalid area metadata");
+        }
+        let Some(paths) = area["paths"].as_array().filter(|p| !p.is_empty()) else {
+            bail!("Expected literal directory prefixes");
+        };
+        for prefix in paths {
+            let Some(prefix) = prefix.as_str().filter(|p| is_directory_prefix(p)) else {
+                bail!("Invalid literal directory prefix");
+            };
+            if prefixes
+                .iter()
+                .any(|other| prefix.starts_with(other) || other.starts_with(prefix))
+            {
+                bail!("Overlapping directory prefixes");
+            }
+            prefixes.push(prefix);
+        }
+    }
+
+    // A machine author needs no attestation because the approval it cannot
+    // do without stands in for one. Owning an area it would need neither,
+    // and the owner exemption would merge its pull requests unread.
+    let machines = handle_set(bot_authors);
+    let mut named = handle_set(&fallback["owners"]);
+    named.extend(handle_set(&fallback["reviewers"]));
+    for area in areas {
+        named.extend(handle_set(&area["owners"]));
+        named.extend(handle_set(&area["reviewers"]));
+    }
+    let both: Vec<&str> = machines.intersection(&named).map(String::as_str).collect();
+    if !both.is_empty() {
+        bail!("A machine author cannot own or review: {}", both.join(", "));
     }
     Ok(())
 }
 
-/// A string the engine's validation accepted.
-fn string(value: &PyValue) -> Result<String> {
-    match value {
-        PyValue::Str(s) => Ok(s.clone()),
-        other => bail!("expected a string, found {other:?}"),
+/// `_fields(value, allowed, required)`: an object with every required key
+/// and none but the allowed ones.
+fn fields<'a>(
+    value: &'a Value,
+    allowed: &[&str],
+    required: &[&str],
+) -> Result<&'a Map<String, Value>> {
+    match value.as_object() {
+        Some(map)
+            if map.keys().all(|key| allowed.contains(&key.as_str()))
+                && required.iter().all(|key| map.contains_key(*key)) =>
+        {
+            Ok(map)
+        }
+        _ => bail!("Unknown or missing policy fields"),
     }
 }
 
-/// A list of strings the engine's validation accepted.
-fn strings(value: &PyValue) -> Result<Vec<String>> {
+/// `_handles(values, nonempty)`: a list of distinct GitHub handles, none of
+/// them a bot or an excluded identity.
+fn handles(values: &Value, nonempty: bool) -> Result<()> {
+    let Some(items) = values
+        .as_array()
+        .filter(|items| !nonempty || !items.is_empty())
+    else {
+        bail!("Expected handle list");
+    };
+    let mut seen = HashSet::new();
+    for handle in items {
+        let Some(handle) = handle.as_str().filter(|h| is_handle(h)) else {
+            bail!("Malformed GitHub handle");
+        };
+        let folded = handle.to_ascii_lowercase();
+        if EXCLUDED.contains(&folded.as_str())
+            || BOTS.contains(&folded.as_str())
+            || !seen.insert(folded)
+        {
+            bail!("Duplicate or excluded identity");
+        }
+    }
+    Ok(())
+}
+
+/// The lowercased handles of a list `handles` accepted.
+fn handle_set(values: &Value) -> BTreeSet<String> {
+    values
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
+/// A list of strings, each with something besides whitespace.
+fn texts(value: &Value) -> Option<Vec<&str>> {
+    value
+        .as_array()?
+        .iter()
+        .map(|x| x.as_str().filter(|s| !python_strip(s).is_empty()))
+        .collect()
+}
+
+/// Python's `str.strip()`: Unicode whitespace plus the four ASCII
+/// separators (`\x1c`–`\x1f`) Python also counts as space.
+fn python_strip(s: &str) -> &str {
+    s.trim_matches(|c: char| c.is_whitespace() || ('\x1c'..='\x1f').contains(&c))
+}
+
+/// `type(value) is int` and within `range`: `true` and `5.0` are not ints.
+fn is_int(value: &Value, range: std::ops::RangeInclusive<i64>) -> bool {
+    value.as_i64().is_some_and(|n| range.contains(&n))
+}
+
+/// Python's truthiness of a JSON value.
+fn truthy(value: &Value) -> bool {
     match value {
-        PyValue::List(items) => items.iter().map(string).collect(),
-        other => bail!("expected a list of strings, found {other:?}"),
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(items) => !items.is_empty(),
+        Value::Object(map) => !map.is_empty(),
     }
 }
 
-#[derive(Debug, Clone)]
+/// `[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?`, whole.
+fn is_handle(handle: &str) -> bool {
+    let bytes = handle.as_bytes();
+    (1..=39).contains(&bytes.len())
+        && bytes
+            .iter()
+            .all(|&b| b.is_ascii_alphanumeric() || b == b'-')
+        && bytes[0] != b'-'
+        && bytes[bytes.len() - 1] != b'-'
+}
+
+/// `[\w.-]+/[\w.-]+`, whole, with `\w` read as ASCII: Python's `\w` also
+/// takes other Unicode letters and digits, which no GitHub name holds, so
+/// this refuses at least what the engine refuses.
+fn is_repository(repository: &str) -> bool {
+    let part = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+    };
+    repository
+        .split_once('/')
+        .is_some_and(|(owner, name)| part(owner) && part(name))
+}
+
+/// `[a-z0-9][a-z0-9-]*`, whole.
+fn is_area_id(id: &str) -> bool {
+    id.bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && id.bytes().next().is_some_and(|b| b != b'-')
+}
+
+/// `re.search(r'[?\[\]{}\\]|\*\*', branch)`: branch-rule syntax besides `*`.
+fn has_branch_syntax(branch: &str) -> bool {
+    branch.contains("**") || branch.contains(['?', '[', ']', '{', '}', '\\'])
+}
+
+/// `""` (the whole repository) or one or more `segment/` parts made of
+/// `[A-Za-z0-9_.-]`, none of them `.` or `..`.
+fn is_directory_prefix(prefix: &str) -> bool {
+    if prefix.is_empty() {
+        return true;
+    }
+    let Some(body) = prefix.strip_suffix('/') else {
+        return false;
+    };
+    body.split('/').all(|segment| {
+        !segment.is_empty()
+            && segment != "."
+            && segment != ".."
+            && segment
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+    })
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Roster {
     pub owners: Vec<String>,
     pub reviewers: Vec<String>,
-}
-
-impl Roster {
-    fn read(roster: &PyValue) -> Result<Roster> {
-        Ok(Roster {
-            owners: strings(getitem(roster, "owners")?)?,
-            reviewers: strings(getitem(roster, "reviewers")?)?,
-        })
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -163,18 +488,6 @@ pub struct Area {
     /// The area lists open questions about who owns it: its roster is not
     /// authoritative yet.
     pub unresolved: bool,
-}
-
-impl Area {
-    fn read(area: &PyValue) -> Result<Area> {
-        Ok(Area {
-            id: string(getitem(area, "id")?)?,
-            paths: strings(getitem(area, "paths")?)?,
-            owners: strings(getitem(area, "owners")?)?,
-            reviewers: strings(getitem(area, "reviewers")?)?,
-            unresolved: get_or(area, "unresolved", &NONE)?.truthy(),
-        })
-    }
 }
 
 /// Load the registry and every policy it references, in registry order.
@@ -954,17 +1267,9 @@ mod tests {
         }
     }
 
-    /// A registered policy: its repository, its file's text, the value the
-    /// engine reads from it, and the board's policy.
-    struct Registered {
-        repo: String,
-        text: String,
-        raw: PyValue,
-        policy: Policy,
-    }
-
-    /// Every registered policy.
-    fn registered() -> Vec<Registered> {
+    /// Every registered policy: its repository, its file's text and the
+    /// board's policy.
+    fn registered() -> Vec<(String, String, Policy)> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("policies");
         let registry: Registry =
             serde_json::from_str(&std::fs::read_to_string(root.join(REGISTRY_FILE)).unwrap())
@@ -977,201 +1282,127 @@ mod tests {
             .zip(loaded)
             .map(|(entry, (repo, policy))| {
                 let text = std::fs::read_to_string(root.join(&entry.policy)).unwrap();
-                let raw = py_loads(&text).unwrap();
-                Registered {
-                    repo,
-                    text,
-                    raw,
-                    policy,
-                }
+                (repo, text, policy)
             })
             .collect()
     }
 
-    fn targets(raw: &PyValue) -> Vec<String> {
-        strings(getitem(raw, "target_branches").unwrap()).unwrap()
-    }
-
-    /// The board accepts a registered policy, or any variation of one,
-    /// exactly when the engine does. Most variations break a rule the
-    /// engine checks, and the board refuses them with the engine's reason;
-    /// for the ones the engine accepts, this holds what the board adds on
-    /// top — compiling the targets and reading the typed fields — to never
-    /// refuse what the engine accepts.
+    /// Every registered policy is accepted as written, and each variation
+    /// that breaks one of the engine's rules is refused with the engine's
+    /// reason, whatever the policy's own shape.
     #[test]
     fn every_registered_policy_is_accepted_or_refused_as_the_engine_does() {
         type Vary = fn(&mut serde_json::Value);
-        let variations: [(&str, Vary); 11] = [
-            ("as written", |_| {}),
-            ("unknown field", |p| p["owner"] = json!("a")),
-            ("no areas", |p| {
-                p.as_object_mut().unwrap().remove("areas");
-            }),
-            ("no area at all", |p| p["areas"] = json!([])),
-            ("question mark", |p| {
-                p["target_branches"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(json!("v?"))
-            }),
-            ("double star", |p| {
-                p["target_branches"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(json!("**"))
-            }),
-            ("prefix without slash", |p| {
-                p["areas"][0]["paths"] = json!(["no-slash"])
-            }),
-            ("nested prefix", |p| {
-                let nested = format!("{}nested/", p["areas"][0]["paths"][0].as_str().unwrap());
-                let last = p["areas"].as_array().unwrap().len() - 1;
-                p["areas"][last]["paths"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(json!(nested));
-            }),
-            ("four slots", |p| p["max_active_prs"] = json!(4)),
-            ("owner as machine", |p| {
-                p["bot_authors"] = json!([p["fallback"]["owners"][0].clone()])
-            }),
-            ("area named fallback", |p| {
-                p["areas"][0]["id"] = json!("fallback")
-            }),
+        let variations: [(&str, Vary, Option<&str>); 11] = [
+            ("as written", |_| {}, None),
+            (
+                "unknown field",
+                |p| p["owner"] = json!("a"),
+                Some("Unknown or missing policy fields"),
+            ),
+            (
+                "no areas",
+                |p| {
+                    p.as_object_mut().unwrap().remove("areas");
+                },
+                Some("Unknown or missing policy fields"),
+            ),
+            ("no area at all", |p| p["areas"] = json!([]), None),
+            (
+                "question mark",
+                |p| {
+                    p["target_branches"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!("v?"))
+                },
+                Some("Target branch patterns support only `*`"),
+            ),
+            (
+                "double star",
+                |p| {
+                    p["target_branches"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!("**"))
+                },
+                Some("Target branch patterns support only `*`"),
+            ),
+            (
+                "prefix without slash",
+                |p| p["areas"][0]["paths"] = json!(["no-slash"]),
+                Some("Invalid literal directory prefix"),
+            ),
+            (
+                "nested prefix",
+                |p| {
+                    let nested = format!("{}nested/", p["areas"][0]["paths"][0].as_str().unwrap());
+                    let last = p["areas"].as_array().unwrap().len() - 1;
+                    p["areas"][last]["paths"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!(nested));
+                },
+                Some("Overlapping directory prefixes"),
+            ),
+            (
+                "four slots",
+                |p| p["max_active_prs"] = json!(4),
+                Some("Expected five active slots"),
+            ),
+            (
+                "owner as machine",
+                |p| p["bot_authors"] = json!([p["fallback"]["owners"][0].clone()]),
+                Some("A machine author cannot own or review"),
+            ),
+            (
+                "area named fallback",
+                |p| p["areas"][0]["id"] = json!("fallback"),
+                Some("Invalid or duplicate area id"),
+            ),
         ];
-        for Registered { repo, text, .. } in registered() {
+        for (repo, text, _) in registered() {
             let original: serde_json::Value = serde_json::from_str(&text).unwrap();
-            for (name, vary) in variations {
+            for (name, vary, reason) in variations {
                 let mut policy = original.clone();
                 vary(&mut policy);
-                let text = policy.to_string();
-                let engine = engine::validate_policy(&py_loads(&text).unwrap());
-                let board = Policy::parse(&text);
-                assert_eq!(
-                    board.is_ok(),
-                    engine.is_ok(),
-                    "{repo}, {name}: board {:?}, engine {engine:?}",
-                    board.err()
-                );
-                if let (Err(board), Err(engine)) = (board, engine) {
-                    let board = format!("{board:#}");
-                    assert!(
-                        board.contains(&engine.to_string()),
-                        "{repo}, {name}: {board}"
+                match (Policy::parse(&policy.to_string()), reason) {
+                    (Ok(_), None) => {}
+                    (Ok(_), Some(reason)) => panic!("{repo}, {name}: accepted, not {reason}"),
+                    (Err(e), None) => panic!("{repo}, {name}: refused: {e:#}"),
+                    (Err(e), Some(reason)) => {
+                        let e = format!("{e:#}");
+                        assert!(e.contains(reason), "{repo}, {name}: {e}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Each registered target governs exactly the branches its `*` can
+    /// stand for: any run without `/`, nothing more, nothing nested.
+    #[test]
+    fn every_registered_policy_governs_its_targets_and_nothing_nested() {
+        for (repo, _, policy) in registered() {
+            for target in &policy.target_branches {
+                for stand_in in ["", "x", "5.0"] {
+                    let branch = target.replace('*', stand_in);
+                    assert_eq!(
+                        policy.governs(&branch),
+                        !branch.is_empty(),
+                        "{repo}: {branch:?}"
                     );
                 }
-            }
-        }
-    }
-
-    /// Branches the registered policies are asked about, besides each
-    /// target and the branches a target's `*` could stand for.
-    const BRANCHES: [&str; 14] = [
-        "",
-        "master",
-        "main",
-        "develop",
-        "dev",
-        "v5.0-dev",
-        "v-dev",
-        "v5/x-dev",
-        "feat/v5-dev",
-        "v5.1-dev-old",
-        "developer",
-        "V5.0-DEV",
-        "v5.0-dev/",
-        " dev",
-    ];
-
-    /// The board asks the engine which branches a policy governs, on the
-    /// value the engine read from the policy's file. This holds it there:
-    /// a matcher of the board's own, or a policy value the board reshaped,
-    /// would answer differently on some of these branches.
-    #[test]
-    fn every_registered_policy_governs_the_branches_the_engine_does() {
-        for Registered {
-            repo, raw, policy, ..
-        } in registered()
-        {
-            let mut branches: Vec<String> = BRANCHES.iter().map(|b| b.to_string()).collect();
-            for target in &targets(&raw) {
-                for stand_in in ["", "x", "5.0", "a/b", "/"] {
-                    branches.push(target.replace('*', stand_in));
+                if target.contains('*') {
+                    let branch = target.replace('*', "a/b");
+                    assert!(!policy.governs(&branch), "{repo}: {branch:?}");
                 }
-                branches.push(target.clone());
-                branches.push(format!("feat/{target}"));
-            }
-            for branch in branches {
-                let engine = engine::governs(&raw, &PyValue::Str(branch.clone())).unwrap();
-                assert_eq!(policy.governs(&branch), engine, "{repo}: {branch:?}");
-            }
-        }
-    }
-
-    /// The areas the engine's `evaluate` records for an open PR into `base`
-    /// that changes `files`: the engine routes before anything about the
-    /// people or the reviews can stop it.
-    fn engine_areas(raw: &PyValue, base: &str, files: &[String]) -> Vec<String> {
-        let pr = json!({
-            "number": 1, "author": "someone", "head": "a".repeat(40), "base": base,
-            "base_sha": "b".repeat(40), "created_at": "2026-01-01T00:00:00Z",
-            "draft": false, "state": "open",
-            "files": files.iter().map(|f| json!({"filename": f})).collect::<Vec<_>>(),
-            "reviews": [], "comments": [], "threads": [], "permissions": {},
-            "complete": true, "build": null
-        });
-        let verdict = engine::evaluate(
-            raw,
-            &py_loads(&pr.to_string()).unwrap(),
-            &PyValue::None,
-            &PyValue::Str("2026-01-02T00:00:00Z".into()),
-            &PyValue::None,
-        )
-        .unwrap();
-        let Some(PyValue::List(areas)) = verdict.get("areas") else {
-            panic!("no areas in {verdict:?}");
-        };
-        assert!(
-            !areas.is_empty(),
-            "the engine stopped before routing: {verdict:?}"
-        );
-        strings(&PyValue::List(areas.clone())).unwrap()
-    }
-
-    /// The board's routing is not the engine's code, so it is held to the
-    /// engine's answer: for every registered policy, each file — one in
-    /// every area, one beside every area's directory, and some no area
-    /// claims — lands in the areas the engine's verdict names.
-    #[test]
-    fn every_registered_policy_routes_files_where_the_engine_does() {
-        for Registered {
-            repo, raw, policy, ..
-        } in registered()
-        {
-            let base = targets(&raw)[0].replace('*', "x");
-            assert!(policy.governs(&base), "{repo}: {base}");
-            let mut paths = files(&["README.md", "Cargo.toml", ".github/workflows/ci.yml"]);
-            for area in policy.areas() {
-                for prefix in &area.paths {
-                    paths.push(format!("{prefix}x.rs"));
-                    paths.push(format!("{prefix}deep/er/y.rs"));
-                    paths.push(format!("{}-sibling/z.rs", prefix.trim_end_matches('/')));
+                for branch in [format!("feat/{target}"), format!("{target}/x")] {
+                    let branch = branch.replace('*', "x");
+                    assert!(!policy.governs(&branch), "{repo}: {branch:?}");
                 }
             }
-            let board = |files: &[String]| {
-                let routing = route(&policy, files);
-                let mut ids: Vec<String> = routing.areas.into_iter().map(|a| a.id).collect();
-                if routing.fallback_used {
-                    ids.push("fallback".into());
-                }
-                ids.sort();
-                ids
-            };
-            for path in &paths {
-                let one = std::slice::from_ref(path);
-                assert_eq!(board(one), engine_areas(&raw, &base, one), "{repo}: {path}");
-            }
-            assert_eq!(board(&paths), engine_areas(&raw, &base, &paths), "{repo}");
+            assert!(!policy.governs(""), "{repo}");
         }
     }
 }

@@ -1350,7 +1350,6 @@ dependencies = [
  "chrono",
  "clap",
  "insta",
- "pr-hygiene-engine",
  "pretty_assertions",
  "reqwest",
  "serde",
