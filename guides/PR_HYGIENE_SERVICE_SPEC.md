@@ -6,7 +6,8 @@ and security reviews; the owner's decisions (**Rust**, a **public API**,
 Rust-port review and a public-API/privacy review. Replaces the delivery parts of `DASHBOARD_V2_SPEC.md`
 (static site, `data` branch); its product parts — stages, "your part",
 humans vs bots, lateness — carry over unchanged. Revision 9, 2026-11-21:
-GitHub events drive the service read-only before the write cut-over (§6f).
+GitHub events drive the service read-only before the write cut-over (§6f),
+with a second review pass the same day.
 
 ## 1. Problem
 
@@ -133,9 +134,15 @@ GitHub ───▶ │ webhook receiver ─▶ durable queue (SQLite) │ ◀�
   - Public responses: `Access-Control-Allow-Origin: *`, no cookies,
     cacheable. `/me/*` and `/auth/*`: same-origin, `no-store`, never cached
     by a CDN.
-  - During shadow the API serves the verdict that gates the merge (Python's,
-    as posted) and marks each repository `shadow` or `enforced`, so the skill
-    never contradicts the PR.
+  - During shadow the API serves an engine's verdict and names which one.
+    - The full pass shows Python's re-evaluated `report`, until Python is
+      removed.
+    - A PR refreshed by an event shows the Rust port's verdict (§6f).
+    - Each row carries its `engine` in JSON and in text, and each repository
+      is marked `shadow` or `enforced`.
+    - A row can therefore differ from the PR's posted status for a while:
+      ahead of it for seconds to minutes after an event, or behind it until
+      the next pass when no event reached the service.
 - **Identity — only to personalise, open to anyone with a GitHub account.**
   A separate **sign-in App with no repository permissions**. The web page
   offers "Sign in with GitHub": `state` bound to a pre-login cookie, PKCE,
@@ -275,6 +282,13 @@ engine's posted verdicts deliver value long before.
    difference is a bug in the port. GitHub's events reach the service
    read-only first (§6f): the board follows a PR within seconds, and the
    shadow soaks on the real event path before step 2.
+   - **Before that** (owner, 2026-11-21): Python is removed by running the
+     Rust engine inside the existing Actions reusable workflow
+     (`guides/RUST_ENGINE_IN_ACTIONS_SPEC.md`, branch
+     `shumkov/rust-engine-in-actions`). The full pass then carries Rust's
+     verdicts too.
+   - §6f's App, its infra request and all its increments except 2 (the
+     receiver, dormant) wait for that.
 2. **Cut over writes, one repo at a time** (grovedb → dash-evo-tool →
    tenderdash → rust-dashcore → platform): turn Actions writes off with the
    repo variable (instant, every branch — deleting the caller would leave
@@ -659,8 +673,10 @@ with its case listed, and the port catches up afterwards.
   increment.
 - **1b-6 the service loop, read-only.** The worker runs the Rust engine on
   events, per (repo, author).
-  - It runs as a separate process, with no inbound port and its own uid, and
-    it is the only process with the key mounted.
+  - It runs in a separate container from the same image, with no inbound
+    port, and is the only one with the key mounted (§6d, §6f). The
+    distroless image has one uid, 65532, so containers separate them rather
+    than uids.
   - It uses a **dedicated read-only App**:
     - read access to Metadata, Pull requests, Issues, Commit statuses,
       Checks and Contents;
@@ -820,9 +836,9 @@ It was to be judged on operation, with 1b-6a carrying the verdicts. With
   after 30 days.
 
   From §6f, the private database also holds the worker's queue, leases and
-  rate state. The worker writes only each PR's public dashboard row (an
-  overlay) and the view to the main database. It reads `serve`'s inbox
-  there.
+  rate state. In the main database the worker writes only `pr_overlays`
+  (each PR's public dashboard row) and `worker_status`. It reads `serve`'s
+  inbox there. §6f lists every table's single writer.
 - **What drives it** (§6f has the detail).
   - Events. The reader App's webhook reaches `serve`, which records each
     delivery in an inbox in the main database. The worker runs
@@ -947,9 +963,13 @@ answers from the store and never reaches GitHub (§2). This removes:
   - "Policy reconciliation failed";
   - a nudge that failed;
   - a nudge deferred by the per-window limit.
-- **Reads older than their event.** The worker checks the read against the
-  event's payload: head SHA, review or comment id, check conclusion. If the
-  read predates the event, the PR is re-enqueued with bounded backoff.
+- **Reads older than their event.** As in §6f:
+  - the read's `updatedAt` must reach the newest `updated_at` the payloads
+    hinted;
+  - the head SHA is checked when the newest hint carries one;
+  - statuses and check suites carry no PR time and rely on their wait.
+
+  A read that predates its event is re-armed twice, then used and counted.
   Otherwise a repository with no further events would keep a stale verdict
   until the sweep.
 - **Time.** A pure `next_change(policy, pr, now)` gives the next instant a
@@ -1094,8 +1114,19 @@ about half a minute of a change on GitHub, instead of up to 15 minutes
 later. Nothing is written to GitHub. The Rust engine runs in shadow on the
 same events: this is 1b-6b's soak, and step 2's clock restarts with it.
 (Owner decision, 2026-11-21. Revised after feasibility, security,
-failure-mode, simplicity and operations reviews; Appendix A lists the
-findings not taken.)
+failure-mode, simplicity and operations reviews, then a second pass;
+Appendix A lists the findings not taken.)
+
+**Sequencing (owner, 2026-11-21).**
+- Python is removed first, by running the Rust engine in the existing
+  Actions reusable workflow (`guides/RUST_ENGINE_IN_ACTIONS_SPEC.md`). So
+  "Rust on refreshed rows, Python on the rest" is a temporary state: once
+  Python is gone, the full pass carries Rust's verdicts too, and drift
+  measures only what the event path misses.
+- The App and the infra request wait until then. Only increment 2 (the
+  receiver, dormant) proceeds in parallel.
+- The coordinator creates the App in the browser with the settings below,
+  and infra receives the secrets.
 
 **In short.**
 - A new read-only App sends its webhook to `serve`. `serve` checks the
@@ -1108,7 +1139,8 @@ findings not taken.)
     answers from.
 - The 15-minute Actions run keeps posting full snapshots. They stay the base
   layer, the source of stage history and the safety net.
-- Read times decide, per PR, which of the two wins.
+- Read times decide, per PR, which of the two wins. `serve` applies the
+  overlays as it answers.
 
 ### The App
 
@@ -1241,16 +1273,28 @@ Two containers from one image, as infra#92's README plans:
 - **`worker`** runs `pr-hygiene-service worker`. It has no port, holds the
   App key and refuses the webhook secret.
 
-They share the **main database** on `/data`, with **one writer per table**:
-- `serve` writes `webhook_inbox`, and ingests as before;
-- the worker writes `pr_overlays` and re-assembles the view.
+They share the **main database** on `/data`. **Every table has exactly one
+writer:**
+
+| Table | Writer | Other reader |
+|---|---|---|
+| `snapshots`, `repos`, `stage_changes`, `view`, `used_tokens`, sign-in and speed tables | `serve` (ingest, sign-in, purge), as today | the worker reads `repos` and `view` |
+| `webhook_inbox` | `serve` (receiver, 7-day purge) | the worker, as hints |
+| `pr_overlays` | the worker (write, prune) | `serve`, as untrusted rows |
+| `worker_status`: one row holding heartbeat, build, mode, oldest-due age, webhook-configuration check, drift counters and an `overlays_rev` bumped by every overlay write or prune | the worker | `serve`, for `/healthz/events` |
+
+`serve` never writes an overlay or the worker's status, and the worker never
+writes `serve`'s tables. Even the 413 path follows this: the worker records
+a fetched delivery in its private queue, not the inbox. `serve` applies
+overlays when it builds a response (below), so the stored `view` remains
+the base alone.
 
 The worker's queue, leases, rate state and shadow table live in its
 **private database** under `/srv/pr-hygiene/worker`. `serve` never mounts
 it, and it is not backed up.
 
-**Why a shared SQLite file in WAL mode.** Recording and enqueuing is one
-transaction, and there is no internal API. The host's daily
+**Why a shared SQLite file in WAL mode.** A delivery is recorded in one
+transaction and read by the worker with no internal API. The host's daily
 `sqlite3 VACUUM INTO` already opens the file from another process. It works
 because both containers run on one kernel, on local ext4, as uid 65532.
 
@@ -1264,26 +1308,55 @@ Rejected:
 - `trusted_schema=OFF`, `cell_size_check=ON`, and `Store::open`'s pragmas
   (`secure_delete` among them);
 - no DDL;
-- the schema is checked against its own, and refused if it holds triggers
-  or views;
+- the schema is checked against its own, allowing only the next version's
+  added tables and columns, and refused if it holds triggers or views;
 - its private database is never attached.
 
-Inbox rows are hints only. **Before step 2**, the process that decides
-merges must share no WAL with the internet-facing one. Step 2's design
-reopens this.
+Inbox rows are hints only. `serve` parses overlay rows within size bounds,
+and a row that does not parse is skipped and counted. **Before step 2**,
+the process that decides merges must share no WAL with the internet-facing
+one. Step 2's design reopens this.
 
-**Schema.**
-- Migrations are additive: new tables and `ADD COLUMN`. `serve` runs them.
-- A release opens a schema one compatibility version newer, so a rollback
-  still starts. Today `Store::open` refuses any newer schema.
-- The worker waits for its schema.
+**Schema.** Today `Store::open` refuses a newer `user_version` and writes
+its own back. That breaks two ways:
+- a rollback across the first new table cannot start;
+- an older binary lowers the version, so `ADD COLUMN` fails on the next
+  roll-forward.
+
+So:
+1. **First, a release with no schema change.** It accepts a schema up to
+   its own version + 1, never lowers `user_version`, and makes every
+   `ADD COLUMN` check `pragma table_info` first.
+2. **Only then** does increment 2 add the first table.
+
+Further rules:
+- Migrations are additive (new tables, checked `ADD COLUMN`), and only
+  `serve` runs them.
+- A rollback goes one release back, as `deploy.sh` does.
+- The worker waits until the version is its own or one newer.
 
 **Policies** (`policies/`, `.pr-hygiene.yml`) are **built into the image**:
-- the Dockerfile and `service-deploy.yml`'s paths gain them;
+- they are added to the Dockerfile, to `service/Dockerfile.dockerignore`
+  (`!policies/`, `!.pr-hygiene.yml`) and to `service-deploy.yml`'s paths;
 - they are trusted as the code is: master, through the `production`
   environment;
 - each overlay records the image's commit;
 - this replaces §6d's read of master's head.
+
+**The overlay mode** is a one-word file, `service/OVERLAYS`, holding `off`,
+`shadow` or `on`.
+- It is compiled into the binary, so `serve` and the worker of one image
+  always agree, and changing it is a one-line master PR plus the automatic
+  deploy.
+- It is not in the compose environment: that is cloud-init user data, and
+  every change there replaces the instance.
+- In `off`, the worker deletes every overlay at start and bumps
+  `overlays_rev`.
+- **Emergency fallback without a deploy:** stop the worker through Session
+  Manager. Its overlays then expire one by one as the base overtakes them,
+  each within about 30 minutes. The first pass generated at least 12
+  minutes after an overlay's read comes at most 27 minutes after it, and
+  posts a few minutes later.
 
 **Secrets.**
 - `/pr-hygiene/webhook-secret` and `/pr-hygiene/reader-app-key` are SSM
@@ -1306,8 +1379,10 @@ reopens this.
   restart, then delete the old one.
 
 The App's JWT can also re-point the webhook. The worker therefore checks
-`GET /app/hook/config` hourly. By step 2 the key moves to KMS signing or a
-signer process (§3).
+`GET /app/hook/config` hourly from increment 4: a URL, content type or SSL
+setting other than the expected ones turns `/healthz/events` red. It is the
+compensating control for the shared file, so it ships with the worker. By
+step 2 the key moves to KMS signing or a signer process (§3).
 
 ### Queue
 
@@ -1319,7 +1394,7 @@ The worker copies new inbox rows into its queue, keyed by (repository, PR).
 - **When an entry falls due:**
   - PR, review and comment events: 5 s after the last, at most 30 s after
     the first;
-  - suites, statuses and anything from `github-actions[bot]` (Python's
+  - suites, statuses and anything from `github-actions[bot]` (the Actions engine's
     record, status and labels): 30 s and 120 s.
 - **During a run.** An event re-arms the entry through a lease generation,
   and the re-armed entry's first time is reset.
@@ -1329,10 +1404,18 @@ The worker copies new inbox rows into its queue, keyed by (repository, PR).
     never drop an entry;
   - at most 120 event refreshes an hour;
   - nothing runs under 1 000 requests remaining.
-- **Other PRs.** `Selection::Pr` also decides the author's other PRs whose
-  slot changed. Each verdict that differs from the board's row is enqueued.
-  A close, merge, draft change or base change enqueues the author's other
-  open PRs in that repository. Only differences enqueue, so this converges.
+- **Other PRs.**
+  - `Selection::Pr` also decides every other PR of the author whose slot it
+    computes differently from the posted admission (`collect.rs`). While
+    Python posts that admission, a Rust/Python disagreement over two PRs
+    would bounce between them without end.
+  - So a verdict for another PR is compared with **that PR's newest
+    overlay**, in any mode, and with the base only when it has none.
+  - It is enqueued only if its state, admission, asks and owes, or blockers
+    differ. Times are never compared.
+  - Rust then only meets its own earlier verdict, so this converges.
+  - A close, a merge, a draft change or a base change also enqueues the
+    author's other open PRs in that repository.
 
 ### Per-PR refresh
 
@@ -1366,12 +1449,19 @@ The worker copies new inbox rows into its queue, keyed by (repository, PR).
      governed or a **hidden** overlay if not.
 5. **A closed or merged PR** gets a **tombstone**.
 
-**Whose verdict.** Overlays show the **Rust port's** verdict. Snapshots show
-**Python's** `report`: its live re-evaluation, which the board has always
-shown, rather than the posted status. This departs from §2's "Python's, as
-posted" during shadow, and is the owner's decision. Stage B's drift gate
-and the kill switch bound it. The alternative, refreshing only GitHub's own
-fields, leaves stage, owed reviews and whose move it is 15 minutes late.
+**Whose verdict** (owner, 2026-11-21: accepted).
+- Overlays show the **Rust port's** verdict, after at least 3 days of
+  `shadow`, with the kill switch.
+- Snapshots show **Python's** `report` until Python is removed. That is its
+  live re-evaluation, which the board has always shown, rather than the
+  posted status.
+- **Each row names its engine.** `engine: "rust" | "python"` goes in the API's
+  JSON, and a short "verdict: Rust port" mark in the `?format=text` output
+  the skill and Slack show.
+- §2 says the same, and `view.rs`'s `Mode::Shadow` comment ("the engine's,
+  as it posted them") is corrected in increment 3.
+- The rejected alternative refreshed only GitHub's own fields, leaving
+  stage, owed reviews and whose move it is 15 minutes late.
 
 ### Merging with the full snapshot
 
@@ -1380,18 +1470,28 @@ fields, leaves stage, owed reviews and whose move it is 15 minutes late.
   `generated_at` of the snapshot that last read that repository well. The
   analyzer's clock starts right after the engine export, whose
   `timeout-minutes: 10` a test reads from `pr-hygiene.yml`.
-- **Overlay read time.** `read_from` is the worker's clock at the start of
-  the attempt whose read is used. The worker checks its clock against
-  GitHub's `Date` header and reports a drift over 10 s.
-- **The base wins only if `base_from ≥ read_from + 60 s`.** So an older
+- **Overlay read time.** `read_to` is the worker's clock at the **end** of
+  the attempt whose read is used, so the base must postdate every read in
+  the row.
+  - An attempt longer than 45 s is abandoned and re-armed, so a row never
+    mixes reads far apart.
+  - The worker checks its clock against GitHub's `Date` header and reports
+    a drift over 10 s.
+- **The base wins only if `base_from ≥ read_to + 60 s`.** So an older
   snapshot never replaces, deletes or revives a newer row. A failing
   repository keeps its old `good_at`, and with it its overlays.
 
-**Writes.** The worker's transaction refuses an overlay that the base, or an
-existing overlay, already beats. Each ingest first counts **drift**, then
-deletes the overlays it overtakes. Drift means an overtaken overlay whose
-stage, engine state or owes differ from the base, with no inbox event for
-that PR in between.
+**Writes.**
+- `serve`'s assembly **ignores any overlay the base beats**. Nothing has to
+  delete it for it to stop showing.
+- The worker's transaction refuses an overlay that the base, or an existing
+  overlay, already beats.
+- When the worker sees a newer `good_at`, it first counts **drift**, then
+  deletes the overlays the base overtook. Drift is an overtaken overlay
+  whose stage, engine state or owes differ from the base, with no inbox
+  event for that PR in between. The counts go to `worker_status` and the
+  cases to the private table.
+- `serve` never touches overlays.
 
 **People.**
 - Each repository's base people parts lose every entry keyed by an overlaid
@@ -1404,28 +1504,29 @@ that PR in between.
 - `view::merge_people` then runs as today.
 
 **Stage history, speed and the closed list** come from snapshots only, as
-today. History stays Python's, at 15-minute grain; a row may run up to 15
+today. History stays the full pass's, at 15-minute grain; a row may run up to 15
 minutes ahead of it.
 
-**Version.**
-- `view.seq` is bumped on every assembly, seeded above the highest snapshot
-  id. It keys `serve`'s cache and the ETags.
+**Assembly and version.**
+- `serve` builds what it serves as
+  `apply_overlays(stored view, the per-repository base parts, overlays the base does not beat)`.
+  It caches the result under (`view.version`, `overlays_rev`), and ETags
+  follow the bytes as today.
 - `view.version` stays the snapshot id that history is read against.
-- The worker re-assembles from the stored view, the base parts and the
-  overlays.
+- Overlays apply only to repositories that have a base.
 
-**Modes** (`PR_HYGIENE_OVERLAYS` on the worker):
-- `off`: deletes every overlay, re-assembles and bumps `seq`, in one
-  transaction at start;
-- `shadow`: writes overlays the view ignores, and still counts drift;
-- `on`: serves them.
+**Modes** (`service/OVERLAYS`, read by both containers):
+- `off`: the worker clears every overlay at start and `serve` applies none;
+- `shadow`: the worker writes overlays and counts drift, and `serve` ignores
+  them;
+- `on`: `serve` applies them.
 
 ### Shadow engine on the same events (1b-6b)
 
 - **Comparison.** Each refresh's run is compared as §6d describes: Rust's
   state against the posted record, and would-be writes where they agree.
-  Drift compares overlays with Python's next snapshot. Results go to the
-  private table.
+  Drift compares overlays with the next snapshot: Python's for now, and
+  Rust's once Python is removed. Results go to the private table.
 - **The sweep** covers quiet PRs, as `Selection::Batch` chunks of at most 3
   PRs, so an event waits at most one chunk.
   - It pauses while an entry is due, or under 2 500 remaining requests.
@@ -1442,7 +1543,8 @@ Every deploy restarts `serve`, so a few deliveries fail each time. Until
 the pass slows, the 15-minute pass recovers them, as it recovers everything
 today.
 
-Increment 6 adds three things before the pass slows:
+Increment 6 adds two things before the pass slows. The third, the
+webhook-configuration watch, ships earlier, with the worker.
 - **Replay.**
   - Every 5 minutes while `serve` is ready, the worker reads
     `GET /app/hook/deliveries` with the JWT
@@ -1450,11 +1552,10 @@ Increment 6 adds three things before the pass slows:
     rescanning an hour so that scans overlap.
   - A `failure` whose GUID is not in the inbox and is newer than
     `base_from` is redelivered (`POST …/deliveries/{id}/attempts`).
-  - A 413 is fetched whole with the JWT and recorded.
+  - A 413 is fetched whole with the JWT and recorded in the worker's queue.
 - **Poll.** A conditional poll of each open-PR list every 5 minutes, with an
   ETag and §6e's pagination rule. It enqueues a changed head, a newer
   `updated_at` (seeded from `base_from`), or a PR on one side only.
-- **The webhook-configuration watch.**
 
 A check result that arrives without a delivery is left to the sweep and the
 full pass.
@@ -1471,7 +1572,7 @@ full pass.
 
 | Per hour | REST (limit 5 000) | GraphQL points (limit 5 000) |
 |---|---|---|
-| Reader: 30–80 event refreshes (human events and Python's replies) | 550–1 450 | 350–950 |
+| Reader: 30–80 event refreshes (human events and the Actions engine's replies) | 550–1 450 | 350–950 |
 | Reader: sweep | ~350 | ~150 |
 | Reader: poll, from increment 6 (replay runs on the JWT) | ≤ 60, mostly 304s | — |
 | **Reader, total** | **≈ 900–1 850**; 120-refresh cap; 1 000 reserve | ≤ 1 100 |
@@ -1483,7 +1584,7 @@ REST and GraphQL are separate pools
 The counts are estimates, and the soak measures them:
 - public feeds show about 22 PR events an hour, a lower bound;
 - suites add 9–16 per platform head;
-- Python replies to each event.
+- the Actions engine replies to each event.
 
 A slower export frees room for the 1b-5 differential.
 
@@ -1496,7 +1597,7 @@ A slower export frees room for the 1b-5 differential.
 | Out of order; read older than its event | Hints merge by maximum; two re-arms, then used and counted |
 | Worker down | Inbox keeps filling; the board falls back to the full pass; a restart refreshes each PR once |
 | Flood | Bucket, cap, reserve; nginx and route limits |
-| Wrong overlays | Drift; `off` removes them at once |
+| Wrong overlays | Drift shows them. `off` in `service/OVERLAYS` (a one-line PR and a deploy) removes them; stopping the worker lets them expire within about 30 minutes |
 | Old snapshot; failing repository | The read-time rule; the old `good_at` |
 | Clock skew | 60 s margin; host checked against `Date` |
 | App uninstalled, suspended, permissions pending | Logged; the worker reports it; the full pass carries on |
@@ -1515,7 +1616,9 @@ A slower export frees room for the 1b-5 differential.
   - an event during a lease, and a lease lost in a crash;
   - one sender posting 500 comments an hour stays under a fixed REST cost;
   - an unresolved SHA is dropped;
-  - a close enqueues the author's other PRs.
+  - a close enqueues the author's other PRs;
+  - two PRs on which the engines disagree do not bounce: a verdict equal
+    to the PR's newest overlay enqueues nothing.
 - **Worker on mock GitHub:**
   - a stale read is re-armed, then counted;
   - a tombstone, a new PR, a hidden PR;
@@ -1524,45 +1627,65 @@ A slower export frees room for the 1b-5 differential.
   - a planted trigger is refused.
 - **Merge oracle**, for an approval, a close, an open, a draft flip, a freed
   slot and an exclusion label:
-  `apply_overlays(build(before), pr_part(after, PR)) == build(after)`.
-  `build` equals the assembly of every `pr_part`.
+  `apply_overlays(build(before), pr_part(after, P…)) == build(after)`, where
+  `P…` is every PR the change moved. For a freed slot that is both the
+  closed PR and the one it admits. `build` equals the assembly of every
+  `pr_part`.
 - **Ordering:**
-  - an older snapshot keeps the overlay and a newer one prunes it;
+  - an older snapshot leaves the overlay showing;
+  - a newer one hides it at once, and the worker prunes it after counting
+    drift;
   - a late write is refused;
-  - drift is counted before pruning;
-  - a stale repository keeps its overlays.
+  - a stale repository keeps its overlays;
+  - a long attempt is abandoned.
+- **Writers.** `serve`'s code has no statement that writes `pr_overlays` or
+  `worker_status`, and the worker's has none for `serve`'s tables. A test
+  scans the SQL each side prepares.
 - **Configuration:**
   - `serve` refuses reader settings, and the worker refuses the webhook
     secret;
-  - a release opens the next schema;
+  - `service/OVERLAYS` is parsed strictly;
+  - each mode behaves as stated in both containers;
   - the export-timeout test.
+- **Schema:**
+  - a binary opens a schema one version newer and leaves `user_version` as
+    it found it;
+  - a checked `ADD COLUMN` runs twice harmlessly;
+  - a roll-forward after a rollback succeeds.
 
 ### Rollout
 
 | Stage | Runs | Exit |
 |---|---|---|
-| A. Record | Receiver on; worker `off` | 2 days: the App's delivery page shows no failures outside deploys; no 401s; p99 handling < 500 ms; largest body < 512 KiB |
-| B. Shadow | Worker `shadow` | 3 days: 95% of entries refreshed within 2 min of falling due; drift ≤ 1%, each case categorised; reader REST ≤ 50% of the hour |
-| C. On | Worker `on`; then the sweep (increment 5) | 7 days: delivery-to-view p50 < 30 s; p95 < 2 min for PR, review and comment events, < 4 min for checks; drift ≤ 1% per pass |
+| A. Record | Receiver on; mode `off` | 2 days: the App's delivery page shows no failures outside deploys; no 401s; p99 handling < 500 ms; largest body < 512 KiB |
+| B. Shadow | Mode `shadow` | At least 3 days: 95% of entries refreshed within 2 min of falling due; drift ≤ 1%, each case categorised; reader REST ≤ 50% of the hour |
+| C. On | Mode `on`; then the sweep (increment 5) | 7 days: delivery-to-view p50 < 30 s; p95 < 2 min for PR, review and comment events, < 4 min for checks; drift ≤ 1% per pass |
 | D. Hourly | After increment 6 | 7 days of drift as in C |
 | E. Six-hourly | After `next_change` timers | — |
 
-**Order.** First the image ships, with the receiver and worker dormant.
-Then the owner and infra act in one apply, which replaces the instance (a
-few minutes down).
+**Order.**
+1. Python is removed first (`RUST_ENGINE_IN_ACTIONS_SPEC.md`). Meanwhile
+   only increment 2 ships: the schema window, then the dormant receiver.
+2. Then increments 1, 3 and 4 ship, with the worker dormant and the mode
+   `off`.
+3. Then the coordinator and infra act in one apply, which replaces the
+   instance (a few minutes down).
+4. Each stage after that is a one-line change to `service/OVERLAYS`.
 
-**Owner:**
-- decides the report's open questions;
-- generates the webhook secret;
-- creates and installs the App as above;
-- generates its key;
-- puts both secrets into SSM with infra's KMS key, and deletes the local
-  copies;
-- gives infra the App and installation ids;
-- merges each cadence change.
+**Coordinator** (for the owner):
+- creates and installs the App in the browser as above, with the webhook
+  secret it generates;
+- generates the App's key;
+- hands the secret, the key, the App id and the installation id to infra
+  over a secure channel, then deletes its local copies;
+- merges the mode changes and each cadence change.
+
+The owner's decisions are recorded in §8.
 
 **Infra** (dashpay/infra):
-- **KMS and IAM:** the KMS key and the IAM above.
+- **KMS and IAM:** the KMS key and the IAM above. Infra puts the two
+  secrets it receives into SSM (`put-parameter --value file://…` with that
+  key).
 - **Secrets:** a unit (after `network-online` and `snapd.seeded`, before and
   wanted by `docker.service`; `umask 077`; temporary file then rename; never
   echoes). Its tmpfiles.d directories, `/run/pr-hygiene/secrets/{service,worker}`
@@ -1573,8 +1696,9 @@ few minutes down).
   - `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, tmpfs `/tmp`;
   - `mem_limit: 768m`, `ulimits: {core: 0}`, the same `logging`;
   - `/data` and `/srv/pr-hygiene/worker:/work`, and its secrets directory;
-  - `PR_HYGIENE_READER_APP_ID`, `…_INSTALLATION_ID`, `…_APP_KEY_FILE`,
-    `PR_HYGIENE_WORKER_DB` and `PR_HYGIENE_OVERLAYS`.
+  - `PR_HYGIENE_READER_APP_ID`, `…_INSTALLATION_ID`, `…_APP_KEY_FILE` and
+    `PR_HYGIENE_WORKER_DB`. The overlay mode is not here: it comes from the
+    image.
 - **Compose, `service`:** `mem_limit: 384m`, its secrets directory, and
   the `PR_HYGIENE_WEBHOOK_*` settings.
 - **`deploy.sh`:** also waits for `/healthz/events` to show the worker's
@@ -1584,8 +1708,8 @@ few minutes down).
 - **nginx:** the block above.
 - **Alerting:** Route 53 HTTPS health checks on `/readyz` and
   `/healthz/events`, with CloudWatch alarms in us-east-1 (missing data
-  breaches) and an SNS email. `/healthz/events` shows ages only and knows the
-  mode. It answers 503 on:
+  breaches) and an SNS email. `/healthz/events` is `serve` reading
+  `worker_status`; it shows ages only and knows the mode. It answers 503 on:
   - a worker heartbeat over 5 min old;
   - the oldest due entry over 10 min old (unresolved SHAs aside);
   - a changed webhook configuration.
@@ -1595,27 +1719,35 @@ few minutes down).
    `headRefOid`; `Fetcher::fetch_pr`; `dashboard::pr_part` and
    `counts_toward_wip` with the `build`-equality test; the export-timeout
    test.
-2. **Receiver:** `webhook_inbox`, its checks and settings;
-   `/healthz/events`; the schema's compatibility window. Dormant without a
-   secret.
-3. **Overlays:**
-   - `pr_overlays`, `apply_overlays`, re-assembly and `view.seq`;
-   - drift and pruning at ingest, the write guard, the modes;
+2. **Receiver**, in two PRs. It may proceed while Python is being removed.
+   - **2a, the schema window:** no schema change. It accepts own + 1, never
+     lowers `user_version`, and checks every `ADD COLUMN`.
+   - **2b:** `webhook_inbox`, its checks and settings, and `/healthz/events`
+     (reading `worker_status` once it exists). Dormant without a secret.
+3. **Overlays**, in `serve`:
+   - `pr_overlays` and `worker_status`;
+   - `apply_overlays` at read time, the cache key
+     (`view.version`, `overlays_rev`), and skipping beaten overlays;
+   - the per-row `engine` field in JSON and text, and the corrected
+     `Mode::Shadow` comment;
+   - `service/OVERLAYS`, compiled in;
    - the oracle tests;
    - policies in the image.
 4. **Worker:**
-   - subcommand, private database and hardened connection;
-   - queue, coalescing, buckets and head index;
-   - refresh (`fetch_pr`, the engine over `Observed`, derivation,
-     freshness);
-   - other PRs, metering, the clock check;
+   - the subcommand, private database and hardened connection;
+   - the queue, coalescing, buckets and head index;
+   - the refresh: `fetch_pr`, the engine over `Observed`, derivation,
+     freshness, the 45 s attempt cap;
+   - other PRs, compared with their newest overlay;
+   - the write guard, pruning and drift;
+   - metering, the clock check, the webhook-configuration watch;
    - mock-GitHub tests.
 
-   Ships `off`; stages A–C follow.
+   It ships with the mode `off`. Stages A–C follow.
 5. **Sweep:** 1b-6b's comparison table and the chunked sweep. Starts step
    2's clock.
-6. **Before slowing the pass:** replay and the 413 fetch, the poll, the
-   webhook-configuration watch, then the cron change in `pr-hygiene.yml`.
+6. **Before slowing the pass:** replay and the 413 fetch, the poll, then the
+   cron change in `pr-hygiene.yml`.
 
 ## 7. Open PRs
 
@@ -1637,8 +1769,17 @@ Owner, 2026-11-21: GitHub events drive the service now, read-only, through a
 GitHub App webhook (§6f). The service refreshes one PR per event and keeps a
 full reconciliation as the safety net. The Rust engine runs in shadow on the
 same events (1b-6b), and its clock restarts. Rejected: governed repositories
-pushing per-PR state from their Actions. Open: §6f's decisions (whose
-verdict the overlays show, the App, secrets).
+pushing per-PR state from their Actions.
+
+Owner, 2026-11-21, later:
+- Overlays show the Rust engine's verdict, after at least 3 days of
+  `shadow`, with the kill switch.
+- The coordinator creates the App with §6f's settings, and infra receives
+  the secrets.
+- Python is removed first, by running the Rust engine inside the existing
+  Actions reusable workflow (`guides/RUST_ENGINE_IN_ACTIONS_SPEC.md`). §6f's
+  App and infra request wait for that, and only its increment 2 proceeds in
+  parallel.
 
 ## Appendix A. §6f review findings not taken
 
@@ -1653,7 +1794,7 @@ were not taken, or were taken differently:
 | Fewer failure-mode rows (simplicity) | Not taken. The owner listed nine cases, and each keeps a one-line row. |
 | Put events from members first by `author_association` (security) | Not taken. PR authors are often outside contributors whose pushes matter. The per-PR bucket, the global cap and the reserve already bound the cost. Revisit at step 2, where a stall would hold up merges. |
 | Skip the engine's reads when the GraphQL read shows nothing changed (security) | Deferred. A second notion of "unchanged" beside the engine's own evidence risks silent misses. Measure the cost first. |
-| No shared WAL between `serve` and the worker now (security) | Deferred to before step 2, written into §6f as a gate. Read-only, the hardened connection and one writer per table suffice. |
+| No shared WAL between `serve` and the worker now (security) | Deferred to before step 2, written into §6f as a gate. Read-only, four things suffice: every table has exactly one writer (§6f lists them, and a test holds each side to it); each side reads the other's rows as untrusted input (hints for the worker, bounded rows for `serve`); the worker's connection is hardened; the webhook-configuration watch ships with the worker. |
 | KMS signing for the reader key now (security) | Deferred to step 2. The webhook-configuration watch is taken now. |
 | Keep `/healthz/events` off the public route (security) | Not taken. Route 53's health checks must reach it, and it shows ages only. |
 | Mount single secret files rather than directories (security) | Not taken. A bind of a missing file creates a root-owned directory (operations). One directory per container, mounted only into that container, separates them just as well. |
@@ -1663,5 +1804,6 @@ were not taken, or were taken differently:
 | Take the runner's time from GitHub's `Date` header too (failure modes) | Partly. The host is checked against `Date`. GitHub-hosted runners are NTP-synced, and the 60 s margin covers them. |
 | Bound a new `reads_from` snapshot field (failure modes) | Moot. The field was dropped; the base read time is `good_at − 11 min` (simplicity). |
 | Mark the source of each stage-history row, or backdate it (failure modes) | Taken differently. History stays snapshot-only during shadow. |
-| Write an overlay for every verdict in a run (feasibility) | Taken differently. Verdicts that differ from the board are enqueued, and each gets its own read. A close, a draft change or a base change also enqueues the author's other PRs. |
+| Write an overlay for every verdict in a run (feasibility) | Taken differently. A verdict that differs from the PR's newest overlay (or from the board, without one) is enqueued, and gets its own read. A close, a draft change or a base change also enqueues the author's other PRs. |
 | Check status and suite results against the engine's own read (failure modes) | Deferred. There is no cheap fact the two reads share. Statuses and suites rely on their 30 s wait, and drift measures what that misses. Revisit before the pass goes six-hourly. |
+| Keep each overlay's source internal (simplicity) | Reversed in the second pass. §2 and the text output must say which engine a row shows, so each row carries `engine`. |
