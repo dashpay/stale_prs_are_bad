@@ -178,8 +178,7 @@ jobs:
       # the board need not wait for its next snapshot. Every status is already
       # written by now and the board only shows them, so this step can only
       # warn: it never fails the job, and a hung service holds it seconds, not
-      # minutes. The service accepts a token only from this file on master
-      # and only for the repository the token was minted in.
+      # minutes.
       - name: Post verdicts to the dashboard
         if: always()
         continue-on-error: true

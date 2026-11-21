@@ -64,6 +64,8 @@ class RunTests(unittest.TestCase):
         clock = iter(['2026-09-11T11:00:00Z', '2026-09-11T11:00:30Z', '2026-09-11T11:01:00Z'])
 
         def collect(*args, **kwargs):
+            # The reads take time, and the real collect reads the clock too.
+            main.utc_now()
             self.events.append('collect')
             return copy.deepcopy(self.prs), copy.deepcopy(self.prs[:2]), copy.deepcopy(self.prs[:2])
 
