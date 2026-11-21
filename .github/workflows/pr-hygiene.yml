@@ -74,8 +74,7 @@ jobs:
         run: mkdir -p policy-state
 
       # Before anything runs python3: the engine exports its state below, on
-      # the Python it runs on in every governed repository and its conformance
-      # corpus is made with.
+      # the Python it runs on in every governed repository.
       - name: Set up Python 3.12
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:

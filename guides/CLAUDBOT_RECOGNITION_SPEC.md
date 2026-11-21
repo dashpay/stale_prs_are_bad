@@ -1,5 +1,7 @@
 # Recognize the Claudbot review application
 
+> **Note (2026-11-21):** the Rust port of the engine (`engine/`), its conformance corpus and the differential were removed; the parts of this spec about them are abandoned.
+
 ## Problem and evidence
 
 The requested account is `claudbot[bot]`. It is absent from both review

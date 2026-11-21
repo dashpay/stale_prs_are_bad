@@ -33,7 +33,7 @@ jobs:
     steps:
       # Before anything runs python3. What `fromisoformat` accepts and which
       # characters count as whitespace change between minor versions, so the
-      # engine runs on the Python its conformance corpus was made with.
+      # engine runs on the one Python it is tested with.
       - name: Set up Python 3.12
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:

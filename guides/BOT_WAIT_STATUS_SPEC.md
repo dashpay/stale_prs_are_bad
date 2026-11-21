@@ -1,5 +1,7 @@
 # Explain bot waits and recognize CodeRabbit status-only rate limits
 
+> **Note (2026-11-21):** the Rust port of the engine (`engine/`), its conformance corpus and the differential were removed; the parts of this spec about them are abandoned.
+
 ## Problem and evidence
 
 Platform PR #5014 at `ee44bba9dbc2725dbe0075a7542026fecf83e8fc` has a

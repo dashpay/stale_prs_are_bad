@@ -25,8 +25,7 @@ NUDGES_PER_RUN = 1
 
 
 def clock():
-    """The current instant. The engine reads the time here and nowhere else,
-    so a recording can fix it for a whole run and a replay can restore it."""
+    """The current instant. The engine reads the time here and nowhere else."""
     return datetime.now(timezone.utc)
 
 
@@ -1015,11 +1014,8 @@ def evaluate_snapshots(policy, context, candidates, snapshots, now, payload=None
     return rows
 
 
-def run(argv=None, recording=None):
-    """The command line. `recording` is passed only by `pr_review.conformance`,
-    once it stands between the engine and GitHub: there a dry sync walks the
-    write path as `--apply` would, and the recorder answers every write itself
-    without sending it."""
+def run(argv=None):
+    """The command line."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['validate', 'codeowners', 'report', 'sync'])
     parser.add_argument('--repo', default='dashpay/platform')
@@ -1036,9 +1032,6 @@ def run(argv=None, recording=None):
     parser.add_argument('--format', choices=['markdown', 'json'], default='markdown')
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--apply', action='store_true')
-    parser.add_argument('--record', type=Path, metavar='DIR',
-                        help='record a report or a dry sync at the GitHub boundary into DIR; '
-                             'writes are captured and never sent (see conformance/README.md)')
     args = parser.parse_args(argv)
     if args.pr is not None and args.pr <= 0:
         parser.error('--pr must be positive')
@@ -1056,24 +1049,13 @@ def run(argv=None, recording=None):
                        or os.environ.get('GITHUB_REPOSITORY') != args.repo
                        or os.environ.get('PR_REVIEW_AUTOMATION_ENABLED') != 'true'):
         parser.error('apply is restricted to the enabled repository Actions workflow')
-    if (args.record is not None or recording is not None) and (args.apply or args.command not in {'report', 'sync'}):
-        parser.error('--record captures a report or a dry sync, and never runs with --apply')
-    if args.record is not None and recording is None:
-        from . import conformance
-        return conformance.record(args, sys.argv[1:] if argv is None else list(argv), sys.modules[__name__])
-    if recording is not None and not recording.captures_writes():
-        raise RuntimeError('A recording that does not hold the GitHub boundary must not run the engine')
-    # Inside a recording a sync takes the write path, so that what it would
-    # write is captured; the recorder sends none of it.
-    apply = args.apply or (recording is not None and args.command == 'sync')
+    apply = args.apply
     repository_root = args.repository_root.resolve() if args.repository_root else None
     policy = None
     try:
         registry = load_registry(args.policies_root)
         source = args.policy or policy_path(args.policies_root, entry_for(registry, args.repo))
         policy = json.loads(source.read_text())
-        if recording is not None:
-            recording.loaded_policy(policy)
         validate_policy(policy, repository_root if args.command == 'validate' else None)
         if repository_root is not None and args.command != 'validate':
             # The dedicated validate step reports a missing directory. Failing

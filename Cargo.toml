@@ -8,9 +8,8 @@ publish = false
 
 [workspace]
 # The analyzer (this package) produces dashboard.json; the service ingests
-# it and serves the public API, reusing the analyzer's types. The engine is
-# the review engine of pr_review/, ported to Rust.
-members = [".", "service", "engine"]
+# it and serves the public API, reusing the analyzer's types.
+members = [".", "service"]
 
 [[bin]]
 name = "pr-hygiene"
@@ -20,9 +19,6 @@ path = "src/main.rs"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
-# The review engine: policies are read and validated, and their branches
-# matched, by the engine's own functions.
-pr-hygiene-engine = { path = "engine" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
