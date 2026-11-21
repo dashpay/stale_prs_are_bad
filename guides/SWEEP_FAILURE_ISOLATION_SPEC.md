@@ -1,5 +1,7 @@
 # Sweep failure isolation (prompt re-evaluation dropped)
 
+> **Note (2026-11-21):** the Rust port of the engine (`engine/`), its conformance corpus and the differential were removed; the parts of this spec about them are abandoned.
+
 **Status:** v3, as built.
 - PR 1 (§2a) is built, in both engines.
 - PR 2 (§2b, §2c) was **dropped on 2026-10-29 and deferred to the service**,
