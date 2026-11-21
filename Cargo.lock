@@ -1362,18 +1362,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pr-hygiene-engine"
-version = "0.1.0"
-dependencies = [
- "indexmap",
- "regex",
- "serde_json",
- "sha2",
- "thiserror 1.0.69",
- "unicode-normalization",
-]
-
-[[package]]
 name = "pr-hygiene-service"
 version = "0.1.0"
 dependencies = [
@@ -1386,7 +1374,6 @@ dependencies = [
  "http-body-util",
  "jsonwebtoken",
  "pr-hygiene",
- "pr-hygiene-engine",
  "rand 0.8.8",
  "reqwest",
  "rsa",
@@ -1401,7 +1388,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "zeroize",
 ]
 
 [[package]]
@@ -1575,18 +1561,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
 dependencies = [
  "getrandom 0.3.4",
-]
-
-[[package]]
-name = "regex"
-version = "1.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843bc0191f75f3e22651ae5f1e72939ab2f72a4bc30fa80a066bd66edefc24d4"
-dependencies = [
- "aho-corasick",
- "memchr",
- "regex-automata",
- "regex-syntax",
 ]
 
 [[package]]
@@ -2322,15 +2296,6 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
-
-[[package]]
-name = "unicode-normalization"
-version = "0.1.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
-dependencies = [
- "tinyvec",
-]
 
 [[package]]
 name = "unicode-xid"

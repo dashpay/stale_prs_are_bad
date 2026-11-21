@@ -25,7 +25,6 @@ on:
       - Cargo.toml
       - Cargo.lock
       - src/**
-      - engine/**
       - service/**
       - "!service/README.md"
       - site/index.html

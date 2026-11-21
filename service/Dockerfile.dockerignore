@@ -5,8 +5,6 @@
 !src/
 !service/
 service/target
-!engine/
-engine/target
 !site/index.html
 !site/app.js
 !site/style.css
