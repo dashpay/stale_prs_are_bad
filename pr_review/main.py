@@ -1150,11 +1150,13 @@ def run(argv=None):
                     except GitHubError:
                         print(f"PR #{pr['number']}: unable to publish the failure either", file=sys.stderr)
     if args.command == 'sync':
-        # Only a verdict whose status is now on its head is handed over. One
-        # that failed carries an error there, and one held pending for the
-        # next run to reconcile carries pending; either way the board keeps
-        # its last snapshot rather than show what the gate does not say.
-        push.write(args.repo, read_at, context, [r for r in rows if r['number'] in confirmed])
+        # When statuses are applied, only a verdict whose status is now on its
+        # head is handed over. One that failed carries an error there, and one
+        # held pending for the next run to reconcile carries pending; either
+        # way the board keeps its last snapshot rather than show what the gate
+        # does not say. A run that applies nothing has no gate to contradict.
+        handed = [r for r in rows if (r['number'] in confirmed if apply else r['number'] not in failed)]
+        push.write(args.repo, read_at, context, handed)
     if failed:
         raise GitHubError(f"reconciliation failed for {', '.join(f'#{n}' for n in failed)}")
     # A sweep tidies what it passes; a run aimed at one pull request does not

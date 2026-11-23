@@ -59,7 +59,7 @@ class RunTests(unittest.TestCase):
         self.stdout = io.StringIO()
         self.stderr = io.StringIO()
 
-    def sync(self, publish=None, environment=None):
+    def sync(self, publish=None, environment=None, apply=True):
         """Run one sync; return its result or the exception it raised."""
         clock = iter(['2026-09-11T11:00:00Z', '2026-09-11T11:00:30Z', '2026-09-11T11:01:00Z'])
 
@@ -73,8 +73,10 @@ class RunTests(unittest.TestCase):
             self.events.append(f"publish #{pr['number']}")
             if publish:
                 publish(pr)
-            # As the real publication does once the status it evaluated is on the head.
-            kwargs['confirmed'].add(pr['number'])
+            # As the real publication does once the status it evaluated is on
+            # the head; a run that applies nothing posts nothing.
+            if apply:
+                kwargs['confirmed'].add(pr['number'])
 
         real_write = push.write
 
@@ -83,6 +85,9 @@ class RunTests(unittest.TestCase):
             return real_write(*args, **kwargs)
 
         environment = {'RUNNER_TEMP': self.temp.name} if environment is None else environment
+        if apply:
+            environment = dict(environment, GITHUB_ACTIONS='true', GITHUB_REPOSITORY='dashpay/platform',
+                               PR_REVIEW_AUTOMATION_ENABLED='true')
         with patch.dict(os.environ, environment), \
                 patch.object(main, 'utc_now', side_effect=lambda: next(clock)), \
                 patch.object(main, 'collect', side_effect=collect), \
@@ -93,7 +98,7 @@ class RunTests(unittest.TestCase):
                 patch.object(push, 'write', side_effect=write), \
                 patch('sys.stdout', self.stdout), patch('sys.stderr', self.stderr):
             try:
-                return main.run(['sync', '--repo', 'dashpay/platform'])
+                return main.run(['sync', '--repo', 'dashpay/platform'] + (['--apply'] if apply else []))
             except Exception as error:
                 return error
 
@@ -159,6 +164,14 @@ class RunTests(unittest.TestCase):
         self.assertEqual(self.sync(), 0)
         self.assertEqual(self.events, ['collect', 'publish #1', 'publish #2', 'push'])
         self.assertIn('::warning::', self.stderr.getvalue())
+
+    def test_a_run_that_applies_nothing_hands_over_every_verdict(self):
+        # A repository whose automation is not enabled syncs without applying:
+        # no status is posted, so there is no gate for the board to contradict,
+        # and the board still follows every verdict.
+        self.assertEqual(self.sync(apply=False), 0)
+        written = json.loads(self.file.read_text())
+        self.assertEqual([v['verdict'] for v in written['verdicts']], self.rows)
 
     def test_outside_actions_nothing_is_written(self):
         self.assertEqual(self.sync(environment={'RUNNER_TEMP': ''}), 0)
