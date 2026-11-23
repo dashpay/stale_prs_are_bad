@@ -9,7 +9,7 @@ import { teamView } from "./js/team.js";
 import { peopleView, personView, meView } from "./js/people.js";
 import { meRoute, navigated, knownMe } from "./js/account.js";
 import { privacyView } from "./js/privacy.js";
-import { installKeys, openPalette, openHelp, focusTarget } from "./js/keys.js";
+import { installKeys, openPalette, openHelp, focusTarget, JUMP_KEY } from "./js/keys.js";
 import { toggleDetail } from "./js/rows.js";
 
 const root = document.getElementById("app");
@@ -196,9 +196,11 @@ function header(route, f) {
       h("p", { class: "tagline" }, "Where are we late, and whose move is it?")),
     nav(route, f),
     h("div", { class: "top-tools" },
-      h("button", { type: "button", class: "jump", id: "jump", "aria-label": "Jump to (⌘K)", on: { click: () => openPalette(keyApi) } },
-        h("span", { class: "jump-text", "aria-hidden": "true" }, "Jump to…"), h("kbd", { "aria-hidden": "true" }, "⌘K")),
-      h("p", { class: "asof" },
+      h("button", {
+        type: "button", class: "jump", id: "jump", "aria-label": `Jump to (${JUMP_KEY})`, "aria-keyshortcuts": "Meta+K Control+K",
+        on: { click: () => openPalette(keyApi) },
+      }, h("span", { class: "jump-text", "aria-hidden": "true" }, "Jump to…"), h("kbd", { "aria-hidden": "true" }, JUMP_KEY)),
+      h("p", { class: "asof", title: `Data as of ${at.slice(0, 16).replace("T", " ")} UTC${commit ? `, analyzer commit ${commit}` : ""}` },
         h("span", { class: "asof-label" }, "Data as of "),
         h("span", { class: "asof-date" }, `${at.slice(0, 10)} `),
         h("span", { class: "num" }, `${at.slice(11, 16)} UTC`),
@@ -209,7 +211,7 @@ function header(route, f) {
       }, h("span", { "aria-hidden": "true" }, { system: "◐", dark: "☾", light: "☀" }[themeName])),
       h("button", {
         type: "button", class: "icon-button", id: "help", title: "Keyboard shortcuts (?)",
-        "aria-label": "Keyboard shortcuts", on: { click: openHelp },
+        "aria-label": "Keyboard shortcuts", "aria-keyshortcuts": "Shift+?", on: { click: openHelp },
       }, h("span", { "aria-hidden": "true" }, "?"))));
 }
 
@@ -248,7 +250,10 @@ function draw() {
   const active = document.activeElement;
   const hadFocus = active && active !== document.body && root.contains(active);
   const focusId = active && active.id ? active.id : null;
-  const rowKey = active?.closest?.("[data-row]")?.dataset.key || null;
+  // A PR can be listed twice (Open PRs, Close or revive): remember which list.
+  const activeRow = active?.closest?.("[data-row]") || null;
+  const rowKey = activeRow ? activeRow.dataset.key : null;
+  const rowList = activeRow ? activeRow.closest(".rows")?.getAttribute("aria-label") : null;
   const caret = active && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
 
   let bar = null;
@@ -280,7 +285,7 @@ function draw() {
     : route.view === "privacy" ? "Privacy · PR Hygiene" : "PR Hygiene";
   const footer = h("footer", { class: "foot" },
     h("a", { href: "#/privacy", "aria-current": route.view === "privacy" ? "page" : null }, "Privacy"),
-    h("span", {}, "Press ", h("kbd", {}, "?"), " for keyboard shortcuts, ", h("kbd", {}, "⌘K"), " to jump"));
+    h("span", {}, "Press ", h("kbd", {}, "?"), " for keyboard shortcuts, ", h("kbd", {}, JUMP_KEY), " to jump"));
   root.replaceChildren(...[
     header(route, f), ...banners(), bar,
     h("main", { id: "main", tabindex: "-1", class: `view-${route.view}` }, content),
@@ -289,7 +294,10 @@ function draw() {
 
   let el = focusId ? document.getElementById(focusId) : null;
   if (!el && rowKey) {
-    const row = [...root.querySelectorAll("main [data-row]")].find((r) => r.dataset.key === rowKey);
+    const lists = [...root.querySelectorAll("main .rows")];
+    const list = lists.find((l) => l.getAttribute("aria-label") === rowList) || null;
+    const rows = [...(list || root).querySelectorAll("[data-row]")];
+    const row = rows.find((r) => r.dataset.key === rowKey);
     el = row ? focusTarget(row) : null;
   }
   let reveal = false;
@@ -303,7 +311,7 @@ function draw() {
     }
   }
   if (el) {
-    el.focus({ preventScroll: true });
+    el.focus({ preventScroll: reveal });
     if (reveal) el.scrollIntoView({ block: "center" });
     if (caret && typeof el.setSelectionRange === "function") {
       try {

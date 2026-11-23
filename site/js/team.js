@@ -145,8 +145,8 @@ function agingPlot(data, prs, emptyMessage) {
   const plotted = prs.filter((p) => p.ageMs !== null);
   const missing = prs.length - plotted.length;
   const note = h("figcaption", { class: "sub" },
-    "One dot per PR; further right has waited longer. Hover for the PR, click to open it on GitHub; the table below lists the same PRs.",
-    missing ? ` ${missing} PR${missing === 1 ? " has" : "s have"} no start time and ${missing === 1 ? "is" : "are"} only in the table.` : "");
+    "One dot per PR; further right has waited longer. Hover for the PR, click to open it on GitHub; the list below has the same PRs.",
+    missing ? ` ${missing} PR${missing === 1 ? " has" : "s have"} no start time and ${missing === 1 ? "is" : "are"} only in the list.` : "");
   const holder = h("div", { class: "plot-holder" });
   fig.append(agingLegend(data, plotted), holder, note);
   if (!plotted.length) {
@@ -154,7 +154,7 @@ function agingPlot(data, prs, emptyMessage) {
     return fig;
   }
   if (!globalThis.Plot) {
-    holder.append(h("p", { class: "empty" }, "The chart library did not load; the table below lists the same PRs."));
+    holder.append(h("p", { class: "empty" }, "The chart library did not load; the list below has the same PRs."));
     return fig;
   }
   // Reserve the chart's height up front so the page does not jump when it draws.
@@ -170,7 +170,7 @@ function agingPlot(data, prs, emptyMessage) {
       try {
         holder.replaceChildren(renderPlot(data, plotted, width));
       } catch (e) {
-        holder.replaceChildren(h("p", { class: "empty" }, `The chart could not be drawn (${e.message}); the table below lists the same PRs.`));
+        holder.replaceChildren(h("p", { class: "empty" }, `The chart could not be drawn (${e.message}); the list below has the same PRs.`));
       }
     }
   });
@@ -253,10 +253,10 @@ function renderPlot(data, prs, width) {
     const url = svgEl.value?.p?.url;
     if (url) openPr(url);
   });
-  // A picture to assistive technology; the table below is the keyboard and
+  // A picture to assistive technology; the list below is the keyboard and
   // screen-reader route to the same PRs.
   svgEl.setAttribute("role", "img");
-  svgEl.setAttribute("aria-label", `Time in stage for ${prs.length} PRs; the table below lists them.`);
+  svgEl.setAttribute("aria-label", `Time in stage for ${prs.length} PRs; the list below has them.`);
   return svgEl;
 }
 

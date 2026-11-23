@@ -94,13 +94,15 @@ export function timeCell(pr) {
 export function badges(pr) {
   const out = [];
   if (pr.unresolved_comments > 0) {
-    out.push(h("span", { class: "badge", title: "unresolved review comments" }, `💬 ${pr.unresolved_comments}`));
+    out.push(h("span", { class: "badge", title: "unresolved review comments" },
+      h("span", { "aria-hidden": "true" }, "💬 "), String(pr.unresolved_comments), h("span", { class: "sr" }, " unresolved review comments")));
   }
   if (pr.ci_failing) out.push(h("span", { class: "badge badge-bad" }, "CI failing"));
   if (pr.merge_conflict) out.push(h("span", { class: "badge badge-bad" }, "conflict"));
   if (pr.changes_requested) out.push(h("span", { class: "badge" }, "changes requested"));
   if (pr.idle) out.push(h("span", { class: "badge", title: "no update for the idle period" }, "idle"));
-  return out.length ? h("span", { class: "badges" }, out) : null;
+  // A spoken comma between badges, so they are not read as one word.
+  return out.length ? h("span", { class: "badges" }, out.map((b, i) => [i ? h("span", { class: "sr" }, ", ") : null, b])) : null;
 }
 
 export function flagCount(pr) {

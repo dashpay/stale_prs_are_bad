@@ -6,8 +6,9 @@
 // A row is any element with [data-row] in the page; moving to it focuses its
 // title button (or a person's name link), so a screen reader reads the row
 // and whether it is open, and Enter works as it does for that control.
-// Nothing fires while typing in a field. The single-key shortcuts can be
-// turned off in the shortcut list; ⌘K and ? always work.
+// Nothing fires while typing in a field. The single-key shortcuts, ? among
+// them, can be turned off in the shortcut list; ⌘K and the header's buttons
+// always work.
 
 import { h } from "./dom.js";
 
@@ -21,7 +22,7 @@ const SHORTCUTS = [
   ["⌘K  Ctrl K", "Jump to a view, person, repository or PR"],
   ["g t  g p  g m", "Team, People, Me"],
   ["l", "Late only, on Team"],
-  ["Esc", "Close, or leave the search"],
+  ["Esc", "Close a dialog; in the search, go to the list (the text stays)"],
   ["?", "This list"],
 ];
 
@@ -33,14 +34,25 @@ function singleKeysOn() {
   }
 }
 
-/** What j and k focus inside a row. */
+/** What j and k focus inside a row; the row itself when it has no control. */
 export function focusTarget(row) {
-  return row.querySelector(".row-title, .c-who a") || row;
+  const target = row.querySelector(".row-title, .c-who a");
+  if (target) return target;
+  row.tabIndex = -1;
+  return row;
 }
 
+// Fields that take text; a checkbox or a button does not.
+const TEXT_INPUTS = new Set(["text", "search", "email", "url", "tel", "number", "password"]);
+
 function typing(el) {
-  return !!el && (el.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));
+  if (!el) return false;
+  if (el.isContentEditable || el.tagName === "SELECT" || el.tagName === "TEXTAREA") return true;
+  return el.tagName === "INPUT" && TEXT_INPUTS.has(el.type);
 }
+
+/** "⌘K" on a Mac, "Ctrl K" elsewhere. */
+export const JUMP_KEY = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "⌘K" : "Ctrl K";
 
 /**
  * api: { go(hash), rows(): Element[] in page order, openOnGitHub(row) for o,
@@ -79,12 +91,12 @@ export function installKeys(api) {
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!singleKeysOn()) return;
     if (e.key === "?") {
       e.preventDefault();
       openHelp();
       return;
     }
-    if (!singleKeysOn()) return;
     if (pending) {
       pending = false;
       clearTimeout(pendingTimer);
@@ -162,7 +174,7 @@ export function openHelp() {
     heading,
     h("dl", {}, SHORTCUTS.map(([k, v]) => [h("dt", {}, k.split("  ").map((x) => h("kbd", {}, x))), h("dd", {}, v)])),
     h("p", { class: "help-option" }, toggle,
-      h("label", { for: "single-keys" }, "Single-key shortcuts (/ j k o l g); ⌘K and ? always work")),
+      h("label", { for: "single-keys" }, `Single-key shortcuts (/ j k o l g ?); ${JUMP_KEY} and the header's ? button always work`)),
     h("p", { class: "dialog-foot" }, closeButton(() => d), h("span", {}, "or Esc")));
   heading.focus();
 }

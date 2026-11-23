@@ -4,36 +4,32 @@
 // row. Lists sort by the same keys and URL parameters the tables used.
 
 import { h } from "./dom.js";
-import { LATENESS, has, formatDuration, formatHours, idleWords, areaLabel } from "./model.js";
+import { LATENESS, has, formatDuration, formatHours, idleWords } from "./model.js";
 import { setFilters } from "./state.js";
 import { prLink, personLink, stageChip, timeCell, badges, asksList, areaName, sortRows } from "./ui.js";
+
+// Rows for the same PR can appear twice on a page, so their element ids are numbered.
+let rowSeq = 0;
 
 /** A short visually hidden label for assistive technology. */
 export function sr(text) {
   return h("span", { class: "sr" }, text);
 }
 
-/** Who a PR waits on, in the engine's words: "dpp: alice or bob; re-review or resolve: carol". */
-export function waitsText(pr) {
-  const asks = pr.asks.map((a) => `${areaLabel(a.area)}: ${a.approvers.length ? a.approvers.join(" or ") : "nobody may approve"}`);
-  if (pr.objectors.length) asks.push(`re-review or resolve: ${pr.objectors.join(", ")}`);
-  return asks.join("; ");
-}
-
 /**
- * The row's second line: the next action, the other blockers when asked for,
- * and who the PR waits on. Shown whole; the stylesheet may clamp it, and the
- * detail always has all of it.
+ * The row's second line, whole: whether the PR is known only from the
+ * engine, its next action, the other blockers when asked for, and who it
+ * waits on (the asks list every view uses, set on one line).
  */
 function subLine(pr, withBlockers) {
   const parts = [];
+  if (!pr.tracked) parts.push(h("span", { class: "basis", title: "Known only from the review engine; the board's own filters left it out" }, "engine only"));
   if (pr.next_action) parts.push(h("span", { class: "next-action" }, pr.next_action));
   if (withBlockers) {
     for (const b of pr.blockers.filter((x) => x !== pr.next_action)) parts.push(h("span", { class: "blocker" }, b));
   }
-  const waits = waitsText(pr);
-  if (waits) parts.push(h("span", { class: "waits" }, `waits on ${waits}`));
-  if (!pr.tracked) parts.push(h("span", { class: "basis", title: "Known only from the review engine; the board's own filters left it out" }, "engine only"));
+  const asks = asksList(pr);
+  if (asks) parts.push(h("span", { class: "waits" }, "waits on ", asks));
   return parts.length ? h("span", { class: "row-sub" }, parts.map((p, i) => [i ? h("span", { class: "dot-sep", "aria-hidden": "true" }, " · ") : null, p])) : null;
 }
 
@@ -42,18 +38,21 @@ function subLine(pr, withBlockers) {
  * `extra` is a short note after it (why a PR is listed to close or revive).
  */
 export function prRow(data, pr, { milestone = "", part = null, extra = null, blockers = false } = {}) {
-  const li = h("li", { class: `row prrow${pr.lateness ? ` row-${pr.lateness}` : ""}`, "data-row": "", "data-key": pr.key });
+  const id = `row-${++rowSeq}`;
+  const li = h("li", { class: `row prrow${pr.lateness ? ` row-${pr.lateness}` : ""}`, "data-row": "", "data-key": pr.key, id });
+  // The title button is what j and k focus; it is described by the row's
+  // time, stage and flags, so a screen reader hears the row, not the title alone.
   const title = h("button", {
-    type: "button", class: "row-title", "aria-expanded": "false",
+    type: "button", class: "row-title", "aria-expanded": "false", "aria-describedby": `${id}-t ${id}-s ${id}-f`,
     on: { click: () => toggleDetail(data, li) },
   }, pr.title || "(no title)");
   li.append(
-    h("span", { class: "c-time" }, timeCell(pr)),
+    h("span", { class: "c-time", id: `${id}-t` }, sr("In stage: "), timeCell(pr)),
     h("span", { class: "c-ref" }, prLink(pr, { withTitle: false })),
     h("span", { class: "c-main" }, title, part || subLine(pr, blockers), extra ? h("span", { class: "row-sub" }, extra) : null),
-    h("span", { class: "c-stage" }, stageChip(data, pr.stage)),
+    h("span", { class: "c-stage", id: `${id}-s` }, sr("Stage: "), stageChip(data, pr.stage)),
     h("span", { class: "c-author" }, sr("Author: "), personLink(pr.author, pr.isBot, { withAvatar: true, milestone })),
-    h("span", { class: "c-flags" }, badges(pr)));
+    h("span", { class: "c-flags", id: `${id}-f` }, badges(pr)));
   li.addEventListener("click", (e) => {
     if (e.target.closest("a, button, summary")) return;
     toggleDetail(data, li);
@@ -112,8 +111,11 @@ export function toggleDetail(data, li) {
   }
   const pr = data.prByKey.get(li.dataset.key);
   if (!pr) return;
-  li.after(detail(data, pr));
+  const d = detail(data, pr);
+  d.id = `${li.id}-d`;
+  li.after(d);
   li.classList.add("open");
+  button?.setAttribute("aria-controls", d.id);
   button?.setAttribute("aria-expanded", "true");
 }
 

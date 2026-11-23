@@ -168,7 +168,8 @@ export function personView(data, login, { isMe = false, note = null, milestone =
     h("div", { class: "person-title" }, avatar(person.login),
       h("h2", { id: "person-name", tabindex: "-1" }, person.login),
       h("span", { class: "kind" }, person.isBot ? ["bot ", botMark()] : "human"),
-      person.roles.length ? h("span", { class: "kind" }, ["· ", roles(person)]) : null),
+      person.roles.length ? h("span", { class: "kind" }, ["· ", roles(person)]) : null,
+      h("span", { class: "kind" }, `· ${q.prs.length} open PR${q.prs.length === 1 ? "" : "s"}${scope}`)),
     note,
     areasList(person, isMe));
   const stat = (n, label, sub, hot) => h("li", { class: `stat${hot && n ? " hot" : ""}` },
@@ -178,17 +179,22 @@ export function personView(data, login, { isMe = false, note = null, milestone =
     h("h2", { id }, `${title}${scope} (${list.length})`),
     rowList(list, (p) => prRow(data, p, { milestone, blockers: true }), empty, title));
   const none = milestone ? `None ${milestoneWords(milestone)}.` : "None.";
+  // What each group holds, in the data's own stage and owner names.
+  const names = (list) => list.join(", ").toLowerCase();
+  const authorStages = names(data.stages.filter((s) => s.inFlow && s.owner === "author").map((s) => s.label));
+  const others = names(data.owners.filter((o) => o.key !== "author" && o.key !== PARKED).map((o) => o.label));
+  const parkedStages = names(data.stages.filter((s) => !s.inFlow).map((s) => s.label));
   return [
     header,
     h("ul", { class: "stats", "aria-label": "Summary" },
       stat(q.owes.length, isMe ? "reviews you owe" : "reviews owed", oldest, true),
-      stat(q.yourMove.length, `${your.toLowerCase()} PRs on ${isMe ? "your" : "their"} move`, "self-review, mergeable, or another author stage", true),
-      stat(q.waiting.length, `${your.toLowerCase()} PRs waiting on others`, "reviewers, bots, CI, maintainers", false),
-      stat(q.parked.length, `${your.toLowerCase()} parked PRs`, "drafts, and PRs off the governed branches", false)),
+      stat(q.yourMove.length, `${your.toLowerCase()} PRs on ${isMe ? "your" : "their"} move`, authorStages, true),
+      stat(q.waiting.length, `${your.toLowerCase()} PRs waiting on others`, others, false),
+      stat(q.parked.length, `${your.toLowerCase()} parked PRs`, parkedStages, false)),
     h("section", { class: "card", "aria-labelledby": "owes-h" },
       h("h2", { id: "owes-h" }, `${isMe ? "Reviews you owe" : "Reviews owed"}${scope} (${q.owes.length})`),
       rowList(q.owes, (o) => o.prData
-        ? prRow(data, o.prData, { milestone, part: yourPart(o, person.login, isMe) })
+        ? prRow(data, o.prData, { milestone, part: [sr(isMe ? "Your part: " : "Their part: "), yourPart(o, person.login, isMe)] })
         : h("li", { class: "row" }, String(o.pr)),
       milestone ? `Nothing to review ${milestoneWords(milestone)}.` : "Nothing to review right now.", "Reviews owed")),
     prs(q.yourMove, "mine-h", `${your} PRs on ${isMe ? "your" : "their"} move`, milestone ? `No open PRs on ${isMe ? "your" : "their"} move ${milestoneWords(milestone)}.` : `No open PRs on ${isMe ? "your" : "their"} move.`),
