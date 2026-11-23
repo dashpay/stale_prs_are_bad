@@ -73,6 +73,8 @@ class RunTests(unittest.TestCase):
             self.events.append(f"publish #{pr['number']}")
             if publish:
                 publish(pr)
+            # As the real publication does once the status it evaluated is on the head.
+            kwargs['confirmed'].add(pr['number'])
 
         real_write = push.write
 
@@ -162,6 +164,61 @@ class RunTests(unittest.TestCase):
         self.assertEqual(self.sync(environment={'RUNNER_TEMP': ''}), 0)
         self.assertEqual(list(Path(self.temp.name).iterdir()), [])
         self.assertNotIn('::warning::', self.stderr.getvalue())
+
+
+class ReconciliationTests(unittest.TestCase):
+    """`run()` with the real publication, so the payload is held to what the gate says."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.file = Path(self.temp.name) / 'verdicts.json'
+
+    def test_a_verdict_that_reconciliation_held_pending_is_not_pushed(self):
+        # An approval is dismissed between evaluation and publication, with no
+        # new commit. Publication re-reads the evidence, sees it changed and
+        # leaves the head pending for the next run. The verdict it evaluated,
+        # ready to merge, is not what the gate says, so the board must keep its
+        # last snapshot of that pull request instead of showing it mergeable.
+        approval = {'id': 9, 'state': 'APPROVED', 'user': 'bob', 'commit_id': '1' * 40}
+        prs = {n: {'number': n, 'author': 'alice', 'head': str(n) * 40, 'base': 'v4.2-dev',
+                   'base_sha': 'b' * 40, 'state': 'open', 'draft': False, 'labels': [],
+                   'requested_reviewers': [], 'controller_comment_id': None, 'comments': [],
+                   'reviews': [approval] if n == 1 else [], 'created_at': NOW, 'lifecycle_at': None,
+                   'build': 'green', 'body': ''}
+               for n in (1, 2)}
+        dismissed = dict(copy.deepcopy(prs[1]), reviews=[])
+        row = {'author': 'alice', 'url': '', 'blockers': [], 'reviewers': [], 'objectors': [],
+               'areas': ['core'], 'approvals': [], 'ready_since': None, 'admitted_at': None}
+        rows = [dict(row, number=1, head=prs[1]['head'], title='PR 1', state='ready-to-merge', status='success'),
+                dict(row, number=2, head=prs[2]['head'], title='PR 2', state='draft', status='pending')]
+        api = Mock()
+        api.pull.side_effect = lambda number: copy.deepcopy(prs[number])
+        api.snapshot.side_effect = lambda number, *args, **kwargs: (
+            copy.deepcopy(dismissed) if number == 1 else copy.deepcopy(prs[number]))
+        api.state_comment_body.side_effect = main.GitHub.state_comment_body
+        environment = {'RUNNER_TEMP': self.temp.name, 'GITHUB_ACTIONS': 'true',
+                       'GITHUB_REPOSITORY': 'dashpay/platform', 'PR_REVIEW_AUTOMATION_ENABLED': 'true'}
+        snapshots = [copy.deepcopy(prs[1]), copy.deepcopy(prs[2])]
+        with patch.dict(os.environ, environment), \
+                patch.object(main, 'collect', return_value=(snapshots, copy.deepcopy(snapshots), snapshots)), \
+                patch.object(main, 'evaluate_snapshots', return_value=copy.deepcopy(rows)), \
+                patch.object(main, 'clear_marks'), \
+                patch.object(main, 'GitHub', return_value=api), \
+                patch('sys.stdout', io.StringIO()), patch('sys.stderr', io.StringIO()):
+            self.assertEqual(main.run(['sync', '--repo', 'dashpay/platform', '--apply']), 0)
+
+        posted = {}
+        for call in api.post_status.call_args_list:
+            posted[call.args[0]] = call.args[1]
+        self.assertEqual(posted, {prs[1]['head']: 'pending', prs[2]['head']: 'pending'})
+        last = {call.args[0]: call.args[2] for call in api.post_status.call_args_list}
+        self.assertIn('Review evidence changed', last[prs[1]['head']])
+        self.assertEqual(last[prs[2]['head']], main.status_description(rows[1]))
+        written = json.loads(self.file.read_text())
+        self.assertEqual([v['number'] for v in written['verdicts']], [2],
+                         'only the verdict whose status was posted is handed over')
+        self.assertEqual(written['open'], [1, 2], 'the held pull request stays open on the board')
 
 
 if __name__ == '__main__':
