@@ -719,8 +719,13 @@ def nudge(api, pr, result, allowance):
     return posted
 
 
-def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
-    """Publish only after revalidating the PR and its policy evidence."""
+def publish(api, policy, pr, result, context_prs, apply=False, candidates=None, confirmed=None):
+    """Publish only after revalidating the PR and its policy evidence.
+
+    When the evaluated status is posted on the head, or found already there,
+    the pull request's number is added to `confirmed`. A run that leaves the
+    head pending for the next one to reconcile adds nothing.
+    """
     if not apply:
         return
     candidates = context_prs if candidates is None else candidates
@@ -739,6 +744,11 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
             return False
         slots = admit(policy, histories, result.get('admitted_at') or utc_now())
         return slots.get(pr['number']) == result.get('admitted_at')
+
+    def post_verdict():
+        api.post_status(pr['head'], result['status'], status_description(result))
+        if confirmed is not None:
+            confirmed.add(pr['number'])
 
     identity = ('head', 'base', 'base_sha', 'draft', 'state')
 
@@ -771,7 +781,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if result['status'] == 'success' and check['status'] != 'success':
             api.post_status(pr['head'], 'pending', 'Policy changed; reconciliation required')
             return
-        api.post_status(pr['head'], result['status'], status_description(result))
+        post_verdict()
 
     ready = result['state'] == 'ready-for-human'
     requested = set(pr.get('requested_reviewers', []))
@@ -839,7 +849,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
         if actionable:
             finish(candidates)
         else:
-            api.post_status(pr['head'], result['status'], status_description(result))
+            post_verdict()
         return
 
     api.post_status(pr['head'], 'pending', 'Evaluating current review policy')
@@ -932,7 +942,7 @@ def publish(api, policy, pr, result, context_prs, apply=False, candidates=None):
 
     if not actionable:
         if identity_matches():
-            api.post_status(pr['head'], result['status'], status_description(result))
+            post_verdict()
         return desired
 
     # Review decisions and comments can change without changing the commit SHA.
@@ -1103,6 +1113,7 @@ def run(argv=None):
     rows = evaluate_snapshots(policy, context, candidates, snapshots, now, payload)
     nudged = 0
     failed = []
+    confirmed = set()
     checked_labels = []
     for pr, result in zip(snapshots, rows):
         if args.command == 'sync':
@@ -1120,7 +1131,8 @@ def run(argv=None):
                                 print(f'Label {label} does not exist in {args.repo}; create it', file=sys.stderr)
                         checked_labels.append(True)
                     nudged += nudge(api, pr, result, NUDGES_PER_RUN - nudged)
-                written = publish(api, policy, pr, result, context, apply, candidates=candidates)
+                written = publish(api, policy, pr, result, context, apply, candidates=candidates,
+                                  confirmed=confirmed)
                 if written:
                     for candidate in candidates:
                         if candidate['number'] == pr['number']:
@@ -1138,10 +1150,13 @@ def run(argv=None):
                     except GitHubError:
                         print(f"PR #{pr['number']}: unable to publish the failure either", file=sys.stderr)
     if args.command == 'sync':
-        # A pull request whose status could not be published now carries an
-        # error on its head; its verdict is left out so the board keeps its
-        # last snapshot rather than show what the gate does not say.
-        push.write(args.repo, read_at, context, [r for r in rows if r['number'] not in failed])
+        # When statuses are applied, only a verdict whose status is now on its
+        # head is handed over. One that failed carries an error there, and one
+        # held pending for the next run to reconcile carries pending; either
+        # way the board keeps its last snapshot rather than show what the gate
+        # does not say. A run that applies nothing has no gate to contradict.
+        handed = [r for r in rows if (r['number'] in confirmed if apply else r['number'] not in failed)]
+        push.write(args.repo, read_at, context, handed)
     if failed:
         raise GitHubError(f"reconciliation failed for {', '.join(f'#{n}' for n in failed)}")
     # A sweep tidies what it passes; a run aimed at one pull request does not
