@@ -2,12 +2,10 @@
 // describe current state; lateness colour stays on PRs and never ranks people.
 
 import { h } from "./dom.js";
-import { LOGIN_RE, has, findPerson, formatDuration, milestoneWords, personHref, shortRepo } from "./model.js";
-import { setFilters } from "./state.js";
+import { LOGIN_RE, PARKED, has, findPerson, formatDuration, milestoneWords, personHref, shortRepo } from "./model.js";
 import { effectiveWho, matchesMilestone } from "./filters.js";
-import {
-  prLink, personLink, avatar, botMark, stageChip, timeCell, badges, section, sortableTable, areaName, asksList,
-} from "./ui.js";
+import { personLink, avatar, botMark, section, areaName } from "./ui.js";
+import { prRow, rowList, sortControl, sorted, sr } from "./rows.js";
 
 const ME_KEY = "pr-hygiene:dashboard:me";
 
@@ -18,7 +16,7 @@ const ROLE_LABEL = { "author-bot": "opens PRs", "review-bot": "reviews PRs" };
  * filters name them. Review slots are per repository whatever the milestone,
  * so a milestone leaves them as they are.
  */
-function summarize(data, person, { repo, milestone }) {
+export function summarize(data, person, { repo = "", milestone = "" } = {}) {
   const inRepo = (r) => !repo || r === repo;
   const owes = person.owesList.filter((o) => inRepo(o.prData ? o.prData.repo : o.pr.split("#")[0]) &&
     (!milestone || (o.prData && matchesMilestone(o.prData, milestone))));
@@ -43,6 +41,33 @@ function summarize(data, person, { repo, milestone }) {
   };
 }
 
+/**
+ * Someone's queue split by whose move it is: the reviews they owe, oldest
+ * first; their PRs whose stage the author owns; their PRs waiting on anyone
+ * else; and their parked PRs. Within each, the longest wait first.
+ */
+export function queueOf(data, person, milestone = "") {
+  const s = summarize(data, person, { milestone });
+  const byAge = (a, b) => (b.ageMs ?? -1) - (a.ageMs ?? -1);
+  return {
+    ...s,
+    owes: [...s.owes].sort((a, b) => (b.prData?.ageMs ?? -1) - (a.prData?.ageMs ?? -1)),
+    yourMove: s.prs.filter((p) => p.owner === "author").sort(byAge),
+    waiting: s.prs.filter((p) => p.owner !== "author" && p.owner !== PARKED).sort(byAge),
+    parked: s.prs.filter((p) => p.owner === PARKED).sort(byAge),
+  };
+}
+
+
+// The People table's columns as sort keys, with the same names in the URL.
+const PEOPLE_SORTS = {
+  name: { label: "Name", sort: (r) => [String(r.person.login)] },
+  owed: { label: "Reviews owed", firstDir: "desc", sort: (r) => [r.owes.length, r.oldestMs ?? -1] },
+  prs: { label: "Own PRs", firstDir: "desc", sort: (r) => [r.prs.length] },
+  wip: { label: "WIP per repo", firstDir: "desc", sort: (r) => [r.wipMax] },
+  unresolved: { label: "Unresolved comments", firstDir: "desc", sort: (r) => [r.unresolved] },
+};
+
 export function peopleView(data, f) {
   const who = effectiveWho(f, "all");
   const q = f.q.trim().toLowerCase();
@@ -50,14 +75,14 @@ export function peopleView(data, f) {
     .filter((p) => !q || String(p.login).toLowerCase().includes(q))
     .map((p) => summarize(data, p, f));
   const maxPrs = Math.max(1, ...rows.map((r) => r.prs.length));
-  const out = [];
+  const out = [h("div", { class: "toolbar" }, sortControl("/people", f, PEOPLE_SORTS, "name"))];
   if (who !== "bot") {
     const humans = rows.filter((r) => !r.person.isBot);
-    out.push(section(`People (${humans.length})`, peopleTable(data, humans, f, maxPrs, false)));
+    out.push(peopleList(data, "people-h", `People (${humans.length})`, humans, f, maxPrs, false));
   }
   if (who !== "human") {
     const bots = rows.filter((r) => r.person.isBot);
-    out.push(section(`Bots (${bots.length})`, peopleTable(data, bots, f, maxPrs, true)));
+    out.push(peopleList(data, "bots-h", `Bots (${bots.length})`, bots, f, maxPrs, true));
   }
   out.push(h("p", { class: "sub" },
     "Reviews owed: PRs ready for review that wait on the person, with how long the oldest has waited. ",
@@ -66,30 +91,36 @@ export function peopleView(data, f) {
   return out;
 }
 
-function peopleTable(data, rows, f, maxPrs, bots) {
-  const columns = [
-    {
-      key: "name", label: bots ? "Bot" : "Person", sort: (r) => [String(r.person.login)],
-      cell: (r) => personLink(r.person.login, r.person.isBot, { withAvatar: true, milestone: f.milestone }),
-    },
-    bots ? { key: "roles", label: "Roles", cell: (r) => roles(r.person) } : null,
-    {
-      key: "owed", label: "Reviews owed", firstDir: "desc", sort: (r) => [r.owes.length, r.oldestMs ?? -1],
-      cell: (r) => r.owes.length
-        ? [h("span", { class: "num" }, String(r.owes.length)),
+function peopleList(data, id, title, rows, f, maxPrs, bots) {
+  const head = h("div", { class: "rows-head prow", "aria-hidden": "true" },
+    h("span", {}, bots ? "Bot" : "Person"), h("span", {}, "Reviews owed"), h("span", {}, "Own PRs by stage"),
+    h("span", {}, "WIP per repo"), h("span", { class: "n" }, "Unresolved"));
+  return h("section", { class: "card", "aria-labelledby": id },
+    h("h2", { id }, title),
+    rows.length ? head : null,
+    rowList(sorted(rows, PEOPLE_SORTS, f, "name"), (r) => personRow(data, r, f, maxPrs, bots), "Nobody matches the filters.", title));
+}
+
+function personRow(data, r, f, maxPrs, bots) {
+  const href = personHref(r.person.login, f.milestone);
+  const li = h("li", { class: "row prow", "data-row": "", "data-key": r.person.login },
+    h("span", { class: "c-who" }, personLink(r.person.login, r.person.isBot, { withAvatar: true, milestone: f.milestone }),
+      bots ? h("span", { class: "row-sub" }, sr("Roles: "), roles(r.person)) : null),
+    h("span", { class: "c-owed" }, sr("Reviews owed: "),
+      r.owes.length
+        ? [h("strong", { class: "num" }, String(r.owes.length)),
           r.oldestMs === null ? null
             : h("span", { class: "basis" }, ` oldest ${formatDuration(r.oldestMs)}${r.oldestOpened ? " since opened" : ""}`)]
-        : h("span", { class: "muted" }, "0"),
-    },
-    { key: "prs", label: "Own PRs by stage", firstDir: "desc", sort: (r) => [r.prs.length], cell: (r) => stageBar(data, r.prs, maxPrs) },
-    { key: "wip", label: "WIP per repo", firstDir: "desc", sort: (r) => [r.wipMax], cell: (r) => wipChips(r.wip) },
-    { key: "unresolved", label: "Unresolved comments", numeric: true, firstDir: "desc", sort: (r) => [r.unresolved], cell: (r) => String(r.unresolved) },
-  ].filter(Boolean);
-  return sortableTable({
-    id: bots ? "bots" : "people", columns, rows, sort: f.sort || "name", dir: f.dir,
-    onSort: (key, dir) => setFilters("/people", f, { sort: key, dir }),
-    empty: "Nobody matches the filters.",
+        : h("span", { class: "muted num" }, "0")),
+    h("span", { class: "c-bar" }, sr("Own PRs by stage: "), stageBar(data, r.prs, maxPrs)),
+    h("span", { class: "c-wip" }, sr("WIP per repo: "), wipChips(r.wip)),
+    h("span", { class: "c-unres num" }, sr("Unresolved comments: "), String(r.unresolved)));
+  // A click anywhere on the row goes where the name links.
+  li.addEventListener("click", (e) => {
+    if (e.target.closest("a, button") || !href) return;
+    location.hash = href.slice(1);
   });
+  return li;
 }
 
 function roles(person) {
@@ -130,30 +161,57 @@ export function personView(data, login, { isMe = false, note = null, milestone =
     return [section("Person not found",
       h("p", {}, "Nobody with that login is in this data. ", h("a", { href: "#/people" }, "See everyone"), "."))];
   }
-  const s = summarize(data, person, { repo: "", milestone });
+  const q = queueOf(data, person, milestone);
   const scope = milestone ? ` ${milestoneWords(milestone)}` : "";
+  const your = isMe ? "Your" : "Their";
   const header = h("section", { class: "card person-head" },
     h("div", { class: "person-title" }, avatar(person.login),
       h("h2", { id: "person-name", tabindex: "-1" }, person.login),
       h("span", { class: "kind" }, person.isBot ? ["bot ", botMark()] : "human"),
-      person.roles.length ? h("span", { class: "kind" }, ["· ", roles(person)]) : null),
+      person.roles.length ? h("span", { class: "kind" }, ["· ", roles(person)]) : null,
+      h("span", { class: "kind" }, `· ${q.prs.length} open PR${q.prs.length === 1 ? "" : "s"}${scope}`)),
     note,
     areasList(person, isMe));
+  const stat = (n, label, sub, hot) => h("li", { class: `stat${hot && n ? " hot" : ""}` },
+    h("span", { class: "stat-n num" }, String(n)), h("span", { class: "stat-label" }, label), h("span", { class: "stat-sub" }, sub));
+  const oldest = q.oldestMs !== null ? `oldest ${formatDuration(q.oldestMs)}${q.oldestOpened ? " since opened" : ""}` : "none waiting";
+  const prs = (list, id, title, empty) => h("section", { class: "card", "aria-labelledby": id },
+    h("h2", { id }, `${title}${scope} (${list.length})`),
+    rowList(list, (p) => prRow(data, p, { milestone, blockers: true }), empty, title));
+  const none = milestone ? `None ${milestoneWords(milestone)}.` : "None.";
+  // What each group holds, in the data's own stage and owner names.
+  const names = (list) => list.join(", ").toLowerCase();
+  const authorStages = names(data.stages.filter((s) => s.inFlow && s.owner === "author").map((s) => s.label));
+  const others = names(data.owners.filter((o) => o.key !== "author" && o.key !== PARKED).map((o) => o.label));
+  const parkedStages = names(data.stages.filter((s) => !s.inFlow).map((s) => s.label));
   return [
     header,
-    section(`${isMe ? "Reviews you owe" : "Reviews owed"}${scope} (${s.owes.length})`,
-      owedTable(data, s.owes, person.login, isMe, milestone)),
-    section(`${isMe ? "Your PRs" : "Their PRs"}${scope} (${s.prs.length})`,
-      ownTable(data, s.prs, milestone)),
-    section("Review slots per repository", wipList(s.wip),
+    h("ul", { class: "stats", "aria-label": "Summary" },
+      stat(q.owes.length, isMe ? "reviews you owe" : "reviews owed", oldest, true),
+      stat(q.yourMove.length, `${your.toLowerCase()} PRs on ${isMe ? "your" : "their"} move`, authorStages, true),
+      stat(q.waiting.length, `${your.toLowerCase()} PRs waiting on others`, others, false),
+      stat(q.parked.length, `${your.toLowerCase()} parked PRs`, parkedStages, false)),
+    h("section", { class: "card", "aria-labelledby": "owes-h" },
+      h("h2", { id: "owes-h" }, `${isMe ? "Reviews you owe" : "Reviews owed"}${scope} (${q.owes.length})`),
+      rowList(q.owes, (o) => o.prData
+        ? prRow(data, o.prData, { milestone, part: [sr(isMe ? "Your part: " : "Their part: "), yourPart(o, person.login, isMe)] })
+        : h("li", { class: "row" }, String(o.pr)),
+      milestone ? `Nothing to review ${milestoneWords(milestone)}.` : "Nothing to review right now.", "Reviews owed")),
+    prs(q.yourMove, "mine-h", `${your} PRs on ${isMe ? "your" : "their"} move`, milestone ? `No open PRs on ${isMe ? "your" : "their"} move ${milestoneWords(milestone)}.` : `No open PRs on ${isMe ? "your" : "their"} move.`),
+    prs(q.waiting, "waiting-h", `${your} PRs waiting on others`, none),
+    prs(q.parked, "parked-h", `${your} parked PRs`, none),
+    section("Review slots per repository", wipList(q.wip),
       milestone ? h("p", { class: "sub" }, "Slots count every open PR on governed branches, whatever its milestone.") : null),
   ];
 }
 
 function areasList(person, isMe) {
   if (!person.areaList.length) return null;
-  return h("div", { class: "areas" },
-    h("h3", {}, isMe ? "Areas you own or review" : "Areas they own or review"),
+  // Folded: the list runs long, and it is reference rather than the queue.
+  const n = person.areaList.reduce((s, [, ids]) => s + ids.length, 0);
+  return h("details", { class: "areas" },
+    h("summary", {}, isMe ? "Areas you own or review" : "Areas they own or review",
+      h("span", { class: "muted" }, ` (${n} in ${person.areaList.length} ${person.areaList.length === 1 ? "repository" : "repositories"})`)),
     h("ul", {}, person.areaList.map(([repo, ids]) =>
       h("li", {}, h("strong", {}, `${shortRepo(repo)}:`), " ",
         ids.map((a, i) => [i ? ", " : "", areaName(a)])))));
@@ -167,43 +225,6 @@ function yourPart(o, login, isMe) {
   if (o.rereview) items.push(h("li", {}, `re-review or resolve ${isMe ? "your" : "their"} objection`));
   if (!items.length) items.push(h("li", { class: "muted" }, "listed as a reviewer; no open area"));
   return h("ul", { class: "part" }, items);
-}
-
-function owedTable(data, owes, login, isMe, milestone) {
-  const rows = [...owes].sort((a, b) => (b.prData?.ageMs ?? -1) - (a.prData?.ageMs ?? -1));
-  return sortableTable({
-    columns: [
-      { key: "pr", label: "PR", cell: (o) => o.prData ? prLink(o.prData) : String(o.pr) },
-      { key: "author", label: "Author", cell: (o) => o.prData ? personLink(o.prData.author, o.prData.isBot, { milestone }) : "—" },
-      { key: "part", label: isMe ? "Your part" : "Their part", cell: (o) => yourPart(o, login, isMe) },
-      { key: "wait", label: "Waiting", cell: (o) => o.prData ? timeCell(o.prData) : "—" },
-    ],
-    rows, empty: milestone ? `Nothing to review ${milestoneWords(milestone)}.` : "Nothing to review right now.",
-  });
-}
-
-function ownTable(data, prs, milestone) {
-  const rows = [...prs].sort((a, b) => data.stage[a.stage].order - data.stage[b.stage].order || (b.ageMs ?? -1) - (a.ageMs ?? -1));
-  return sortableTable({
-    columns: [
-      { key: "pr", label: "PR", cell: (p) => prLink(p) },
-      { key: "stage", label: "Stage", cell: (p) => stageChip(data, p.stage) },
-      { key: "time", label: "Time in stage", cell: (p) => timeCell(p) },
-      { key: "next", label: "Next action", cell: (p) => nextAndBlockers(p) },
-      { key: "flags", label: "Flags", cell: (p) => badges(p) },
-    ],
-    rows, empty: milestone ? `No open PRs ${milestoneWords(milestone)}.` : "No open PRs.",
-  });
-}
-
-function nextAndBlockers(p) {
-  const asks = asksList(p);
-  if (!p.next_action && !p.blockers.length && !asks) return h("span", { class: "muted" }, "—");
-  const rest = p.blockers.filter((b) => b !== p.next_action);
-  return h("div", { class: "next" },
-    p.next_action ? h("span", {}, String(p.next_action)) : null,
-    rest.length ? h("ul", { class: "blockers" }, rest.map((b) => h("li", {}, String(b)))) : null,
-    asks);
 }
 
 function wipList(wip) {
@@ -223,7 +244,7 @@ function wipList(wip) {
 // sites, so only a validated login is ever stored, nothing else. A stored
 // value that is not a login is removed; a login missing from today's data is
 // kept for when it returns, and not used meanwhile.
-function storedMe(data) {
+export function storedMe(data) {
   let v = null;
   try {
     v = localStorage.getItem(ME_KEY);

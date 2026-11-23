@@ -42,6 +42,7 @@ export function privacyView() {
     part("In your browser",
       h("p", {}, "Signing in sets two cookies that scripts on the page cannot read: one for the sign-in itself, kept 10 ",
         "minutes, and the session. Where there is no sign-in, Me can remember a login you pick, in this browser only. ",
+        "A theme you pick, and turning single-key shortcuts off, are also kept in this browser only. ",
         "Avatars load from GitHub with no referrer. There are no analytics."))),
   ];
 }

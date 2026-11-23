@@ -1,27 +1,64 @@
-// Team view: whose move it is, how long each PR has sat in its stage, every
-// open PR, and the ones to close or revive.
+// Team view: what you owe, whose move it is, how long each PR has sat in
+// its stage, every open PR, and the ones to close or revive. On a wide
+// screen the first two sit in a column beside the rest (style.css).
 
 import { h, svg, openPr } from "./dom.js";
 import {
-  DAY_MS, LATENESS, PARKED, formatDuration, formatHours, shortRepo, closeOrRevive, idleWords,
+  DAY_MS, LATENESS, PARKED, formatDuration, formatHours, shortRepo, closeOrRevive, idleWords, findPerson,
 } from "./model.js";
-import { buildHash, setFilters } from "./state.js";
+import { buildHash } from "./state.js";
 import { filterPrs } from "./filters.js";
-import {
-  prLink, personLink, stageChip, timeCell, badges, flagCount, section, sortableTable, lateMark, asksList,
-} from "./ui.js";
+import { flagCount, section, lateMark, avatar } from "./ui.js";
+import { queueOf } from "./people.js";
+import { prRow, rowList, sortControl, sorted } from "./rows.js";
 
-export function teamView(data, f) {
+/**
+ * `me` says who is reading, from account.js's knownMe: `{login}`, or
+ * `{how}` when that is not known ("out", "none", "checking").
+ */
+export function teamView(data, f, me) {
   const visible = filterPrs(data.prs, f);
   const forTiles = filterPrs(data.prs, f, { ignoreOwner: true });
   const empty = emptyText(data, f);
   return [
-    tiles(data, forTiles, f),
-    section("How long each PR has been in its stage", agingPlot(data, visible, empty)),
-    section(`Open PRs (${visible.length})`, prTable(data, visible, f, empty)),
-    reviveSection(data, visible, f),
+    h("div", { class: "team-side" }, youStrip(data, f, me), tiles(data, forTiles, f)),
+    h("div", { class: "team-main" },
+      section("How long each PR has been in its stage", agingPlot(data, visible, empty)),
+      prList(data, visible, f, empty),
+      reviveSection(data, visible, f)),
   ];
 }
+
+/**
+ * The reader's own queue, before the team's: reviews they owe, their PRs
+ * whose move is theirs, and their PRs waiting on someone else. It is the
+ * whole queue whatever the Team filters, except a milestone.
+ */
+function youStrip(data, f, me) {
+  const person = me && me.login ? findPerson(data, me.login) : null;
+  const meHref = buildHash("/me", { milestone: f.milestone });
+  if (!person) {
+    if (!me || me.how === "checking") return null;
+    const why = me.login ? `Nothing of ${me.login}'s is open in this data.`
+      : me.how === "out" ? ["Sign in on ", h("a", { href: meHref }, "Me"), " to see what you owe here first."]
+        : ["Pick who you are on ", h("a", { href: meHref }, "Me"), " to see what you owe here first."];
+    return h("p", { class: "you you-none" }, why);
+  }
+  const q = queueOf(data, person, f.milestone);
+  const stat = (n, label, sub, hot) => h("li", {},
+    h("a", { href: meHref, class: `you-stat${hot && n ? " hot" : ""}` },
+      h("span", { class: "you-n num" }, String(n)), h("span", { class: "you-label" }, label),
+      sub ? h("span", { class: "you-sub" }, sub) : null));
+  return h("section", { class: "card you", "aria-labelledby": "you-h" },
+    h("h2", { id: "you-h" }, avatar(person.login), h("span", {}, "Your move"), h("span", { class: "you-login" }, person.login)),
+    h("ul", { class: "you-stats" },
+      stat(q.owes.length, q.owes.length === 1 ? "review you owe" : "reviews you owe",
+        q.oldestMs !== null ? `oldest ${formatDuration(q.oldestMs)}${q.oldestOpened ? " since opened" : ""}` : null, true),
+      stat(q.yourMove.length, q.yourMove.length === 1 ? "of your PRs is on your move" : "of your PRs are on your move", null, true),
+      stat(q.waiting.length, "waiting on others", null, false)),
+    f.milestone ? null : h("p", { class: "sub" }, "Your whole queue, whatever the filters above."));
+}
+
 
 /** Why a filtered list is empty. "Late only" can only ever find stages that record their start. */
 function emptyText(data, f) {
@@ -68,8 +105,8 @@ function tiles(data, prs, f) {
   };
   const flow = data.owners.filter((o) => o.key !== PARKED);
   const parked = data.owners.find((o) => o.key === PARKED);
-  return h("section", { class: "card" },
-    h("h2", {}, "Whose move"),
+  return h("section", { class: "card moves", "aria-labelledby": "moves-h" },
+    h("h2", { id: "moves-h" }, "Whose move"),
     h("p", { class: "sub" }, `${scope} (`, toggle, "), by who has to act next. Select a tile to list only those."),
     h("ul", { class: "tiles" }, flow.map(tile)),
     parked ? [
@@ -108,8 +145,8 @@ function agingPlot(data, prs, emptyMessage) {
   const plotted = prs.filter((p) => p.ageMs !== null);
   const missing = prs.length - plotted.length;
   const note = h("figcaption", { class: "sub" },
-    "One dot per PR; further right has waited longer. Hover for the PR, click to open it on GitHub; the table below lists the same PRs.",
-    missing ? ` ${missing} PR${missing === 1 ? " has" : "s have"} no start time and ${missing === 1 ? "is" : "are"} only in the table.` : "");
+    "One dot per PR; further right has waited longer. Hover for the PR, click to open it on GitHub; the list below has the same PRs.",
+    missing ? ` ${missing} PR${missing === 1 ? " has" : "s have"} no start time and ${missing === 1 ? "is" : "are"} only in the list.` : "");
   const holder = h("div", { class: "plot-holder" });
   fig.append(agingLegend(data, plotted), holder, note);
   if (!plotted.length) {
@@ -117,7 +154,7 @@ function agingPlot(data, prs, emptyMessage) {
     return fig;
   }
   if (!globalThis.Plot) {
-    holder.append(h("p", { class: "empty" }, "The chart library did not load; the table below lists the same PRs."));
+    holder.append(h("p", { class: "empty" }, "The chart library did not load; the list below has the same PRs."));
     return fig;
   }
   // Reserve the chart's height up front so the page does not jump when it draws.
@@ -133,7 +170,7 @@ function agingPlot(data, prs, emptyMessage) {
       try {
         holder.replaceChildren(renderPlot(data, plotted, width));
       } catch (e) {
-        holder.replaceChildren(h("p", { class: "empty" }, `The chart could not be drawn (${e.message}); the table below lists the same PRs.`));
+        holder.replaceChildren(h("p", { class: "empty" }, `The chart could not be drawn (${e.message}); the list below has the same PRs.`));
       }
     }
   });
@@ -142,7 +179,7 @@ function agingPlot(data, prs, emptyMessage) {
 }
 
 function plotHeight(rows, narrow) {
-  return rows * (narrow ? 40 : 46) + 46;
+  return rows * (narrow ? 36 : 38) + 46;
 }
 
 // Plot's symbol names for each lateness, matching the marks in tables and the legend.
@@ -216,10 +253,10 @@ function renderPlot(data, prs, width) {
     const url = svgEl.value?.p?.url;
     if (url) openPr(url);
   });
-  // A picture to assistive technology; the table below is the keyboard and
+  // A picture to assistive technology; the list below is the keyboard and
   // screen-reader route to the same PRs.
   svgEl.setAttribute("role", "img");
-  svgEl.setAttribute("aria-label", `Time in stage for ${prs.length} PRs; the table below lists them.`);
+  svgEl.setAttribute("aria-label", `Time in stage for ${prs.length} PRs; the list below has them.`);
   return svgEl;
 }
 
@@ -242,53 +279,48 @@ function agingLegend(data, prs) {
     parked.length && anyFlow ? h("p", { class: "sub legend-rules" }, `Below the heavier line: parked work (${parked.join(", ")}).`) : null);
 }
 
-function prTable(data, prs, f, empty) {
-  const columns = [
-    { key: "repo", label: "Repo", className: "col-repo", sort: (p) => [p.repo, p.number ?? 0], cell: (p) => shortRepo(p.repo) },
-    { key: "pr", label: "PR", sort: (p) => [p.title], cell: (p) => prCell(p) },
-    { key: "author", label: "Author", sort: (p) => [p.author ?? ""], cell: (p) => personLink(p.author, p.isBot, { milestone: f.milestone }) },
-    { key: "stage", label: "Stage", sort: (p) => [data.stage[p.stage].order, -(p.ageMs ?? -1)], cell: (p) => stageChip(data, p.stage) },
-    {
-      // The default order: the review flow before parked work, late first, then longest.
-      key: "time", label: "Time in stage", firstDir: "desc", title: "In-flow PRs first, late first, then longest",
-      sort: (p) => [Number(p.inFlow), p.lateRank, p.ageMs ?? -1], cell: (p) => timeCell(p),
+// The live table's columns as sort keys, with the same names in the URL.
+function prSorts(data) {
+  return {
+    time: {
+      label: "Time in stage", firstDir: "desc", title: "In-flow PRs first, late first, then longest",
+      sort: (p) => [Number(p.inFlow), p.lateRank, p.ageMs ?? -1],
     },
-    { key: "next", label: "Next action", sort: (p) => [p.next_action ?? "~"], cell: (p) => nextCell(p) },
-    { key: "flags", label: "Flags", firstDir: "desc", sort: (p) => [flagCount(p), p.unresolved_comments], cell: (p) => badges(p) },
-  ];
-  return sortableTable({
-    id: "prs", columns, rows: prs, sort: f.sort || "time", dir: f.dir,
-    onSort: (key, dir) => setFilters("/", f, { sort: key, dir }),
-    empty, className: "pr-table",
-  });
+    repo: { label: "Repository", sort: (p) => [p.repo, p.number ?? 0] },
+    pr: { label: "Title", sort: (p) => [p.title] },
+    author: { label: "Author", sort: (p) => [p.author ?? ""] },
+    stage: { label: "Stage", sort: (p) => [data.stage[p.stage].order, -(p.ageMs ?? -1)] },
+    next: { label: "Next action", sort: (p) => [p.next_action ?? "~"] },
+    flags: { label: "Flags", firstDir: "desc", sort: (p) => [flagCount(p), p.unresolved_comments] },
+  };
 }
 
-function nextCell(p) {
-  const asks = asksList(p);
-  if (!p.next_action && !asks) return h("span", { class: "muted" }, "—");
-  return h("div", { class: "next" }, p.next_action ? h("span", {}, p.next_action) : null, asks);
+function prList(data, prs, f, empty) {
+  const sorts = prSorts(data);
+  return h("section", { class: "card list", "aria-labelledby": "prs-h" },
+    h("div", { class: "card-head" }, h("h2", { id: "prs-h" }, `Open PRs (${prs.length})`), sortControl("/", f, sorts, "time")),
+    prs.length ? rowsHead() : null,
+    rowList(sorted(prs, sorts, f, "time"), (p) => prRow(data, p, { milestone: f.milestone }), empty, "Open PRs"));
 }
 
-function prCell(p) {
-  return h("span", { class: "pr-cell" }, prLink(p, { withTitle: false }), h("span", { class: "pr-title" }, p.title),
-    p.tracked ? null : h("span", { class: "basis", title: "Known only from the review engine; the board's own filters left it out" }, "engine only"));
+function rowsHead() {
+  return h("div", { class: "rows-head", "aria-hidden": "true" },
+    h("span", {}, "In stage"), h("span", {}, "PR · author"), h("span", {}, "Title · next action"),
+    h("span", { class: "n" }, "Stage · flags"));
 }
 
 function reviveSection(data, prs, f) {
   const rows = closeOrRevive(prs);
   const idle = idleWords(data);
-  const table = sortableTable({
-    columns: [
-      { key: "pr", label: "PR", cell: (r) => prCell(r.pr) },
-      { key: "author", label: "Author", cell: (r) => personLink(r.pr.author, r.pr.isBot, { milestone: f.milestone }) },
-      { key: "stage", label: "Stage", cell: (r) => stageChip(data, r.pr.stage) },
-      { key: "updated", label: "Last update", numeric: true, cell: (r) => r.pr.updatedAgoMs === null ? "—" : `${formatDuration(r.pr.updatedAgoMs)} ago` },
-      { key: "why", label: "Why", cell: (r) => [r.idle ? idle : null, r.conflict ? "merge conflict" : null].filter(Boolean).join(" · ") },
-    ],
-    rows, empty: "Nothing idle or conflicting.",
-  });
   const period = data.idleDays ? `for ${data.idleDays} days or more` : "for the idle period";
-  return section(`Close or revive (${rows.length})`,
+  return h("section", { class: "card", "aria-labelledby": "revive-h" },
+    h("h2", { id: "revive-h" }, `Close or revive (${rows.length})`),
     h("p", { class: "sub" }, `Drafts and PRs off the governed branches that nobody has touched ${period}, and PRs with a merge conflict.`),
-    table);
+    rowList(rows, (r) => prRow(data, r.pr, {
+      milestone: f.milestone,
+      extra: [
+        h("strong", { class: "why" }, [r.idle ? idle : null, r.conflict ? "merge conflict" : null].filter(Boolean).join(" · ")),
+        r.pr.updatedAgoMs === null ? " · last update unknown" : ` · last update ${formatDuration(r.pr.updatedAgoMs)} ago`,
+      ],
+    }), "Nothing idle or conflicting.", "Close or revive"));
 }
