@@ -419,7 +419,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
   .parked-li { grid-column: 1 / -1; }
 
   .pr-head, .prow-head { display: none; }
-  .row { grid-template-columns: 7ch minmax(0, 1fr) auto; grid-template-areas: "age ref stage" "main main main" "author author flags"; padding: 4px 8px 4px 8px; border-bottom: 1px solid var(--line); }
+  .row { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "age ref stage" "main main main" "author author flags"; padding: 4px 8px 4px 8px; border-bottom: 1px solid var(--line); }
   .c-age { grid-area: age; }
   .c-ref { grid-area: ref; }
   .c-stage { grid-area: stage; }
