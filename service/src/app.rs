@@ -192,10 +192,16 @@ object-src 'none'; form-action 'none'; frame-ancestors 'none'; \
 require-trusted-types-for 'script'; trusted-types 'none'";
 
 /// The page's files from `dir`, with its security headers. Paths cannot
-/// leave `dir`.
+/// leave `dir`. Browsers revalidate every file on each load (a 304 when it
+/// is unchanged), so after a deploy none keeps the old page from a
+/// heuristic cache or mixes old and new modules.
 pub fn site(dir: PathBuf) -> Router {
     Router::new()
         .fallback_service(ServeDir::new(dir).append_index_html_on_directories(true))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache"),
+        ))
         .layer(SetResponseHeaderLayer::overriding(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(PAGE_CSP),
