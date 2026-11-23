@@ -151,6 +151,12 @@ export function sortableTable({ id, caption, columns, rows, sort, dir, onSort, e
       h("thead", { role: "rowgroup" }, head), h("tbody", { role: "rowgroup" }, body)));
 }
 
+/** Rows in the order `key` gives them, "asc" or "desc"; equal rows keep their order. */
+export function sortRows(rows, key, dir) {
+  const sign = dir === "desc" ? -1 : 1;
+  return [...rows].sort((a, b) => sign * compare(key(a), key(b)));
+}
+
 function cellClass(c, extra = "") {
   return [c.numeric ? "n" : "", c.className || "", extra].filter(Boolean).join(" ") || null;
 }

@@ -9,7 +9,7 @@
 
 import { h } from "./dom.js";
 import { LOGIN_RE, findPerson, personHref } from "./model.js";
-import { personView, loginSearch } from "./people.js";
+import { personView, loginSearch, storedMe } from "./people.js";
 import { avatar, section } from "./ui.js";
 import { readSpeed, speedBody } from "./speed.js";
 
@@ -31,6 +31,21 @@ let speed = { state: "unknown" };
 let notice = null;
 // Answers that arrive after a newer question was asked are dropped.
 let asked = 0;
+
+/**
+ * Who is reading, for Team's "your move": `{login}` when signed in, or where
+ * there is no sign-in, the login picked on Me; else `{how}` saying why not
+ * ("checking", "out", "none"). The first call asks the service, once.
+ */
+export function knownMe(data, rerender) {
+  if (account.state === "unknown") checkSession(rerender);
+  if (account.state === "in") return { login: account.me.login };
+  if (account.state === "none") {
+    const picked = storedMe(data).person;
+    return picked ? { login: picked.login } : { how: "none" };
+  }
+  return { how: account.state === "out" ? "out" : "checking" };
+}
 
 /** Forget the one-time notice when the reader moves to another view. */
 export function navigated() {
