@@ -78,10 +78,11 @@ as `PR_HYGIENE_OIDC_AUDIENCE`. Every run then calls
 - POSTs `dashboard.json` to `<url>/ingest` with `curl --fail-with-body`,
   refusing a URL that is not `https://`.
 
-Runs: every 15 minutes (analyze and post only) and every 6 hours or on
+Runs: every hour (analyze and post only) and every 6 hours or on
 dispatch (also commit to the `data` branch and deploy Pages). A dry run
 posts nothing. A post is never retried — a token posts once; the next run,
-at most 15 minutes later, carries newer data. On a quarter-hourly run a
+at most an hour later, carries newer data. Between runs, each PR Hygiene
+run pushes its fresh verdicts (`/ingest/verdicts`). On an hourly run a
 failed post is a warning (the service's staleness alert notices a lasting
 outage); on a full run it fails the job. The post job sends only the bytes
 whose SHA-256 the analyze job recorded: the token pin protects the token,
@@ -94,7 +95,7 @@ When a repository cannot be fetched the analyzer still writes the data
 and then exits non-zero. The data is posted anyway: the service keeps that
 repository's last good data and marks it stale, while the others stay
 current. A full run then turns red and does not commit or deploy Pages; a
-quarter-hourly run stays green with a warning. Runs that only lack an
+hourly run stays green with a warning. Runs that only lack an
 engine export are posted too, and those repositories show as stale.
 
 ### Deploys

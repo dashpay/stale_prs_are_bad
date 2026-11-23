@@ -6,10 +6,10 @@ on:
     # UTC): analyze, commit the report to `data`, deploy Pages, post to the
     # service. A dispatch is a full run too.
     - cron: "0 */6 * * *"
-    # Every quarter hour in between: analyze and post to the service,
-    # nothing else. Never at a full run's minute, so the two never analyze
-    # the same moment twice.
-    - cron: "15,30,45 * * * *"
+    # Every hour in between: analyze and post to the service, nothing else.
+    # Each PR Hygiene run already pushes its fresh verdicts to the service,
+    # so this pass only catches up what those pushes do not carry. Never at
+    # a full run's hour, so the two never analyze the same moment twice.
     - cron: "0 1-5,7-11,13-17,19-23 * * *"
   workflow_dispatch:
     inputs:
@@ -23,7 +23,7 @@ permissions:
 
 concurrency:
   # Full runs never overlap: two would race to push `data` and deploy
-  # Pages. Quarter-hourly runs queue among themselves, apart, so a newer one
+  # Pages. Hourly runs queue among themselves, apart, so a newer one
   # can never cancel a full run still waiting for its turn (a group keeps
   # only its latest pending run).
   group: pr-hygiene-${{ (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 */6 * * *') && 'full' || 'quick' }}
@@ -32,7 +32,7 @@ concurrency:
 jobs:
   analyze:
     name: Generate report
-    # A quarter-hourly run only feeds the service: until its URL is set there
+    # An hourly run only feeds the service: until its URL is set there
     # is nothing to do but spend the read App's rate limit.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 */6 * * *' || vars.PR_HYGIENE_SERVICE_URL != '' }}
     runs-on: ubuntu-latest
@@ -124,7 +124,7 @@ jobs:
 
       - name: Run analyzer
         if: ${{ !inputs.dry_run }}
-        # A quarter-hourly run does not turn red for a repository that could
+        # An hourly run does not turn red for a repository that could
         # not be fetched: its data is still posted, the service marks that
         # repository stale, and the full run still reports the failure.
         continue-on-error: ${{ github.event_name != 'workflow_dispatch' && github.event.schedule != '0 */6 * * *' }}
@@ -178,7 +178,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      # Full runs only: a quarter-hourly run would add a commit to `data`
+      # Full runs only: an hourly run would add a commit to `data`
       # for every change of a PR's age.
       - name: Commit changes
         if: ${{ !inputs.dry_run && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 */6 * * *') }}
@@ -247,7 +247,7 @@ jobs:
         id: deploy
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
 
-  # Every run, full or quarter-hourly. Dormant until the repository variable
+  # Every run, full or hourly. Dormant until the repository variable
   # PR_HYGIENE_SERVICE_URL names the service. The token is minted inside the
   # reusable workflow, the only code the service accepts tokens from.
   post:
@@ -261,7 +261,7 @@ jobs:
     with:
       service-url: ${{ vars.PR_HYGIENE_SERVICE_URL }}
       sha256: ${{ needs.analyze.outputs.sha256 }}
-      # A quarter-hourly post that fails (the service down for a deploy) is a
-      # warning, not a red run every 15 minutes; the service's staleness
+      # An hourly post that fails (the service down for a deploy) is a
+      # warning, not a red run every hour; the service's staleness
       # alert is what notices a lasting outage.
       tolerate-failure: ${{ github.event_name != 'workflow_dispatch' && github.event.schedule != '0 */6 * * *' }}
