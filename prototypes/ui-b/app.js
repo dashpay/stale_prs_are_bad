@@ -7,8 +7,9 @@ import { has } from "../../site/js/model.js";
 import { start } from "../shared/views.js";
 
 // Lateness keeps the live page's shapes: on time a circle, late a triangle,
-// very late a diamond; hollow when only the PR's age is known.
-const MARK = { ok: "●", late: "▲", "very-late": "◆", untimed: "•", opened: "○" };
+// very late a diamond; hollow when only the PR's age is known; a small
+// square for a stage that is never late.
+const MARK = { ok: "●", late: "▲", "very-late": "◆", untimed: "▪", opened: "○" };
 
 const SHORT = {
   draft: "DRAFT", bots: "BOTS", "self-review": "SELF", ci: "CI", queued: "QUEUE", review: "REVIEW",
@@ -27,8 +28,7 @@ start({
   warnGlyph: h("span", { class: "warn-glyph", "aria-hidden": "true" }, "!!"),
   avatars: false,
   moveCursor: true,
-  mark: (p) => glyph(p.since_basis !== "engine" ? "opened" : p.lateness || "untimed"),
-  lateGlyph: (kind) => glyph(kind),
+  mark: (kind) => glyph(kind),
   slotGlyph: (used) => (used ? "■" : "□"),
   stage: (data, key) => {
     const s = has(data.stage, key) ? data.stage[key] : data.stage.unknown;

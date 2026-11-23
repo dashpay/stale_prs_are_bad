@@ -14,7 +14,7 @@ import { avatar, asksList, areaName, personLink } from "../../site/js/ui.js";
 import { loginSearch } from "../../site/js/people.js";
 import { privacyView } from "../../site/js/privacy.js";
 import * as core from "./core.js";
-import { installKeys, openPalette, openHelp } from "./keys.js";
+import { installKeys, openPalette, openHelp, focusTarget } from "./keys.js";
 
 const THEME_KEY = "pr-hygiene:proto-theme";
 const ROLE_LABEL = { "author-bot": "opens PRs", "review-bot": "reviews PRs" };
@@ -24,6 +24,8 @@ export function start(skin) {
   let data = null;
   let me = null;
   let filtersOpen = false;
+  // A PR picked in the palette: its row opens once the board shows it.
+  let pendingExpand = null;
 
   // ---- theme: system, or a choice kept in this browser ----
   const themes = ["", "dark", "light"];
@@ -69,6 +71,12 @@ export function start(skin) {
     },
     items: () => core.paletteItems(data, {
       go: api.go, openPr, me,
+      showPr: (p) => {
+        pendingExpand = p.key;
+        const hash = buildHash("/", { q: p.key, who: "all" });
+        if (location.hash === hash) render();
+        else location.hash = hash;
+      },
       setRepo: (r) => {
         location.hash = buildHash("/", { repo: r });
       },
@@ -87,9 +95,32 @@ export function start(skin) {
   function age(p) {
     if (p.ageMs === null) return h("span", { class: "age age-none" }, "—", sr("no start time"));
     const kind = ageKind(p);
+    // The words ride with the mark, as on the live page; "on time" stays in
+    // the legend and for screen readers, so the actionable words stand out.
     const word = kind === "opened" ? "since opened" : has(LATENESS, kind) ? LATENESS[kind].label : "";
-    return h("span", { class: `age age-${kind}` }, skin.mark(p), h("span", { class: "num" }, formatDuration(p.ageMs)),
-      word ? sr(`, ${word}`) : null);
+    const shown = kind === "ok" ? null : word;
+    return h("span", { class: `age age-${kind}` }, skin.mark(kind), h("span", { class: "num" }, formatDuration(p.ageMs)),
+      shown ? h("span", { class: "lw" }, shown) : word ? sr(`, ${word}`) : null);
+  }
+
+  /** The marks and each timed stage's thresholds, in the live chart legend's words. */
+  function legend(prs) {
+    const keys = [["ok", "on time"], ["late", "late"], ["very-late", "very late"]];
+    if (prs.some((p) => ageKind(p) === "untimed")) keys.push(["untimed", "never late in this stage"]);
+    keys.push(["opened", "since opened; stage start not recorded yet"]);
+    const rules = data.stages
+      .filter((s) => s.entryRecorded && s.lateHours)
+      .map((s) => `${s.label} late after ${formatHours(s.lateHours[0])}, very late after ${formatHours(s.lateHours[1])}`);
+    return h("div", { class: "legend" },
+      h("ul", { "aria-label": "Legend" }, keys.map(([k, t]) => h("li", {}, skin.mark(k), t))),
+      rules.length ? h("p", { class: "caption" }, `${rules.join(" · ")}. Only these stages record when a PR entered them.`) : null);
+  }
+
+  /** What the row's second line says: the next action, then who the PR waits on, in the engine's words. */
+  function waitsText(p) {
+    const asks = p.asks.map((a) => `${areaLabel(a.area)}: ${a.approvers.length ? a.approvers.join(" or ") : "nobody may approve"}`);
+    if (p.objectors.length) asks.push(`re-review or resolve: ${p.objectors.join(", ")}`);
+    return [p.next_action, asks.length ? `waits on ${asks.join("; ")}` : null].filter(Boolean).join(" — ");
   }
 
   function timeText(p) {
@@ -122,13 +153,14 @@ export function start(skin) {
   }
 
   function prRow(p, f, { part = null } = {}) {
-    const li = h("li", { class: `row prrow age-${ageKind(p)}`, "data-row": "", "data-key": p.key, tabindex: "-1" });
+    const li = h("li", { class: `row prrow age-${ageKind(p)}`, "data-row": "", "data-key": p.key });
     li.append(
       h("span", { class: "c-age" }, age(p)),
       h("span", { class: "c-ref" }, prRef(p)),
       h("span", { class: "c-main" },
         h("button", { type: "button", class: "title", "aria-expanded": "false", on: { click: () => toggleDetail(li) } }, p.title || "(no title)"),
-        part ? h("span", { class: "sub part" }, part) : p.next_action ? h("span", { class: "sub next" }, p.next_action) : null),
+        part ? h("span", { class: "sub part", title: part }, part)
+          : waitsText(p) ? h("span", { class: "sub next", title: waitsText(p) }, waitsText(p)) : null),
       h("span", { class: "c-stage" }, skin.stage(data, p.stage)),
       h("span", { class: "c-author" }, personLink(p.author, p.isBot, { withAvatar: skin.avatars, milestone: f.milestone })),
       h("span", { class: "c-flags" }, flags(p)));
@@ -224,12 +256,13 @@ export function start(skin) {
     return h("header", { class: "top" },
       h("a", { class: "brand", href: "#/" }, skin.brand),
       nav,
-      h("button", { type: "button", class: "jump", on: { click: () => openPalette(api) } },
+      h("button", { type: "button", class: "jump", id: "jump", "aria-label": "Jump to (⌘K)", on: { click: () => openPalette(api) } },
         h("span", { class: "jump-text" }, skin.jumpLabel), h("kbd", {}, "⌘K")),
-      h("span", { class: "asof", title: "When this data was taken, and the analyzer's commit" },
+      h("span", { class: "asof", title: "When this data was taken (UTC), and the analyzer's commit" },
         core.isStale(data) ? h("span", { class: "stale" }, "stale · ") : null,
-        `${time} UTC`, commit ? ` · ${commit}` : ""),
-      h("button", { type: "button", class: "icon-btn", title: `Theme: ${themeName}`, "aria-label": `Theme: ${themeName}; select to change`, on: { click: cycleTheme } },
+        h("span", { class: "asof-date" }, `${time.slice(0, 10)} `), `${time.slice(11)}Z`,
+        commit ? h("span", { class: "asof-commit" }, ` · ${commit}`) : null),
+      h("button", { type: "button", class: "icon-btn", id: "theme", title: `Theme: ${themeName}`, "aria-label": `Theme: ${themeName}; select to change`, on: { click: cycleTheme } },
         skin.themeGlyph(themeName)),
       h("button", { type: "button", class: "icon-btn", "aria-label": "Keyboard shortcuts", title: "Keyboard shortcuts (?)", on: { click: openHelp } }, "?"));
   }
@@ -306,15 +339,15 @@ export function start(skin) {
         h("span", { class: "move-label" }, m.label),
         h("span", { class: "move-n" }, String(m.n)),
         m.late
-          ? h("span", { class: `move-late ${m.veryLate ? "vl" : "l"}` }, skin.lateGlyph(m.veryLate ? "very-late" : "late"),
-            h("span", { "aria-hidden": "true" }, String(m.late)), sr(` ${m.late} late${m.veryLate ? `, ${m.veryLate} very late` : ""}`))
+          ? h("span", { class: `move-late ${m.veryLate ? "vl" : "l"}` }, skin.mark(m.veryLate ? "very-late" : "late"),
+            `${m.late} late`, m.veryLate ? h("span", { class: "move-vl" }, ` · ${m.veryLate} very late`) : null)
           : h("span", { class: "move-late none" }),
         h("span", { class: "move-parts" }, parts)));
     };
     return h("section", { class: "moves-wrap", "aria-labelledby": "moves-h" },
-      h("div", { class: "panel-head" }, h("h2", { id: "moves-h" }, "Whose move"),
-        h("p", { class: "caption" }, scope, " · ", toggle)),
-      h("ul", { class: "moves" }, list.map(item)));
+      h("div", { class: "panel-head" }, h("h2", { id: "moves-h" }, "Whose move")),
+      h("ul", { class: "moves" }, list.map(item)),
+      h("p", { class: "caption moves-caption" }, scope, " · ", toggle));
   }
 
   function team(f) {
@@ -327,6 +360,7 @@ export function start(skin) {
       youStrip(f),
       moves(f),
       panel("prs-h", "Open PRs", visible.length, sortControl("/", f, core.PR_SORTS, "time"),
+        legend(visible),
         skin.listHead ? skin.listHead() : null,
         rows(sorted, (p) => prRow(p, f), emptyText(f))),
       fold("revive-h", "Close or revive", revive.length,
@@ -366,7 +400,7 @@ export function start(skin) {
 
   function personRow(r, maxPrs, bots, f) {
     const href = personHref(r.person.login, f.milestone);
-    const li = h("li", { class: "row prow", "data-row": "", "data-href": href, "data-key": r.person.login, tabindex: "-1" },
+    const li = h("li", { class: "row prow", "data-row": "", "data-href": href, "data-key": r.person.login },
       h("span", { class: "c-who" }, personLink(r.person.login, r.person.isBot, { withAvatar: true, milestone: f.milestone }),
         bots && r.person.roles.length ? h("span", { class: "sub" }, roles(r.person)) : null),
       h("span", { class: "c-owed" }, sr("Reviews owed: "),
@@ -484,7 +518,7 @@ export function start(skin) {
       const note = h("p", { class: "me-note" },
         fromParam ? "Shown for ?user= in the address. " : "Kept in this browser only. ",
         h("button", {
-          type: "button", class: "linkish",
+          type: "button", class: "linkish", id: "me-change",
           on: {
             click: () => {
               core.forgetMe();
@@ -541,9 +575,23 @@ export function start(skin) {
     ].filter(Boolean));
 
     let el = focusId ? document.getElementById(focusId) : null;
-    if (!el && rowKey) el = [...document.querySelectorAll("main [data-row]")].find((r) => r.dataset.key === rowKey) || null;
+    let reveal = false;
+    if (!el && rowKey) {
+      const row = [...document.querySelectorAll("main [data-row]")].find((r) => r.dataset.key === rowKey);
+      el = row ? focusTarget(row) : null;
+    }
+    if (pendingExpand) {
+      const row = [...document.querySelectorAll("main [data-row]")].find((r) => r.dataset.key === pendingExpand);
+      pendingExpand = null;
+      if (row) {
+        toggleDetail(row);
+        el = focusTarget(row);
+        reveal = true;
+      }
+    }
     if (el) {
       el.focus({ preventScroll: true });
+      if (reveal) el.scrollIntoView({ block: "center" });
       if (caret && typeof el.setSelectionRange === "function") {
         try {
           el.setSelectionRange(caret[0], caret[1]);

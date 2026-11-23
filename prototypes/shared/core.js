@@ -197,7 +197,7 @@ export function forgetMe() {
 }
 
 /** Every jump target for the command palette: views, people, repositories and PRs. */
-export function paletteItems(data, { go, openPr, setRepo, me }) {
+export function paletteItems(data, { go, showPr, setRepo, me }) {
   const items = [
     { kind: "view", label: "Team", hint: "whose move, every open PR", run: () => go("#/") },
     { kind: "view", label: "People", hint: "who owes what", run: () => go("#/people") },
@@ -211,7 +211,7 @@ export function paletteItems(data, { go, openPr, setRepo, me }) {
   for (const r of data.repoSet) items.push({ kind: "repo", label: shortRepo(r), hint: "filter Team to this repository", run: () => setRepo(r) });
   for (const p of data.prs) {
     if (!p.url) continue;
-    items.push({ kind: "pr", label: `${shortRepo(p.repo)}#${p.number}`, hint: p.title, run: () => openPr(p.url) });
+    items.push({ kind: "pr", label: `${shortRepo(p.repo)}#${p.number}`, hint: p.title, run: () => showPr(p) });
   }
   return items;
 }
@@ -231,7 +231,14 @@ export function matchPalette(items, q, limit = 40) {
     if (words.every((w) => label.includes(w))) onLabel.push(it);
     else if (words.every((w) => hay.includes(w))) elsewhere.push(it);
   }
-  return [...onLabel, ...elsewhere].slice(0, limit);
+  // Among label matches, words that start a part of the label come first:
+  // "49" puts platform#4934 before platform#3549.
+  const starts = (it) => {
+    const parts = `${it.label} ${it.kind}`.toLowerCase().split(/[#\s/]+/);
+    return words.filter((w) => parts.some((p) => p.startsWith(w))).length;
+  };
+  const ranked = onLabel.map((it, i) => [it, starts(it), i]).sort((a, b) => b[1] - a[1] || a[2] - b[2]).map(([it]) => it);
+  return [...ranked, ...elsewhere].slice(0, limit);
 }
 
 /** "a", "b": a short visually-hidden text for assistive technology. */

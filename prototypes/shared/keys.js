@@ -3,8 +3,25 @@
 //   Enter    expand the row    o        open the PR on GitHub
 //   ⌘K, ^K   jump anywhere     g t/p/m  Team, People, Me
 //   l        late only         ?        this list        Esc   close, clear
-// A row is any element with [data-row] in the page; moving to it focuses it,
-// so a screen reader reads the row as it is reached.
+// A row is any element with [data-row] in the page; moving to it focuses
+// its title button (or a person's name link), so a screen reader announces
+// the row and whether it is expanded, and Enter works natively. The
+// single-key shortcuts can be switched off in the help dialog.
+
+const SINGLE_KEYS = "pr-hygiene:proto-single-keys";
+
+function singleKeysOn() {
+  try {
+    return localStorage.getItem(SINGLE_KEYS) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+/** What j/k focus inside a row. */
+export function focusTarget(row) {
+  return row.querySelector("button.title, .c-who a") || row;
+}
 
 import { h } from "../../site/js/dom.js";
 import { matchPalette } from "./core.js";
@@ -38,7 +55,7 @@ export function installKeys(api) {
     if (!rows.length) return;
     const at = rows.indexOf(document.activeElement.closest?.("[data-row]"));
     const next = at < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, at + delta));
-    rows[next].focus({ preventScroll: true });
+    focusTarget(rows[next]).focus({ preventScroll: true });
     rows[next].scrollIntoView({ block: "nearest" });
   };
 
@@ -52,9 +69,11 @@ export function installKeys(api) {
     const t = e.target;
     if (typing(t)) {
       if (e.key === "Escape" && t.type === "search") {
-        t.blur();
+        // Leave the search, keeping what was typed (a search field clears itself on Esc).
+        e.preventDefault();
         const first = api.rows()[0];
-        if (first) first.focus();
+        if (first) focusTarget(first).focus();
+        else t.blur();
       } else if (e.key === "ArrowDown" && t.type === "search") {
         e.preventDefault();
         move(1);
@@ -62,6 +81,12 @@ export function installKeys(api) {
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "?") {
+      e.preventDefault();
+      openHelp();
+      return;
+    }
+    if (!singleKeysOn()) return;
     if (pending === "g") {
       pending = null;
       clearTimeout(pendingTimer);
@@ -93,12 +118,6 @@ export function installKeys(api) {
         e.preventDefault();
         move(-1);
         break;
-      case "Enter": case " ":
-        if (row && e.target === row) {
-          e.preventDefault();
-          api.toggle(row);
-        }
-        break;
       case "o":
         if (row) api.open(row);
         break;
@@ -109,16 +128,14 @@ export function installKeys(api) {
         pending = "g";
         pendingTimer = setTimeout(() => { pending = null; }, 1200);
         break;
-      case "?":
-        e.preventDefault();
-        openHelp();
-        break;
       default:
     }
   });
 }
 
 function modal(cls, label, ...children) {
+  // One dialog at a time: a new one replaces any that is open.
+  for (const open of document.querySelectorAll("dialog[open]")) open.close();
   const d = h("dialog", { class: cls, "aria-label": label }, children);
   // A click on the backdrop closes it.
   d.addEventListener("click", (e) => {
@@ -131,10 +148,19 @@ function modal(cls, label, ...children) {
 }
 
 export function openHelp() {
+  const toggle = h("input", { type: "checkbox", id: "single-keys", checked: singleKeysOn() });
+  toggle.addEventListener("change", () => {
+    try {
+      localStorage.setItem(SINGLE_KEYS, toggle.checked ? "on" : "off");
+    } catch {
+      // Storage blocked: the choice is not kept.
+    }
+  });
   const d = modal("help", "Keyboard shortcuts",
     h("h2", {}, "Keyboard"),
     h("dl", {}, SHORTCUTS.map(([k, v]) => [h("dt", {}, k.split("  ").map((x) => h("kbd", {}, x))), h("dd", {}, v)])),
-    h("p", { class: "help-foot" }, "Esc to close"));
+    h("p", { class: "help-opt" }, toggle, h("label", { for: "single-keys" }, " Single-key shortcuts (j k o l g /); ⌘K and ? always work")),
+    h("p", { class: "help-foot" }, h("button", { type: "button", class: "dlg-close", on: { click: () => d.close() } }, "Close"), " or Esc"));
   d.querySelector("h2").setAttribute("tabindex", "-1");
   d.querySelector("h2").focus();
 }
@@ -149,6 +175,7 @@ export function openPalette(api) {
     role: "combobox", "aria-expanded": "true", "aria-controls": "pal-list", "aria-autocomplete": "list", "aria-label": "Jump to",
   });
   const list = h("ul", { class: "pal-list", id: "pal-list", role: "listbox", "aria-label": "Matches" });
+  const empty = h("p", { class: "pal-empty", role: "status" }, "Nothing matches.");
   let shown = [];
   let at = 0;
   const paint = () => {
@@ -160,7 +187,7 @@ export function openPalette(api) {
     }, h("span", { class: `pal-kind pal-kind-${it.kind}` }, KIND[it.kind] || it.kind),
     h("span", { class: "pal-label" }, it.label),
     h("span", { class: "pal-hint" }, it.hint))));
-    if (!shown.length) list.append(h("li", { class: "pal-empty" }, "Nothing matches."));
+    empty.hidden = shown.length > 0;
     mark();
   };
   const mark = () => {
@@ -172,7 +199,7 @@ export function openPalette(api) {
       input.removeAttribute("aria-activedescendant");
     }
   };
-  const d = modal("pal", "Jump to", input, list,
+  const d = modal("pal", "Jump to", input, list, empty,
     h("p", { class: "pal-foot" }, h("kbd", {}, "↑↓"), " move ", h("kbd", {}, "Enter"), " go ", h("kbd", {}, "Esc"), " close"));
   const run = (i) => {
     const it = shown[i];
