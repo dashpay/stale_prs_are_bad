@@ -26,12 +26,13 @@ const SHORTCUTS = [
   ["?", "This list"],
 ];
 
-function singleKeysOn() {
-  try {
-    return localStorage.getItem(SINGLE_KEYS) !== "off";
-  } catch {
-    return true;
-  }
+// Whether single-key shortcuts are on: read from storage once, then kept
+// here, so turning them off works even where storage refuses writes.
+let singleKeys = true;
+try {
+  singleKeys = localStorage.getItem(SINGLE_KEYS) !== "off";
+} catch {
+  singleKeys = true;
 }
 
 /** What j and k focus inside a row; the row itself when it has no control. */
@@ -91,7 +92,7 @@ export function installKeys(api) {
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (!singleKeysOn()) return;
+    if (!singleKeys) return;
     if (e.key === "?") {
       e.preventDefault();
       openHelp();
@@ -161,12 +162,13 @@ function closeButton(get) {
 }
 
 export function openHelp() {
-  const toggle = h("input", { type: "checkbox", id: "single-keys", checked: singleKeysOn() });
+  const toggle = h("input", { type: "checkbox", id: "single-keys", checked: singleKeys });
   toggle.addEventListener("change", () => {
+    singleKeys = toggle.checked;
     try {
-      localStorage.setItem(SINGLE_KEYS, toggle.checked ? "on" : "off");
+      localStorage.setItem(SINGLE_KEYS, singleKeys ? "on" : "off");
     } catch {
-      // Storage blocked: the choice is not kept.
+      // Storage blocked: the choice lasts until the page reloads.
     }
   });
   const heading = h("h2", { tabindex: "-1" }, "Keyboard shortcuts");
@@ -259,6 +261,8 @@ export function openPalette(api) {
     paint();
   });
   input.addEventListener("keydown", (e) => {
+    // Enter or an arrow that confirms or moves within an IME composition is not ours.
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       at = Math.min(shown.length - 1, at + 1);
