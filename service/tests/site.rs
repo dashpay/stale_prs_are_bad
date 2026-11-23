@@ -61,3 +61,28 @@ async fn the_page_is_served_with_its_security_headers_and_nothing_outside_it() {
     }
     std::fs::remove_file(outside).unwrap();
 }
+
+// After a deploy, a browser must not keep running the old page from its
+// heuristic cache, nor mix old and new modules: every file of the page is
+// revalidated on each load, and comes back 304 when it has not changed.
+#[tokio::test]
+async fn the_pages_files_are_revalidated_on_every_load() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("index.html"),
+        "<!doctype html><title>PR Hygiene</title>",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("app.js"), "export {};").unwrap();
+    let site = pr_hygiene_service::app::site(dir.path().to_path_buf());
+
+    for path in ["/", "/app.js"] {
+        let res = site
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{path}");
+        assert_eq!(res.headers()[header::CACHE_CONTROL], "no-cache", "{path}");
+    }
+}
