@@ -63,6 +63,15 @@ BUILD_FAILED = {"FAILURE", "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED", "E
 BUILD_PASSED = {"SUCCESS", "SKIPPED", "NEUTRAL", "EXPECTED"}
 BUILD_NO_VERDICT = {"CANCELLED", "STALE"}
 CALLER_WORKFLOW = "/pr-review-policy.yml"
+# Review bots that post their verdict on a pull request as a check. They are
+# verdicts on the review, not on the code, and the engine already weighs the
+# bots' reviews themselves, so counting them as the build would let a review
+# the engine has set aside hold the pull request as a failed build. Matched by
+# exact name, and for check runs only outside an Actions workflow, which is
+# where these bots file them. A bot that renames its check simply counts as
+# a build again, so the gate never loosens by surprise.
+REVIEW_CHECKS = {"PastaClaw review", "Manki"}
+REVIEW_STATUSES = {"CodeRabbit"}
 
 
 def _ours(node):
@@ -100,12 +109,14 @@ def build_verdict(nodes):
             if _ours(node):
                 continue
             suite = ((node.get("checkSuite") or {}).get("workflowRun") or {}).get("workflow") or {}
+            if node.get("name") in REVIEW_CHECKS and not suite.get("resourcePath"):
+                continue
             # Keyed by workflow as well as name, so a job called `build` in two
             # workflows cannot stand in for the other.
             key = ("check", suite.get("resourcePath") or "", _text(node["name"], "check name"))
             when, state = node.get("startedAt") or "", node.get("conclusion") or node.get("status")
         else:
-            if node.get("context") == "PR Hygiene":
+            if node.get("context") == "PR Hygiene" or node.get("context") in REVIEW_STATUSES:
                 continue
             key = ("status", "", _text(node["context"], "status context"))
             when, state = node.get("createdAt") or "", node.get("state")

@@ -19,6 +19,13 @@ def check(name, conclusion, started, workflow="/dashpay/x/actions/workflows/ci.y
 OURS = "/dashpay/x/actions/workflows/pr-review-policy.yml"
 
 
+def bot_check(name, conclusion, started="2026-09-01T10:00:00Z"):
+    """A check run an app files through the Checks API: no workflow behind it."""
+    return {"__typename": "CheckRun", "name": name, "conclusion": conclusion, "status": "COMPLETED",
+            "startedAt": started, "detailsUrl": "https://example.test/review",
+            "checkSuite": {"workflowRun": None}}
+
+
 def rollup(nodes=None, head="a" * 40, total=None, more=False, cursor=None):
     return {"data": {"repository": {"pullRequest": {"commits": {"nodes": [{"commit": {
         "oid": head,
@@ -425,6 +432,55 @@ class BuildVerdictTests(unittest.TestCase):
         with patch.object(api, "pages", return_value=[]):
             with patch.object(api, "request", side_effect=GitHubError("403")):
                 self.assertIsNone(api.permission("someone"))
+
+    def test_a_review_bot_failing_its_own_check_is_not_a_failed_build(self):
+        # A review bot posts its verdict on the pull request as a check run.
+        # The engine weighs the bot's review itself, so a dismissed review no
+        # longer blocks; read as part of the build, the same verdict held the
+        # pull request at "the build must pass" with every build check green.
+        nodes = [check("Test Suite", "SUCCESS", "2026-09-01T10:00:00Z"),
+                 check("Clippy", "SUCCESS", "2026-09-01T10:00:00Z"),
+                 bot_check("PastaClaw review", "FAILURE")]
+        self.assertEqual(build_verdict(nodes), "green")
+
+    def test_manki_failing_its_review_check_is_not_a_failed_build(self):
+        nodes = [check("Test Suite", "SUCCESS", "2026-09-01T10:00:00Z"),
+                 bot_check("Manki", "FAILURE")]
+        self.assertEqual(build_verdict(nodes), "green")
+
+    def test_a_review_bot_still_running_its_check_does_not_hold_the_build(self):
+        nodes = [check("Test Suite", "SUCCESS", "2026-09-01T10:00:00Z"),
+                 dict(bot_check("PastaClaw review", None), status="IN_PROGRESS")]
+        self.assertEqual(build_verdict(nodes), "green")
+
+    def test_coderabbit_failing_its_review_status_is_not_a_failed_build(self):
+        nodes = [check("Test Suite", "SUCCESS", "2026-09-01T10:00:00Z"),
+                 {"__typename": "StatusContext", "context": "CodeRabbit", "state": "FAILURE",
+                  "createdAt": "2026-09-01T10:00:00Z"}]
+        self.assertEqual(build_verdict(nodes), "green")
+
+    def test_a_failing_check_from_any_other_app_is_still_a_failed_build(self):
+        # Only the review bots' verdicts are set aside. Coverage is a check on
+        # the code, and a check nobody listed is a build until someone says not.
+        for node in [{"__typename": "StatusContext", "context": "codecov/patch", "state": "FAILURE",
+                      "createdAt": "2026-09-01T10:00:00Z"},
+                     bot_check("codecov/patch", "FAILURE"),
+                     bot_check("Coverage", "FAILURE"),
+                     dict(bot_check("Coverage", "FAILURE"), checkSuite=None)]:
+            nodes = [check("Test Suite", "SUCCESS", "2026-09-01T10:00:00Z"), node]
+            self.assertEqual(build_verdict(nodes), "failed", node)
+
+    def test_a_workflow_job_named_like_a_review_bot_is_still_a_build(self):
+        # The bots file their verdicts outside any workflow. A job in a
+        # repository's own workflow is the repository's build, whatever it
+        # happens to be called.
+        for name in ["PastaClaw review", "Manki"]:
+            self.assertEqual(build_verdict([check(name, "FAILURE", "2026-09-01T10:00:00Z")]), "failed", name)
+
+    def test_a_check_run_named_coderabbit_is_still_a_build(self):
+        # The status context is CodeRabbit's verdict; a check run of that name
+        # is not, and is read like every other check.
+        self.assertEqual(build_verdict([check("CodeRabbit", "FAILURE", "2026-09-01T10:00:00Z")]), "failed")
 
     def test_the_same_job_name_in_two_workflows_does_not_mask_the_other(self):
         self.assertEqual(build_verdict([
