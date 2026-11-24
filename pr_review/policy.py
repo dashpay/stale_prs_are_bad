@@ -745,8 +745,12 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             return stop('draft', 'Draft PR does not occupy a review slot')
         if admitted_at:
             _time(admitted_at)
+        # The snapshot is complete, so an empty list is GitHub saying this pull
+        # request changes nothing against its base — its changes landed some
+        # other way. Nobody has anything to review; only the author can close
+        # it or push something to it.
         if not pr['files']:
-            return stop('configuration-error', 'No changed-file evidence', status='error')
+            return stop('waiting-author', 'No changes against the base branch: close this pull request or push changes')
         touched, files_by_area = {}, {}
         for file in pr['files']:
             # In a fixed order, not a set's: the order areas are first touched

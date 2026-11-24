@@ -420,7 +420,7 @@ def status_description(result):
     line = move_line(result)
     if line is None:
         return token
-    if token == 'waiting-self-review' and _items(result)['self_review']['bot_author']:
+    if token == 'waiting-self-review' and _items(result).get('self_review', {}).get('bot_author'):
         return token
     for unsafe, plain in STATUS_FOLD:
         line = line.replace(unsafe, plain)
@@ -601,7 +601,8 @@ def move_text(result):
     line = move_line(result)
     if line is None:
         return None
-    return f"{MOVE_MARKER} state={MOVE_STATES[result['state']]} sha={result['head']} -->\n{line}\nFull checklist in the description."
+    pointer = '\nFull checklist in the description.' if result.get('checklist') else ''
+    return f"{MOVE_MARKER} state={MOVE_STATES[result['state']]} sha={result['head']} -->\n{line}{pointer}"
 
 
 def move_line(result):
@@ -627,8 +628,10 @@ def move_line(result):
         # it is, is the bots line of the checklist — an objection to answer
         # can sit beside an open bot finding, and used to decide the wording.
         reasons = [b for b in result.get('blockers') or [] if not b.startswith('Proceeded without')]
-        address = items['self_review']['address']
-        if items['bots']['done']:
+        # A pull request with nothing to review has no checklist, and its
+        # reasons are the whole of the move.
+        address = items['self_review']['address'] if items else []
+        if items and items['bots']['done']:
             what = f"address {'; '.join(address)}, then post `/self-reviewed`" if address else 'post `/self-reviewed`'
             line = f'Bots are done — your move: {what}.'
         else:
