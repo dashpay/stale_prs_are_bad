@@ -48,6 +48,22 @@ def fixture():
 
 
 class PolicyTests(unittest.TestCase):
+    def test_a_pull_request_with_no_changed_files_is_the_authors_move_not_a_configuration_error(self):
+        # dash-evo-tool#1230 and #1231: their changes had already landed on
+        # the base another way, so GitHub listed nothing against it, and a red
+        # error asked a maintainer to fix a configuration that was fine.
+        p, pr = fixture()
+        pr['files'] = []
+        result = evaluate(p, pr, NOW, NOW)
+        self.assertEqual((result['state'], result['status']), ('waiting-author', 'pending'))
+        self.assertEqual(result['blockers'],
+                         ['No changes against the base branch: close this pull request or push changes'])
+        self.assertEqual((result['approvals'], result['reviewers'], result['areas']), ([], [], []))
+        # A list that could not be read completely still fails closed.
+        pr['complete'] = False
+        self.assertEqual((evaluate(p, pr, NOW, NOW)['state'], evaluate(p, pr, NOW, NOW)['status']),
+                         ('configuration-error', 'error'))
+
     def test_claudbot_findings_are_bot_blockers_regardless_of_permission(self):
         for login in ('claudbot[bot]', 'CLAUDBOT[BOT]'):
             for permission in (None, 'read'):

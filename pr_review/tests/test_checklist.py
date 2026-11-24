@@ -1313,12 +1313,29 @@ class RecordTests(unittest.TestCase):
         self.assertFalse(any('Evaluating' in c.args[2] for c in api.post_status.call_args_list))
 
     def test_a_configuration_error_writes_no_block_and_no_announcement(self):
-        pr = dict(self.pr, files=[])
+        pr = dict(self.pr, complete=False)
         result = evaluate(self.policy, pr, NOW, LATER)
         self.assertEqual(result['state'], 'configuration-error')
         api = self.publish(pr, result)
         api.set_checklist.assert_not_called()
         api.upsert_state.assert_not_called()
+
+
+    def test_a_pull_request_with_no_changed_files_is_told_to_close_or_push(self):
+        # Nothing to review: no checklist, and an earlier one is taken away;
+        # the move comment and the status say what the author can do.
+        pr = dict(self.pr, files=[], body='text\n\n' + main.checklist_block(evaluate(self.policy, self.pr, NOW, LATER)))
+        result = evaluate(self.policy, pr, NOW, LATER)
+        line = 'Your move: No changes against the base branch: close this pull request or push changes.'
+        self.assertEqual(main.move_line(result), line)
+        self.assertEqual(main.status_description(result), f'waiting-self-review: {line}')
+        self.assertIsNone(main.checklist_block(result))
+        api = self.publish(pr, result)
+        api.remove_checklist.assert_called_once()
+        api.set_checklist.assert_not_called()
+        self.assertIn(line, api.upsert_state.call_args.args[2])
+        self.assertNotIn('Full checklist', main.move_text(result), 'there is no checklist to point at')
+        self.assertEqual(api.post_status.call_args.args[1:], ('pending', f'waiting-self-review: {line}'))
 
 
 class SecondReviewTests(unittest.TestCase):
