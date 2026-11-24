@@ -26,6 +26,8 @@ STATE_PATTERN = re.compile(r"<!-- platform-pr-review-state-v1 (\{[^\r\n]*\}) -->
 # own is simply not read by an engine that does not know it.
 DIFF_MARKER = "<!-- pr-hygiene-diff-v1"
 DIFF_PATTERN = re.compile(r"<!-- pr-hygiene-diff-v1 (\{[^\r\n]*\}) -->")
+# The most areas a diff record keeps.
+AREAS_KEPT = 32
 BOT_LOGINS = {"coderabbitai[bot]", "coderabbitai", "thepastaclaw"} | ENGINE_LOGINS
 # The editor of a comment read from the REST listing, which names none. Not
 # None, which says nobody edited it, and nothing a login can spell, so no
@@ -206,7 +208,7 @@ def _validate_diff(diff):
     # request loses what the controller remembered about it the moment one
     # repository runs a newer engine than another.
     if not isinstance(diff, dict) or "number" not in diff or set(diff) - {
-            "number", "diff", "diff_heads", "diff_seen", "receipts"}:
+            "number", "diff", "diff_heads", "diff_seen", "receipts", "areas"}:
         raise GitHubError("Unknown or incomplete controller diff schema")
     if type(diff["number"]) is not int or diff["number"] < 1:
         raise GitHubError("Invalid controller diff PR number")
@@ -219,6 +221,18 @@ def _validate_diff(diff):
     if (not isinstance(heads, list) or not 1 <= len(heads) <= 20
             or any(not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{40}", h) for h in heads)):
         raise GitHubError("Invalid controller diff heads")
+    # Each area's print and the commits carrying it, shaped like the whole
+    # diff's own. Bounded, so the comment carrying it stays well inside what
+    # GitHub accepts.
+    areas = diff.get("areas", {})
+    if (not isinstance(areas, dict) or len(areas) > AREAS_KEPT
+            or any(not isinstance(k, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", k)
+                   or not isinstance(v, dict) or set(v) != {"print", "heads"}
+                   or not isinstance(v["print"], str) or not re.fullmatch(r"[0-9a-f]{64}", v["print"])
+                   or not isinstance(v["heads"], list) or not 1 <= len(v["heads"]) <= 20
+                   or any(not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{40}", h) for h in v["heads"])
+                   for k, v in areas.items())):
+        raise GitHubError("Invalid controller area record")
     # What each producer said, and when it first said it: a print of its own
     # words against the moment they were first read.
     said = diff.get("receipts", {})

@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 
 from . import push, telemetry
-from .github import (DIFF_MARKER, STATE_MARKER, STATE_PATTERN, GitHub, GitHubError, current_checklist,
+from .github import (AREAS_KEPT, DIFF_MARKER, STATE_MARKER, STATE_PATTERN, GitHub, GitHubError, current_checklist,
                      parse_controller_diff, parse_controller_state)
 from .policy import (CHECKLIST_END, CHECKLIST_START, LABEL_FOR_STATE, MOVE_MARKER, NUDGE_MARKER, RETIRED_LABELS,
                      STATE_LABELS, THREAD_LEFT_OPEN, admit, codeowners, diff_print, effective_admission, evaluate,
@@ -368,13 +368,21 @@ def diff_record(pr, result):
         return None
     print_now = diff_print(pr)
     said = {k: v for k, v in list((result.get('receipts') or {}).items())[-8:]}
-    if not print_now and not said:
+    # A verdict that stopped before any area was read keeps what the record
+    # held. Past the cap the areas are not written at all, and every area is
+    # carried by the whole diff alone, as before they were kept.
+    areas = (result['reviewed_areas'] if 'reviewed_areas' in result
+             else (pr.get('controller_diff') or {}).get('areas')) or {}
+    areas = areas if len(areas) <= AREAS_KEPT else {}
+    if not print_now and not said and not areas:
         return None
     record = {'number': result['number'], 'receipts': said}
     if print_now:
         record.update(diff=print_now,
                       diff_heads=(result.get('reviewed_heads') or [pr['head']])[-20:],
                       diff_seen=result.get('reviewed_since') or pr.get('head_seen_at'))
+    if areas:
+        record['areas'] = areas
     return record
 
 

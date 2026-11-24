@@ -1840,5 +1840,124 @@ class BotFindingTests(unittest.TestCase):
         self.assertEqual(finding_severities('reviewer', PASTA_SUGGESTION), [])
 
 
+
+def area_file(path, content, **changes):
+    """A changed file as the snapshot reads it: what it holds and the patch that made it."""
+    return dict(dict(filename=path, status='modified', content=content * 40, shape=content * 64), **changes)
+
+
+class AreaApprovalTests(unittest.TestCase):
+    """platform#5951: a push that changed one area's files took every area's approval with it."""
+
+    def setUp(self):
+        self.policy = dict(version=1, repository='dashpay/platform', max_active_prs=5,
+                           target_branches=['v4.2-dev'], fallback={'owners': ['fallback'], 'reviewers': []},
+                           areas=[dict(id=x, paths=[f'packages/{x}/'], owners=[f'own{x}'], reviewers=[])
+                                  for x in ('a', 'b', 'c')])
+        self.before = [area_file('packages/a/x.rs', '1'), area_file('packages/b/y.rs', '2'),
+                       area_file('packages/c/z.rs', '3'), area_file('packages/b/w.rs', '5')]
+
+    def pr(self, files, record=True):
+        """On a new head, with each area approved on the head before it, and the record that head left."""
+        _, pr = fixture()
+        old = dict(pr, head=OLD_HEAD, files=self.before, controller_diff=None)
+        previous = evaluate(self.policy, old, NOW, NOW)
+        from pr_review import main
+        pr.update(author='author', files=files, head_seen_at='2026-09-11T13:00:00Z',
+                  controller_diff=main.diff_record(old, previous) if record else None,
+                  permissions={f'own{x}': 'write' for x in 'abc'} | {'author': 'write'})
+        pr['reviews'] += [dict(id=10 + n, user=f'own{x}', state='APPROVED', commit_id=OLD_HEAD,
+                               submitted_at='2026-09-11T10:30:00Z', body='') for n, x in enumerate('abc')]
+        return pr
+
+    def approved(self, pr):
+        result = evaluate(self.policy, pr, NOW, NOW)
+        areas = next(i for i in result['checklist'] if i['item'] == 'approvals')['areas']
+        return {area['area']: bool(area['approved_by']) for area in areas}
+
+    def test_a_push_that_changes_only_one_areas_files_keeps_the_other_areas_approvals(self):
+        pr = self.pr([area_file('packages/a/x.rs', '9')] + self.before[1:])
+        self.assertEqual(self.approved(pr), {'a': False, 'b': True, 'c': True})
+
+    def test_a_change_in_an_areas_own_files_resets_it(self):
+        for files in ([self.before[0], area_file('packages/b/y.rs', '9'), *self.before[2:]],
+                      # The same content reached by another patch: a conflict
+                      # resolved on the author's side.
+                      [self.before[0], area_file('packages/b/y.rs', '2', shape='9' * 64), *self.before[2:]],
+                      self.before[:1] + self.before[2:],
+                      self.before + [area_file('packages/b/new.rs', '4', status='added')]):
+            with self.subTest(files=[f['filename'] for f in files]):
+                self.assertEqual(self.approved(self.pr(files)), {'a': True, 'b': False, 'c': True})
+
+    def test_a_file_moving_into_or_out_of_an_area_resets_both(self):
+        moved = [area_file('packages/b/x.rs', '1', status='renamed', previous_filename='packages/a/x.rs')]
+        self.assertEqual(self.approved(self.pr(moved + self.before[1:])), {'a': False, 'b': False, 'c': True})
+
+    def test_an_area_whose_files_cannot_be_printed_is_carried_by_the_whole_diff_alone(self):
+        unreadable = [self.before[0], dict(self.before[1], shape=None), area_file('packages/c/z.rs', '9'),
+                      self.before[3]]
+        self.assertEqual(self.approved(self.pr(unreadable)), {'a': True, 'b': False, 'c': False})
+
+    def test_an_old_record_without_areas_carries_only_the_whole_diff(self):
+        pr = self.pr([area_file('packages/a/x.rs', '9')] + self.before[1:])
+        pr['controller_diff'].pop('areas')
+        self.assertEqual(self.approved(pr), {'a': False, 'b': False, 'c': False})
+        pr = self.pr(self.before)
+        pr['controller_diff'].pop('areas')
+        self.assertEqual(self.approved(pr), {'a': True, 'b': True, 'c': True}, 'an unchanged diff carries all')
+
+    def test_a_verdict_that_stops_before_the_areas_keeps_them(self):
+        # Marked draft and back: the draft verdict stops before any area is
+        # read, and forgetting them there took every area's approval with it.
+        from pr_review import main
+        pr = self.pr(self.before)
+        draft = dict(pr, draft=True)
+        record = main.diff_record(draft, evaluate(self.policy, draft, NOW, NOW))
+        self.assertEqual(record['areas'], pr['controller_diff']['areas'])
+        changed = dict(pr, files=[area_file('packages/a/x.rs', '9')] + self.before[1:], controller_diff=record)
+        self.assertEqual(self.approved(changed), {'a': False, 'b': True, 'c': True})
+
+    def test_the_bots_and_the_self_review_still_start_over_on_any_change(self):
+        pr = self.pr([area_file('packages/a/x.rs', '9')] + self.before[1:])
+        for review in pr['reviews'][:2]:
+            review['commit_id'] = OLD_HEAD
+            review['body'] = review['body'].replace(HEAD, OLD_HEAD)
+        pr['comments'] = [dict(id=3, user='author', body=f'/self-reviewed {OLD_HEAD}',
+                               created_at='2026-09-11T11:00:00Z', updated_at='2026-09-11T11:00:00Z')]
+        result = evaluate(self.policy, pr, NOW, NOW)
+        self.assertEqual(result['reviewed_heads'], [HEAD])
+        self.assertEqual(result['state'], 'waiting-bots')
+        self.assertFalse(next(i for i in result['checklist'] if i['item'] == 'self_review')['done'])
+
+    def test_the_carried_area_is_written_down_and_read_back(self):
+        from pr_review import main
+        from pr_review.github import GitHub, GitHubError, parse_controller_diff
+        pr = self.pr([area_file('packages/a/x.rs', '9')] + self.before[1:])
+        record = main.diff_record(pr, evaluate(self.policy, pr, NOW, NOW))
+        self.assertEqual(record['areas']['a']['heads'], [HEAD])
+        self.assertEqual(record['areas']['b']['heads'], [OLD_HEAD, HEAD])
+        again = dict(pr, controller_diff=record)
+        self.assertEqual(main.diff_record(again, evaluate(self.policy, again, NOW, NOW)), record,
+                         'the next run on the same head rewrites nothing')
+        state = {'version': 1, 'number': 1, 'head': HEAD, 'admitted_at': None, 'ready_since': None,
+                 'state': 'ready-for-human', 'evidence': 'c' * 64, 'context': 'd' * 64}
+        comment = dict(id=1, user='github-actions[bot]', created_at=NOW, updated_at=NOW,
+                       body=GitHub.state_comment_body(state, 'text', record))
+        self.assertEqual(parse_controller_diff([comment], 1), record)
+        # Malformed, it is refused like any other malformed record: the pull
+        # request starts over rather than carrying something unreadable.
+        for areas in ({'b': {'print': 'x', 'heads': [HEAD]}}, {'b': {'print': 'a' * 64, 'heads': []}},
+                      {'b': {'print': 'a' * 64, 'heads': [HEAD] * 21}}, {'b': {'print': 'a' * 64}},
+                      {'b': {'print': 'a' * 64, 'heads': [HEAD], 'extra': 1}}, {'B!': {'print': 'a' * 64, 'heads': [HEAD]}},
+                      [], {f'a{n}': {'print': 'a' * 64, 'heads': [HEAD]} for n in range(33)}):
+            with self.subTest(areas=str(areas)[:60]):
+                with self.assertRaises(GitHubError):
+                    GitHub.state_comment_body(state, 'text', dict(record, areas=areas))
+                forged = dict(comment, body=comment['body'].replace(
+                    json.dumps(record['areas'], separators=(',', ':'), sort_keys=True),
+                    json.dumps(areas, separators=(',', ':'), sort_keys=True)))
+                self.assertIsNone(parse_controller_diff([forged], 1))
+
+
 if __name__ == '__main__':
     unittest.main()

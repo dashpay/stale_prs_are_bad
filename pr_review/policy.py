@@ -212,7 +212,10 @@ def diff_print(pr):
     reviewer saw, and only the patch shows that it now also undoes what the
     base did.
     """
-    files = pr.get('files') or []
+    return _print(pr.get('files') or [])
+
+
+def _print(files):
     if any(not f.get('content') or not f.get('shape') for f in files):
         return None      # a read that cannot say what changed says nothing
     items = sorted((f['filename'], f.get('status') or '', f['content'], f['shape'],
@@ -239,6 +242,30 @@ def carried_heads(pr):
     # The moment the first of them was seen: an attestation written then was
     # written about this same diff.
     return kept, record.get('diff_seen') or pr.get('head_seen_at')
+
+
+def carried_areas(pr, files_by_area, whole):
+    """Per area, its files' print and the commits whose approval of it still applies, newest last.
+
+    An approval is of an area's files. A push that leaves those files exactly
+    as the reviewer read them — whatever it did elsewhere — leaves nothing in
+    that area to read again, so its approval stands; one that changes them —
+    a file edited, added, removed, or moved into or out of it — starts that
+    area over. Whatever carries the whole diff carries each area in it, so a
+    record that kept no areas, or an area whose files cannot be printed, is
+    carried by the whole diff and nothing more.
+    """
+    kept = (pr.get('controller_diff') or {}).get('areas') or {}
+    result = {}
+    for area, files in files_by_area.items():
+        print_now = _print(files)
+        if not print_now:
+            continue
+        before = kept.get(area) or {}
+        carried = (before.get('heads') or []) if before.get('print') == print_now else []
+        heads = [h for h in dict.fromkeys(carried + whole) if isinstance(h, str) and h != pr['head']]
+        result[area] = {'print': print_now, 'heads': heads[-19:] + [pr['head']]}
+    return result
 
 
 def fingerprint(pr):
@@ -751,7 +778,7 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
         # it or push something to it.
         if not pr['files']:
             return stop('waiting-author', 'No changes against the base branch: close this pull request or push changes')
-        touched, files_by_area = {}, {}
+        touched, files_by_area, entries_by_area = {}, {}, {}
         for file in pr['files']:
             # In a fixed order, not a set's: the order areas are first touched
             # in is the order every surface lists them, and a wording that
@@ -764,7 +791,16 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
                 area = area or dict(policy['fallback'], id='fallback')
                 touched[area['id']] = area
                 files_by_area.setdefault(area['id'], set()).add(path)
+                # A file moved across areas belongs to both: it left one and
+                # arrived in the other, and each has to be read again.
+                entries = entries_by_area.setdefault(area['id'], [])
+                if not entries or entries[-1] is not file:
+                    entries.append(file)
         result['areas'] = sorted(touched)
+        # Recorded before anything below can stop the verdict, like the
+        # whole diff's commits above; a verdict that stopped earlier keeps
+        # what the record held.
+        result['reviewed_areas'] = carried_areas(pr, entries_by_area, result['reviewed_heads'])
         permissions = {k.lower(): v for k,v in pr['permissions'].items()}
         people = {x.lower(): x for a in touched.values() for x in a['owners'] + a['reviewers']}
         for area in touched.values():
@@ -1036,9 +1072,13 @@ def evaluate(policy, pr, admitted_at, nowISO, telemetry_states=None):
             # nothing may still approve — assigning the reviewer is how half
             # of these are handed out, and that is two people, not one.
             eligible = ({x.lower() for x in area['owners'] + area['reviewers']} - {author}) - attested_by
+            # An approval is of the area's own files, so it stands while they
+            # do, whatever else the pull request changed since.
+            carried = result['reviewed_areas'].get(area['id'])
+            covered = {h.lower() for h in carried['heads']} if carried else heads
             approved_by = sorted(people[u] for u in eligible
                                  if u in latest and latest[u]['state'].upper() == 'APPROVED'
-                                 and (latest[u]['commit_id'] or '').lower() in heads)
+                                 and (latest[u]['commit_id'] or '').lower() in covered)
             # Recorded either way: an approval that already covers an area is
             # as much of the answer as the one still missing, and the author
             # seeing "romchornyi approved swift-sdk" beside "nobody has
